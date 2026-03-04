@@ -277,7 +277,6 @@ fn apply_aws_region_fallback_from_warehouse(warehouse_extras: &serde_json::Value
 fn resolve_athena_settings(cfg: &react::config::ReactResolvedConfig) -> AthenaSettings {
     let extras = &cfg.providers.warehouse.extras;
     let workgroup = getenv_nonempty("ATHENA_WORKGROUP")
-        .or_else(|| getenv_nonempty("DATA_OUTPUT_ATHENA_WORKGROUP_NAME"))
         .or_else(|| {
             extras
                 .get("workgroup")
@@ -287,10 +286,6 @@ fn resolve_athena_settings(cfg: &react::config::ReactResolvedConfig) -> AthenaSe
 
     let result_output_location = getenv_nonempty("ATHENA_RESULT_S3")
         .or_else(|| {
-            getenv_nonempty("DATA_OUTPUT_ATHENA_RESULTS_S3_BUCKET")
-                .map(|b| format!("s3://{}/", b.trim_end_matches('/')))
-        })
-        .or_else(|| {
             extras
                 .get("result_s3")
                 .and_then(|v| v.as_str())
@@ -298,12 +293,10 @@ fn resolve_athena_settings(cfg: &react::config::ReactResolvedConfig) -> AthenaSe
         });
 
     let default_catalog = getenv_nonempty("ATHENA_TARGET_CATALOG")
-        .or_else(|| getenv_nonempty("ATHENA_CATALOG"))
         .or_else(|| Some(cfg.providers.warehouse.container.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_else(|| "AwsDataCatalog".to_string());
 
     let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA")
-        .or_else(|| getenv_nonempty("ATHENA_SOURCE_DATABASE"))
         .or_else(|| Some(cfg.providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()));
 
     let max_concurrency = env_usize("ATHENA_MAX_CONCURRENCY")
@@ -665,7 +658,7 @@ async fn main() {
                 }
             }
 
-            let (storage, keyspace, suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
+            let (storage, keyspace, _suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
                 let root = cfg
                     .storage
                     .path
@@ -980,7 +973,7 @@ async fn main() {
                 }
             }
 
-            let (storage, keyspace, suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
+            let (storage, keyspace, _suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
                 let root = cfg
                     .storage
                     .path

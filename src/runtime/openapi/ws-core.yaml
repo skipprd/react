@@ -449,8 +449,6 @@ components:
           type: string
           description: Plain-text concise answer.
 
-    # Temporary catch-all while suites are migrated to typed finals.
-    # This should shrink over time as each suite adds explicit payload schemas.
     GenericFinalResult:
       type: object
       additionalProperties: false
@@ -467,7 +465,7 @@ components:
       properties:
         text:
           type: string
-          description: Human-readable final text for non-Ask suites during migration.
+          description: Human-readable final text for non-Ask suites.
 
     ReviewResponse:
       type: object
@@ -618,7 +616,7 @@ components:
 
     ReviewDecision:
       type: string
-      enum: [proceed, patch_plan, patch_impl]
+      enum: [proceed, patch_impl]
 
     ReviewTier:
       type: string
@@ -965,7 +963,7 @@ components:
 
     PlanChecklistOrigin:
       type: string
-      enum: [initial, review_actionable]
+      enum: [initial]
 
     PlanChecklistEvidence:
       type: object
@@ -999,10 +997,6 @@ components:
           $ref: '#/components/schemas/PlanChecklistItemStatus'
         origin:
           $ref: '#/components/schemas/PlanChecklistOrigin'
-        originStepIdx:
-          type: integer
-          nullable: true
-          description: Thread step index that introduced this requirement (null for initial items).
         evidence:
           type: array
           items:
@@ -1056,8 +1050,6 @@ components:
           type: object
           nullable: true
           additionalProperties: true
-
-    # Legacy plan diff/change schemas removed (hard cutover to thread_state + plans).
 
     AwaitUserResponse:
       type: object

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub mod builder;
@@ -80,7 +80,7 @@ impl CatalogProvider for DefaultCatalogProvider {
         dataset_id: &str,
         catalog: &DataCatalog,
     ) -> Result<(), String> {
-        // Match legacy behavior: YAML -> serde_yaml::Value -> JSON written.
+        // Canonical path: YAML -> serde_yaml::Value -> JSON written.
         let canonical = Self::canonical_dataset_id(dataset_id)?;
         let key = self.keyspace.catalog_key(scope, &canonical);
         let yaml = serde_yaml::to_string(catalog).map_err(|e| e.to_string())?;
@@ -125,7 +125,7 @@ impl CatalogProvider for DefaultCatalogProvider {
         &self,
         scope: &crate::providers::RequestScope,
         query: &dyn crate::providers::dataset_catalog_provider::DatasetCatalogProvider,
-        dataset_ids: &HashMap<String, crate::discover::Metadata>,
+        dataset_ids: &HashSet<String>,
         progress: Option<&crate::helpers::progress::ProgressUi>,
     ) -> Result<(), String> {
         let thread = crate::llm::thread_ctx::current_thread_id().map(|tid| {
@@ -152,7 +152,7 @@ impl CatalogProvider for DefaultCatalogProvider {
     async fn run_llm_enrichment_all(
         &self,
         scope: &crate::providers::RequestScope,
-        dataset_ids: &HashMap<String, crate::discover::Metadata>,
+        dataset_ids: &HashSet<String>,
     ) -> Result<react_core::providers::catalog::CatalogEnrichmentReport, String> {
         let mut report = enrich::run_llm_enrichment_all(
             self.storage.clone(),

@@ -278,7 +278,7 @@ mod tests {
             Some(Phase::ModelReview),
             Phase::ModelPlan,
             TransitionIntent::Loopback,
-            Some(PhaseReasonCode::ReviewPatchPlan),
+            Some(PhaseReasonCode::ReviewPatchImpl),
             None,
         )
         .await
@@ -650,10 +650,6 @@ mod tests {
         assert!(
             src.contains("effective_review_tier"),
             "phase_review should use phase-aware review tier normalization"
-        );
-        assert!(
-            src.contains("patch_plan_target_phase"),
-            "phase_review should route patch-plan through centralized helper"
         );
         assert!(
             src.contains("patch_impl_target_phase"),

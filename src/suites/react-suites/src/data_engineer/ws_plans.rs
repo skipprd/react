@@ -36,7 +36,6 @@ fn map_checklist_status(s: de_plan::ChecklistItemStatus) -> &'static str {
 fn map_checklist_origin(s: de_plan::ChecklistOrigin) -> &'static str {
     match s {
         de_plan::ChecklistOrigin::Initial => "initial",
-        de_plan::ChecklistOrigin::ReviewActionable => "review_actionable",
     }
 }
 
@@ -88,7 +87,6 @@ fn checklist_item_to_value(it: de_plan::PlanChecklistItem) -> Value {
         "details": it.details,
         "status": map_checklist_status(it.status),
         "origin": map_checklist_origin(it.origin),
-        "originStepIdx": it.origin_step_idx.map(|x| x as i32),
         "evidence": evidence,
     })
 }

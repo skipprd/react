@@ -12,8 +12,6 @@ use serde_json::Value;
 pub enum ReviewDecision {
     /// No action required; proceed forward in the deterministic pipeline.
     Proceed,
-    /// The plan/spec is wrong or ambiguous; return to planning.
-    PatchPlan,
     /// The implementation deviates from the approved plan/spec; return to authoring.
     PatchImpl,
 }
@@ -83,7 +81,6 @@ pub enum PhaseReasonCode {
 
     // Review decisions
     ReviewProceed,
-    ReviewPatchPlan,
     ReviewPatchImpl,
 
     // Review snapshot markers (non-transition, same-phase annotations)
@@ -125,7 +122,6 @@ impl PhaseReasonCode {
             PhaseReasonCode::ValidatePassToAuthoring => "validate_pass_to_authoring",
             PhaseReasonCode::ValidateFail => "validate_fail",
             PhaseReasonCode::ReviewProceed => "review_proceed",
-            PhaseReasonCode::ReviewPatchPlan => "review_patch_plan",
             PhaseReasonCode::ReviewPatchImpl => "review_patch_impl",
             PhaseReasonCode::ReviewProjectSummary => "review_project_summary",
             PhaseReasonCode::ReviewBatch => "review_batch",

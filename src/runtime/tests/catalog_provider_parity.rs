@@ -157,16 +157,12 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
             .expect("seed catalog");
     }
 
-    let mut ids: std::collections::HashMap<String, react_core::discover::Metadata> =
-        std::collections::HashMap::new();
-    ids.insert(
+    let ids: std::collections::HashSet<String> = [
         "AwsDataCatalog.db.orders".to_string(),
-        react_core::discover::Metadata::default(),
-    );
-    ids.insert(
         "AwsDataCatalog.db.customers".to_string(),
-        react_core::discover::Metadata::default(),
-    );
+    ]
+    .into_iter()
+    .collect();
 
     react::providers::catalog::enrich::run_llm_global_context_enrichment_all(
         storage.clone(),

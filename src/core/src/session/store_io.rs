@@ -342,10 +342,6 @@ impl ThreadStore {
         let mut out: Vec<String> = Vec::new();
         if let Ok(keys) = self.storage.list_prefix(&prefix).await {
             for k in keys {
-                // Backward-compat defensive filter: return only thread logs.
-                if k.ends_with(".state.json") {
-                    continue;
-                }
                 if let Some(name) = k
                     .strip_prefix(&prefix)
                     .and_then(|s| s.strip_suffix(".json"))

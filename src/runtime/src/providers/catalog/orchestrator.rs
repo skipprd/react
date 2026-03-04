@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use futures_util::stream::{self, StreamExt};
 use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
@@ -12,7 +12,7 @@ pub struct Orchestrator;
 impl Orchestrator {
     pub async fn build_all_with_progress(
         query: &dyn crate::providers::dataset_catalog_provider::DatasetCatalogProvider,
-        dataset_ids: &HashMap<String, crate::discover::Metadata>,
+        dataset_ids: &HashSet<String>,
         progress: Option<&crate::helpers::progress::ProgressUi>,
         thread: Option<(ThreadStore, String)>,
     ) -> Result<Vec<(String, super::types::DataCatalog)>, String> {
@@ -125,22 +125,21 @@ impl Orchestrator {
         if dataset_ids.is_empty() {
             info!("ORCHESTRATOR: building catalogs from provider dataset discovery (all datasets)");
         } else {
-            let requested: HashSet<String> = dataset_ids.keys().cloned().collect();
             let mut found: HashSet<String> = HashSet::new();
             let mut filtered: Vec<crate::providers::dataset_catalog_provider::DatasetId> =
                 Vec::new();
             for ds in datasets.into_iter() {
                 let fqn = ds.fqn();
-                if requested.contains(&fqn) {
+                if dataset_ids.contains(&fqn) {
                     found.insert(fqn);
                     filtered.push(ds);
                 }
             }
-            let mut missing: Vec<String> = requested.difference(&found).cloned().collect();
+            let mut missing: Vec<String> = dataset_ids.difference(&found).cloned().collect();
             missing.sort();
             info!(
                 "ORCHESTRATOR: building catalogs from provided dataset_ids requested={} matched={} missing={}",
-                requested.len(),
+                dataset_ids.len(),
                 filtered.len(),
                 missing.len()
             );
@@ -484,6 +483,4 @@ impl Orchestrator {
         .await;
         Ok(to_write)
     }
-
-    // legacy wrapper removed
 }

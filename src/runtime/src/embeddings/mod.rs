@@ -1,5 +1,3 @@
-use crate::adapters::storage::StorageAdapter;
-use crate::providers::VectorStore;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -406,5 +404,3 @@ fn percent_decode(s: &str) -> String {
     }
     out
 }
-
-// NOTE: Removed sync_all_pipelines legacy entrypoint; call `sync_pipeline(...)` with explicit providers.

@@ -1,7 +1,7 @@
 use react_core::agent::AgentCtx;
 
 use crate::data_engineer::plan;
-use crate::data_engineer::plan_types::{CleansePlan, ModelPlan, PlanStatus};
+use crate::data_engineer::plan_types::{CleansePlan, ModelPlan, PlanStatus, TrackPlan};
 use crate::data_engineer::track_spec::{TrackKind, TrackSpec};
 
 #[derive(Clone)]
@@ -10,44 +10,36 @@ pub(super) enum TrackPlanDoc {
     Model(ModelPlan),
 }
 
-impl TrackPlanDoc {
-    pub(super) fn status(&self) -> PlanStatus {
+impl TrackPlan for TrackPlanDoc {
+    fn plan_key(&self) -> &str {
         match self {
-            Self::Cleanse(plan) => plan.status,
-            Self::Model(plan) => plan.status,
+            Self::Cleanse(p) => p.plan_key(),
+            Self::Model(p) => p.plan_key(),
         }
     }
-
-    pub(super) fn set_status(&mut self, status: PlanStatus) {
+    fn status(&self) -> PlanStatus {
         match self {
-            Self::Cleanse(plan) => plan.status = status,
-            Self::Model(plan) => plan.status = status,
+            Self::Cleanse(p) => p.status(),
+            Self::Model(p) => p.status(),
         }
     }
-
-    pub(super) fn plan_key(&self) -> &str {
+    fn set_status(&mut self, status: PlanStatus) {
         match self {
-            Self::Cleanse(plan) => &plan.plan_key,
-            Self::Model(plan) => &plan.plan_key,
+            Self::Cleanse(p) => p.set_status(status),
+            Self::Model(p) => p.set_status(status),
         }
     }
-
-    pub(super) fn tasks_len(&self) -> usize {
+    fn tasks_len(&self) -> usize {
         match self {
-            Self::Cleanse(plan) => plan.tasks.len(),
-            Self::Model(plan) => plan.tasks.len(),
+            Self::Cleanse(p) => p.tasks_len(),
+            Self::Model(p) => p.tasks_len(),
         }
     }
-
-    pub(super) fn batches_len(&self) -> usize {
+    fn batches_len(&self) -> usize {
         match self {
-            Self::Cleanse(plan) => plan.batches.len(),
-            Self::Model(plan) => plan.batches.len(),
+            Self::Cleanse(p) => p.batches_len(),
+            Self::Model(p) => p.batches_len(),
         }
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.tasks_len() == 0 || self.batches_len() == 0
     }
 }
 
@@ -57,13 +49,6 @@ pub(super) async fn load_active_plan_for_spec<S: TrackSpec>(
     match S::KIND {
         TrackKind::Cleanse => plan::load_cleanse_plan(actx).await.map(TrackPlanDoc::Cleanse),
         TrackKind::Model => plan::load_model_plan(actx).await.map(TrackPlanDoc::Model),
-    }
-}
-
-pub(super) async fn load_any_plan_for_spec<S: TrackSpec>(actx: &AgentCtx) -> Option<TrackPlanDoc> {
-    match S::KIND {
-        TrackKind::Cleanse => plan::load_cleanse_plan_any(actx).await.map(TrackPlanDoc::Cleanse),
-        TrackKind::Model => plan::load_model_plan_any(actx).await.map(TrackPlanDoc::Model),
     }
 }
 

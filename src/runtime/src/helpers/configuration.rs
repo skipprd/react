@@ -132,7 +132,7 @@ impl Config {
     }
 
     pub fn get_pipeline_name() -> String {
-        // Legacy naming: "pipeline" is the project scope in ReAct.
+        // "pipeline" maps to the project scope.
         let project_id = Self::get_project_id();
         if project_id != "default" {
             return project_id;

@@ -1,6 +1,6 @@
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use react_core::keyspace::Keyspace;

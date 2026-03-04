@@ -252,8 +252,8 @@ async fn transition_to_track_validate_with_plan_key(
     .await
 }
 
-async fn track_completion_snapshot_all_done(actx: &AgentCtx, is_cleanse: bool) -> bool {
-    if is_cleanse {
+async fn track_completion_snapshot_all_done(actx: &AgentCtx, track: TrackKind) -> bool {
+    if track.is_cleanse() {
         crate::data_engineer::plan::load_cleanse_plan(actx)
             .await
             .map(|p| {
@@ -469,7 +469,7 @@ let mut actx = AgentCtx {
 
 // Plan-driven batching: load the approved plan, update progress from the thread log,
 // and compute the exact next batch to execute (max 5).
-let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
+let (plan_context, plan_state): (String, PlanState) =
     if is_cleanse {
         let mut plan = match crate::data_engineer::plan::load_cleanse_plan_any(
             &actx,
@@ -602,7 +602,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 true,
                 false,
             );
-            (ctx, None)
+            (ctx, PlanState::Unconstrained)
         } else if hard_mutation_repair_mode {
             // Schema/precheck failures: prefer schema batch tools when schema checklist work remains.
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
@@ -632,7 +632,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                     expected_paths.join("\n- "),
                 );
                 ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
-                (ctx, None)
+                (ctx, PlanState::Unconstrained)
             } else {
                 let mut ctx = format!(
                     "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n",
@@ -661,7 +661,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 } else {
                     ctx.push_str("- (unknown failing model) — no failing-model evidence found.\n");
                 }
-                (ctx, None)
+                (ctx, PlanState::Unconstrained)
             }
         } else if next.is_empty() {
             // If work-groups exist, interpret "no next SQL batch" as:
@@ -696,7 +696,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (
                     ctx,
-                    Some(AllowedBatch::CleanseSchemaDatasetIds(ids.clone())),
+                    PlanState::CleanseSchemaDatasetIds(ids.clone()),
                 )
             } else {
                 let completion_snapshot =
@@ -741,7 +741,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                     );
                     (
                         ctx,
-                        None, // allow freeform file patching for targeted repair
+                        PlanState::Unconstrained, // allow freeform file patching for targeted repair
                     )
                 } else {
                     let reason = "approved cleanse plan is not executable: no next work-group action while checklist work remains".to_string();
@@ -772,7 +772,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
             plan.plan_key,
             next.join("\n- ")
             ),
-            Some(AllowedBatch::CleanseSqlDatasetIds(next.clone())),
+            PlanState::CleanseSqlDatasetIds(next.clone()),
         )
         }
     } else {
@@ -900,7 +900,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 true,
                 false,
             );
-            (ctx, None)
+            (ctx, PlanState::Unconstrained)
         } else if hard_mutation_repair_mode {
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
                 &next_action
@@ -931,7 +931,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (
                     ctx,
-                    Some(AllowedBatch::ModelSchemaItemNames(ids.clone())),
+                    PlanState::ModelSchemaItemNames(ids.clone()),
                 )
             } else {
                 let mut ctx = format!(
@@ -961,7 +961,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                 } else {
                     ctx.push_str("- (unknown failing model) — no failing-model evidence found.\n");
                 }
-                (ctx, None)
+                (ctx, PlanState::Unconstrained)
             }
         } else if next_names.is_empty() {
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
@@ -1070,7 +1070,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                     expected_paths.join("\n- "),
                 );
                 ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
-                (ctx, None)
+                (ctx, PlanState::Unconstrained)
             } else {
                 let completion_snapshot =
                     crate::data_engineer::plan::snapshot_model_completion(&plan);
@@ -1111,7 +1111,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
                         false,
                         true,
                     );
-                    (ctx, None)
+                    (ctx, PlanState::Unconstrained)
                 } else {
                     let reason = "approved model plan is not executable: no next work-group action while checklist work remains".to_string();
                     apply_guard_block(
@@ -1136,7 +1136,7 @@ let (plan_context, allowed_batch): (String, Option<AllowedBatch>) =
             }
         } else {
             let allowed =
-                Some(AllowedBatch::ModelSqlItemNames(next_names.clone()));
+                PlanState::ModelSqlItemNames(next_names.clone());
             // Include task details for the next batch so the LLM can call gold_model with full args.
             let mut details: Vec<String> = Vec::new();
             for n in next_names.iter() {
@@ -1170,7 +1170,7 @@ let (registry, tools_card) = Self::build_tools_for_phase(
     &phase_guard,
     false,
     sctx,
-    allowed_batch.clone(),
+    &plan_state,
     single_target_repair_path.clone(),
     false,
 )?;
@@ -1241,13 +1241,11 @@ q.push_str(&plan_context);
         if let Some(p) =
             crate::data_engineer::plan::load_cleanse_plan(&actx).await
         {
-            if let Some(ab) = allowed_batch.as_ref() {
-                if let AllowedBatch::CleanseSqlDatasetIds(ds)
-                | AllowedBatch::CleanseSchemaDatasetIds(ds) = ab
-                {
-                    batch_relations =
-                        crate::data_engineer::facts::dataset_ids_to_fqns(ds);
-                }
+            if let PlanState::CleanseSqlDatasetIds(ds)
+            | PlanState::CleanseSchemaDatasetIds(ds) = &plan_state
+            {
+                batch_relations =
+                    crate::data_engineer::facts::dataset_ids_to_fqns(ds);
             }
             // Prefer the last persisted validate_fail_facts snapshot (if any).
             if let Some(obj) = p.project_snapshot.as_object() {
@@ -1264,9 +1262,9 @@ q.push_str(&plan_context);
         if let Some(p) =
             crate::data_engineer::plan::load_model_plan(&actx).await
         {
-            if let Some(ab) = allowed_batch.as_ref() {
-                if let AllowedBatch::ModelSqlItemNames(names)
-                | AllowedBatch::ModelSchemaItemNames(names) = ab
+            if let PlanState::ModelSqlItemNames(names)
+            | PlanState::ModelSchemaItemNames(names) = &plan_state
+            {
                 {
                     // Include relations for the models in the batch AND their declared inputs.
                     let mut want_names: Vec<String> = names.clone();
@@ -1407,6 +1405,14 @@ if let Some(reason) = execution_state
     q.push_str("\n\nSuite guard note (must resolve before validate):\n");
     q.push_str(reason);
 }
+if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
+    if let Some(detail) = execution_state.phase.phase_reason_detail.as_ref() {
+        q.push_str("\n\nPre-check failure detail (fix before validate):\n");
+        q.push_str(
+            &serde_json::to_string_pretty(detail).unwrap_or_else(|_| detail.to_string()),
+        );
+    }
+}
 // If we re-entered authoring due to review feedback, inject the full review text (by ref)
 // so the agent can address it in implementation without reopening the plan.
 if execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl) {
@@ -1470,7 +1476,7 @@ if hard_mutation_repair_mode
     .unwrap_or_else(
         crate::data_engineer::progress_controller::ExecutionState::new,
     );
-    if es.target_path().as_deref().unwrap_or("").trim().is_empty()
+    if es.single_target_repair_path().as_deref().unwrap_or("").trim().is_empty()
         && !target.is_empty()
     {
         if let Ok(path) = crate::data_engineer::progress_controller::SqlModelPath::parse(target.clone()) {
@@ -1723,7 +1729,7 @@ match Agent::run_until_block_non_interactive(
         }
 
         // Plan-driven authoring: do NOT advance to validate until the approved plan's tasks are done.
-        if !track_completion_snapshot_all_done(&actx, is_cleanse).await {
+        if !track_completion_snapshot_all_done(&actx, track).await {
             return Ok(PhaseExecutorOutcome::Continue);
         }
 

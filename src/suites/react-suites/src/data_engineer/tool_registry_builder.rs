@@ -270,7 +270,7 @@ impl DataEngineerSuite {
         guard: &control_flow::DerivedGuardState,
         _allow_ask_approval: bool,
         sctx: &SuiteCtx,
-        allowed_batch: Option<AllowedBatch>,
+        plan_state: &PlanState,
         single_target_repair_path: Option<String>,
         suppress_manifest_json_in_plan: bool,
     ) -> Result<(ToolRegistry, String), String> {
@@ -361,13 +361,13 @@ impl DataEngineerSuite {
                     || single_target_repair_path.is_some();
                 let allow_probe_sql = guard.probe_required && !guard.probe_satisfied;
                 let plan_batched_cleanse_sql = phase == control_flow::Phase::CleanseAuthor
-                    && matches!(allowed_batch, Some(AllowedBatch::CleanseSqlDatasetIds(_)));
+                    && matches!(plan_state, PlanState::CleanseSqlDatasetIds(_));
                 let plan_batched_cleanse_schema = phase == control_flow::Phase::CleanseAuthor
-                    && matches!(allowed_batch, Some(AllowedBatch::CleanseSchemaDatasetIds(_)));
+                    && matches!(plan_state, PlanState::CleanseSchemaDatasetIds(_));
                 let plan_batched_model_sql = phase == control_flow::Phase::ModelAuthor
-                    && matches!(allowed_batch, Some(AllowedBatch::ModelSqlItemNames(_)));
+                    && matches!(plan_state, PlanState::ModelSqlItemNames(_));
                 let plan_batched_model_schema = phase == control_flow::Phase::ModelAuthor
-                    && matches!(allowed_batch, Some(AllowedBatch::ModelSchemaItemNames(_)));
+                    && matches!(plan_state, PlanState::ModelSchemaItemNames(_));
                 let authoring_policy = crate::data_engineer::authoring_driver::derive_authoring_tool_policy(
                     crate::data_engineer::authoring_driver::AuthoringToolPolicyInput {
                         hard_mutation_only,
@@ -705,55 +705,55 @@ impl DataEngineerSuite {
                 } else {
                     // Normal authoring: allow read/explore + probes.
                     if phase == control_flow::Phase::CleanseAuthor {
-                        if let Some(ab) = allowed_batch.clone() {
-                            match ab {
-                                AllowedBatch::CleanseSqlDatasetIds(_) => {
-                                    reg.register(tools::apply_next_batch::ApplyNextCleanseBatchTool {
-                                        datasets: sctx.datasets.clone(),
-                                    });
-                                }
-                                AllowedBatch::CleanseSchemaDatasetIds(_) => {
-                                    reg.register(
-                                        tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
-                                            datasets: sctx.datasets.clone(),
-                                        },
-                                    );
-                                }
-                                _ => {}
-                            }
-                        } else {
-                            reg.register(tools::staging_model::StagingModelTool {
-                                datasets: sctx.datasets.clone(),
-                            });
-                            reg.register(
-                                tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
+                        match plan_state {
+                            PlanState::CleanseSqlDatasetIds(_) => {
+                                reg.register(tools::apply_next_batch::ApplyNextCleanseBatchTool {
                                     datasets: sctx.datasets.clone(),
-                                },
-                            );
+                                });
+                            }
+                            PlanState::CleanseSchemaDatasetIds(_) => {
+                                reg.register(
+                                    tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
+                                        datasets: sctx.datasets.clone(),
+                                    },
+                                );
+                            }
+                            PlanState::ModelSqlItemNames(_)
+                            | PlanState::ModelSchemaItemNames(_)
+                            | PlanState::Unconstrained => {
+                                reg.register(tools::staging_model::StagingModelTool {
+                                    datasets: sctx.datasets.clone(),
+                                });
+                                reg.register(
+                                    tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
+                                        datasets: sctx.datasets.clone(),
+                                    },
+                                );
+                            }
                         }
                     }
                     if phase == control_flow::Phase::ModelAuthor {
-                        if let Some(ab) = allowed_batch.clone() {
-                            match ab {
-                                AllowedBatch::ModelSqlItemNames(_) => {
-                                    reg.register(tools::apply_next_batch::ApplyNextModelBatchTool);
-                                }
-                                AllowedBatch::ModelSchemaItemNames(_) => {
-                                    reg.register(
-                                        tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                            datasets: sctx.datasets.clone(),
-                                        },
-                                    );
-                                }
-                                _ => {}
+                        match plan_state {
+                            PlanState::ModelSqlItemNames(_) => {
+                                reg.register(tools::apply_next_batch::ApplyNextModelBatchTool);
                             }
-                        } else {
-                            reg.register(tools::gold_model::GoldModelTool);
-                            reg.register(
-                                tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                    datasets: sctx.datasets.clone(),
-                                },
-                            );
+                            PlanState::ModelSchemaItemNames(_) => {
+                                reg.register(
+                                    tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
+                                        datasets: sctx.datasets.clone(),
+                                    },
+                                );
+                            }
+                            PlanState::CleanseSqlDatasetIds(_)
+                            | PlanState::CleanseSchemaDatasetIds(_)
+                            | PlanState::Unconstrained => {
+                                reg.register(tools::gold_model::GoldModelTool);
+                                reg.register(
+                                    tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
+                                        datasets: sctx.datasets.clone(),
+                                    },
+                                );
+                            }
                         }
                     }
                     reg.register(SqlRunTool {

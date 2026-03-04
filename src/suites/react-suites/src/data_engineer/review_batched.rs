@@ -378,7 +378,7 @@ You will be given:
 
 You must output one JSON object with this schema:
 {
-  "decision": "proceed" | "patch_plan" | "patch_impl",
+  "decision": "proceed" | "patch_impl",
   "tier": "silver" | "gold" | "unknown",
   "dataset_ids": [string],
   "final_review_text": string
@@ -387,9 +387,6 @@ You must output one JSON object with this schema:
 Interpretation rules (CRITICAL):
 - decision="proceed" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.
 - decision="patch_impl" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.
-- decision="patch_plan" means: the plan/spec is wrong or ambiguous and must be revised before implementation can proceed safely.
-  - If decision="patch_plan", final_review_text MUST be limited to describing the plan defect and the smallest fix to the plan/spec.
-  - Do NOT propose implementation edits that deviate from the current plan/spec.
 
 Tier rules: this is a SILVER (cleanse) review. Set tier="silver".
 
@@ -413,7 +410,7 @@ You will be given:
 
 You must output one JSON object with this schema:
 {
-  "decision": "proceed" | "patch_plan" | "patch_impl",
+  "decision": "proceed" | "patch_impl",
   "tier": "silver" | "gold" | "unknown",
   "dataset_ids": [string],
   "final_review_text": string
@@ -422,9 +419,6 @@ You must output one JSON object with this schema:
 Interpretation rules (CRITICAL):
 - decision="proceed" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.
 - decision="patch_impl" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.
-- decision="patch_plan" means: the plan/spec is wrong or ambiguous and must be revised before implementation can proceed safely.
-  - If decision="patch_plan", final_review_text MUST be limited to describing the plan defect and the smallest fix to the plan/spec.
-  - Do NOT propose implementation edits that deviate from the current plan/spec.
 
 Tier rules: this is a GOLD/model review. Set tier="gold".
 
@@ -2063,7 +2057,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                         de_plan::PlanChecklistItem {
@@ -2072,7 +2065,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                         de_plan::PlanChecklistItem {
@@ -2081,7 +2073,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                     ],
@@ -2112,7 +2103,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                         de_plan::PlanChecklistItem {
@@ -2121,7 +2111,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                         de_plan::PlanChecklistItem {
@@ -2130,7 +2119,6 @@ mod tests {
                             details: None,
                             status: de_plan::ChecklistItemStatus::Done,
                             origin: de_plan::ChecklistOrigin::Initial,
-                            origin_step_idx: None,
                             evidence: vec![],
                         },
                     ],

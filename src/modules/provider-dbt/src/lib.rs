@@ -13,6 +13,7 @@ mod ws {
     pub mod terminal {
         #[derive(Clone, Debug)]
         pub enum TerminalEvent {
+            #[allow(dead_code)]
             DbtProgress { phase: String, detail: String },
         }
 

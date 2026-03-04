@@ -4,7 +4,6 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::providers::RequestScope;
-use react_core::providers::DEFAULT_WAREHOUSE_MAX_CONCURRENCY;
 use react_core::resolved_config as rc;
 use rc::{LlmProvider, StorageMode, WarehouseKind};
 
@@ -151,7 +150,7 @@ pub struct ProvidersFile {
 
 /// Warehouse configuration for a single provider (source or target).
 ///
-/// Hard-cutover: no legacy aliases. Keep secrets in env, only non-secret wiring here.
+/// Keep secrets in env; only non-secret wiring here.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WarehouseFile {

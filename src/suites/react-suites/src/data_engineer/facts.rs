@@ -109,7 +109,7 @@ fn file_patch_contract_value() -> Value {
                     },
                     "rules": [
                         "args.op MUST equal \"patch\"",
-                        "Provide patch_text only (legacy patch primitives are not allowed)",
+                        "Provide patch_text only (other patch primitives are not allowed)",
                         "args.path MUST be provided and patch_text MUST target exactly that one path",
                         "patch_text MUST start with '@@' and MUST NOT include git file headers (---/+++), diff --git preamble, or diffy-style headers (--- original / +++ modified)",
                         "Hunk headers MUST be Cursor/Aider style: '@@ ... @@' (no line numbers; never '@@ -a,b +c,d @@')"

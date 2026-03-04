@@ -5,8 +5,6 @@ use std::collections::{HashMap, HashSet};
 use tokio::task::JoinSet;
 use tracing::info;
 
-use sha2::{Digest, Sha256};
-
 use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 
@@ -17,13 +15,6 @@ fn emit_trace(ctx: &AgentCtx, line: impl Into<String>) {
     if let Some(tx) = ctx.trace_tx.as_ref() {
         let _ = tx.send(line.into());
     }
-}
-
-fn sha256_hex(s: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    let out = hasher.finalize();
-    hex::encode(out)
 }
 
 fn normalize_folder(folder: Option<&str>) -> String {
@@ -175,7 +166,6 @@ fn render_plan_driven_instructions(
         }
         let origin = match it.origin {
             crate::data_engineer::plan::ChecklistOrigin::Initial => "initial",
-            crate::data_engineer::plan::ChecklistOrigin::ReviewActionable => "review_actionable",
         };
         out.push_str("- ");
         out.push_str(it.label.trim());
@@ -298,6 +288,7 @@ impl Tool for GoldModelTool {
         let mut remediation_hints: Vec<Value> = Vec::new();
         let mut succeeded_item_names: Vec<String> = Vec::new();
         let mut canonical_folder_by_name: HashMap<String, String> = HashMap::new();
+        let mut plan_output_field_names: Vec<String> = Vec::new();
 
         for it in parsed_args.items.iter() {
             let name = it.name.trim();
@@ -467,6 +458,11 @@ impl Tool for GoldModelTool {
                     )
                 })
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
+            if plan_output_field_names.is_empty() {
+                if let Some(spec) = plan_implementation_spec.as_ref() {
+                    plan_output_field_names = spec.output_fields.iter().map(|f| f.name.clone()).collect();
+                }
+            }
             let plan_instr = render_plan_driven_instructions(&plan_invariants, &plan_checklist);
             let effective_instructions = combine_instructions(&it.instructions, &plan_instr);
 
@@ -625,7 +621,14 @@ impl Tool for GoldModelTool {
             }
             let draft = draft.expect("ok implies draft");
             let intent =
-                match crate::data_engineer::authoring_ir::compile_sql_first_draft(&draft.sql, &draft.notes) {
+                match crate::data_engineer::authoring_ir::compile_sql_first_draft(
+                    &draft.sql,
+                    &draft.notes,
+                    plan_implementation_spec
+                        .as_ref()
+                        .map(|s| s.output_fields.as_slice())
+                        .unwrap_or(&[]),
+                ) {
                     Ok(v) => v,
                     Err(e) => {
                         errors.push(format!("{name}: authoring_ir compile failed: {e}"));
@@ -667,7 +670,7 @@ impl Tool for GoldModelTool {
             let base_sha256 = if existing_sql.is_empty() {
                 None
             } else {
-                Some(sha256_hex(&existing_sql))
+                Some(react_core::llm_observability::sha256_hex_str(&existing_sql))
             };
             let patch_text = files_store::hunks_only_full_replace_patch(&existing_sql, &dbt_sql);
             let outcome = match files_store::apply_patch(
@@ -728,7 +731,7 @@ impl Tool for GoldModelTool {
             "gold_model finished"
         );
 
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "ok": errors.is_empty(),
             "batch_failure_kind": if errors.is_empty() { Value::Null } else { Value::String("unknown".to_string()) },
             "written_keys": written,
@@ -736,7 +739,11 @@ impl Tool for GoldModelTool {
             "remediation_hints": remediation_hints,
             "errors": errors,
             "succeeded_item_names": succeeded_item_names
-        }))
+        });
+        if !errors.is_empty() && !plan_output_field_names.is_empty() {
+            result["expected_output_fields"] = serde_json::json!(plan_output_field_names);
+        }
+        Ok(result)
     }
 }
 
@@ -1211,7 +1218,6 @@ mod tests {
                         ),
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     crate::data_engineer::plan::PlanChecklistItem {
@@ -1220,7 +1226,6 @@ mod tests {
                         details: None,
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     crate::data_engineer::plan::PlanChecklistItem {
@@ -1229,7 +1234,6 @@ mod tests {
                         details: None,
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                 ],

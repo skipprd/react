@@ -1,4 +1,5 @@
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
+use crate::data_engineer::track_spec::TrackKind;
 use crate::data_engineer::plan_grounding::{
     ensure_expected_model_paths_cleanse, ensure_expected_model_paths_model,
     prune_cleanse_plan_to_grounded_raw_datasets, prune_model_plan_to_grounded_staging_models,
@@ -12,6 +13,17 @@ use crate::data_engineer::plan_validation::{
 use react_core::session::{ThreadLog, ThreadStep};
 use react_core::agent::AgentCtx;
 use serde_json::Value;
+
+#[cfg(test)]
+fn parse_batch_contract<T: serde::de::DeserializeOwned>(
+    extra: &std::collections::BTreeMap<String, Value>,
+    contract_name: &str,
+) -> T {
+    serde_json::from_value(
+        serde_json::to_value(extra).expect("serialize tool observation contract"),
+    )
+    .unwrap_or_else(|e| panic!("{contract_name}: {e}"))
+}
 
 pub const CHECKLIST_SQL_MODEL: &str = "sql_model";
 pub const CHECKLIST_SCHEMA_CONTRACT: &str = "schema_contract";
@@ -85,9 +97,9 @@ pub(crate) fn required_checklist_item_ids() -> [&'static str; 3] {
     ]
 }
 
-fn checklist_label_for_kind(is_cleanse: bool, checklist_item_id: &str) -> &'static str {
+fn checklist_label_for_kind(track: TrackKind, checklist_item_id: &str) -> &'static str {
     match checklist_item_id {
-        CHECKLIST_SQL_MODEL if is_cleanse => "Author staging SQL",
+        CHECKLIST_SQL_MODEL if track.is_cleanse() => "Author staging SQL",
         CHECKLIST_SQL_MODEL => "Author gold SQL",
         CHECKLIST_SCHEMA_CONTRACT => "Author schema contract",
         CHECKLIST_VALIDATE => "Validate",
@@ -95,16 +107,15 @@ fn checklist_label_for_kind(is_cleanse: bool, checklist_item_id: &str) -> &'stat
     }
 }
 
-pub fn canonical_task_checklist(is_cleanse: bool) -> Vec<PlanChecklistItem> {
+pub fn canonical_task_checklist(track: TrackKind) -> Vec<PlanChecklistItem> {
     required_checklist_item_ids()
         .into_iter()
         .map(|id| PlanChecklistItem {
             checklist_item_id: id.to_string(),
-            label: checklist_label_for_kind(is_cleanse, id).to_string(),
+            label: checklist_label_for_kind(track, id).to_string(),
             details: None,
             status: ChecklistItemStatus::Pending,
             origin: ChecklistOrigin::Initial,
-            origin_step_idx: None,
             evidence: vec![],
         })
         .collect()
@@ -137,16 +148,6 @@ pub(crate) fn checklist_status(items: &[PlanChecklistItem], id: &str) -> Checkli
         .find(|it| it.checklist_item_id == id)
         .map(|it| it.status)
         .unwrap_or(ChecklistItemStatus::Pending)
-}
-
-fn parse_batch_contract<T: DeserializeOwned>(
-    extra: &std::collections::BTreeMap<String, Value>,
-    contract_name: &str,
-) -> T {
-    serde_json::from_value(
-        serde_json::to_value(extra).expect("serialize tool observation contract"),
-    )
-    .unwrap_or_else(|e| panic!("{contract_name}: {e}"))
 }
 
 pub fn is_runnable_checklist_status(s: ChecklistItemStatus) -> bool {
@@ -1017,7 +1018,6 @@ fn ensure_checklist_item<'a>(
         details: None,
         status: ChecklistItemStatus::Pending,
         origin: ChecklistOrigin::Initial,
-        origin_step_idx: None,
         evidence: vec![],
     });
     let last = items.len().saturating_sub(1);
@@ -1059,7 +1059,6 @@ fn ensure_checklist_item_any<'a>(
         details: None,
         status: ChecklistItemStatus::Pending,
         origin: ChecklistOrigin::Initial,
-        origin_step_idx: None,
         evidence: vec![],
     });
     let last = items.len().saturating_sub(1);
@@ -1127,7 +1126,11 @@ pub fn model_schema_contract_mark_done(plan: &mut ModelPlan, name: &str) {
     }
 }
 
-pub fn model_schema_contract_mark_needs_update(plan: &mut ModelPlan, name: &str) {
+pub fn model_schema_contract_mark_needs_update(
+    plan: &mut ModelPlan,
+    name: &str,
+    reason: Option<&str>,
+) {
     if let Some(t) = plan.tasks.iter_mut().find(|t| t.name == name) {
         let it = ensure_checklist_item(
             &mut t.checklist,
@@ -1135,6 +1138,9 @@ pub fn model_schema_contract_mark_needs_update(plan: &mut ModelPlan, name: &str)
             "Author schema contract",
         );
         set_checklist_status(it, ChecklistItemStatus::NeedsUpdate, None);
+        if let Some(r) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+            it.details = Some(r.to_string());
+        }
         recompute_model_task_status(t);
     }
 }
@@ -1163,7 +1169,11 @@ pub fn cleanse_schema_contract_mark_done(plan: &mut CleansePlan, dataset_id: &st
     }
 }
 
-pub fn cleanse_schema_contract_mark_needs_update(plan: &mut CleansePlan, dataset_id: &str) {
+pub fn cleanse_schema_contract_mark_needs_update(
+    plan: &mut CleansePlan,
+    dataset_id: &str,
+    reason: Option<&str>,
+) {
     if let Some(t) = plan.tasks.iter_mut().find(|t| t.dataset_id == dataset_id) {
         let it = ensure_checklist_item(
             &mut t.checklist,
@@ -1171,6 +1181,9 @@ pub fn cleanse_schema_contract_mark_needs_update(plan: &mut CleansePlan, dataset
             "Author schema contract",
         );
         set_checklist_status(it, ChecklistItemStatus::NeedsUpdate, None);
+        if let Some(r) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+            it.details = Some(r.to_string());
+        }
         recompute_cleanse_task_status(t);
     }
 }
@@ -1187,18 +1200,28 @@ pub fn cleanse_schema_contract_mark_in_progress(plan: &mut CleansePlan, dataset_
     }
 }
 
-pub fn cleanse_mark_needs_update(plan: &mut CleansePlan, dataset_id: &str) {
+pub fn cleanse_mark_needs_update(
+    plan: &mut CleansePlan,
+    dataset_id: &str,
+    reason: Option<&str>,
+) {
     if let Some(t) = plan.tasks.iter_mut().find(|t| t.dataset_id == dataset_id) {
         let it = ensure_checklist_item(&mut t.checklist, CHECKLIST_SQL_MODEL, "Author staging SQL");
         set_checklist_status(it, ChecklistItemStatus::NeedsUpdate, None);
+        if let Some(r) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+            it.details = Some(r.to_string());
+        }
         recompute_cleanse_task_status(t);
     }
 }
 
-pub fn model_mark_needs_update(plan: &mut ModelPlan, name: &str) {
+pub fn model_mark_needs_update(plan: &mut ModelPlan, name: &str, reason: Option<&str>) {
     if let Some(t) = plan.tasks.iter_mut().find(|t| t.name == name) {
         let it = ensure_checklist_item(&mut t.checklist, CHECKLIST_SQL_MODEL, "Author gold SQL");
         set_checklist_status(it, ChecklistItemStatus::NeedsUpdate, None);
+        if let Some(r) = reason.map(str::trim).filter(|s| !s.is_empty()) {
+            it.details = Some(r.to_string());
+        }
         recompute_model_task_status(t);
     }
 }
@@ -1260,7 +1283,7 @@ pub fn apply_cleanse_progress_event(plan: &mut CleansePlan, event: PlanProgressE
             cleanse_mark_done(plan, &dataset_id);
         }
         PlanProgressEvent::CleanseSqlNeedsUpdate { dataset_id } => {
-            cleanse_mark_needs_update(plan, &dataset_id);
+            cleanse_mark_needs_update(plan, &dataset_id, None);
         }
         PlanProgressEvent::CleanseSchemaInProgress { dataset_id } => {
             cleanse_schema_contract_mark_in_progress(plan, &dataset_id);
@@ -1269,7 +1292,7 @@ pub fn apply_cleanse_progress_event(plan: &mut CleansePlan, event: PlanProgressE
             cleanse_schema_contract_mark_done(plan, &dataset_id);
         }
         PlanProgressEvent::CleanseSchemaNeedsUpdate { dataset_id } => {
-            cleanse_schema_contract_mark_needs_update(plan, &dataset_id);
+            cleanse_schema_contract_mark_needs_update(plan, &dataset_id, None);
         }
         PlanProgressEvent::CleanseValidateDone => {
             cleanse_mark_validate_done(plan);
@@ -1287,7 +1310,7 @@ pub fn apply_model_progress_event(plan: &mut ModelPlan, event: PlanProgressEvent
             model_mark_done(plan, &item_name);
         }
         PlanProgressEvent::ModelSqlNeedsUpdate { item_name } => {
-            model_mark_needs_update(plan, &item_name);
+            model_mark_needs_update(plan, &item_name, None);
         }
         PlanProgressEvent::ModelSchemaInProgress { item_name } => {
             model_schema_contract_mark_in_progress(plan, &item_name);
@@ -1296,7 +1319,7 @@ pub fn apply_model_progress_event(plan: &mut ModelPlan, event: PlanProgressEvent
             model_schema_contract_mark_done(plan, &item_name);
         }
         PlanProgressEvent::ModelSchemaNeedsUpdate { item_name } => {
-            model_schema_contract_mark_needs_update(plan, &item_name);
+            model_schema_contract_mark_needs_update(plan, &item_name, None);
         }
         PlanProgressEvent::ModelValidateDone => {
             model_mark_validate_done(plan);
@@ -2504,7 +2527,6 @@ mod tests {
                 details: None,
                 status: ChecklistItemStatus::Pending,
                 origin: ChecklistOrigin::Initial,
-                origin_step_idx: None,
                 evidence: vec![],
             },
             PlanChecklistItem {
@@ -2513,7 +2535,6 @@ mod tests {
                 details: None,
                 status: ChecklistItemStatus::Pending,
                 origin: ChecklistOrigin::Initial,
-                origin_step_idx: None,
                 evidence: vec![],
             },
             PlanChecklistItem {
@@ -2522,7 +2543,6 @@ mod tests {
                 details: None,
                 status: ChecklistItemStatus::Pending,
                 origin: ChecklistOrigin::Initial,
-                origin_step_idx: None,
                 evidence: vec![],
             },
         ]
@@ -3039,7 +3059,6 @@ mod tests {
                         details: None,
                         status: ChecklistItemStatus::Pending,
                         origin: ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     PlanChecklistItem {
@@ -3048,7 +3067,6 @@ mod tests {
                         details: None,
                         status: ChecklistItemStatus::Pending,
                         origin: ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                 ],
@@ -3108,7 +3126,6 @@ mod tests {
                         details: None,
                         status: ChecklistItemStatus::Done,
                         origin: ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     PlanChecklistItem {
@@ -3117,7 +3134,6 @@ mod tests {
                         details: None,
                         status: ChecklistItemStatus::Pending,
                         origin: ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                 ],

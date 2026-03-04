@@ -11,7 +11,7 @@ pub mod shared;
 mod tests {
     fn assert_no_banned_phrases(label: &str, s: &str) {
         let banned = [
-            // Legacy agent envelope (hard-cut removed).
+            // Old agent envelope format (must not appear in prompts).
             "{\"action\"",
             // Prompt-level format assertions that conflict with schema-level enforcement.
             "STRICT JSON",

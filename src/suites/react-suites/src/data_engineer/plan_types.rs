@@ -82,7 +82,6 @@ pub struct PlanMutation {
 #[serde(rename_all = "snake_case")]
 pub enum ChecklistOrigin {
     Initial,
-    ReviewActionable,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,8 +123,6 @@ pub struct PlanChecklistItem {
     #[serde(default)]
     pub status: ChecklistItemStatus,
     pub origin: ChecklistOrigin,
-    #[serde(default)]
-    pub origin_step_idx: Option<usize>,
     #[serde(default)]
     pub evidence: Vec<ChecklistEvidence>,
 }
@@ -343,6 +340,33 @@ pub struct ModelPlan {
     pub mutations: Vec<PlanMutation>,
     #[serde(default)]
     pub progress: PlanProgress,
+}
+
+pub trait TrackPlan {
+    fn plan_key(&self) -> &str;
+    fn status(&self) -> PlanStatus;
+    fn set_status(&mut self, status: PlanStatus);
+    fn tasks_len(&self) -> usize;
+    fn batches_len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.tasks_len() == 0 || self.batches_len() == 0
+    }
+}
+
+impl TrackPlan for CleansePlan {
+    fn plan_key(&self) -> &str { &self.plan_key }
+    fn status(&self) -> PlanStatus { self.status }
+    fn set_status(&mut self, status: PlanStatus) { self.status = status; }
+    fn tasks_len(&self) -> usize { self.tasks.len() }
+    fn batches_len(&self) -> usize { self.batches.len() }
+}
+
+impl TrackPlan for ModelPlan {
+    fn plan_key(&self) -> &str { &self.plan_key }
+    fn status(&self) -> PlanStatus { self.status }
+    fn set_status(&mut self, status: PlanStatus) { self.status = status; }
+    fn tasks_len(&self) -> usize { self.tasks.len() }
+    fn batches_len(&self) -> usize { self.batches.len() }
 }
 
 #[derive(Clone, Debug)]

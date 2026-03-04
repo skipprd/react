@@ -1,41 +1,10 @@
 use super::*;
 use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::data_engineer::phase_plan_lifecycle::TrackPlanDoc;
-
-fn actionable_review_plan_detail(
-    plan_key: &str,
-    plan_update_summary: serde_json::Value,
-    entry_step_idx: Option<usize>,
-) -> serde_json::Value {
-    crate::data_engineer::phase_reason_detail::plan_actionable_auto_approved(
-        plan_key,
-        plan_update_summary,
-        entry_step_idx,
-    )
-}
+use crate::data_engineer::plan_types::TrackPlan;
 
 fn auto_approved_plan_detail(source: &str) -> serde_json::Value {
     crate::data_engineer::phase_reason_detail::plan_auto_approved(source)
-}
-
-async fn load_any_plan_for_track_spec(
-    actx: &AgentCtx,
-    track: TrackKind,
-) -> Option<TrackPlanDoc> {
-    match track {
-        TrackKind::Cleanse => {
-            crate::data_engineer::phase_plan_lifecycle::load_any_plan_for_spec::<
-                crate::data_engineer::CleanseSpec,
-            >(actx)
-            .await
-        }
-        TrackKind::Model => {
-            crate::data_engineer::phase_plan_lifecycle::load_any_plan_for_spec::<
-                crate::data_engineer::ModelSpec,
-            >(actx)
-            .await
-        }
-    }
 }
 
 async fn load_active_plan_for_track_spec(
@@ -77,15 +46,6 @@ impl DataEngineerSuite {
 let track = TrackKind::try_from_plan_phase(phase)?;
 let is_cleanse = track.is_cleanse();
 let actx = Self::plan_agent_ctx(thread_id, sctx);
-let entered_from_actionable_review =
-    execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchPlan);
-let actionable_review_entry_step_idx =
-    entered_from_actionable_review.then_some(thread_state_step_count);
-let prior_plan_for_update = if entered_from_actionable_review {
-    load_any_plan_for_track_spec(&actx, track).await
-} else {
-    None
-};
 
 // Agent-mode hard cutover: no ask/reply approval semantics.
 // Plan transitions are deterministic and state-driven; free-form question text
@@ -95,24 +55,11 @@ let prior_plan_for_update = if entered_from_actionable_review {
 if let Some(mut existing_plan) =
     load_active_plan_for_track_spec(&actx, track).await
 {
-    let current_digest = match &existing_plan {
-        TrackPlanDoc::Cleanse(plan) => stable_json_digest(plan),
-        TrackPlanDoc::Model(plan) => stable_json_digest(plan),
-    };
     if matches!(
         existing_plan.status(),
         crate::data_engineer::plan::PlanStatus::Approved
             | crate::data_engineer::plan::PlanStatus::Completed
     ) {
-        if crate::data_engineer::phase_gate::patch_plan_intent_blocks_fast_forward(
-            &execution_state,
-            phase,
-            existing_plan.plan_key(),
-            current_digest.as_deref(),
-        ) {
-            // Review requested a plan patch; do not bypass plan regeneration via old approved/completed plan.
-            return Ok(PhaseExecutorOutcome::Continue);
-        }
         // Safety: an empty/invalid approved plan would cause authoring to fast-forward.
         if existing_plan.is_empty() {
             let plan_key = existing_plan.plan_key().to_string();
@@ -201,69 +148,6 @@ if let Some(mut existing_plan) =
             )
             .await?;
             return Ok(PhaseExecutorOutcome::Continue);
-        }
-        if entered_from_actionable_review {
-            let detail = match &existing_plan {
-                TrackPlanDoc::Cleanse(plan) => {
-                    let plan_update = Self::plan_update_summary_cleanse(
-                        match prior_plan_for_update.as_ref() {
-                            Some(TrackPlanDoc::Cleanse(prior)) => Some(prior),
-                            _ => None,
-                        },
-                        plan,
-                        actionable_review_entry_step_idx,
-                    );
-                    actionable_review_plan_detail(
-                        &plan.plan_key,
-                        plan_update,
-                        actionable_review_entry_step_idx,
-                    )
-                }
-                TrackPlanDoc::Model(plan) => {
-                    let plan_update = Self::plan_update_summary_model(
-                        match prior_plan_for_update.as_ref() {
-                            Some(TrackPlanDoc::Model(prior)) => Some(prior),
-                            _ => None,
-                        },
-                        plan,
-                        actionable_review_entry_step_idx,
-                    );
-                    actionable_review_plan_detail(
-                        &plan.plan_key,
-                        plan_update,
-                        actionable_review_entry_step_idx,
-                    )
-                }
-            };
-            let advanced = match &existing_plan {
-                TrackPlanDoc::Cleanse(_) => {
-                    Self::approve_cleanse_plan_draft_and_advance(
-                        &thread_store,
-                        thread_id,
-                        phase,
-                        &actx,
-                        thread_state_step_count,
-                        PhaseReasonCode::PlanAutoApproved,
-                        detail,
-                    )
-                    .await?
-                }
-                TrackPlanDoc::Model(_) => {
-                    Self::approve_model_plan_draft_and_advance(
-                        &thread_store,
-                        thread_id,
-                        phase,
-                        &actx,
-                        thread_state_step_count,
-                        PhaseReasonCode::PlanAutoApproved,
-                        detail,
-                    )
-                    .await?
-                }
-            };
-            if advanced {
-                return Ok(PhaseExecutorOutcome::Continue);
-            }
         }
         let advanced = match existing_plan {
             TrackPlanDoc::Cleanse(_) => {
@@ -480,7 +364,7 @@ let (registry, tools_card) = Self::build_tools_for_phase(
     &guard,
     false,
     sctx,
-    None,
+    &PlanState::Unconstrained,
     None,
     manifest_retry_signal.retry_suppressed,
 )?;
@@ -537,30 +421,6 @@ if !is_cleanse {
                 .unwrap_or_else(|_| "{}".to_string()),
         );
         q.push('\n');
-    }
-}
-// If this plan phase was entered because review explicitly required a plan change,
-// include that feedback verbatim to ground the new plan.
-if execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchPlan) {
-    if let Some(key) = execution_state
-        .phase
-        .phase_reason_detail
-        .as_ref()
-        .and_then(|v| v.get("meta"))
-        .and_then(|v| v.get("review_ref"))
-        .and_then(|v| v.get("key"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-    {
-        if let Ok(bytes) = actx.storage.get_bytes(&key).await {
-            let txt = String::from_utf8_lossy(&bytes).to_string();
-            if !txt.trim().is_empty() {
-                q.push_str("\nReview feedback requiring plan change (incorporate into this plan):\n");
-                q.push_str(txt.trim());
-                q.push('\n');
-            }
-        }
     }
 }
 if let Some(ref brief) = last_validate_brief {
@@ -624,7 +484,7 @@ match Agent::run_until_block_non_interactive(
         // Bootstrap + deterministic catalog grounding are the stateful guarantees.
 
         let (design_memo, design_critique) =
-            Self::produce_critiqued_design_memo(&actx, is_cleanse, &q).await?;
+            Self::produce_critiqued_design_memo(&actx, track, &q).await?;
         if is_cleanse {
             let discovered_raw = Self::discovered_raw_relations_from_catalog(
                 sctx.datasets.as_ref(),
@@ -685,20 +545,6 @@ match Agent::run_until_block_non_interactive(
                     "fixes": design_critique.fixes.clone()
                 },
             });
-            if entered_from_actionable_review {
-                if let Some(obj) = plan.project_snapshot.as_object_mut() {
-                    obj.insert(
-                        "entry_reason_code".to_string(),
-                        serde_json::json!("review_actionable_true"),
-                    );
-                    if let Some(idx) = actionable_review_entry_step_idx {
-                        obj.insert(
-                            "entry_step_idx".to_string(),
-                            serde_json::json!(idx),
-                        );
-                    }
-                }
-            }
             // Hard cutover: schema facts for planning come from deterministic catalog artifacts,
             // not from replaying thread-log tool history.
             // Ground the plan against reality: only keep datasets we can prove exist via schema().
@@ -898,39 +744,7 @@ match Agent::run_until_block_non_interactive(
                 Some(&grounded.allowed),
             )
             .await?;
-            if Self::should_reset_subjective_retry_after_plan_save(
-                entered_from_actionable_review,
-            ) {
-                Self::reset_subjective_retry(&thread_store, thread_id).await;
-            }
-            if entered_from_actionable_review {
-                let plan_update = Self::plan_update_summary_cleanse(
-                    match prior_plan_for_update.as_ref() {
-                        Some(TrackPlanDoc::Cleanse(prior)) => Some(prior),
-                        _ => None,
-                    },
-                    &plan,
-                    actionable_review_entry_step_idx,
-                );
-                let detail = actionable_review_plan_detail(
-                    &plan.plan_key,
-                    plan_update,
-                    actionable_review_entry_step_idx,
-                );
-                let advanced = Self::approve_cleanse_plan_draft_and_advance(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    &actx,
-                    thread_state_step_count,
-                    PhaseReasonCode::PlanAutoApproved,
-                    detail,
-                )
-                .await?;
-                if advanced {
-                    return Ok(PhaseExecutorOutcome::Continue);
-                }
-            }
+            Self::reset_subjective_retry(&thread_store, thread_id).await;
             let advanced = Self::approve_cleanse_plan_draft_and_advance(
                 &thread_store,
                 thread_id,
@@ -1004,20 +818,6 @@ match Agent::run_until_block_non_interactive(
                     "fixes": design_critique.fixes.clone()
                 },
             });
-            if entered_from_actionable_review {
-                if let Some(obj) = plan.project_snapshot.as_object_mut() {
-                    obj.insert(
-                        "entry_reason_code".to_string(),
-                        serde_json::json!("review_actionable_true"),
-                    );
-                    if let Some(idx) = actionable_review_entry_step_idx {
-                        obj.insert(
-                            "entry_step_idx".to_string(),
-                            serde_json::json!(idx),
-                        );
-                    }
-                }
-            }
             // Ground gold planning: gold must be based ONLY on existing staging (silver) models.
             crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(
                 &mut plan,
@@ -1175,39 +975,7 @@ match Agent::run_until_block_non_interactive(
                 Some(&staged.allowed_models),
             )
             .await?;
-            if Self::should_reset_subjective_retry_after_plan_save(
-                entered_from_actionable_review,
-            ) {
-                Self::reset_subjective_retry(&thread_store, thread_id).await;
-            }
-            if entered_from_actionable_review {
-                let plan_update = Self::plan_update_summary_model(
-                    match prior_plan_for_update.as_ref() {
-                        Some(TrackPlanDoc::Model(prior)) => Some(prior),
-                        _ => None,
-                    },
-                    &plan,
-                    actionable_review_entry_step_idx,
-                );
-                let detail = actionable_review_plan_detail(
-                    &plan.plan_key,
-                    plan_update,
-                    actionable_review_entry_step_idx,
-                );
-                let advanced = Self::approve_model_plan_draft_and_advance(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    &actx,
-                    thread_state_step_count,
-                    PhaseReasonCode::PlanAutoApproved,
-                    detail,
-                )
-                .await?;
-                if advanced {
-                    return Ok(PhaseExecutorOutcome::Continue);
-                }
-            }
+            Self::reset_subjective_retry(&thread_store, thread_id).await;
             let advanced = Self::approve_model_plan_draft_and_advance(
                 &thread_store,
                 thread_id,

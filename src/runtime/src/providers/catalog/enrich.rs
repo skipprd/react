@@ -1032,7 +1032,7 @@ pub async fn run_llm_enrichment_all(
     keyspace: Arc<dyn crate::providers::Keyspace>,
     llm: Arc<dyn crate::llm::LargeLanguageModel>,
     scope: &crate::providers::RequestScope,
-    dataset_ids: &HashMap<String, crate::discover::Metadata>,
+    dataset_ids: &std::collections::HashSet<String>,
     llm_timeout_secs: u64,
     llm_batch_size: usize,
 ) -> Result<react_core::providers::catalog::CatalogEnrichmentReport, String> {
@@ -1040,8 +1040,7 @@ pub async fn run_llm_enrichment_all(
         dataset_total: dataset_ids.len(),
         ..Default::default()
     };
-    // Engine-agnostic: iterate provided dataset ids (no sqlrt/registry coupling).
-    for ds in dataset_ids.keys() {
+    for ds in dataset_ids.iter() {
         match enrich_dataset_with_llm(
             storage.clone(),
             keyspace.clone(),
@@ -1200,11 +1199,10 @@ pub async fn run_llm_global_context_enrichment_all(
     keyspace: Arc<dyn crate::providers::Keyspace>,
     llm: Arc<dyn crate::llm::LargeLanguageModel>,
     scope: &crate::providers::RequestScope,
-    dataset_ids: &HashMap<String, crate::discover::Metadata>,
+    dataset_ids: &std::collections::HashSet<String>,
     llm_timeout_secs: u64,
 ) -> Result<bool, String> {
-    // Deterministic order.
-    let mut dss: Vec<String> = dataset_ids.keys().cloned().collect();
+    let mut dss: Vec<String> = dataset_ids.iter().cloned().collect();
     dss.sort();
 
     // Load existing global context if any (model should update, not rewrite).
@@ -1275,8 +1273,6 @@ pub async fn run_llm_global_context_enrichment_all(
     }
     Ok(true)
 }
-
-// NOTE: legacy wrapper removed. Call `run_llm_enrichment_all(storage, keyspace, llm, scope, dataset_ids)` instead.
 
 // Helper to salvage first JSON object from a text block
 pub fn super_extract_json_value(text: &str) -> Result<serde_json::Value, serde_json::Error> {

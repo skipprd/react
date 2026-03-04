@@ -644,72 +644,6 @@ fn parse_hunk_marker_line(line: &str) -> Option<(char, &str)> {
 
 /// If a unified diff patch is effectively "replace the whole file", extract the intended
 /// resulting file contents directly from the patch hunk(s).
-///
-/// This is a fallback for strict diff application failures where the patch can't be applied
-/// due to context mismatches, but the patch clearly contains the entire new file content.
-fn try_reconstruct_full_file_replacement(unified: &str, old: &str) -> Option<String> {
-    // Identify all hunk headers.
-    let lines: Vec<&str> = unified.lines().collect();
-    let mut hunk_idxs: Vec<usize> = Vec::new();
-    for (i, l) in lines.iter().enumerate() {
-        if l.starts_with("@@") {
-            hunk_idxs.push(i);
-        }
-    }
-    if hunk_idxs.len() != 1 {
-        return None;
-    }
-    let i = hunk_idxs[0];
-    let header = lines[i];
-    let after = header.trim_start_matches("@@").trim_start();
-    let end_idx = after.find("@@")?;
-    let ranges = after[..end_idx].trim();
-    let parts: Vec<&str> = ranges.split_whitespace().collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    let (old_start, old_count) = parse_hunk_range(parts[0], '-')?;
-    let (new_start, _new_count) = parse_hunk_range(parts[1], '+')?;
-
-    // Conservative "whole file" check: hunk starts at (or before) first line, and claims to cover
-    // at least the current file length. We use split('\n') to match other parts of this module.
-    let old_lines_len = old.split('\n').count();
-    if old_start > 1 || new_start > 1 {
-        return None;
-    }
-    if old_count + 1 < old_lines_len {
-        // +1 tolerance for trailing newline / last empty split segment.
-        return None;
-    }
-
-    // Extract resulting lines from hunk body: keep ' ' and '+' lines, drop '-' lines.
-    let mut out_lines: Vec<String> = Vec::new();
-    let mut j = i + 1;
-    while j < lines.len() {
-        let l = lines[j];
-        if l.starts_with("@@") {
-            break;
-        }
-        if l.starts_with('\\') {
-            j += 1;
-            continue;
-        }
-        match parse_hunk_marker_line(l) {
-            Some(('+', body)) | Some((' ', body)) => out_lines.push(body.to_string()),
-            Some(('-', _)) => {}
-            None => {
-                // Be permissive for malformed/empty lines in best-effort reconstruction.
-                if l.is_empty() {
-                    out_lines.push(String::new());
-                }
-            }
-            _ => {}
-        }
-        j += 1;
-    }
-    Some(out_lines.join("\n"))
-}
-
 fn leading_ws_width(s: &str) -> usize {
     s.chars().take_while(|c| *c == ' ' || *c == '\t').count()
 }
@@ -2258,12 +2192,4 @@ packages:
         assert_eq!(out, "a\n\nc\n");
     }
 
-    #[test]
-    fn reconstruct_full_file_replacement_tolerates_empty_unmarked_body_lines() {
-        let old = "x\ny\n";
-        let unified = "@@ -1,2 +1,2 @@\n+hello\n\n+world\n";
-        let out = try_reconstruct_full_file_replacement(unified, old)
-            .expect("reconstruct should succeed");
-        assert_eq!(out, "hello\n\nworld");
-    }
 }

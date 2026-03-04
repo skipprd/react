@@ -555,9 +555,9 @@ impl ToolObservation {
         })
     }
 
-    /// Convert any legacy tool output `Value` into the canonical envelope:
+    /// Normalize a tool output `Value` into the canonical envelope:
     /// - `errors` is ALWAYS present (even if 0/1)
-    /// - legacy `error: string` is converted into `errors: [error]` and removed from `extra`
+    /// - singular `error: string` is promoted to `errors: [error]` and removed from `extra`
     pub fn normalize(v: Value) -> Self {
         let mut extra: BTreeMap<String, Value> = match v {
             Value::Object(m) => m.into_iter().collect(),
@@ -583,7 +583,7 @@ impl ToolObservation {
 
         let mut errors = errors;
 
-        // Remove canonical envelope keys from extra (and legacy `error`).
+        // Remove canonical envelope keys from extra (and singular `error`).
         extra.remove("ok");
         extra.remove("errors");
         extra.remove("warnings");
@@ -851,7 +851,7 @@ fn cache() -> &'static DashMap<String, CacheEntry> {
 // Per-thread, in-memory context cache (not persisted)
 #[derive(Clone, Debug, Default)]
 pub struct ThreadCache {
-    pub candidates: Vec<(String, String, f32)>, // (project_id, dataset_id, score) [legacy cache shape; best-effort only]
+    pub candidates: Vec<(String, String, f32)>, // (project_id, dataset_id, score)
     pub schemas: HashMap<String, Vec<(String, String)>>, // dataset FQN -> [(name, type)]
     pub samples: HashMap<String, Vec<Vec<String>>>, // dataset FQN -> rows
     /// Last published curated relations (materialized in the warehouse), best-effort.

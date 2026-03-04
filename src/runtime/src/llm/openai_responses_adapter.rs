@@ -65,6 +65,7 @@ struct RespText {
     format: serde_json::Value,
 }
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct RespResp {
     #[serde(default)]
     output_text: Option<String>,

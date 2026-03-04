@@ -89,27 +89,19 @@ impl AthenaQueryProvider {
 
     /// Create from environment variables using the standard AWS credential chain.
     ///
-    /// Supported env vars (with backward-compatible aliases):
-    /// - `ATHENA_WORKGROUP` (alias: `DATA_OUTPUT_ATHENA_WORKGROUP_NAME`)
-    /// - `ATHENA_RESULT_S3` (alias: `DATA_OUTPUT_ATHENA_RESULTS_S3_BUCKET` + optional prefix)
-    /// - `ATHENA_SOURCE_SCHEMA` (alias: `ATHENA_SOURCE_DATABASE`)
-    /// - `ATHENA_TARGET_CATALOG` (alias: `ATHENA_CATALOG`, default: `AwsDataCatalog`)
+    /// Supported env vars:
+    /// - `ATHENA_WORKGROUP`
+    /// - `ATHENA_RESULT_S3` (s3://... output location; omit to rely on workgroup config)
+    /// - `ATHENA_SOURCE_SCHEMA`
+    /// - `ATHENA_TARGET_CATALOG` (default: `AwsDataCatalog`)
     /// - `ATHENA_MAX_CONCURRENCY` (default: 15, cap: 20)
     /// - `ATHENA_DISCOVERY_CACHE_TTL_SECS` (default: 120)
     pub async fn from_env() -> Self {
-        let workgroup = getenv_nonempty("ATHENA_WORKGROUP")
-            .or_else(|| getenv_nonempty("DATA_OUTPUT_ATHENA_WORKGROUP_NAME"));
-        let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA")
-            .or_else(|| getenv_nonempty("ATHENA_SOURCE_DATABASE"));
-        let default_catalog = getenv_nonempty("ATHENA_TARGET_CATALOG")
-            .unwrap_or_else(|| getenv("ATHENA_CATALOG", "AwsDataCatalog"));
+        let workgroup = getenv_nonempty("ATHENA_WORKGROUP");
+        let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA");
+        let default_catalog = getenv("ATHENA_TARGET_CATALOG", "AwsDataCatalog");
 
-        // Prefer a single s3://... output location if provided; else leave None and rely on WG config.
-        let result_output_location = getenv_nonempty("ATHENA_RESULT_S3").or_else(|| {
-            // Legacy: only bucket provided; user can still set ATHENA_RESULT_S3 for full control
-            let b = getenv_nonempty("DATA_OUTPUT_ATHENA_RESULTS_S3_BUCKET")?;
-            Some(format!("s3://{}/", b.trim_end_matches('/')))
-        });
+        let result_output_location = getenv_nonempty("ATHENA_RESULT_S3");
 
         let ttl_secs: u64 = getenv("ATHENA_DISCOVERY_CACHE_TTL_SECS", "120")
             .parse::<u64>()

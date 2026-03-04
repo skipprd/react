@@ -1,7 +1,6 @@
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
-use crate::discover::Metadata;
 use crate::helpers::progress::ProgressUi;
 use crate::providers::dataset_catalog_provider::DatasetCatalogProvider;
 use crate::scope::RequestScope;
@@ -51,13 +50,13 @@ pub trait CatalogProvider: Send + Sync {
         &self,
         scope: &RequestScope,
         query: &dyn DatasetCatalogProvider,
-        dataset_ids: &HashMap<String, Metadata>,
+        dataset_ids: &HashSet<String>,
         progress: Option<&ProgressUi>,
     ) -> Result<(), String>;
 
     async fn run_llm_enrichment_all(
         &self,
         scope: &RequestScope,
-        dataset_ids: &HashMap<String, Metadata>,
+        dataset_ids: &HashSet<String>,
     ) -> Result<CatalogEnrichmentReport, String>;
 }

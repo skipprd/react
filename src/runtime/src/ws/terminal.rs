@@ -121,7 +121,7 @@ struct SpanState {
 
 #[derive(Clone, Debug)]
 struct ThreadView {
-    thread_id: String,
+    _thread_id: String,
     suite_id: Option<String>,
     agent_type: Option<String>,
     current_phase: Option<String>,
@@ -149,7 +149,7 @@ struct ThreadView {
 impl Default for ThreadView {
     fn default() -> Self {
         Self {
-            thread_id: String::new(),
+            _thread_id: String::new(),
             suite_id: None,
             agent_type: None,
             current_phase: None,
@@ -388,7 +388,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::ThreadState(snap) => {
             let tid = snap.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -447,7 +447,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
                 .threads
                 .entry(thread_id.clone())
                 .or_insert_with(|| ThreadView {
-                    thread_id: thread_id.clone(),
+                    _thread_id: thread_id.clone(),
                     last_update: Instant::now(),
                     ..Default::default()
                 });
@@ -502,7 +502,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
             //   repopulates with the correct hierarchy.
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -526,7 +526,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::Phase(ev) => {
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -578,7 +578,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::ToolStart(ev) => {
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -647,7 +647,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::ToolEnd(ev) => {
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -728,7 +728,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::LlmStart(ev) => {
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -765,7 +765,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
         TerminalEvent::LlmEnd(ev) => {
             let tid = ev.thread_id.clone();
             let tv = m.threads.entry(tid.clone()).or_insert_with(|| ThreadView {
-                thread_id: tid.clone(),
+                _thread_id: tid.clone(),
                 last_update: Instant::now(),
                 ..Default::default()
             });
@@ -1088,16 +1088,6 @@ fn push_span_list(lines: &mut Vec<String>, indent: &str, spans: &[SpanAgg], spin
     }
 }
 
-fn checklist_item_glyph(st: &api::PlanChecklistItemStatus) -> &'static str {
-    match st {
-        api::PlanChecklistItemStatus::Done => "[✓]",
-        api::PlanChecklistItemStatus::InProgress => "[~]",
-        api::PlanChecklistItemStatus::Blocked => "[!]",
-        api::PlanChecklistItemStatus::NeedsUpdate => "[!]",
-        api::PlanChecklistItemStatus::Pending => "[ ]",
-    }
-}
-
 fn checklist_item_glyph_colored(st: &api::PlanChecklistItemStatus) -> String {
     match st {
         api::PlanChecklistItemStatus::Done => "[✓]".green().to_string(),
@@ -1150,170 +1140,6 @@ fn key_from_ctx(ctx: &Option<api::ExecutionContext>) -> WorkItemKey {
             task_id: c.task_id.clone(),
             checklist_item_id: c.checklist_item_id.clone(),
         },
-    }
-}
-
-fn render_plan_tree(
-    lines: &mut Vec<String>,
-    kind: &str,
-    p: &api::PlanSnapshot,
-    span_buckets: &HashMap<WorkItemKey, Vec<SpanAgg>>,
-) {
-    let plan_status = format!("{:?}", p.status).to_lowercase();
-    lines.push(format!(
-        "  {} {} {}  {}",
-        "[~]".cyan(),
-        format!("{kind} plan").white(),
-        p.plan_key.as_str().cyan(),
-        plan_status.dark_grey(),
-    ));
-
-    for wg in p.work_groups.iter() {
-        lines.push(format!(
-            "    {} {}  {}",
-            "[~]".cyan(),
-            wg.label.as_str().white(),
-            wg.group_id.as_str().dark_grey()
-        ));
-        for r in wg.items.iter() {
-            let ci = lookup_checklist_item(p, &r.task_id, &r.checklist_item_id);
-            let ig = ci
-                .map(|x| checklist_item_glyph_colored(&x.status))
-                .unwrap_or_else(|| "[ ]".dark_grey().to_string());
-            let label = ci
-                .map(|x| x.label.clone())
-                .unwrap_or_else(|| r.checklist_item_id.clone());
-            // Task line.
-            lines.push(format!(
-                "      {} {}",
-                "[~]".cyan(),
-                r.task_id.as_str().white()
-            ));
-            // Checklist item line (nested).
-            lines.push(format!("        {ig} {}", label.white()));
-
-            let k = WorkItemKey {
-                plan_kind: plan_kind_from_str(kind),
-                plan_key: Some(p.plan_key.clone()),
-                workgroup_id: Some(wg.group_id.clone()),
-                task_id: Some(r.task_id.clone()),
-                checklist_item_id: Some(r.checklist_item_id.clone()),
-            };
-            if let Some(spans) = span_buckets.get(&k) {
-                push_span_list(lines, "          ", spans, 0);
-            }
-        }
-    }
-}
-
-fn pick_focus_key(
-    kind: &str,
-    span_buckets: &HashMap<WorkItemKey, Vec<SpanAgg>>,
-    preferred: Option<&WorkItemKey>,
-) -> Option<WorkItemKey> {
-    if let Some(p) = preferred {
-        // If we can render this directly from plan snapshots, prefer it even if no spans exist.
-        if p.plan_kind == plan_kind_from_str(kind) {
-            return Some(p.clone());
-        }
-    }
-    // Prefer an in-flight (running) work item for this plan kind.
-    // Fallback: the work item with the largest observed duration.
-    // Tie-break deterministically by WorkItemKey so focus does not flap.
-    let mut best_running: Option<(WorkItemKey, Duration)> = None;
-    let mut best_any: Option<(WorkItemKey, Duration)> = None;
-    for (k, spans) in span_buckets.iter() {
-        if k.plan_kind != plan_kind_from_str(kind) {
-            continue;
-        }
-        let mut max_d = Duration::from_millis(0);
-        let mut has_running = false;
-        for s in spans.iter() {
-            if s.max_dur > max_d {
-                max_d = s.max_dur;
-            }
-            if s.status == SpanStatus::Running {
-                has_running = true;
-            }
-        }
-        if has_running {
-            let replace = match best_running.as_ref() {
-                None => true,
-                Some((bk, bd)) => max_d > *bd || (max_d == *bd && k < bk),
-            };
-            if replace {
-                best_running = Some((k.clone(), max_d));
-            }
-        }
-        let replace = match best_any.as_ref() {
-            None => true,
-            Some((bk, bd)) => max_d > *bd || (max_d == *bd && k < bk),
-        };
-        if replace {
-            best_any = Some((k.clone(), max_d));
-        }
-    }
-    best_running.or(best_any).map(|(k, _)| k)
-}
-
-fn render_plan_compact(
-    lines: &mut Vec<String>,
-    kind: &str,
-    p: &api::PlanSnapshot,
-    span_buckets: &HashMap<WorkItemKey, Vec<SpanAgg>>,
-    preferred: Option<&WorkItemKey>,
-    spinner_idx: usize,
-) {
-    let focus = pick_focus_key(kind, span_buckets, preferred);
-    let plan_status = format!("{:?}", p.status).to_lowercase();
-    lines.push(format!(
-        "  {} {} {}  {}",
-        "[~]".cyan(),
-        format!("{kind} plan").white(),
-        p.plan_key.as_str().cyan(),
-        plan_status.dark_grey(),
-    ));
-
-    // Compact listing: keep workgroups/items in plan order, and only expand the focused item.
-    for wg in p.work_groups.iter() {
-        lines.push(format!(
-            "    {} {}  {}",
-            "[~]".cyan(),
-            wg.label.as_str().white(),
-            wg.group_id.as_str().dark_grey()
-        ));
-        for r in wg.items.iter() {
-            let ci = lookup_checklist_item(p, &r.task_id, &r.checklist_item_id);
-            let (ig, label) = match ci {
-                None => ("[ ]".dark_grey().to_string(), r.checklist_item_id.clone()),
-                Some(x) => (checklist_item_glyph_colored(&x.status), x.label.clone()),
-            };
-
-            // Dataset/task line: show status of its (current) checklist item.
-            lines.push(format!("      {ig} {}", r.task_id.as_str().white()));
-
-            let is_focus = focus.as_ref().is_some_and(|f| {
-                f.plan_kind == plan_kind_from_str(kind)
-                    && f.plan_key.as_deref() == Some(p.plan_key.as_str())
-                    && f.workgroup_id.as_deref() == Some(wg.group_id.as_str())
-                    && f.task_id.as_deref() == Some(r.task_id.as_str())
-                    && f.checklist_item_id.as_deref() == Some(r.checklist_item_id.as_str())
-            });
-            if is_focus {
-                // Checklist item line (nested) + spans.
-                lines.push(format!("        {ig} {}", label.white()));
-                let k = WorkItemKey {
-                    plan_kind: plan_kind_from_str(kind),
-                    plan_key: Some(p.plan_key.clone()),
-                    workgroup_id: Some(wg.group_id.clone()),
-                    task_id: Some(r.task_id.clone()),
-                    checklist_item_id: Some(r.checklist_item_id.clone()),
-                };
-                if let Some(spans) = span_buckets.get(&k) {
-                    push_span_list(lines, "          ", spans, spinner_idx);
-                }
-            }
-        }
     }
 }
 
@@ -2009,7 +1835,7 @@ mod tests {
     #[test]
     fn render_thread_detail_does_not_mark_future_phases_done() {
         let mut tv = ThreadView::default();
-        tv.thread_id = "t".to_string();
+        tv._thread_id = "t".to_string();
         tv.phases = vec![
             "preflight".to_string(),
             "cleanse_plan".to_string(),

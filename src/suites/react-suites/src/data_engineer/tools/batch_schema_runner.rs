@@ -13,7 +13,7 @@ pub(crate) async fn fail_model_schema_batch(
     error_message: String,
 ) -> Result<Value, String> {
     for name in attempted_names.iter() {
-        plan::model_schema_contract_mark_needs_update(plan, name);
+        plan::model_schema_contract_mark_needs_update(plan, name, Some(&error_message));
     }
     let budget = controller_kernel::note_batch_result_with_failure_kind(
         &mut plan.progress,

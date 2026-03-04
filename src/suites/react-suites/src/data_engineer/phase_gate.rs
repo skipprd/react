@@ -59,52 +59,16 @@ pub fn evaluate_pre_turn_directive(
     react_core::workflow::evaluate_pre_turn_directive(&core_repair_snapshot, usize::MAX)
 }
 
-pub fn patch_plan_intent_blocks_fast_forward(
-    execution_state: &ExecutionState,
-    phase: Phase,
-    current_plan_key: &str,
-    current_plan_digest: Option<&str>,
-) -> bool {
-    let repair = execution_state.repair_state();
-    let Some(intent) = repair.pending_loopback_intent.as_ref() else {
-        return false;
-    };
-    match intent {
-        PendingLoopbackIntent::PatchPlan {
-            phase: intent_phase,
-            entry_plan_key,
-            entry_plan_digest,
-        } => {
-            if *intent_phase != phase {
-                return false;
-            }
-            let key_changed = entry_plan_key
-                .as_ref()
-                .map(|k| k.trim() != current_plan_key.trim())
-                .unwrap_or(true);
-            let digest_changed = match (entry_plan_digest.as_deref(), current_plan_digest) {
-                (Some(prev), Some(cur)) => prev.trim() != cur.trim(),
-                (None, Some(_)) => true,
-                _ => false,
-            };
-            !(key_changed || digest_changed)
-        }
-        _ => false,
-    }
-}
-
 pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Phase) -> bool {
     let repair = execution_state.repair_state();
-    let Some(intent) = repair.pending_loopback_intent.as_ref() else {
+    let Some(PendingLoopbackIntent::PatchImpl {
+        phase: intent_phase,
+        entry_mutation_epoch,
+    }) = repair.pending_loopback_intent.as_ref()
+    else {
         return false;
     };
-    match intent {
-        PendingLoopbackIntent::PatchImpl {
-            phase: intent_phase,
-            entry_mutation_epoch,
-        } => *intent_phase == phase && repair.mutation_epoch <= *entry_mutation_epoch,
-        _ => false,
-    }
+    *intent_phase == phase && repair.mutation_epoch <= *entry_mutation_epoch
 }
 
 pub fn derive_single_target_repair_path(execution_state: &ExecutionState) -> Option<String> {
@@ -258,16 +222,8 @@ mod tests {
     fn control_critical_plan_and_review_reason_details_use_typed_constructors() {
         let phase_plan_src = include_str!("phase_plan.rs");
         assert!(
-            phase_plan_src.contains("phase_reason_detail::plan_actionable_auto_approved("),
-            "phase_plan must use typed constructor for review-actionable auto-approval detail"
-        );
-        assert!(
             phase_plan_src.contains("phase_reason_detail::plan_auto_approved("),
             "phase_plan must use typed constructor for plan auto-approval detail"
-        );
-        assert!(
-            !phase_plan_src.contains("PlanActionableAutoApprovedDetail {"),
-            "phase_plan must not inline PlanActionableAutoApprovedDetail literals in transition paths"
         );
         assert!(
             !phase_plan_src.contains("PlanAutoApprovedDetail {"),
@@ -289,16 +245,8 @@ mod tests {
     fn control_reason_detail_plan_and_author_paths_use_typed_constructors() {
         let phase_plan_src = include_str!("phase_plan.rs");
         assert!(
-            phase_plan_src.contains("phase_reason_detail::plan_actionable_auto_approved("),
-            "plan actionable auto-approval transitions must use typed detail constructor"
-        );
-        assert!(
             phase_plan_src.contains("phase_reason_detail::plan_auto_approved("),
             "plan auto-approved transitions must use typed detail constructor"
-        );
-        assert!(
-            !phase_plan_src.contains("\"entry_reason_code\": \"review_actionable_true\""),
-            "phase_plan should not inline review_actionable_true reason_detail JSON"
         );
         assert!(
             !phase_plan_src.contains("\"auto_approved_in_agent_mode\": true"),

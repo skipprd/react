@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::data_engineer::plan_types::OutputFieldSpec;
 use crate::data_engineer::tools::files_tool;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,7 +27,11 @@ pub struct TestsIntent {
     pub not_null: Vec<String>,
 }
 
-pub fn compile_sql_first_draft(sql: &str, notes: &[String]) -> Result<ModelIntent, String> {
+pub fn compile_sql_first_draft(
+    sql: &str,
+    notes: &[String],
+    plan_output_fields: &[OutputFieldSpec],
+) -> Result<ModelIntent, String> {
     let normalized_sql = sql.trim();
     if normalized_sql.is_empty() {
         return Err("authoring_ir: sql is empty".to_string());
@@ -54,7 +59,11 @@ pub fn compile_sql_first_draft(sql: &str, notes: &[String]) -> Result<ModelInten
                 Ok(v) => v,
                 Err(e2) => {
                     if has_wildcard_projection {
-                        BTreeSet::new()
+                        plan_output_fields
+                            .iter()
+                            .map(|f| f.name.trim().to_string())
+                            .filter(|n| !n.is_empty())
+                            .collect()
                     } else {
                         return Err(format!(
                             "authoring_ir: could not infer final output columns from sql: {}; fallback_error: {}",
@@ -120,6 +129,7 @@ mod tests {
         let ir = compile_sql_first_draft(
             "select\n  order_id,\n  amount\nfrom __SOURCE__\n",
             &["ok".to_string()],
+            &[],
         )
         .expect("ir");
         assert_eq!(ir.columns.len(), 2);
@@ -131,5 +141,36 @@ mod tests {
         assert!(names.contains("order_id"));
         assert!(names.contains("amount"));
         assert_eq!(ir.tests.not_null, vec!["order_id".to_string()]);
+    }
+
+    #[test]
+    fn compile_sql_first_draft_uses_plan_fields_for_select_star() {
+        let ir = compile_sql_first_draft(
+            "select * from __SOURCE__",
+            &[],
+            &[
+                OutputFieldSpec {
+                    name: "order_id".to_string(),
+                    kind: crate::data_engineer::plan_types::FieldKind::Clean,
+                    source_columns: vec!["order_id".to_string()],
+                    expression: "order_id".to_string(),
+                    data_type: None,
+                    nullable: false,
+                    description: None,
+                },
+                OutputFieldSpec {
+                    name: "user_id".to_string(),
+                    kind: crate::data_engineer::plan_types::FieldKind::Clean,
+                    source_columns: vec!["user_id".to_string()],
+                    expression: "user_id".to_string(),
+                    data_type: None,
+                    nullable: false,
+                    description: None,
+                },
+            ],
+        )
+        .expect("ir");
+        let names = ir.columns.into_iter().map(|c| c.name).collect::<Vec<_>>();
+        assert_eq!(names, vec!["order_id".to_string(), "user_id".to_string()]);
     }
 }

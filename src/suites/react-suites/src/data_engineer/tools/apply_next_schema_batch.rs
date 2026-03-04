@@ -266,23 +266,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         }
 
         let batch = plan::cleanse_pending_schema_contracts(&plan);
-        if batch.is_empty() {
-            return crate::data_engineer::tools::batch_contracts::to_json_value(
-                crate::data_engineer::tools::batch_contracts::CleanseSchemaBatchContract {
-                    ok: false,
-                    kind: Some("no_progress".to_string()),
-                    reason_code: None,
-                    message: Some("no pending schema checklist work (all done)".to_string()),
-                    checklist_item_id: checklist_item_id.clone(),
-                    attempted_dataset_ids: Vec::new(),
-                    succeeded_dataset_ids: Vec::new(),
-                    failed_dataset_ids: Vec::new(),
-                    errors: Vec::new(),
-                    progress_made: Some(false),
-                    auto_healed_wildcard_sql_dataset_ids: Vec::new(),
-                },
-            );
-        }
+        debug_assert!(!batch.is_empty(), "dynamic tool card should not offer this tool when no schema work remains");
         if let Err(e) =
             chunk_progress_contract::enforce_chunk_contract(&batch, 5, "cleanse_schema")
         {
@@ -483,7 +467,11 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             plan::cleanse_schema_contract_mark_done(&mut plan, ds);
         }
         for ds in failed.iter() {
-            plan::cleanse_schema_contract_mark_needs_update(&mut plan, ds);
+            plan::cleanse_schema_contract_mark_needs_update(
+                &mut plan,
+                ds,
+                Some(errors.join("\n").as_str()),
+            );
         }
         let failure_kind = if failed.is_empty() {
             None
@@ -622,23 +610,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         }
 
         let names = plan::model_pending_schema_contracts(&plan);
-        if names.is_empty() {
-            return crate::data_engineer::tools::batch_contracts::to_json_value(
-                crate::data_engineer::tools::batch_contracts::ModelSchemaBatchContract {
-                    ok: false,
-                    checklist_item_id: checklist_item_id.clone(),
-                    kind: Some("no_progress".to_string()),
-                    reason_code: None,
-                    message: Some("no pending schema checklist work (all done)".to_string()),
-                    errors: Vec::new(),
-                    attempted_item_names: Vec::new(),
-                    succeeded_item_names: Vec::new(),
-                    failed_item_names: Vec::new(),
-                    progress_made: Some(false),
-                    warnings: Vec::new(),
-                },
-            );
-        }
+        debug_assert!(!names.is_empty(), "dynamic tool card should not offer this tool when no schema work remains");
         if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&names, 5, "model_schema") {
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::ModelSchemaBatchContract {
@@ -858,6 +830,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_engineer::track_spec::TrackKind;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
     use react_core::llm::LargeLanguageModel;
@@ -1028,7 +1001,7 @@ mod tests {
 
         // Seed a cleanse plan with sql_model done and schema_contract pending.
         let plan_key = plan::new_cleanse_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(true);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Cleanse);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1157,7 +1130,7 @@ mod tests {
         };
 
         let plan_key = plan::new_cleanse_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(true);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Cleanse);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1261,7 +1234,7 @@ mod tests {
             data: std::collections::BTreeMap::new(),
         });
 
-        let mut checklist = plan::canonical_task_checklist(true);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Cleanse);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1377,7 +1350,7 @@ mod tests {
 
         // Seed a model plan with sql_model done and schema_contract pending.
         let plan_key = plan::new_model_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1473,7 +1446,7 @@ mod tests {
         };
 
         let plan_key = plan::new_model_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1590,7 +1563,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1710,7 +1683,7 @@ mod tests {
             .unwrap();
 
         let plan_key = plan::new_model_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1812,7 +1785,7 @@ mod tests {
 
         // Seed model plan.
         let plan_key = plan::new_model_plan_key(&ctx);
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)

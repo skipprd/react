@@ -26,9 +26,6 @@ pub struct PlanChecklistItem {
     pub status: models::PlanChecklistItemStatus,
     #[serde(rename = "origin")]
     pub origin: models::PlanChecklistOrigin,
-    /// Thread step index that introduced this requirement (null for initial items).
-    #[serde(rename = "originStepIdx", skip_serializing_if = "Option::is_none")]
-    pub origin_step_idx: Option<i32>,
     #[serde(rename = "evidence", skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Vec<models::PlanChecklistEvidence>>,
 }
@@ -41,9 +38,7 @@ impl PlanChecklistItem {
             details: None,
             status,
             origin,
-            origin_step_idx: None,
             evidence: None,
         }
     }
 }
-

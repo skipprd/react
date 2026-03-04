@@ -1,7 +1,7 @@
 use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::data_engineer::review_batched;
 use crate::data_engineer::{
-    control_flow, stable_json_digest, DataEngineerSuite, PhaseExecutorOutcome,
+    control_flow, DataEngineerSuite, PhaseExecutorOutcome,
 };
 use crate::flow_frame::FlowFrame;
 use crate::suite::SuiteCtx;
@@ -16,13 +16,6 @@ fn effective_review_tier(phase: control_flow::Phase, tier: ReviewTier) -> Review
         control_flow::Phase::CleanseReview => ReviewTier::Silver,
         control_flow::Phase::ModelReview | control_flow::Phase::PostPublishReview => ReviewTier::Gold,
         _ => ReviewTier::Unknown,
-    }
-}
-
-fn patch_plan_target_phase(phase: control_flow::Phase, tier: ReviewTier) -> control_flow::Phase {
-    match effective_review_tier(phase, tier) {
-        ReviewTier::Silver => control_flow::Phase::CleansePlan,
-        ReviewTier::Gold | ReviewTier::Unknown => control_flow::Phase::ModelPlan,
     }
 }
 
@@ -95,13 +88,19 @@ impl DataEngineerSuite {
             meta.review_ref = review_ref_from_trigger;
         }
         let mut review_retry_count = 0usize;
-        if let Some(kind) = Self::review_retry_kind(meta.decision) {
-            review_retry_count =
-                Self::bump_subjective_retry(thread_store, thread_id, phase, kind).await;
+        let is_patch_impl = meta.decision == ReviewDecision::PatchImpl;
+        if is_patch_impl {
+            review_retry_count = Self::bump_subjective_retry(
+                thread_store,
+                thread_id,
+                phase,
+                crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
+            )
+            .await;
         } else {
             Self::reset_subjective_retry(thread_store, thread_id).await;
         }
-        let forced_by_subjective_retry = Self::review_retry_kind(meta.decision).is_some()
+        let forced_by_subjective_retry = is_patch_impl
             && review_retry_count > crate::data_engineer::controller_kernel::subjective_retry_limit();
         let forced_progress = forced_by_subjective_retry;
         if forced_progress {
@@ -178,49 +177,6 @@ impl DataEngineerSuite {
                     PhaseDecision::forward(
                         next,
                         Some(PhaseReasonCode::ReviewProceed),
-                        Some(reason_detail),
-                    ),
-                )
-                .await?;
-                Ok(PhaseExecutorOutcome::Continue)
-            }
-            ReviewDecision::PatchPlan => {
-                let back = patch_plan_target_phase(phase, meta.tier);
-                let plan_actx = Self::plan_agent_ctx(thread_id, sctx);
-                let (entry_plan_key, entry_plan_digest) = match back {
-                    control_flow::Phase::CleansePlan => {
-                        if let Some(p) = crate::data_engineer::plan::load_cleanse_plan_any(&plan_actx).await {
-                            (Some(p.plan_key.clone()), stable_json_digest(&p))
-                        } else {
-                            (None, None)
-                        }
-                    }
-                    control_flow::Phase::ModelPlan => {
-                        if let Some(p) = crate::data_engineer::plan::load_model_plan_any(&plan_actx).await {
-                            (Some(p.plan_key.clone()), stable_json_digest(&p))
-                        } else {
-                            (None, None)
-                        }
-                    }
-                    _ => (None, None),
-                };
-                let _ = crate::data_engineer::state_manager::mutate_execution_state(
-                    thread_store,
-                    thread_id,
-                    |es| es.set_pending_patch_plan_intent(
-                        back,
-                        entry_plan_key.clone(),
-                        entry_plan_digest.clone(),
-                    ),
-                )
-                .await;
-                commit_phase_decision(
-                    thread_store,
-                    thread_id,
-                    Some(phase),
-                    PhaseDecision::loopback(
-                        back,
-                        Some(PhaseReasonCode::ReviewPatchPlan),
                         Some(reason_detail),
                     ),
                 )

@@ -145,15 +145,13 @@ pub struct DataCatalog {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_stats: Option<DatasetStats>,
     /// Epoch seconds when this catalog was built/refreshed.
-    ///
-    /// Backwards compatible: older stored catalogs won't have this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub built_at_epoch_secs: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct GlobalSemanticContext {
-    /// Schema version for forward/back compat.
+    /// Schema version.
     #[serde(default)]
     pub version: u32,
     /// Epoch seconds when this artifact was built/refreshed.

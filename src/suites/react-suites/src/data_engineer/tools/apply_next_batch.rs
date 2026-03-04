@@ -62,27 +62,16 @@ fn mark_in_progress_model_checklist(plan: &mut ModelPlan, names: &[String], chec
 }
 
 fn mark_needs_update_cleanse(plan: &mut CleansePlan, dataset_ids: &[String], note: &str) {
-    let _ = note; // errors are surfaced via tool output; plan tracks needs_update
     for ds in dataset_ids.iter() {
-        plan::cleanse_mark_needs_update(plan, ds);
+        plan::cleanse_mark_needs_update(plan, ds, Some(note));
     }
 }
 
 fn mark_needs_update_model(plan: &mut ModelPlan, names: &[String], note: &str) {
-    let _ = note; // errors are surfaced via tool output; plan tracks needs_update
     for n in names.iter() {
-        plan::model_mark_needs_update(plan, n);
+        plan::model_mark_needs_update(plan, n, Some(note));
     }
 }
-
-fn sql_model_checklist_status(items: &[plan::PlanChecklistItem]) -> plan::ChecklistItemStatus {
-    items
-        .iter()
-        .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
-        .map(|it| it.status)
-        .unwrap_or(plan::ChecklistItemStatus::Pending)
-}
-
 
 #[derive(Clone)]
 pub struct ApplyNextCleanseBatchTool {
@@ -133,80 +122,9 @@ impl Tool for ApplyNextCleanseBatchTool {
             }));
         }
 
-        // Keep batch selection consistent with the suite driver via shared next-action resolution.
         let next_action = plan::cleanse_next_authoring_action(&plan);
         let batch = next_action.author_sql_ids();
-        if batch.is_empty() {
-            if let plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "kind": "defer_schema_batch",
-                    "message": "next deterministic action is schema checklist work; call apply_next_cleanse_schema_batch",
-                    "pending_schema_contract_dataset_ids": ids,
-                    "attempted_dataset_ids": [],
-                    "succeeded_dataset_ids": [],
-                    "failed_dataset_ids": [],
-                    "errors": [],
-                }));
-            }
-            if matches!(next_action, plan::AuthoringNextAction::Validate) {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "kind": "defer_validate",
-                    "message": "next deterministic action is validate; transition to cleanse_validate",
-                    "attempted_dataset_ids": [],
-                    "succeeded_dataset_ids": [],
-                    "failed_dataset_ids": [],
-                    "errors": [],
-                }));
-            }
-            let pending_schema = plan::cleanse_pending_schema_contracts(&plan);
-            if !pending_schema.is_empty() {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "message": "no remaining cleanse SQL tasks; schema contracts pending",
-                    "done": false,
-                    "pending_schema_contract_dataset_ids": pending_schema,
-                    "attempted_dataset_ids": [],
-                    "succeeded_dataset_ids": [],
-                    "failed_dataset_ids": [],
-                }));
-            }
-            let done = plan::cleanse_all_done(&plan);
-            if done {}
-            if !done {
-                let mut blocked: Vec<String> = Vec::new();
-                for t in plan.tasks.iter() {
-                    let st = sql_model_checklist_status(&t.checklist);
-                    if matches!(st, plan::ChecklistItemStatus::Blocked) {
-                        blocked.push(t.dataset_id.clone());
-                    }
-                }
-                blocked.sort();
-                blocked.dedup();
-                let msg = "no runnable cleanse SQL tasks remain, but plan is not complete (blocked tasks exist)";
-                return Ok(serde_json::json!({
-                    "ok": false,
-                    "kind": "plan_blocked",
-                    "plan_key": plan.plan_key,
-                    "message": msg,
-                    "errors": [msg],
-                    "blocked_dataset_ids": blocked,
-                    "attempted_dataset_ids": [],
-                    "succeeded_dataset_ids": [],
-                    "failed_dataset_ids": [],
-                }));
-            }
-            return Ok(serde_json::json!({
-                "ok": true,
-                "message": "no remaining cleanse tasks in next batch (all done)",
-                "done": done,
-                "pending_schema_contract_dataset_ids": pending_schema,
-                "attempted_dataset_ids": [],
-                "succeeded_dataset_ids": [],
-                "failed_dataset_ids": [],
-            }));
-        }
+        debug_assert!(!batch.is_empty(), "dynamic tool card should not offer apply_next_cleanse_batch when no SQL work remains");
         if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&batch, 5, "cleanse_sql") {
             return Ok(serde_json::json!({
                 "ok": false,
@@ -348,7 +266,7 @@ impl Tool for ApplyNextCleanseBatchTool {
             let _ = note;
             for ds in failed.iter() {
                 if checklist_item_id == plan::CHECKLIST_SQL_MODEL {
-                    plan::cleanse_mark_needs_update(&mut plan, ds);
+                    plan::cleanse_mark_needs_update(&mut plan, ds, Some(err.as_str()));
                 } else {
                     plan::cleanse_checklist_mark_status(
                         &mut plan,
@@ -485,80 +403,9 @@ impl Tool for ApplyNextModelBatchTool {
             }));
         }
 
-        // Keep batch selection consistent with the suite driver via shared next-action resolution.
         let next_action = plan::model_next_authoring_action(&plan);
         let batch_names = next_action.author_sql_ids();
-        if batch_names.is_empty() {
-            if let plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "kind": "defer_schema_batch",
-                    "message": "next deterministic action is schema checklist work; call apply_next_model_schema_batch",
-                    "pending_schema_contract_item_names": ids,
-                    "attempted_item_names": [],
-                    "succeeded_item_names": [],
-                    "failed_item_names": [],
-                    "errors": [],
-                }));
-            }
-            if matches!(next_action, plan::AuthoringNextAction::Validate) {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "kind": "defer_validate",
-                    "message": "next deterministic action is validate; transition to model_validate",
-                    "attempted_item_names": [],
-                    "succeeded_item_names": [],
-                    "failed_item_names": [],
-                    "errors": [],
-                }));
-            }
-            let pending_schema = plan::model_pending_schema_contracts(&plan);
-            if !pending_schema.is_empty() {
-                return Ok(serde_json::json!({
-                    "ok": true,
-                    "message": "no remaining model SQL tasks; schema contracts pending",
-                    "done": false,
-                    "pending_schema_contract_item_names": pending_schema,
-                    "attempted_item_names": [],
-                    "succeeded_item_names": [],
-                    "failed_item_names": [],
-                }));
-            }
-            let done = plan::model_all_done(&plan);
-            if done {}
-            if !done {
-                let mut blocked: Vec<String> = Vec::new();
-                for t in plan.tasks.iter() {
-                    let st = sql_model_checklist_status(&t.checklist);
-                    if matches!(st, plan::ChecklistItemStatus::Blocked) {
-                        blocked.push(t.name.clone());
-                    }
-                }
-                blocked.sort();
-                blocked.dedup();
-                let msg = "no runnable model SQL tasks remain, but plan is not complete (blocked tasks exist)";
-                return Ok(serde_json::json!({
-                    "ok": false,
-                    "kind": "plan_blocked",
-                    "plan_key": plan.plan_key,
-                    "message": msg,
-                    "errors": [msg],
-                    "blocked_item_names": blocked,
-                    "attempted_item_names": [],
-                    "succeeded_item_names": [],
-                    "failed_item_names": [],
-                }));
-            }
-            return Ok(serde_json::json!({
-                "ok": true,
-                "message": "no remaining model tasks in next batch (all done)",
-                "done": done,
-                "pending_schema_contract_item_names": pending_schema,
-                "attempted_item_names": [],
-                "succeeded_item_names": [],
-                "failed_item_names": [],
-            }));
-        }
+        debug_assert!(!batch_names.is_empty(), "dynamic tool card should not offer apply_next_model_batch when no SQL work remains");
         if let Err(e) =
             chunk_progress_contract::enforce_chunk_contract(&batch_names, 5, "model_sql")
         {
@@ -715,7 +562,7 @@ impl Tool for ApplyNextModelBatchTool {
             );
             for n in failed.iter() {
                 if checklist_item_id == plan::CHECKLIST_SQL_MODEL {
-                    plan::model_mark_needs_update(&mut plan, n);
+                    plan::model_mark_needs_update(&mut plan, n, Some(err.as_str()));
                 } else {
                     plan::model_checklist_mark_status(
                         &mut plan,
@@ -803,6 +650,7 @@ impl Tool for ApplyNextModelBatchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_engineer::track_spec::TrackKind;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{ChatMessage, LargeLanguageModel};
     use react_core::scope::RequestScope;
@@ -915,7 +763,7 @@ mod tests {
     }
 
     async fn seed_cleanse_plan(ctx: &AgentCtx, sql_done: bool, schema_done: bool, locked: bool) {
-        let mut checklist = plan::canonical_task_checklist(true);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Cleanse);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -986,7 +834,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut checklist = plan::canonical_task_checklist(false);
+        let mut checklist = plan::canonical_task_checklist(TrackKind::Model);
         if let Some(item) = checklist
             .iter_mut()
             .find(|it| it.checklist_item_id == plan::CHECKLIST_SQL_MODEL)
@@ -1052,44 +900,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_next_cleanse_batch_contract_defer_schema() {
-        let ctx = test_ctx("tid-cleanse-defer-schema");
-        seed_cleanse_plan(&ctx, true, false, false).await;
-        let res = ApplyNextCleanseBatchTool { datasets: None }
-            .call(serde_json::json!({}), &ctx)
-            .await
-            .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("defer_schema_batch"));
-        assert_eq!(
-            res.get("attempted_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-        assert_eq!(
-            res.get("succeeded_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-        assert_eq!(
-            res.get("failed_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-    }
-
-    #[tokio::test]
-    async fn apply_next_cleanse_batch_contract_defer_validate() {
-        let ctx = test_ctx("tid-cleanse-defer-validate");
-        seed_cleanse_plan(&ctx, true, true, false).await;
-        let res = ApplyNextCleanseBatchTool { datasets: None }
-            .call(serde_json::json!({}), &ctx)
-            .await
-            .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("defer_validate"));
-        assert_eq!(
-            res.get("attempted_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-    }
-
-    #[tokio::test]
     async fn apply_next_cleanse_batch_contract_batch_locked() {
         let ctx = test_ctx("tid-cleanse-locked");
         seed_cleanse_plan(&ctx, false, false, true).await;
@@ -1100,36 +910,6 @@ mod tests {
         assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("batch_locked"));
         assert_eq!(
             res.get("attempted_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-    }
-
-    #[tokio::test]
-    async fn apply_next_model_batch_contract_defer_schema() {
-        let ctx = test_ctx("tid-model-defer-schema");
-        seed_model_plan(&ctx, true, false, false).await;
-        let res = ApplyNextModelBatchTool
-            .call(serde_json::json!({}), &ctx)
-            .await
-            .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("defer_schema_batch"));
-        assert_eq!(
-            res.get("attempted_item_names").and_then(|v| v.as_array()).map(|a| a.len()),
-            Some(0)
-        );
-    }
-
-    #[tokio::test]
-    async fn apply_next_model_batch_contract_defer_validate() {
-        let ctx = test_ctx("tid-model-defer-validate");
-        seed_model_plan(&ctx, true, true, false).await;
-        let res = ApplyNextModelBatchTool
-            .call(serde_json::json!({}), &ctx)
-            .await
-            .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("defer_validate"));
-        assert_eq!(
-            res.get("attempted_item_names").and_then(|v| v.as_array()).map(|a| a.len()),
             Some(0)
         );
     }

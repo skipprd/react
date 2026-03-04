@@ -28,7 +28,6 @@ pub struct InMemoryStorageAdapter {
 #[derive(Clone, Debug)]
 struct StoredObject {
     bytes: Vec<u8>,
-    content_type: String,
     etag: String,
 }
 
@@ -60,7 +59,7 @@ impl StorageAdapter for InMemoryStorageAdapter {
             .ok_or_else(|| "not found".to_string())
     }
 
-    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), String> {
+    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), String> {
         let mut g = self
             .inner
             .write()
@@ -69,7 +68,6 @@ impl StorageAdapter for InMemoryStorageAdapter {
             key.to_string(),
             StoredObject {
                 bytes: bytes.to_vec(),
-                content_type: content_type.to_string(),
                 etag: Self::next_etag(bytes),
             },
         );

@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use serde::Serialize;
 
 use crate::data_engineer_shared::policy_sql_validated::SqlValidatedPolicy;
 use crate::data_engineer_shared::types::DatasetCandidate;
@@ -9,11 +8,11 @@ use crate::suite::{Suite, SuiteCtx};
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, Interrupt, RunOutcome, RunOutcomeNonInteractive,
 };
-use react_core::control_flow::{GuardBlockKind, PhaseReasonCode, ReviewDecision};
+use react_core::control_flow::{GuardBlockKind, PhaseReasonCode};
 use react_core::llm::LlmCallOptions;
 use react_core::session::{CatalogBootstrapState, ThreadBootstrapState, ThreadStore, ToolStepStatus};
 use react_core::tools::ToolRegistry;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 use crate::data_engineer::phase_contract::{
     commit_guard_block as apply_guard_block, plan_status_reason_detail,
@@ -161,27 +160,9 @@ fn batch_lock_error(reason: &str) -> String {
     format!("batch_locked:{}: {}", code, reason)
 }
 
-fn stable_json_digest<T: Serialize>(value: &T) -> Option<String> {
-    let raw = serde_json::to_string(value).ok()?;
-    Some(react_core::llm_observability::sha256_hex_str(&raw))
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StayProof {
-    RetryBudgetConsumed,
-    GuardBlockAppended,
-    MutationObserved,
-    AwaitExternalCondition,
-}
-
 enum PhaseExecutorOutcome {
-    Stay(StayProof),
+    Continue,
     Return(Vec<FlowFrame>),
-}
-
-#[allow(non_upper_case_globals)]
-impl PhaseExecutorOutcome {
-    const Continue: Self = Self::Stay(StayProof::AwaitExternalCondition);
 }
 
 /// Interrupt policy used by non-deterministic single-pass modes.
@@ -296,11 +277,12 @@ mod interrupt_only_policy_tests {
 
 
 #[derive(Clone, Debug)]
-enum AllowedBatch {
+enum PlanState {
     CleanseSqlDatasetIds(Vec<String>),
     CleanseSchemaDatasetIds(Vec<String>),
     ModelSqlItemNames(Vec<String>),
     ModelSchemaItemNames(Vec<String>),
+    Unconstrained,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -519,11 +501,6 @@ impl DataEngineerSuite {
         }
     }
 
-    fn should_reset_subjective_retry_after_plan_save(entered_from_actionable_review: bool) -> bool {
-        // Preserve retry lifecycle when review requested plan edits; this keeps loopback guards
-        // monotonic across cleanse/model/publish review feedback cycles.
-        !entered_from_actionable_review
-    }
 
     fn planning_llm_options(
         profile: PlanningLlmProfile,
@@ -712,7 +689,7 @@ impl DataEngineerSuite {
                     prohibited_ops: vec![],
                 },
                 status: crate::data_engineer::plan::TaskStatus::Pending,
-                checklist: crate::data_engineer::plan::canonical_task_checklist(true),
+                checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
             .collect::<Vec<_>>();
         let batches = ids.chunks(5).map(|c| c.to_vec()).collect::<Vec<_>>();
@@ -875,20 +852,6 @@ impl DataEngineerSuite {
             run_obs.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
             first_field,
         )
-    }
-
-    fn review_retry_kind(
-        decision: ReviewDecision,
-    ) -> Option<crate::data_engineer::progress_controller::SubjectiveRetryKind> {
-        match decision {
-            ReviewDecision::PatchPlan => Some(
-                crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchPlan,
-            ),
-            ReviewDecision::PatchImpl => Some(
-                crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
-            ),
-            ReviewDecision::Proceed => None,
-        }
     }
 
     fn churn_audit_acceptance_criteria() -> serde_json::Value {
@@ -1122,11 +1085,11 @@ impl DataEngineerSuite {
 
     async fn generate_design_memo(
         ctx: &AgentCtx,
-        is_cleanse: bool,
+        track: TrackKind,
         planning_context: &str,
     ) -> Result<String, String> {
         use react_core::llm::ChatMessage;
-        let kind = if is_cleanse {
+        let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
             "model_plan"
@@ -1160,12 +1123,12 @@ impl DataEngineerSuite {
 
     async fn critique_design_memo(
         ctx: &AgentCtx,
-        is_cleanse: bool,
+        track: TrackKind,
         planning_context: &str,
         memo: &str,
     ) -> Result<crate::data_engineer::plan_schema::PlanDesignCritiqueV1, String> {
         use react_core::llm::ChatMessage;
-        let kind = if is_cleanse {
+        let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
             "model_plan"
@@ -1199,13 +1162,13 @@ impl DataEngineerSuite {
 
     async fn revise_design_memo(
         ctx: &AgentCtx,
-        is_cleanse: bool,
+        track: TrackKind,
         planning_context: &str,
         memo: &str,
         critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
     ) -> Result<String, String> {
         use react_core::llm::ChatMessage;
-        let kind = if is_cleanse {
+        let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
             "model_plan"
@@ -1241,7 +1204,7 @@ impl DataEngineerSuite {
 
     async fn produce_critiqued_design_memo(
         ctx: &AgentCtx,
-        is_cleanse: bool,
+        track: TrackKind,
         planning_context: &str,
     ) -> Result<
         (
@@ -1250,8 +1213,8 @@ impl DataEngineerSuite {
         ),
         String,
     > {
-        let mut memo = Self::generate_design_memo(ctx, is_cleanse, planning_context).await?;
-        let mut critique = Self::critique_design_memo(ctx, is_cleanse, planning_context, &memo)
+        let mut memo = Self::generate_design_memo(ctx, track, planning_context).await?;
+        let mut critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
             .await?;
         // Bounded revision loop: critique feedback must update memo reasoning before extraction.
         for _ in 0..1 {
@@ -1259,9 +1222,9 @@ impl DataEngineerSuite {
                 break;
             }
             memo =
-                Self::revise_design_memo(ctx, is_cleanse, planning_context, &memo, &critique)
+                Self::revise_design_memo(ctx, track, planning_context, &memo, &critique)
                     .await?;
-            critique = Self::critique_design_memo(ctx, is_cleanse, planning_context, &memo)
+            critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
                 .await?;
         }
         Ok((memo, critique))
@@ -1445,7 +1408,7 @@ Apply these fixes in the output.",
                     invariants: vec![],
                     implementation_spec: Self::placeholder_cleanse_impl_spec(),
                     status: Default::default(),
-                    checklist: crate::data_engineer::plan::canonical_task_checklist(true),
+                    checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Cleanse),
                 }
             })
             .collect();
@@ -1513,7 +1476,7 @@ Apply these fixes in the output.",
                     invariants: vec![],
                     implementation_spec: Self::placeholder_model_impl_spec(),
                     status: Default::default(),
-                    checklist: crate::data_engineer::plan::canonical_task_checklist(false),
+                    checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Model),
                 }
             })
             .collect();
@@ -2056,16 +2019,13 @@ Apply these fixes in the output.",
             "data_engineer: refreshing canonical catalogs/stats for {} dataset(s)",
             dss.len()
         );
-        let empty: HashMap<String, react_core::discover::Metadata> = HashMap::new();
+        let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
         cat.build_all_with_progress(&sctx.scope, datasets.as_ref(), &empty, None)
             .await
             .map_err(|e| format!("catalog bootstrap failed while building catalogs: {e}"))?;
 
         // Mandatory metadata completion pass.
-        let mut all: HashMap<String, react_core::discover::Metadata> = HashMap::new();
-        for ds in dss.iter() {
-            all.insert(ds.fqn(), react_core::discover::Metadata::default());
-        }
+        let all: std::collections::HashSet<String> = dss.iter().map(|ds| ds.fqn()).collect();
         let enrich_report = cat
             .run_llm_enrichment_all(&sctx.scope, &all)
             .await
@@ -2639,7 +2599,7 @@ Apply these fixes in the output.",
             )
             .await?;
             match outcome {
-                PhaseExecutorOutcome::Stay(_proof) => continue,
+                PhaseExecutorOutcome::Continue => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
             }
         }
@@ -3173,7 +3133,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             None,
             false,
         )
@@ -3247,7 +3207,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             None,
             false,
         )
@@ -3320,7 +3280,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             None,
             false,
         )
@@ -3358,9 +3318,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::CleanseSqlDatasetIds(vec![
+            &super::PlanState::CleanseSqlDatasetIds(vec![
                 "AwsDataCatalog.db.t1".to_string(),
-            ])),
+            ]),
             None,
             false,
         )
@@ -3396,9 +3356,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::CleanseSchemaDatasetIds(vec![
+            &super::PlanState::CleanseSchemaDatasetIds(vec![
                 "AwsDataCatalog.db.t1".to_string(),
-            ])),
+            ]),
             Some("models/staging/stg_test_raw_raw_order_items.sql".to_string()),
             false,
         )
@@ -3439,7 +3399,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             Some("models/marts/fct_orders.sql".to_string()),
             false,
         )
@@ -3504,7 +3464,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             Some("models/marts/fct_orders.sql".to_string()),
             false,
         )
@@ -3564,7 +3524,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             Some("models/marts/fct_orders.sql".to_string()),
             false,
         )
@@ -3637,7 +3597,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             Some("models/marts/fct_orders.sql".to_string()),
             false,
         )
@@ -3702,7 +3662,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             None,
             false,
         )
@@ -3761,9 +3721,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::CleanseSqlDatasetIds(vec![
+            &super::PlanState::CleanseSqlDatasetIds(vec![
                 "AwsDataCatalog.db.t1".to_string(),
-            ])),
+            ]),
             None,
             false,
         )
@@ -3798,9 +3758,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::CleanseSchemaDatasetIds(vec![
+            &super::PlanState::CleanseSchemaDatasetIds(vec![
                 "AwsDataCatalog.db.t1".to_string(),
-            ])),
+            ]),
             None,
             false,
         )
@@ -3829,9 +3789,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::ModelSqlItemNames(vec![
+            &super::PlanState::ModelSqlItemNames(vec![
                 "fct_orders".to_string()
-            ])),
+            ]),
             None,
             false,
         )
@@ -3865,9 +3825,9 @@ mod tests {
             &guard,
             true,
             &sctx,
-            Some(super::AllowedBatch::ModelSchemaItemNames(vec![
+            &super::PlanState::ModelSchemaItemNames(vec![
                 "fct_orders".to_string(),
-            ])),
+            ]),
             None,
             false,
         )
@@ -3884,206 +3844,6 @@ mod tests {
         assert!(err.contains("unknown tool"));
     }
 
-    #[tokio::test]
-    async fn plan_phase_auto_approves_when_entered_from_review_patch_plan_cleanse() {
-        let thread_id = "t_auto_cleanse";
-        let mut sctx = SuiteCtx::default();
-
-        let ds = "AwsDataCatalog.test_raw.raw_orders".to_string();
-        let mut ok = std::collections::HashSet::new();
-        ok.insert(ds.clone());
-        sctx.warehouse = Arc::new(MockWarehouseOk { ok_fqns: ok });
-
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-        let actx = DataEngineerSuite::plan_agent_ctx(thread_id, &sctx);
-
-        let plan_key = crate::data_engineer::plan::new_cleanse_plan_key(&actx);
-        let plan = crate::data_engineer::plan::CleansePlan {
-            plan_key: plan_key.clone(),
-            status: crate::data_engineer::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::Value::Null,
-            tasks: vec![crate::data_engineer::plan::CleanseTask {
-                dataset_id: ds.clone(),
-                expected_model_path: Some("models/staging/stg_test_raw_raw_orders.sql".to_string()),
-                invariants: vec![],
-                implementation_spec: crate::data_engineer::plan::CleanseImplementationSpec {
-                    spec_version: 1,
-                    row_preserving: true,
-                    output_fields: vec![crate::data_engineer::plan::OutputFieldSpec {
-                        name: "order_id_raw".to_string(),
-                        kind: crate::data_engineer::plan::FieldKind::Raw,
-                        source_columns: vec!["order_id".to_string()],
-                        expression: "order_id as order_id_raw (raw)".to_string(),
-                        data_type: None,
-                        nullable: true,
-                        description: None,
-                    }],
-                    prohibited_ops: vec![],
-                },
-                status: crate::data_engineer::plan::TaskStatus::Pending,
-                checklist: crate::data_engineer::plan::canonical_task_checklist(true),
-            }],
-            batches: vec![vec![ds.clone()]],
-            work_groups: crate::data_engineer::plan::canonical_work_groups_from_batches(
-                &[vec![ds.clone()]],
-                "cleanse",
-            ),
-            mutations: vec![],
-            progress: crate::data_engineer::plan::PlanProgress::default(),
-        };
-        crate::data_engineer::plan::save_cleanse_plan(&actx, &plan)
-            .await
-            .expect("save");
-
-        let advanced = DataEngineerSuite::approve_cleanse_plan_draft_and_advance(
-            &thread_store,
-            thread_id,
-            control_flow::Phase::CleansePlan,
-            &actx,
-            123,
-            react_core::control_flow::PhaseReasonCode::PlanAutoApproved,
-            serde_json::json!({
-                "plan_key": plan_key,
-                "entry_reason_code": react_core::control_flow::PhaseReasonCode::ReviewPatchPlan.as_str()
-            }),
-        )
-        .await
-        .expect("approve");
-        assert!(advanced);
-
-        let loaded = crate::data_engineer::plan::load_cleanse_plan(&actx)
-            .await
-            .expect("plan");
-        assert_eq!(
-            loaded.status,
-            crate::data_engineer::plan::PlanStatus::Approved
-        );
-        assert_eq!(loaded.progress.last_applied_step_idx, 123);
-
-        let log2 = thread_store.get(thread_id).await.expect("thread log");
-        let last_phase = log2.steps.iter().rev().find_map(|s| match s {
-            react_core::session::ThreadStep::Phase {
-                phase, reason_code, ..
-            } => Some((phase.clone(), reason_code.clone())),
-            _ => None,
-        });
-        let (p, rc) = last_phase.expect("phase");
-        assert_eq!(p, control_flow::Phase::CleanseAuthor.as_str());
-        assert_eq!(
-            rc,
-            Some(react_core::control_flow::PhaseReasonCode::PlanAutoApproved)
-        );
-    }
-
-    #[tokio::test]
-    async fn plan_phase_auto_approves_when_entered_from_review_patch_plan_model() {
-        let thread_id = "t_auto_model";
-        let sctx = SuiteCtx::default();
-
-        // For model plan approval grounding, we need at least one staging model present under models/staging/.
-        let base = sctx
-            .keyspace
-            .dbt_prefix(&sctx.scope)
-            .trim_end_matches('/')
-            .to_string();
-        let stg_rel = "models/staging/stg_test_raw_raw_orders.sql";
-        let stg_key = format!("{}/{}", base, stg_rel);
-        sctx.storage
-            .put_bytes(&stg_key, b"select 1", "text/sql")
-            .await
-            .expect("seed staging");
-
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-        let actx = DataEngineerSuite::plan_agent_ctx(thread_id, &sctx);
-
-        let plan_key = crate::data_engineer::plan::new_model_plan_key(&actx);
-        let plan = crate::data_engineer::plan::ModelPlan {
-            plan_key: plan_key.clone(),
-            status: crate::data_engineer::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::Value::Null,
-            tasks: vec![crate::data_engineer::plan::ModelTask {
-                name: "fct_orders".to_string(),
-                folder: "marts".to_string(),
-                goal: "Orders fact".to_string(),
-                inputs: vec!["stg_test_raw_raw_orders".to_string()],
-                expected_model_path: Some("models/marts/fct_orders.sql".to_string()),
-                invariants: vec![],
-                implementation_spec: crate::data_engineer::plan::ModelImplementationSpec {
-                    spec_version: 1,
-                    grain: "1 row per order".to_string(),
-                    inputs: vec!["stg_test_raw_raw_orders".to_string()],
-                    joins: vec![],
-                    metrics: vec![crate::data_engineer::plan::MetricSpec {
-                        name: "orders".to_string(),
-                        definition: "count(*)".to_string(),
-                        caveats: vec![],
-                    }],
-                    output_fields: vec![],
-                    assumptions: vec![],
-                },
-                status: crate::data_engineer::plan::TaskStatus::Pending,
-                checklist: crate::data_engineer::plan::canonical_task_checklist(false),
-            }],
-            batches: vec![vec!["fct_orders".to_string()]],
-            work_groups: crate::data_engineer::plan::canonical_work_groups_from_batches(
-                &[vec!["fct_orders".to_string()]],
-                "model",
-            ),
-            mutations: vec![],
-            progress: crate::data_engineer::plan::PlanProgress::default(),
-        };
-        crate::data_engineer::plan::save_model_plan(&actx, &plan)
-            .await
-            .expect("save");
-
-        let advanced = DataEngineerSuite::approve_model_plan_draft_and_advance(
-            &thread_store,
-            thread_id,
-            control_flow::Phase::ModelPlan,
-            &actx,
-            77,
-            react_core::control_flow::PhaseReasonCode::PlanAutoApproved,
-            serde_json::json!({
-                "plan_key": plan_key,
-                "entry_reason_code": react_core::control_flow::PhaseReasonCode::ReviewPatchPlan.as_str()
-            }),
-        )
-        .await
-        .expect("approve");
-        assert!(advanced);
-
-        let loaded = crate::data_engineer::plan::load_model_plan(&actx)
-            .await
-            .expect("plan");
-        assert_eq!(
-            loaded.status,
-            crate::data_engineer::plan::PlanStatus::Approved
-        );
-        assert_eq!(loaded.progress.last_applied_step_idx, 77);
-
-        let log2 = thread_store.get(thread_id).await.expect("thread log");
-        let last_phase = log2.steps.iter().rev().find_map(|s| match s {
-            react_core::session::ThreadStep::Phase {
-                phase, reason_code, ..
-            } => Some((phase.clone(), reason_code.clone())),
-            _ => None,
-        });
-        let (p, rc) = last_phase.expect("phase");
-        assert_eq!(p, control_flow::Phase::ModelAuthor.as_str());
-        assert_eq!(
-            rc,
-            Some(react_core::control_flow::PhaseReasonCode::PlanAutoApproved)
-        );
-    }
-
     #[test]
     fn review_question_includes_prior_review_and_mutation_diff_when_available() {
         use crate::data_engineer::control_flow::Phase;
@@ -4091,10 +3851,10 @@ mod tests {
 
         let prior_review_answer = "Please add tests.";
         let mut st = ExecutionState::new();
-        st.phase.phase_reason_code = Some(react_core::control_flow::PhaseReasonCode::ReviewPatchPlan);
+        st.phase.phase_reason_code = Some(react_core::control_flow::PhaseReasonCode::ReviewPatchImpl);
         st.phase.phase_reason_detail = Some(serde_json::json!({
             "review_phase":"cleanse_review",
-            "meta": {"decision":"patch_plan", "dataset_ids": ["x"], "tier":"silver"},
+            "meta": {"decision":"patch_impl", "dataset_ids": ["x"], "tier":"silver"},
             "answer": prior_review_answer
         }));
         st.telemetry.last_mutation_summary = Some(LastMutationSummary {
@@ -4126,7 +3886,7 @@ mod tests {
             "should include affected path from state"
         );
         assert!(
-            q.contains("review_patch_plan"),
+            q.contains("review_patch_impl"),
             "should include entry reason"
         );
         assert!(
@@ -4151,39 +3911,6 @@ mod tests {
         );
         assert!(q.contains("validate_pass_to_review"));
         assert!(q.contains("dbt_validate_step_idx"));
-    }
-
-    #[test]
-    fn patch_plan_intent_blocks_fast_forward_when_plan_is_unchanged() {
-        use crate::data_engineer::control_flow::Phase;
-        use crate::data_engineer::progress_controller::{
-            ExecutionState, PendingLoopbackIntent,
-        };
-
-        let mut st = ExecutionState::new();
-        st.repair.pending_loopback_intent = Some(PendingLoopbackIntent::PatchPlan {
-            phase: Phase::CleansePlan,
-            entry_plan_key: Some("k1".to_string()),
-            entry_plan_digest: Some("d1".to_string()),
-        });
-        assert!(crate::data_engineer::phase_gate::patch_plan_intent_blocks_fast_forward(
-            &st,
-            Phase::CleansePlan,
-            "k1",
-            Some("d1"),
-        ));
-        assert!(!crate::data_engineer::phase_gate::patch_plan_intent_blocks_fast_forward(
-            &st,
-            Phase::CleansePlan,
-            "k2",
-            Some("d1"),
-        ));
-        assert!(!crate::data_engineer::phase_gate::patch_plan_intent_blocks_fast_forward(
-            &st,
-            Phase::CleansePlan,
-            "k1",
-            Some("d2"),
-        ));
     }
 
     #[test]
@@ -4335,7 +4062,7 @@ mod tests {
             &guard,
             true,
             &sctx,
-            None,
+            &super::PlanState::Unconstrained,
             None,
             true,
         )

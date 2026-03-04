@@ -12,7 +12,7 @@ use chrono::Utc;
 use react_core::session::{
     Observation, ThreadItemError as CoreThreadItemError, ThreadItemKind as CoreThreadItemKind,
     ThreadItemState as CoreThreadItemState, ThreadItemStatus as CoreThreadItemStatus, ThreadLog,
-    ThreadState as CoreThreadState, ThreadStep, ThreadStore, ToolObservation, ToolStepStatus,
+    ThreadState as CoreThreadState, ThreadStep, ThreadStore, ToolStepStatus,
 };
 use react_core::suite::SuiteRegistry;
 use react_core::suite::SuiteCtx;
@@ -1157,9 +1157,6 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                         payload,
                         display,
                     } => {
-                        let display_text = display
-                            .clone()
-                            .unwrap_or_else(|| final_display_text_from_payload(&payload));
                         let tseq = state.next_thread_seq(&thread_id);
                         let final_result =
                             ws_final_result_from_typed_final(&kind, &payload, &display);
@@ -1357,9 +1354,6 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                         payload,
                         display,
                     } => {
-                        let display_text = display
-                            .clone()
-                            .unwrap_or_else(|| final_display_text_from_payload(&payload));
                         let tseq = state.next_thread_seq(&thread_id);
                         let final_result =
                             ws_final_result_from_typed_final(&kind, &payload, &display);
@@ -1458,10 +1452,8 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
             state.seen.insert(thread_id.clone(), req.up_to_thread_seq);
             // compute unread now
             let store = state.thread_store();
-            let mut unread = 0;
             let log = store.get(&thread_id).await?;
-            let (_max_assistant, after_seen) = compute_unread_for_log(&log, req.up_to_thread_seq);
-            unread = after_seen;
+            let (_max_assistant, unread) = compute_unread_for_log(&log, req.up_to_thread_seq);
             let resp = api::ServerMessage::Unread(api::UnreadResponse::new(
                 1,
                 m::unread_response::Type::Unread,
@@ -2045,25 +2037,6 @@ struct ConnState {
     hub: Option<EventHub>,
 }
 
-async fn load_last_run_sql_async(thread_id: &str) -> (Vec<String>, Vec<Vec<String>>) {
-    // NOTE: This helper is currently unused. Keep it as a stub to avoid coupling
-    // to the thread store from this generic WS module.
-    let _ = thread_id;
-    (Vec::new(), Vec::new())
-}
-
-async fn synthesize_summary(
-    question: &str,
-    agent_answer: &str,
-    sql_opt: &Option<String>,
-    header: &[String],
-    rows: &[Vec<String>],
-) -> Option<String> {
-    // NOTE: Currently unused. Kept as a stub to avoid coupling WS core to LLM bootstrap/config.
-    let _ = (question, agent_answer, sql_opt, header, rows);
-    None
-}
-
 impl ConnState {
     fn new(reg: Arc<SuiteRegistry>, suite_ctx: SuiteCtx, hub: Option<EventHub>) -> Self {
         Self {
@@ -2115,7 +2088,7 @@ impl ConnState {
 }
 
 fn derive_thread_context(log: &ThreadLog) -> (String, String) {
-    // Defaults for back-compat threads with no recorded context.
+    // Defaults for threads with no recorded context.
     let mut suite_id = String::new();
     let mut agent_type = "ask".to_string();
     for step in log.steps.iter() {
@@ -2706,33 +2679,6 @@ async fn run_suite_and_stream(
     )
     .await
 }
-fn compact_schema_columns(fields: &[arrow::datatypes::FieldRef]) -> Vec<(String, String)> {
-    use arrow::datatypes::{DataType, Field};
-    fn walk(prefix: &str, f: &Field, depth: usize, out: &mut Vec<(String, String)>) {
-        let name = if prefix.is_empty() {
-            f.name().to_string()
-        } else {
-            format!("{}.{}", prefix, f.name())
-        };
-        match f.data_type() {
-            DataType::Struct(inner) if depth < 2 => {
-                for child in inner.iter() {
-                    walk(&name, child.as_ref(), depth + 1, out);
-                }
-            }
-            dt => {
-                out.push((name, format!("{:?}", dt)));
-            }
-        }
-    }
-    let mut out: Vec<(String, String)> = Vec::new();
-    for f in fields {
-        walk("", f.as_ref(), 0, &mut out);
-    }
-    out
-}
-
-// Trace streaming removed (hard cutover).
 enum AgentFrame {
     Final {
         kind: String,
@@ -2775,7 +2721,7 @@ async fn run_agent_with_processing_suite(
         env_bool("REACT_HEADLESS_AUTO_APPROVE", false)
     };
 
-    let mut sctx2 = state.suite_ctx.clone();
+    let sctx2 = state.suite_ctx.clone();
 
     // Preflight is often the implicit "no phase yet" state; emit it explicitly so the UI sees activity.
     {
@@ -3622,30 +3568,6 @@ async fn run_suite_and_frames(
     Ok(frames)
 }
 
-fn chunk_text(s: &str, max_chunk: usize) -> Vec<String> {
-    if s.is_empty() {
-        return Vec::new();
-    }
-    let mut out: Vec<String> = Vec::new();
-    let mut buf = String::new();
-    for w in s.split_whitespace() {
-        if buf.is_empty() {
-            buf.push_str(w);
-        } else if buf.len() + 1 + w.len() <= max_chunk {
-            buf.push(' ');
-            buf.push_str(w);
-        } else {
-            out.push(buf.clone());
-            buf.clear();
-            buf.push_str(w);
-        }
-    }
-    if !buf.is_empty() {
-        out.push(buf);
-    }
-    out
-}
-
 fn compute_unread_for_log(log: &ThreadLog, seen_seq: i32) -> (i32, i32) {
     let mut tseq: i32 = 0;
     let mut assistant_count_after_seen: i32 = 0;
@@ -3677,8 +3599,6 @@ async fn build_history(
     before: Option<i32>,
     limit_opt: Option<i32>,
 ) -> Result<(Vec<api::HistoryResponseMessagesInner>, Option<i32>), String> {
-    let mut msgs: Vec<api::HistoryResponseMessagesInner> = Vec::new();
-    let mut next_before: Option<i32> = None;
     let limit = limit_opt.unwrap_or(50).max(1);
     let log = store.get(thread_id).await?;
     let mut tseq: i32 = 0;
@@ -3757,16 +3677,15 @@ async fn build_history(
         all_msgs
     };
     let total = filtered.len() as i32;
-    if total > limit {
+    let (msgs, next_before) = if total > limit {
         let start = (total - limit) as usize;
         let trimmed = filtered.split_off(start);
         let first_seq = trimmed.first().map(|m| m.thread_seq).unwrap_or(0);
-        next_before = if first_seq > 1 { Some(first_seq) } else { None };
-        msgs = trimmed;
+        let nb = if first_seq > 1 { Some(first_seq) } else { None };
+        (trimmed, nb)
     } else {
-        msgs = filtered;
-        next_before = None;
-    }
+        (filtered, None)
+    };
     Ok((msgs, next_before))
 }
 
@@ -4417,7 +4336,6 @@ mod tests {
                     "details": null,
                     "status": "pending",
                     "origin": "initial",
-                    "origin_step_idx": null,
                     "evidence": []
                 }]
             }],

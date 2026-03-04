@@ -4,8 +4,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
 
-use sha2::{Digest, Sha256};
-
 use crate::data_engineer::dbt_repair::remediate::active_provider_dialect;
 use crate::data_engineer::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::data_engineer::plan;
@@ -16,13 +14,6 @@ use crate::data_engineer::sql_first;
 use react_core::agent::AgentCtx;
 use react_core::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
-
-fn sha256_hex(s: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    let out = hasher.finalize();
-    hex::encode(out)
-}
 
 fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
     args.get(key)
@@ -214,7 +205,6 @@ fn render_plan_driven_instructions(
         }
         let origin = match it.origin {
             crate::data_engineer::plan::ChecklistOrigin::Initial => "initial",
-            crate::data_engineer::plan::ChecklistOrigin::ReviewActionable => "review_actionable",
         };
         out.push_str("- ");
         out.push_str(it.label.trim());
@@ -666,6 +656,8 @@ impl Tool for StagingModelTool {
             }));
         }
 
+        let mut plan_output_field_names: Vec<String> = Vec::new();
+
         for ds_ref in dataset_refs.iter() {
             let ds = ds_ref.fqn();
             let expected_db = ds_ref.schema.clone();
@@ -737,6 +729,11 @@ impl Tool for StagingModelTool {
                     )
                 })
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
+            if plan_output_field_names.is_empty() {
+                if let Some(spec) = plan_implementation_spec.as_ref() {
+                    plan_output_field_names = spec.output_fields.iter().map(|f| f.name.clone()).collect();
+                }
+            }
             let plan_instr = render_plan_driven_instructions(&plan_invariants, &plan_checklist);
             let effective_instructions = combine_instructions(&user_instructions, &plan_instr);
 
@@ -871,7 +868,14 @@ impl Tool for StagingModelTool {
             }
             let draft = draft.expect("ok implies draft");
             let intent =
-                match crate::data_engineer::authoring_ir::compile_sql_first_draft(&draft.sql, &draft.notes) {
+                match crate::data_engineer::authoring_ir::compile_sql_first_draft(
+                    &draft.sql,
+                    &draft.notes,
+                    plan_implementation_spec
+                        .as_ref()
+                        .map(|s| s.output_fields.as_slice())
+                        .unwrap_or(&[]),
+                ) {
                     Ok(v) => v,
                     Err(e) => {
                         errors.push(format!("{ds}: authoring_ir compile failed: {e}"));
@@ -896,7 +900,7 @@ impl Tool for StagingModelTool {
             let base_sha256 = if existing_sql.is_empty() {
                 None
             } else {
-                Some(sha256_hex(&existing_sql))
+                Some(react_core::llm_observability::sha256_hex_str(&existing_sql))
             };
             let patch_text = files_store::hunks_only_full_replace_patch(&existing_sql, &dbt_sql);
             let outcome = match files_store::apply_patch(
@@ -955,7 +959,7 @@ impl Tool for StagingModelTool {
             }
         }
 
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "ok": errors.is_empty(),
             "batch_failure_kind": if errors.is_empty() { Value::Null } else { Value::String("unknown".to_string()) },
             "datasets": dataset_ids.len(),
@@ -966,7 +970,11 @@ impl Tool for StagingModelTool {
             "errors": errors,
             "deferred_dataset_ids": deferred_dataset_ids,
             "succeeded_dataset_ids": succeeded_dataset_ids,
-        }))
+        });
+        if !errors.is_empty() && !plan_output_field_names.is_empty() {
+            result["expected_output_fields"] = serde_json::json!(plan_output_field_names);
+        }
+        Ok(result)
     }
 }
 
@@ -1521,7 +1529,6 @@ mod tests {
                         details: Some("Add a canonical order_pk and document behavior.".to_string()),
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     crate::data_engineer::plan::PlanChecklistItem {
@@ -1530,7 +1537,6 @@ mod tests {
                         details: None,
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                     crate::data_engineer::plan::PlanChecklistItem {
@@ -1539,7 +1545,6 @@ mod tests {
                         details: None,
                         status: crate::data_engineer::plan::ChecklistItemStatus::Pending,
                         origin: crate::data_engineer::plan::ChecklistOrigin::Initial,
-                        origin_step_idx: None,
                         evidence: vec![],
                     },
                 ],

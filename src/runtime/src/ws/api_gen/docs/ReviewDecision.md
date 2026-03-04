@@ -5,7 +5,6 @@
 | Name | Value |
 |---- | -----|
 | Proceed | proceed |
-| PatchPlan | patch_plan |
 | PatchImpl | patch_impl |
 
 

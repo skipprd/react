@@ -159,11 +159,8 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
                         }
                         api::ServerMessage::Final(r) => {
                             last_thread_id = Some(r.thread_id.clone());
-                            if !sent_tid {
-                                if let Some(tx) = tid_tx.take() {
-                                    let _ = tx.send(r.thread_id.clone());
-                                }
-                                sent_tid = true;
+                            if let Some(tx) = tid_tx.take() {
+                                let _ = tx.send(r.thread_id.clone());
                             }
                             if plain_progress {
                                 println!("final thread: {}", r.thread_id);

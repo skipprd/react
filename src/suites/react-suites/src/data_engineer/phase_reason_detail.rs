@@ -2,15 +2,6 @@ use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize)]
-pub struct PlanActionableAutoApprovedDetail {
-    pub plan_key: String,
-    pub entry_reason_code: String,
-    pub plan_update_summary: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entry_step_idx: Option<usize>,
-}
-
-#[derive(Clone, Debug, Serialize)]
 pub struct PlanAutoApprovedDetail {
     pub auto_approved_in_agent_mode: bool,
     pub source: String,
@@ -148,19 +139,6 @@ pub struct AuthoringCompleteReasonDetail {
 
 pub fn to_value<T: Serialize>(detail: &T) -> Value {
     react_core::workflow::reason_detail_value(detail)
-}
-
-pub fn plan_actionable_auto_approved(
-    plan_key: impl Into<String>,
-    plan_update_summary: Value,
-    entry_step_idx: Option<usize>,
-) -> Value {
-    to_value(&PlanActionableAutoApprovedDetail {
-        plan_key: plan_key.into(),
-        entry_reason_code: "review_actionable_true".to_string(),
-        plan_update_summary,
-        entry_step_idx,
-    })
 }
 
 pub fn plan_auto_approved(source: impl Into<String>) -> Value {

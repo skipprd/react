@@ -194,6 +194,7 @@ impl LargeLanguageModel for OpenAICompatModel {
                 reasoning: Option<RespReasoning>,
             }
             #[derive(serde::Deserialize)]
+            #[allow(dead_code)]
             struct RespResp {
                 #[serde(default)]
                 output_text: Option<String>,
@@ -314,7 +315,7 @@ impl LargeLanguageModel for OpenAICompatModel {
                                         .saturating_mul(1u64 << (attempt as u32 - 1))
                                         .min(5_000)
                                 });
-                            let jitter = (rand::random::<u64>() % 250);
+                            let jitter = rand::random::<u64>() % 250;
                             std::thread::sleep(std::time::Duration::from_millis(
                                 backoff_ms + jitter,
                             ));
@@ -580,7 +581,7 @@ impl LargeLanguageModel for OpenAICompatModel {
                                         .saturating_mul(1u64 << (attempt as u32 - 1))
                                         .min(5_000)
                                 });
-                            let jitter = (rand::random::<u64>() % 250);
+                            let jitter = rand::random::<u64>() % 250;
                             std::thread::sleep(std::time::Duration::from_millis(
                                 backoff_ms + jitter,
                             ));
@@ -685,7 +686,7 @@ impl LargeLanguageModel for OpenAICompatModel {
                                     .saturating_mul(1u64 << (attempt as u32 - 1))
                                     .min(5_000)
                             });
-                        let jitter = (rand::random::<u64>() % 250);
+                        let jitter = rand::random::<u64>() % 250;
                         std::thread::sleep(std::time::Duration::from_millis(backoff_ms + jitter));
                         continue;
                     }

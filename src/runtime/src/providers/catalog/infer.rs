@@ -64,5 +64,3 @@ pub async fn infer_semantic_model_async(
     }
     model
 }
-
-// NOTE: legacy synchronous wrapper removed. Use `infer_semantic_model_async(storage, keyspace, scope, dataset_id).await`.

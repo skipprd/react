@@ -564,7 +564,6 @@ pub struct AuthoringProgressSnapshot {
 pub enum SubjectiveRetryKind {
     PlanSemanticInvalid,
     PlanGroundingEmptyAfterPrune,
-    ReviewPatchPlan,
     ReviewPatchImpl,
 }
 
@@ -600,13 +599,6 @@ pub struct PublishRetryState {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PendingLoopbackIntent {
-    PatchPlan {
-        phase: Phase,
-        #[serde(default)]
-        entry_plan_key: Option<String>,
-        #[serde(default)]
-        entry_plan_digest: Option<String>,
-    },
     PatchImpl {
         phase: Phase,
         entry_mutation_epoch: u64,
@@ -743,14 +735,6 @@ impl RepairState {
     }
 
     pub fn single_target_repair_path(&self) -> Option<&str> {
-        match &self.repair_mode {
-            RepairModeState::Inactive => None,
-            RepairModeState::Schema(_) => None,
-            RepairModeState::SqlTarget(mode) => Some(mode.target_path.as_str()),
-        }
-    }
-
-    pub fn target_path(&self) -> Option<&str> {
         match &self.repair_mode {
             RepairModeState::Inactive => None,
             RepairModeState::Schema(_) => None,
@@ -904,10 +888,6 @@ impl ExecutionState {
 
     pub fn single_target_repair_path(&self) -> Option<String> {
         self.repair_state().single_target_repair_path().map(ToString::to_string)
-    }
-
-    pub fn target_path(&self) -> Option<String> {
-        self.repair_state().target_path().map(ToString::to_string)
     }
 
     pub fn ensure_repair_target_path(&mut self, path: SqlModelPath) {
@@ -1343,21 +1323,6 @@ impl ExecutionState {
 
     pub fn reset_subjective_retry(&mut self) {
         self.subjective_retry = None;
-    }
-
-    pub fn set_pending_patch_plan_intent(
-        &mut self,
-        phase: Phase,
-        entry_plan_key: Option<String>,
-        entry_plan_digest: Option<String>,
-    ) {
-        self.with_repair_state_mut(|repair| {
-            repair.pending_loopback_intent = Some(PendingLoopbackIntent::PatchPlan {
-            phase,
-            entry_plan_key,
-            entry_plan_digest,
-        });
-        });
     }
 
     pub fn set_pending_patch_impl_intent(&mut self, phase: Phase) {
@@ -2386,7 +2351,6 @@ mod tests {
         assert!(!st.hard_mutation_repair_mode());
         assert_eq!(st.repair_type(), RepairType::Unknown);
         assert!(st.single_target_repair_path().is_none());
-        assert!(st.target_path().is_none());
     }
 
     #[test]
