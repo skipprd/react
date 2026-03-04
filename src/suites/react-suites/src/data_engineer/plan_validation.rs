@@ -1,7 +1,7 @@
 use react_core::agent::AgentCtx;
 
 use crate::data_engineer::plan_progress::{
-    CHECKLIST_SQL_MODEL, checklist_status, missing_required_checklist_items,
+    CHECKLIST_SQL_MODEL, MAX_BATCH_SIZE, checklist_status, missing_required_checklist_items,
     required_checklist_item_ids, work_groups_cover_task_checklist,
 };
 use crate::data_engineer::plan_types::{
@@ -151,8 +151,8 @@ pub fn validate_cleanse_plan_semantics(plan: &CleansePlan) -> PlanSemanticValida
         errors.push(format!("duplicate task.dataset_id is not allowed: {}", dup));
     }
     for (bi, b) in plan.batches.iter().enumerate() {
-        if b.len() > 5 {
-            errors.push(format!("batches[{bi}] has >5 items (len={})", b.len()));
+        if b.len() > MAX_BATCH_SIZE {
+            errors.push(format!("batches[{bi}] has >{MAX_BATCH_SIZE} items (len={})", b.len()));
         }
         for dup in duplicate_values(b) {
             errors.push(format!(
@@ -226,9 +226,9 @@ pub fn validate_cleanse_plan_semantics(plan: &CleansePlan) -> PlanSemanticValida
         ));
     }
     for g in plan.work_groups.iter() {
-        if g.items.len() > 5 {
+        if g.items.len() > MAX_BATCH_SIZE {
             errors.push(format!(
-                "work_group {} has >5 items (len={})",
+                "work_group {} has >{MAX_BATCH_SIZE} items (len={})",
                 g.group_id,
                 g.items.len()
             ));
@@ -297,8 +297,8 @@ pub fn validate_model_plan_semantics(
         errors.push(format!("duplicate task.name is not allowed: {}", dup));
     }
     for (bi, b) in plan.batches.iter().enumerate() {
-        if b.len() > 5 {
-            errors.push(format!("batches[{bi}] has >5 items (len={})", b.len()));
+        if b.len() > MAX_BATCH_SIZE {
+            errors.push(format!("batches[{bi}] has >{MAX_BATCH_SIZE} items (len={})", b.len()));
         }
         for dup in duplicate_values(b) {
             errors.push(format!(
@@ -385,9 +385,9 @@ pub fn validate_model_plan_semantics(
         ));
     }
     for g in plan.work_groups.iter() {
-        if g.items.len() > 5 {
+        if g.items.len() > MAX_BATCH_SIZE {
             errors.push(format!(
-                "work_group {} has >5 items (len={})",
+                "work_group {} has >{MAX_BATCH_SIZE} items (len={})",
                 g.group_id,
                 g.items.len()
             ));

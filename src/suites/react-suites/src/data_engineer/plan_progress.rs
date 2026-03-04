@@ -14,6 +14,8 @@ use react_core::session::{ThreadLog, ThreadStep};
 use react_core::agent::AgentCtx;
 use serde_json::Value;
 
+pub const MAX_BATCH_SIZE: usize = 5;
+
 #[cfg(test)]
 fn parse_batch_contract<T: serde::de::DeserializeOwned>(
     extra: &std::collections::BTreeMap<String, Value>,
@@ -497,7 +499,7 @@ fn next_sql_batch_from_plan<T>(
                 // If the plan batches reference a task not present in tasks, still allow it.
                 out.push(item.clone());
             }
-            if out.len() >= 5 {
+            if out.len() >= MAX_BATCH_SIZE {
                 break;
             }
         }
@@ -660,7 +662,7 @@ fn next_action_from_work_groups(
                 if !out.contains(&it.task_id) {
                     out.push(it.task_id.clone());
                 }
-                if out.len() >= 5 {
+                if out.len() >= MAX_BATCH_SIZE {
                     break;
                 }
             }
@@ -917,7 +919,7 @@ fn pending_for_checklist_from_plan<T>(
             let st = checklist_status(checklist(task), target);
             if st != ChecklistItemStatus::Done && is_runnable_checklist_status(st) {
                 out.push(item.clone());
-                if out.len() >= 5 {
+                if out.len() >= MAX_BATCH_SIZE {
                     return out;
                 }
             }

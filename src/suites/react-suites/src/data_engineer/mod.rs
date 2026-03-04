@@ -105,7 +105,7 @@ mod phase_review;
 mod phase_validate;
 mod plan_review_helpers;
 mod plan_grounding;
-mod plan_progress;
+pub(crate) mod plan_progress;
 mod plan_types;
 mod plan_validation;
 pub mod plan;
@@ -692,7 +692,7 @@ impl DataEngineerSuite {
                 checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
             .collect::<Vec<_>>();
-        let batches = ids.chunks(5).map(|c| c.to_vec()).collect::<Vec<_>>();
+        let batches = ids.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect::<Vec<_>>();
         plan.tasks = tasks;
         plan.batches = batches;
         plan.work_groups = crate::data_engineer::plan::canonical_work_groups_from_batches(
@@ -742,7 +742,7 @@ impl DataEngineerSuite {
             .collect::<Vec<_>>();
         let batches = ids
             .as_slice()
-            .chunks(5)
+            .chunks(plan_progress::MAX_BATCH_SIZE)
             .map(|chunk| chunk.to_vec())
             .collect::<Vec<_>>();
         Ok(crate::data_engineer::plan_schema::CleansePlanSkeletonV1 { tasks, batches })
@@ -1413,7 +1413,7 @@ Apply these fixes in the output.",
             })
             .collect();
         let batches: Vec<Vec<String>> = if skeleton.batches.is_empty() {
-            task_ids.chunks(5).map(|c| c.to_vec()).collect()
+            task_ids.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect()
         } else {
             skeleton.batches.clone()
         };
@@ -1463,7 +1463,7 @@ Apply these fixes in the output.",
     ) -> crate::data_engineer::plan::ModelPlan {
         let selected = Self::select_high_value_model_candidates(&candidates.candidates);
         let task_names: Vec<String> = selected.into_iter().map(|c| c.name).collect();
-        let batches: Vec<Vec<String>> = task_names.chunks(5).map(|c| c.to_vec()).collect();
+        let batches: Vec<Vec<String>> = task_names.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect();
         let tasks: Vec<crate::data_engineer::plan::ModelTask> = task_names
             .into_iter()
             .map(|name| {

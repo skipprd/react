@@ -48,7 +48,7 @@ mod tests {
             "e".to_string(),
             "f".to_string(),
         ];
-        let err = enforce_chunk_contract(&batch, 5, "cleanse_sql").expect_err("expected error");
+        let err = enforce_chunk_contract(&batch, crate::data_engineer::plan_progress::MAX_BATCH_SIZE, "cleanse_sql").expect_err("expected error");
         assert!(err.contains("exceeds max"));
     }
 }

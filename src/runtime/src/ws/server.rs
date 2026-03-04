@@ -3697,6 +3697,7 @@ mod tests {
     use futures_util::sink::Sink;
     use react_core::keyspace::Keyspace;
     use react_core::llm::NullModel;
+    use react_core::session::ToolObservation;
     use react_core::providers::NullSecretsProvider;
     use react_core::storage::InMemoryStorageAdapter;
     use serde_json::json;

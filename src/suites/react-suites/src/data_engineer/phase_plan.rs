@@ -1,6 +1,7 @@
 use super::*;
 use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::data_engineer::phase_plan_lifecycle::TrackPlanDoc;
+use crate::data_engineer::plan_progress::MAX_BATCH_SIZE;
 use crate::data_engineer::plan_types::TrackPlan;
 
 fn auto_approved_plan_detail(source: &str) -> serde_json::Value {
@@ -371,12 +372,12 @@ let (registry, tools_card) = Self::build_tools_for_phase(
 
 let mut q = if is_cleanse {
     format!(
-        "Create a SILVER/cleanse execution plan (batched in groups of 5).\n\nOriginal goal:\n{}\n",
+        "Create a SILVER/cleanse execution plan (batched in groups of {MAX_BATCH_SIZE}).\n\nOriginal goal:\n{}\n",
         question
     )
 } else {
     format!(
-        "Create a GOLD/model execution plan (batched in groups of 5) based ONLY on existing silver models under models/staging/.\n\nOriginal goal:\n{}\n",
+        "Create a GOLD/model execution plan (batched in groups of {MAX_BATCH_SIZE}) based ONLY on existing silver models under models/staging/.\n\nOriginal goal:\n{}\n",
         question
     )
 };
