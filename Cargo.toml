@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+  "src/runtime",
+  "src/core",
+  "src/suites/react-suites",
+  "src/modules/storage",
+  "src/modules/provider-vector-lance",
+  "src/modules/provider-postgres",
+  "src/modules/provider-bigquery",
+  "src/modules/provider-athena",
+  "src/modules/provider-dbt",
+]

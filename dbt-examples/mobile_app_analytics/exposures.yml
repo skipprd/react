@@ -1,0 +1,47 @@
+version: 2
+
+exposures:
+  - name: exec_company_overview
+    type: dashboard
+    maturity: medium
+    url: "https://quicksight.aws.amazon.com/sn/dashboards/EXEC_COMPANY_OVERVIEW"
+    description: "Company-level KPIs across growth, engagement, retention, and revenue."
+    owner:
+      name: Data Team
+      email: data-team@example.com
+    depends_on:
+      - ref('user_growth')
+      - ref('engagement')
+      - ref('retention')
+      - ref('revenue_overview')
+      - ref('ltv')
+
+  - name: product_funnels_retention
+    type: dashboard
+    maturity: medium
+    url: "https://quicksight.aws.amazon.com/sn/dashboards/PRODUCT_FUNNELS_RETENTION"
+    description: "Product funnel performance and cohort retention matrix."
+    owner:
+      name: Product Analytics
+      email: product-analytics@example.com
+    depends_on:
+      - ref('funnel_performance')
+      - ref('retention_matrix')
+
+  - name: acquisition_performance
+    type: dashboard
+    maturity: medium
+    url: "https://quicksight.aws.amazon.com/sn/dashboards/ACQ_PERFORMANCE"
+    description: "Apple Search Ads campaign and keyword performance with ROI."
+    owner:
+      name: Growth Team
+      email: growth@example.com
+    depends_on:
+      - ref('asa_performance')
+      - ref('keyword_roi')
+      - ref('cohort_roi')
+
+
+
+
+

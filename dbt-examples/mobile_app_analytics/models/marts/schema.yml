@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: user_growth
+    description: "Daily user growth metrics (DAU, new users, cumulative users)."
+    columns:
+      - name: event_date
+        tests: [not_null]
+
+  - name: engagement
+    description: "Engagement metrics including DAU/WAU/MAU and stickiness."
+    columns:
+      - name: event_date
+        tests: [not_null]
+
+  - name: retention
+    description: "Cohort-based retention by days from signup."
+    columns:
+      - name: signup_date
+        tests: [not_null]
+      - name: days_from_signup
+        tests: [not_null]
+
+  - name: funnel_performance
+    description: "Overall onboarding funnel conversion counts."
+
+  - name: asa_performance
+    description: "Apple Search Ads performance metrics by campaign and day."
+    columns:
+      - name: date
+        tests: [not_null]
+
+  - name: revenue_overview
+    description: "Revenue and ad cost overview with contribution margin."
+    columns:
+      - name: date
+        tests: [not_null]
+
+  - name: ltv
+    description: "Cohort-level lifetime value."
+    columns:
+      - name: cohort_date
+        tests: [not_null]
+  - name: retention_matrix
+    description: "Pivoted retention table with selected day buckets (d0, d1, d3, d7, d14, d30)."

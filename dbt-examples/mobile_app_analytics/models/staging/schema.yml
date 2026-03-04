@@ -1,0 +1,81 @@
+version: 2
+
+sources:
+  - name: raw
+    database: analytics
+    schema: raw
+    tables:
+      - name: events
+        loaded_at_field: timestamp
+        freshness:
+          warn_after: {count: 12, period: hour}
+          error_after: {count: 48, period: hour}
+      - name: users
+        loaded_at_field: created_at
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 7, period: day}
+      - name: devices
+        loaded_at_field: last_seen_at
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 7, period: day}
+
+  - name: apple_ads
+    database: analytics
+    schema: apple_ads
+    tables:
+      - name: campaigns
+        loaded_at_field: start_date
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 30, period: day}
+      - name: keywords
+        loaded_at_field: reporting_date
+        freshness:
+          warn_after: {count: 48, period: hour}
+          error_after: {count: 7, period: day}
+
+  - name: iap
+    database: analytics
+    schema: iap
+    tables:
+      - name: transactions
+        loaded_at_field: purchase_date
+        freshness:
+          warn_after: {count: 48, period: hour}
+          error_after: {count: 7, period: day}
+
+models:
+  - name: stg_events
+    description: "Segment-style events from mobile app."
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: user_id
+        tests: [not_null]
+      - name: event
+      - name: event_ts
+      - name: event_date
+      - name: screen
+      - name: boost_type
+      - name: liked_user_id
+      - name: device_ad_id
+
+  - name: stg_users
+    description: "User dimension."
+    columns:
+      - name: user_id
+        tests: [not_null, unique]
+      - name: signup_date
+      - name: country
+      - name: device_platform
+
+  - name: stg_apple_search_ads_campaigns
+    description: "Apple Search Ads campaign-level data."
+
+  - name: stg_apple_search_ads_keywords
+    description: "Apple Search Ads keyword-level performance."
+
+  - name: stg_iap_transactions
+    description: "In-app purchase transactions."
