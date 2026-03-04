@@ -6,6 +6,30 @@ This crate implements a **WebSocket-based ReAct agent runtime**. Clients send JS
 
 - Windows + BigQuery (local storage): see `GETTING_STARTED_WINDOWS_BIGQUERY.md`
 
+### Prerequisites
+
+#### Python virtual environment & dbt
+
+The runtime shells out to `dbt` for project scaffolding and validation. Install it in an isolated venv so its dependencies don't conflict with other system packages:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install dbt-core dbt-athena-community
+```
+
+Replace `dbt-athena-community` with the adapter for your warehouse (e.g. `dbt-bigquery`, `dbt-postgres`, `dbt-snowflake`).
+
+To install dbt packages declared in a project's `packages.yml`:
+
+```bash
+cd dbt-examples/mobile_app_analytics
+dbt deps
+```
+
+Make sure the venv is activated (`source .venv/bin/activate`) whenever you run the server or tests that invoke dbt.
+
 ### Run the server
 
 From this repository root:
