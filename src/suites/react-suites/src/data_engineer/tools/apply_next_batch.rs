@@ -124,8 +124,17 @@ impl Tool for ApplyNextCleanseBatchTool {
 
         let next_action = plan::cleanse_next_authoring_action(&plan);
         let batch = next_action.author_sql_ids();
-        debug_assert!(!batch.is_empty(), "dynamic tool card should not offer apply_next_cleanse_batch when no SQL work remains");
-        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&batch, 5, "cleanse_sql") {
+        if batch.is_empty() {
+            return Ok(serde_json::json!({
+                "ok": true,
+                "progress_made": false,
+                "message": "no cleanse SQL work remains; all pending datasets have been processed",
+                "attempted_dataset_ids": [],
+                "succeeded_dataset_ids": [],
+                "failed_dataset_ids": [],
+            }));
+        }
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&batch, crate::data_engineer::plan_progress::MAX_BATCH_SIZE, "cleanse_sql") {
             return Ok(serde_json::json!({
                 "ok": false,
                 "kind": "chunk_contract_violation",
@@ -405,9 +414,18 @@ impl Tool for ApplyNextModelBatchTool {
 
         let next_action = plan::model_next_authoring_action(&plan);
         let batch_names = next_action.author_sql_ids();
-        debug_assert!(!batch_names.is_empty(), "dynamic tool card should not offer apply_next_model_batch when no SQL work remains");
+        if batch_names.is_empty() {
+            return Ok(serde_json::json!({
+                "ok": true,
+                "progress_made": false,
+                "message": "no model SQL work remains; all pending items have been processed",
+                "attempted_item_names": [],
+                "succeeded_item_names": [],
+                "failed_item_names": [],
+            }));
+        }
         if let Err(e) =
-            chunk_progress_contract::enforce_chunk_contract(&batch_names, 5, "model_sql")
+            chunk_progress_contract::enforce_chunk_contract(&batch_names, crate::data_engineer::plan_progress::MAX_BATCH_SIZE, "model_sql")
         {
             return Ok(serde_json::json!({
                 "ok": false,

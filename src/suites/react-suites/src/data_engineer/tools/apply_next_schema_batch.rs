@@ -266,9 +266,25 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         }
 
         let batch = plan::cleanse_pending_schema_contracts(&plan);
-        debug_assert!(!batch.is_empty(), "dynamic tool card should not offer this tool when no schema work remains");
+        if batch.is_empty() {
+            return crate::data_engineer::tools::batch_contracts::to_json_value(
+                crate::data_engineer::tools::batch_contracts::CleanseSchemaBatchContract {
+                    ok: true,
+                    kind: None,
+                    reason_code: None,
+                    message: Some("no cleanse schema work remains; all pending datasets have been processed".to_string()),
+                    checklist_item_id: checklist_item_id.clone(),
+                    attempted_dataset_ids: Vec::new(),
+                    succeeded_dataset_ids: Vec::new(),
+                    failed_dataset_ids: Vec::new(),
+                    errors: Vec::new(),
+                    progress_made: Some(false),
+                    auto_healed_wildcard_sql_dataset_ids: Vec::new(),
+                },
+            );
+        }
         if let Err(e) =
-            chunk_progress_contract::enforce_chunk_contract(&batch, 5, "cleanse_schema")
+            chunk_progress_contract::enforce_chunk_contract(&batch, crate::data_engineer::plan_progress::MAX_BATCH_SIZE, "cleanse_schema")
         {
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::CleanseSchemaBatchContract {
@@ -610,8 +626,24 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         }
 
         let names = plan::model_pending_schema_contracts(&plan);
-        debug_assert!(!names.is_empty(), "dynamic tool card should not offer this tool when no schema work remains");
-        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&names, 5, "model_schema") {
+        if names.is_empty() {
+            return crate::data_engineer::tools::batch_contracts::to_json_value(
+                crate::data_engineer::tools::batch_contracts::ModelSchemaBatchContract {
+                    ok: true,
+                    checklist_item_id: checklist_item_id.clone(),
+                    kind: None,
+                    reason_code: None,
+                    message: Some("no model schema work remains; all pending items have been processed".to_string()),
+                    errors: Vec::new(),
+                    attempted_item_names: Vec::new(),
+                    succeeded_item_names: Vec::new(),
+                    failed_item_names: Vec::new(),
+                    progress_made: Some(false),
+                    warnings: Vec::new(),
+                },
+            );
+        }
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&names, crate::data_engineer::plan_progress::MAX_BATCH_SIZE, "model_schema") {
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::ModelSchemaBatchContract {
                     ok: false,
