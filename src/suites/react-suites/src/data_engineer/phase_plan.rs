@@ -765,10 +765,30 @@ match Agent::run_until_block_non_interactive(
                 crate::data_engineer::dataset_truth::discover_staging_models_from_storage(&actx)
                     .await;
             if staged.allowed_models.is_empty() {
-                return Err(
-                    "model plan contained no grounded tasks after repeated retries (gold must reference existing silver models under models/staging/)"
-                        .to_string(),
-                );
+                let tries = Self::bump_subjective_retry(
+                    &thread_store,
+                    thread_id,
+                    phase,
+                    crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
+                )
+                .await;
+                if tries
+                    > crate::data_engineer::controller_kernel::subjective_retry_limit()
+                {
+                    return Err(format!(
+                        "no staging models discovered in storage after {} retries (expected stg_*.sql files under models/staging/); warnings: [{}]",
+                        tries,
+                        staged.warnings.join("; ")
+                    ));
+                }
+                return Ok(PhaseExecutorOutcome::Continue);
+            }
+            {
+                let names: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
+                q.push_str("\n\nIMMUTABLE FACTS (existing staging models — GOLD models MUST reference these exact names via ref()):\n");
+                for name in &names {
+                    q.push_str(&format!("- {name}\n"));
+                }
             }
             let candidates = Self::generate_model_candidates(
                 &actx,
@@ -836,7 +856,11 @@ match Agent::run_until_block_non_interactive(
                 if tries
                     > crate::data_engineer::controller_kernel::subjective_retry_limit()
                 {
-                    return Err("model plan contained no grounded tasks after repeated retries (gold must reference existing silver models under models/staging/)".to_string());
+                    let allowed: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
+                    return Err(format!(
+                        "model plan grounding pruned all tasks after {} retries; LLM candidates did not reference existing staging models. allowed_models={:?}",
+                        tries, allowed
+                    ));
                 }
                 return Ok(PhaseExecutorOutcome::Continue);
             }

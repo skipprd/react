@@ -564,6 +564,7 @@ pub struct AuthoringProgressSnapshot {
 pub enum SubjectiveRetryKind {
     PlanSemanticInvalid,
     PlanGroundingEmptyAfterPrune,
+    PlanGroundingStagingDiscoveryEmpty,
     ReviewPatchImpl,
 }
 

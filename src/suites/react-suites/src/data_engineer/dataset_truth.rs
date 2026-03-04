@@ -184,11 +184,17 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
 
     // 1) models/staging/*.sql
     let staging_prefix = format!("{}models/staging/", base);
-    let keys = ctx
-        .storage
-        .list_prefix(&staging_prefix)
-        .await
-        .unwrap_or_default();
+    let keys = match ctx.storage.list_prefix(&staging_prefix).await {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::warn!(
+                "discover_staging_models_from_storage: list_prefix({}) failed: {e}",
+                staging_prefix
+            );
+            out.warnings.push(format!("list_prefix failed for {staging_prefix}: {e}"));
+            Vec::new()
+        }
+    };
     for k in keys {
         if !k.ends_with(".sql") || k.contains("/_versions/") {
             continue;
