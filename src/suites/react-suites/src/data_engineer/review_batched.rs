@@ -236,54 +236,44 @@ async fn append_review_step(
 }
 
 fn system_prompt_for_summary(plan_kind: Option<PlanKind>) -> String {
-    if plan_kind == Some(PlanKind::Cleanse) {
-        return r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context (brief)
-- A small, deterministic project snapshot (dbt_project.yml, sources list, model file index, and minimal manifest metadata)
-
-Output one JSON object with this schema:
-{
-  "project_notes": [string, ...],
-  "project_risks": [string, ...]
-}
-
-Rules:
-- Be pragmatic, not pedantic. Focus on business correctness and usability.
-- Do NOT suggest edits in-line; just describe risks/gaps.
-- Keep notes concise and high-signal.
-- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT penalize missing GOLD models.
-- Insightfulness check (CRITICAL):
-  - Call out whether the SILVER layer is usable as a stable, row-preserving cleanse foundation (explicit fields, safe casting, quality flags, stable naming).
-  - If you mention GOLD at all, frame it as an optional future improvement, not a blocker."#
-            .to_string();
-    }
-    r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context (brief)
-- A small, deterministic project snapshot (dbt_project.yml, sources list, model file index, and minimal manifest metadata)
-
-Output one JSON object with this schema:
-{
-  "project_notes": [string, ...],
-  "project_risks": [string, ...]
-}
-
-Rules:
-- Be pragmatic, not pedantic. Focus on business correctness and usability.
-- Do NOT suggest edits in-line; just describe risks/gaps.
-- Keep notes concise and high-signal.
-- Insightfulness check (CRITICAL):
-  - Call out whether the current GOLD layer enables meaningful business decisions (not just technically-correct SQL).
-  - If GOLD is present but naive, list the top 2 missing “business semantics” gaps (definitions, time axis, entity meaning, join contracts) that block real analytics."#
-        .to_string()
+    let is_cleanse = plan_kind == Some(PlanKind::Cleanse);
+    let tier_focus = if is_cleanse {
+        "- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT penalize missing GOLD models.\n"
+    } else {
+        ""
+    };
+    let insightfulness = if is_cleanse {
+        "- Insightfulness check (CRITICAL):\n  \
+           - Call out whether the SILVER layer is usable as a stable, row-preserving cleanse foundation (explicit fields, safe casting, quality flags, stable naming).\n  \
+           - If you mention GOLD at all, frame it as an optional future improvement, not a blocker."
+    } else {
+        "- Insightfulness check (CRITICAL):\n  \
+           - Call out whether the current GOLD layer enables meaningful business decisions (not just technically-correct SQL).\n  \
+           - If GOLD is present but naive, list the top 2 missing \"business semantics\" gaps (definitions, time axis, entity meaning, join contracts) that block real analytics."
+    };
+    format!(
+        "You are a read-only reviewer for a DBT analytics project.\n\n\
+         You will be given:\n\
+         - The original goal and review context (brief)\n\
+         - A small, deterministic project snapshot (dbt_project.yml, sources list, model file index, and minimal manifest metadata)\n\n\
+         Output one JSON object with this schema:\n\
+         {{\n  \"project_notes\": [string, ...],\n  \"project_risks\": [string, ...]\n}}\n\n\
+         Rules:\n\
+         - Be pragmatic, not pedantic. Focus on business correctness and usability.\n\
+         - Do NOT suggest edits in-line; just describe risks/gaps.\n\
+         - Keep notes concise and high-signal.\n\
+         {tier_focus}{insightfulness}"
+    )
 }
 
 fn system_prompt_for_batch(plan_kind: Option<PlanKind>) -> String {
-    if plan_kind == Some(PlanKind::Cleanse) {
-        return r#"You are a read-only reviewer for a DBT analytics project.
+    let tier_focus = if plan_kind == Some(PlanKind::Cleanse) {
+        "- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT critique missing GOLD models.\n"
+    } else {
+        ""
+    };
+    format!(
+        r#"You are a read-only reviewer for a DBT analytics project.
 
 You will be given:
 - The original goal and review context
@@ -293,10 +283,10 @@ You will be given:
 - The authoritative schema (columns/types) for each dataset in the batch (when available)
 
 Output one JSON object with this schema:
-{
+{{
   "notes": [string, ...],
   "actionable_hints": [string, ...]
-}
+}}
 
 Rules:
 - CRITICAL: The planning artifacts you receive (invariants/notes and any implementation_spec) are the authoritative design contract for this phase.
@@ -317,121 +307,55 @@ Rules:
 - Prefer concrete feedback tied to specific models/columns when visible.
 - IMPORTANT: Do NOT suggest adding/selecting fields that are not present in the provided authoritative schema.
   If a desired field is missing from the schema, call that out as a gap and suggest the nearest available alternative.
-- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT critique missing GOLD models.
-- Each finding must be decision-oriented and include:
+{tier_focus}- Each finding must be decision-oriented and include:
   - Impacted metric/decision.
   - Concrete evidence from provided SQL/schema.
   - Smallest next action to reduce risk.
 - No tool calls and no file edits."#
-            .to_string();
-    }
-    r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context
-- A batch of items (datasets or model names)
-- The expected model file paths and their contents (bounded)
-- Any invariants/notes from planning
-- The authoritative schema (columns/types) for each dataset in the batch (when available)
-
-Output one JSON object with this schema:
-{
-  "notes": [string, ...],
-  "actionable_hints": [string, ...]
-}
-
-Rules:
-- CRITICAL: The planning artifacts you receive (invariants/notes and any implementation_spec) are the authoritative design contract for this phase.
-  - Your primary job is CONFORMANCE REVIEW: does the SQL/YAML implement the provided implementation_spec and obey prohibited_ops?
-  - Do NOT propose changing the contract as part of review. If you believe the contract itself is wrong/ambiguous, record it as a "requires plan change" note (see below) but DO NOT propose an implementation change that deviates from the contract.
-- Conformance-first ordering:
-  1) Identify any plan/spec conformance violations (blockers). These are always high-signal.
-  2) Then (optionally) include at most one additional high-value business-risk observation that does NOT require changing the plan/spec.
-- If you think a finding requires changing the plan/spec, label it explicitly with prefix:
-  - "REQUIRES PLAN CHANGE: ..."
-  and do NOT include an implementation hint for it.
-- High-signal only: do NOT cover every batch item. Report only blocker/high business-risk findings or one small, clearly high-value quick win.
-- If no high-value findings exist for this batch, return:
-  - "notes": []
-  - "actionable_hints": []
-- Hard cap: at most 3 findings in "notes" total.
-- Keep "actionable_hints" tightly scoped to the findings: at most 1 hint per finding (max 3 total).
-- Prefer concrete feedback tied to specific models/columns when visible.
-- IMPORTANT: Do NOT suggest adding/selecting fields that are not present in the provided authoritative schema.
-  If a desired field is missing from the schema, call that out as a gap and suggest the nearest available alternative.
-- Each finding must be decision-oriented and include:
-  - Impacted metric/decision.
-  - Concrete evidence from provided SQL/schema.
-  - Smallest next action to reduce risk.
-- No tool calls and no file edits."#
-        .to_string()
+    )
 }
 
 fn system_prompt_for_unify(plan_kind: Option<PlanKind>) -> String {
-    if plan_kind == Some(PlanKind::Cleanse) {
-        return r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context
-- Project-level notes/risks
-- Notes from ALL review batches
-
-You must output one JSON object with this schema:
-{
-  "decision": "proceed" | "patch_impl",
-  "tier": "silver" | "gold" | "unknown",
-  "dataset_ids": [string],
-  "final_review_text": string
-}
-
-Interpretation rules (CRITICAL):
-- decision="proceed" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.
-- decision="patch_impl" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.
-
-Tier rules: this is a SILVER (cleanse) review. Set tier="silver".
-
-Unify requirements (CRITICAL):
-- Produce a concise, business-focused review that prioritizes decision usefulness.
-- Delta-first output: include only net-new or still-unresolved high-value issues since prior review context. Suppress repeated advice that has no meaningful change in evidence or priority.
-- If no net-new/still-unresolved blocker/high items exist, set decision="proceed" and keep the body brief.
-- Hard cap: list at most 5 issues total across the final review body.
-- Include a short “Insightfulness summary” section:
-  - What operational/analytical use-cases the SILVER layer supports today.
-  - The top 2 missing semantics gaps (definitions, time axis meaning, entity meaning, join contracts, quality flags) blocking higher-value analysis even at SILVER.
-- Include an “Assumptions & evidence gaps” section listing the most important semantic assumptions and the smallest probes to validate them."#
-            .to_string();
-    }
-    r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context
-- Project-level notes/risks
-- Notes from ALL review batches
-
-You must output one JSON object with this schema:
-{
-  "decision": "proceed" | "patch_impl",
-  "tier": "silver" | "gold" | "unknown",
-  "dataset_ids": [string],
-  "final_review_text": string
-}
-
-Interpretation rules (CRITICAL):
-- decision="proceed" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.
-- decision="patch_impl" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.
-
-Tier rules: this is a GOLD/model review. Set tier="gold".
-
-Unify requirements (CRITICAL):
-- Produce a concise, business-focused review that prioritizes decision usefulness.
-- Delta-first output: include only net-new or still-unresolved high-value issues since prior review context. Suppress repeated advice that has no meaningful change in evidence or priority.
-- If no net-new/still-unresolved blocker/high items exist, set decision="proceed" and keep the body brief.
-- Hard cap: list at most 5 issues total across the final review body.
-- Include a short “Insightfulness summary” section:
-  - What business decisions the current GOLD layer enables today.
-  - The top 2 missing business semantics gaps blocking higher-value analytics (definitions, time axis, entity meaning, join contracts).
-- Include an “Assumptions & evidence gaps” section listing the most important semantic assumptions and the smallest probes to validate them."#
-        .to_string()
+    let is_cleanse = plan_kind == Some(PlanKind::Cleanse);
+    let tier_rule = if is_cleanse {
+        "Tier rules: this is a SILVER (cleanse) review. Set tier=\"silver\"."
+    } else {
+        "Tier rules: this is a GOLD/model review. Set tier=\"gold\"."
+    };
+    let insightfulness = if is_cleanse {
+        "- Include a short \"Insightfulness summary\" section:\n  \
+           - What operational/analytical use-cases the SILVER layer supports today.\n  \
+           - The top 2 missing semantics gaps (definitions, time axis meaning, entity meaning, join contracts, quality flags) blocking higher-value analysis even at SILVER."
+    } else {
+        "- Include a short \"Insightfulness summary\" section:\n  \
+           - What business decisions the current GOLD layer enables today.\n  \
+           - The top 2 missing business semantics gaps blocking higher-value analytics (definitions, time axis, entity meaning, join contracts)."
+    };
+    format!(
+        "You are a read-only reviewer for a DBT analytics project.\n\n\
+         You will be given:\n\
+         - The original goal and review context\n\
+         - Project-level notes/risks\n\
+         - Notes from ALL review batches\n\n\
+         You must output one JSON object with this schema:\n\
+         {{\n\
+         \x20 \"decision\": \"proceed\" | \"patch_impl\",\n\
+         \x20 \"tier\": \"silver\" | \"gold\" | \"unknown\",\n\
+         \x20 \"dataset_ids\": [string],\n\
+         \x20 \"final_review_text\": string\n\
+         }}\n\n\
+         Interpretation rules (CRITICAL):\n\
+         - decision=\"proceed\" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.\n\
+         - decision=\"patch_impl\" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.\n\n\
+         {tier_rule}\n\n\
+         Unify requirements (CRITICAL):\n\
+         - Produce a concise, business-focused review that prioritizes decision usefulness.\n\
+         - Delta-first output: include only net-new or still-unresolved high-value issues since prior review context. Suppress repeated advice that has no meaningful change in evidence or priority.\n\
+         - If no net-new/still-unresolved blocker/high items exist, set decision=\"proceed\" and keep the body brief.\n\
+         - Hard cap: list at most 5 issues total across the final review body.\n\
+         {insightfulness}\n\
+         - Include an \"Assumptions & evidence gaps\" section listing the most important semantic assumptions and the smallest probes to validate them."
+    )
 }
 
 async fn llm_json(

@@ -130,83 +130,7 @@ fn build_gold_sys_prompt(
     )
 }
 
-fn render_plan_driven_instructions(
-    invariants: &[String],
-    checklist: &[crate::data_engineer::plan::PlanChecklistItem],
-) -> String {
-    let mut out = String::new();
-    if !invariants.is_empty() {
-        out.push_str("Plan invariants (MUST satisfy):\n");
-        for inv in invariants.iter() {
-            let t = inv.trim();
-            if t.is_empty() {
-                continue;
-            }
-            out.push_str("- ");
-            out.push_str(t);
-            out.push('\n');
-        }
-        out.push('\n');
-    }
-    let mut any = false;
-    for it in checklist.iter() {
-        let has_details = it
-            .details
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-        let include =
-            it.status != crate::data_engineer::plan::ChecklistItemStatus::Done || has_details;
-        if !include {
-            continue;
-        }
-        if !any {
-            out.push_str("Plan checklist (remaining work):\n");
-            any = true;
-        }
-        let origin = match it.origin {
-            crate::data_engineer::plan::ChecklistOrigin::Initial => "initial",
-        };
-        out.push_str("- ");
-        out.push_str(it.label.trim());
-        out.push_str(" (id=");
-        out.push_str(it.checklist_item_id.trim());
-        out.push_str(", status=");
-        out.push_str(&format!("{:?}", it.status));
-        out.push_str(", origin=");
-        out.push_str(origin);
-        out.push(')');
-        if let Some(d) = it
-            .details
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-        {
-            out.push_str(": ");
-            out.push_str(d);
-        }
-        out.push('\n');
-    }
-    if any {
-        out.push('\n');
-    }
-    out.trim().to_string()
-}
-
-fn combine_instructions(user_instructions: &str, plan_instructions: &str) -> String {
-    let ui = user_instructions.trim();
-    let pi = plan_instructions.trim();
-    if ui.is_empty() && pi.is_empty() {
-        return String::new();
-    }
-    if ui.is_empty() {
-        return pi.to_string();
-    }
-    if pi.is_empty() {
-        return ui.to_string();
-    }
-    format!("User instructions:\n{}\n\n{}", ui, pi)
-}
+use super::plan_prompt_helpers::{combine_instructions, render_plan_driven_instructions};
 
 #[derive(Clone)]
 pub struct GoldModelTool;
@@ -223,7 +147,7 @@ impl Tool for GoldModelTool {
         if parsed_args.items.is_empty() {
             return Err("gold_model requires args.items (non-empty)".to_string());
         }
-        let max_items = 5usize;
+        let max_items = crate::data_engineer::plan_progress::MAX_BATCH_SIZE;
         if parsed_args.items.len() > max_items {
             return Err(format!(
                 "gold_model supports at most {max_items} items per call (got {}). Split into batches.",
@@ -240,7 +164,7 @@ impl Tool for GoldModelTool {
         let provider_prompt_rules = {
             let mut out = String::new();
             for rule in ctx.warehouse.sql_prompt_rules().into_iter() {
-                out.push_str("           - ");
+                out.push_str("  - ");
                 out.push_str(rule);
                 out.push('\n');
             }

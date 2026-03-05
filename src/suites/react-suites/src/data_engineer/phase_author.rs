@@ -1438,10 +1438,7 @@ if hard_mutation_repair_mode
         repair: Some(crate::data_engineer::prompt_packets::RepairPacket {
             target_path: target.clone(),
             ladder_step: ladder.clone(),
-            last_validate_brief: {
-                let ctx = repair_ctx.format_error_context();
-                if ctx.is_empty() { repair_ctx.brief.clone() } else { Some(ctx) }
-            },
+            last_validate_brief: repair_ctx.brief.clone(),
             patch_contract: Some(
                 crate::prompts::patch_contract::file_patch_contract()
                     .to_string(),

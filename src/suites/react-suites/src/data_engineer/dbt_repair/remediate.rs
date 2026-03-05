@@ -621,8 +621,9 @@ pub async fn remediate_dbt_sql_keys_with_llm(
                  Dialect: {dialect}\n\
                  Target file: {rel}\n\
                  Make the smallest edit needed to make the SQL valid for the dialect.\n\
-                 Do not change business logic.\n\
-                 IMPORTANT: follow the patch JSON contract exactly.\n"
+                 Do not change business logic.\n\n\
+                 {contract}\n",
+                contract = crate::prompts::patch_contract::llm_patch_response_contract()
             );
             let user_payload = serde_json::json!({
                 "phase": phase,
@@ -1159,8 +1160,9 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
             "You are a meticulous dbt auto-repair patch author.\n\
              Dialect: {dialect}\n\
              Target file: {rel}\n\
-             Make the smallest correct change needed.\n\
-             IMPORTANT: follow the patch JSON contract exactly.\n"
+             Make the smallest correct change needed.\n\n\
+             {contract}\n",
+            contract = crate::prompts::patch_contract::llm_patch_response_contract()
         );
         let user_payload = serde_json::json!({
             "dialect": dialect,
@@ -1583,8 +1585,9 @@ pub async fn remediate_unresolved_columns_with_llm(
              Dialect: {dialect}\n\
              Target file: {rel}\n\
              Follow the provided schema facts strictly.\n\
-             Make the smallest correct change to resolve the error.\n\
-             IMPORTANT: follow the patch JSON contract exactly.\n"
+             Make the smallest correct change to resolve the error.\n\n\
+             {contract}\n",
+            contract = crate::prompts::patch_contract::llm_patch_response_contract()
         );
         let user_payload = serde_json::json!({
             "phase": phase,

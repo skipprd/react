@@ -7,6 +7,7 @@ pub mod apply_next_batch;
 pub mod apply_next_schema_batch;
 pub mod artifacts;
 pub(crate) mod batch_contracts;
+pub(crate) mod plan_prompt_helpers;
 pub(crate) mod batch_sql_runner;
 pub(crate) mod batch_schema_runner;
 pub mod catalog_note;
