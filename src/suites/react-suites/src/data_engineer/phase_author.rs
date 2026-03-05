@@ -484,7 +484,12 @@ let (plan_context, plan_state): (String, PlanState) =
             reason.clone(),
         )
         .await?;
-        return Err(batch_lock_error(&reason));
+        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            format!("Cleanse batch lock: {reason}"),
+        );
+        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -730,7 +735,12 @@ let (plan_context, plan_state): (String, PlanState) =
             reason.clone(),
         )
         .await?;
-        return Err(batch_lock_error(&reason));
+        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            format!("Model batch lock: {reason}"),
+        );
+        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -1590,7 +1600,14 @@ match Agent::run_until_block_non_interactive(
             ) {
                 crate::data_engineer::authoring_driver::AuthoringTurnResult::HardError {
                     message,
-                } => return Err(message),
+                } => {
+                    let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+                        phase,
+                        None,
+                        format!("Authoring repair stall: {message}"),
+                    );
+                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                }
                 crate::data_engineer::authoring_driver::AuthoringTurnResult::Continue => {}
             }
         }

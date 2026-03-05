@@ -211,6 +211,21 @@ if let Err(e) =
     )
     .await
 {
+    let tries = Self::bump_subjective_retry(
+        &thread_store,
+        thread_id,
+        phase,
+        crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
+    )
+    .await?;
+    if tries > crate::data_engineer::controller_kernel::subjective_retry_limit() {
+        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            format!("Pre-validation normalization failed {tries} times: {e}"),
+        );
+        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+    }
     let reason = format!(
         "Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
     );
@@ -247,6 +262,21 @@ if let Err(e) =
     crate::data_engineer::schema_policy::prevalidate_dbt_schema_artifacts(&actx)
         .await
 {
+    let tries = Self::bump_subjective_retry(
+        &thread_store,
+        thread_id,
+        phase,
+        crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
+    )
+    .await?;
+    if tries > crate::data_engineer::controller_kernel::subjective_retry_limit() {
+        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            format!("Pre-validation structural check failed {tries} times: {e}"),
+        );
+        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+    }
     let reason = format!("Pre-validation failed; fix DBT YAML artifacts before re-validating.\n\n{e}");
     apply_guard_block(
         &thread_store,

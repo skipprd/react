@@ -154,12 +154,6 @@ fn lock_prompt_for_plan(
     )
 }
 
-fn batch_lock_error(reason: &str) -> String {
-    let code = crate::data_engineer::controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted
-        .code();
-    format!("batch_locked:{}: {}", code, reason)
-}
-
 enum PhaseExecutorOutcome {
     Continue,
     Return(Vec<FlowFrame>),

@@ -647,6 +647,7 @@ pub enum SubjectiveRetryKind {
     PlanGroundingEmptyAfterPrune,
     PlanGroundingStagingDiscoveryEmpty,
     ReviewPatchImpl,
+    ValidatePrecheckFailed,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]

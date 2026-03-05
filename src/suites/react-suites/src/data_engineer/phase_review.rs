@@ -44,7 +44,7 @@ impl DataEngineerSuite {
             payload: serde_json::json!({ "text": "" }),
             display: None,
         });
-        let (mut answer, decision_meta_v) = match first {
+        let (answer, decision_meta_v) = match first {
             FlowFrame::Final {
                 payload, display, ..
             } => {
@@ -102,23 +102,24 @@ impl DataEngineerSuite {
         }
         let forced_by_subjective_retry = is_patch_impl
             && review_retry_count > crate::data_engineer::controller_kernel::subjective_retry_limit();
-        let forced_progress = forced_by_subjective_retry;
-        if forced_progress {
-            let reason = format!(
-                "subjective review retry limit reached ({})",
-                review_retry_count
+        if forced_by_subjective_retry {
+            let evidence = format!(
+                "Review PatchImpl looped {} times without convergence (limit {}). The plan may contain unachievable requirements.",
+                review_retry_count,
+                crate::data_engineer::controller_kernel::subjective_retry_limit(),
             );
             tracing::warn!(
-                "data_engineer: forcing review proceed phase={} reason={}",
+                "data_engineer: escalating to plan revision phase={} reason={}",
                 phase.as_str(),
-                reason
+                evidence
             );
-            meta.decision = ReviewDecision::Proceed;
-            answer.push_str(&format!(
-                "\n\nProgress guard: review remained subjective without convergence (retry_count={}). Proceeding to next phase to avoid non-convergent review loops.",
-                review_retry_count,
-            ));
             Self::reset_subjective_retry(thread_store, thread_id).await?;
+            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+                phase,
+                None,
+                evidence,
+            );
+            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
         }
         out_frames.push(FlowFrame::Review {
             text: answer.clone(),
@@ -129,8 +130,8 @@ impl DataEngineerSuite {
             phase.as_str(),
             serde_json::to_value(&meta).unwrap_or(serde_json::Value::Null),
             answer.clone(),
-            forced_progress,
-            forced_by_subjective_retry,
+            false,
+            false,
             review_retry_count,
             trigger_step_idx,
             trigger_step,
