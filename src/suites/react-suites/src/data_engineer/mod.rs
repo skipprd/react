@@ -2581,8 +2581,7 @@ Apply these fixes in the output.",
                 }
             }
 
-            let (last_validate_brief, last_validate_failed_models) =
-                Self::last_validate_context(&execution_state);
+            let repair_ctx = execution_state.repair_prompt_context();
             let outcome = Self::execute_workflow_node(
                 &thread_store,
                 thread_id,
@@ -2593,8 +2592,7 @@ Apply these fixes in the output.",
                 &execution_state,
                 &guard,
                 thread_state_step_count,
-                &last_validate_brief,
-                &last_validate_failed_models,
+                &repair_ctx,
                 &mut out_frames,
             )
             .await?;
@@ -2627,26 +2625,6 @@ Apply these fixes in the output.",
         Err(budget_msg)
     }
 
-    fn last_validate_context(
-        execution_state: &crate::data_engineer::progress_controller::ExecutionState,
-    ) -> (
-        Option<String>,
-        Vec<crate::data_engineer::progress_controller::FailedModelRef>,
-    ) {
-        if let Some(last) = execution_state.telemetry.last_validate.as_ref() {
-            let brief = last.brief.as_ref().and_then(|s| {
-                let trimmed = s.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            });
-            return (brief, last.failed_models.clone());
-        }
-        (None, Vec::new())
-    }
-
     async fn execute_workflow_node(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -2657,8 +2635,7 @@ Apply these fixes in the output.",
         execution_state: &crate::data_engineer::progress_controller::ExecutionState,
         guard: &control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        last_validate_brief: &Option<String>,
-        last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
+        repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
         out_frames: &mut Vec<FlowFrame>,
     ) -> Result<PhaseExecutorOutcome, String> {
         match node {
@@ -2676,8 +2653,7 @@ Apply these fixes in the output.",
                     execution_state,
                     guard,
                     thread_state_step_count,
-                    last_validate_brief,
-                    last_validate_failed_models,
+                    repair_ctx,
                 )
                 .await
             }
@@ -2692,8 +2668,7 @@ Apply these fixes in the output.",
                     execution_state,
                     guard,
                     thread_state_step_count,
-                    last_validate_brief,
-                    last_validate_failed_models,
+                    repair_ctx,
                 )
                 .await
             }
@@ -2708,8 +2683,6 @@ Apply these fixes in the output.",
                     execution_state,
                     guard,
                     thread_state_step_count,
-                    last_validate_brief,
-                    last_validate_failed_models,
                 )
                 .await
             }
@@ -3954,6 +3927,7 @@ mod tests {
         let _failed = vec![FailedModelRef {
             name: "stg_other".to_string(),
             file: "models/staging/stg_other.sql".to_string(),
+            ..Default::default()
         }];
         let got = crate::data_engineer::phase_gate::derive_single_target_repair_path(&st);
         assert_eq!(got, Some("models/staging/stg_orders.sql".to_string()));
@@ -3966,6 +3940,7 @@ mod tests {
         let failed = vec![FailedModelRef {
             name: "stg_orders".to_string(),
             file: "models/staging/stg_orders.sql".to_string(),
+            ..Default::default()
         }];
         let _ = failed;
         let got = crate::data_engineer::phase_gate::derive_single_target_repair_path(&st);

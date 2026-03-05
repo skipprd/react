@@ -103,6 +103,10 @@ mod tests {
                     consecutive_noop_patches: 0,
                 },
             );
+        let repair_ctx = crate::data_engineer::progress_controller::RepairPromptContext {
+            brief: Some("compile failed".to_string()),
+            ..Default::default()
+        };
         let reason = build_missing_target_repair_abort_reason(
             Phase::CleanseAuthor,
             "models/staging/stg_test_raw_raw_order_items.sql",
@@ -112,7 +116,7 @@ mod tests {
             ),
             &crate::data_engineer::progress_controller::RepairLadderStep::ReplaceContents,
             &st,
-            &Some("compile failed".to_string()),
+            &repair_ctx,
             Some("not found".to_string()),
         );
         assert!(reason.contains("repair_target_content_unavailable"));
@@ -272,41 +276,10 @@ async fn track_completion_snapshot_all_done(actx: &AgentCtx, track: TrackKind) -
     }
 }
 
-fn build_failed_target_context_lines(
-    last_validate_brief: &Option<String>,
-    last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
-) -> String {
-    let mut out = String::new();
-    if !last_validate_failed_models.is_empty() {
-        for fm in last_validate_failed_models.iter().take(6) {
-            let name = if fm.name.trim().is_empty() {
-                "unknown_model"
-            } else {
-                fm.name.as_str()
-            };
-            let file = if fm.file.trim().is_empty() {
-                "(unknown file)"
-            } else {
-                fm.file.as_str()
-            };
-            out.push_str(&format!("- {} ({})\n", name, file));
-        }
-    } else if let Some(ref brief) = *last_validate_brief {
-        out.push_str("- (unknown failing model) — see last dbt_validate summary below.\n");
-        out.push_str("\nLast dbt_validate summary:\n");
-        out.push_str(brief);
-        out.push('\n');
-    } else {
-        out.push_str("- (unknown failing model) — no failing-model evidence found.\n");
-    }
-    out
-}
-
 fn build_repair_mode_context(
     track: TrackKind,
     plan_key: &str,
-    last_validate_brief: &Option<String>,
-    last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
+    repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
     ladder_step: &crate::data_engineer::progress_controller::RepairLadderStep,
     attempt_count: usize,
     defer_schema_work: bool,
@@ -336,16 +309,13 @@ fn build_repair_mode_context(
         )
     } else {
         format!(
-            "Approved {kind} plan (stored at: {plan_key}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\nRepair ladder state: step={:?}, attempt_count={}.\n{next_action_line}\n- If using patch: args.path + args.patch_text (Cursor/Aider hunks-only: '@@ ... @@'; no ---/+++ headers).\nExample args: {}\n\nRepair targets:\n",
+            "Approved {kind} plan (stored at: {plan_key}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\nRepair ladder state: step={:?}, attempt_count={}.\n{next_action_line}\n- If using patch: args.path + args.patch_text (Cursor/Aider hunks-only: '@@ ... @@'; no ---/+++ headers).\nExample args: {}\n\n",
             ladder_step,
             attempt_count,
             crate::data_engineer::patch_contract::single_file_patch_good_example_json()
         )
     };
-    ctx.push_str(&build_failed_target_context_lines(
-        last_validate_brief,
-        last_validate_failed_models,
-    ));
+    ctx.push_str(&repair_ctx.format_error_context());
     if defer_schema_work {
         ctx.push_str(
             "\nIMPORTANT: Defer any new checklist expansion or schema contract work until dbt_validate passes.\n",
@@ -370,7 +340,7 @@ fn build_missing_target_repair_abort_reason(
     target_storage_key: Option<String>,
     ladder: &crate::data_engineer::progress_controller::RepairLadderStep,
     execution_state: &crate::data_engineer::progress_controller::ExecutionState,
-    last_validate_brief: &Option<String>,
+    repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
     target_read_error: Option<String>,
 ) -> String {
     let detail = serde_json::json!({
@@ -382,7 +352,7 @@ fn build_missing_target_repair_abort_reason(
         "attempt_count": execution_state.attempt_count(),
         "repair_type": format!("{:?}", execution_state.repair_type()),
         "hard_mutation_repair_mode": execution_state.hard_mutation_repair_mode(),
-        "last_validate_brief": last_validate_brief.clone(),
+        "last_validate_brief": repair_ctx.brief.clone(),
         "storage_read_error": target_read_error,
         "action": "repair aborted to avoid blind patch generation; provide target content path/state and retry",
     });
@@ -402,8 +372,7 @@ impl DataEngineerSuite {
         execution_state: &crate::data_engineer::progress_controller::ExecutionState,
         guard: &crate::data_engineer::control_flow::DerivedGuardState,
         _thread_state_step_count: usize,
-        last_validate_brief: &Option<String>,
-        last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
+        repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
     ) -> Result<PhaseExecutorOutcome, String> {
 
 let adapter = crate::data_engineer::authoring_driver::adapter_for_phase(phase)
@@ -595,8 +564,7 @@ let (plan_context, plan_state): (String, PlanState) =
             let ctx = build_repair_mode_context(
                 track,
                 &plan.plan_key,
-                last_validate_brief,
-                last_validate_failed_models,
+                repair_ctx,
                 &execution_state.ladder_step(),
                 execution_state.attempt_count(),
                 true,
@@ -635,32 +603,11 @@ let (plan_context, plan_state): (String, PlanState) =
                 (ctx, PlanState::Unconstrained)
             } else {
                 let mut ctx = format!(
-                    "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n",
+                    "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
                     plan.plan_key,
                     crate::data_engineer::patch_contract::single_file_patch_good_example_json()
                 );
-                if !last_validate_failed_models.is_empty() {
-                    for fm in last_validate_failed_models.iter().take(6) {
-                        let name = if fm.name.trim().is_empty() {
-                            "unknown_model"
-                        } else {
-                            fm.name.as_str()
-                        };
-                        let file = if fm.file.trim().is_empty() {
-                            "(unknown file)"
-                        } else {
-                            fm.file.as_str()
-                        };
-                        ctx.push_str(&format!("- {} ({})\n", name, file));
-                    }
-                } else if let Some(ref brief) = last_validate_brief {
-                    ctx.push_str("- (unknown failing model) — see last dbt_validate summary below.\n");
-                    ctx.push_str("\nLast dbt_validate summary:\n");
-                    ctx.push_str(brief);
-                    ctx.push('\n');
-                } else {
-                    ctx.push_str("- (unknown failing model) — no failing-model evidence found.\n");
-                }
+                ctx.push_str(&repair_ctx.format_error_context());
                 (ctx, PlanState::Unconstrained)
             }
         } else if next.is_empty() {
@@ -732,8 +679,7 @@ let (plan_context, plan_state): (String, PlanState) =
                     let ctx = build_repair_mode_context(
                         track,
                         &plan.plan_key,
-                        last_validate_brief,
-                        last_validate_failed_models,
+                        repair_ctx,
                         &execution_state.ladder_step(),
                         execution_state.attempt_count(),
                         false,
@@ -741,7 +687,7 @@ let (plan_context, plan_state): (String, PlanState) =
                     );
                     (
                         ctx,
-                        PlanState::Unconstrained, // allow freeform file patching for targeted repair
+                        PlanState::Unconstrained,
                     )
                 } else {
                     let reason = "approved cleanse plan is not executable: no next work-group action while checklist work remains".to_string();
@@ -893,8 +839,7 @@ let (plan_context, plan_state): (String, PlanState) =
             let ctx = build_repair_mode_context(
                 track,
                 &plan.plan_key,
-                last_validate_brief,
-                last_validate_failed_models,
+                repair_ctx,
                 &execution_state.ladder_step(),
                 execution_state.attempt_count(),
                 true,
@@ -935,32 +880,11 @@ let (plan_context, plan_state): (String, PlanState) =
                 )
             } else {
                 let mut ctx = format!(
-                    "Approved model plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n",
+                    "Approved model plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
                     plan.plan_key,
                     crate::data_engineer::patch_contract::single_file_patch_good_example_json()
                 );
-                if !last_validate_failed_models.is_empty() {
-                    for fm in last_validate_failed_models.iter().take(6) {
-                        let name = if fm.name.trim().is_empty() {
-                            "unknown_model"
-                        } else {
-                            fm.name.as_str()
-                        };
-                        let file = if fm.file.trim().is_empty() {
-                            "(unknown file)"
-                        } else {
-                            fm.file.as_str()
-                        };
-                        ctx.push_str(&format!("- {} ({})\n", name, file));
-                    }
-                } else if let Some(ref brief) = last_validate_brief {
-                    ctx.push_str("- (unknown failing model) — see last dbt_validate summary below.\n");
-                    ctx.push_str("\nLast dbt_validate summary:\n");
-                    ctx.push_str(brief);
-                    ctx.push('\n');
-                } else {
-                    ctx.push_str("- (unknown failing model) — no failing-model evidence found.\n");
-                }
+                ctx.push_str(&repair_ctx.format_error_context());
                 (ctx, PlanState::Unconstrained)
             }
         } else if next_names.is_empty() {
@@ -1100,12 +1024,10 @@ let (plan_context, plan_state): (String, PlanState) =
                 }
 
                 if guard.last_validate_failed {
-                    // Same repair-mode behavior as cleanse: run authoring to patch failing files.
                     let ctx = build_repair_mode_context(
                         track,
                         &plan.plan_key,
-                        last_validate_brief,
-                        last_validate_failed_models,
+                        repair_ctx,
                         &execution_state.ladder_step(),
                         execution_state.attempt_count(),
                         false,
@@ -1327,30 +1249,12 @@ q.push_str(&plan_context);
         q.push('\n');
     }
 }
-if let Some(b) = last_validate_brief.as_ref() {
-    q.push_str("\n\nLast dbt_validate summary (most recent):\n");
-    q.push_str(b);
-}
-if !last_validate_failed_models.is_empty() {
-    q.push_str("\n\nFailing DBT model targets (from dbt stdout):\n");
-    for fm in last_validate_failed_models.iter().take(6) {
-        let name = if fm.name.trim().is_empty() {
-            "unknown_model"
-        } else {
-            fm.name.as_str()
-        };
-        let file = if fm.file.trim().is_empty() {
-            "(unknown file)"
-        } else {
-            fm.file.as_str()
-        };
-        q.push_str("- ");
-        q.push_str(name);
-        q.push_str(" (");
-        q.push_str(file);
-        q.push_str(")\n");
+if repair_ctx.has_context() {
+    q.push_str("\n\n");
+    q.push_str(&repair_ctx.format_error_context());
+    if !repair_ctx.failed_models.is_empty() {
+        q.push_str("Fix these first (prefer patching the listed file paths).\n");
     }
-    q.push_str("Fix these first (prefer patching the listed file paths).\n");
 }
 if let Some(ref target) = single_target_repair_path {
     q.push_str("\n\nDETERMINISTIC SINGLE-TARGET REPAIR MODE:\n");
@@ -1362,8 +1266,8 @@ if let Some(ref target) = single_target_repair_path {
 
 // When the suite is in hard_mutation_only, file is patch-only (no op=get),
 // so we MUST include the raw file content for at least the primary failing target.
-if hard_mutation_repair_mode && !last_validate_failed_models.is_empty() {
-    if let Some(file) = Some(last_validate_failed_models[0].file.as_str()) {
+if hard_mutation_repair_mode && !repair_ctx.failed_models.is_empty() {
+    if let Some(file) = Some(repair_ctx.failed_models[0].file.as_str()) {
         let file = file.trim();
         if !file.is_empty() && file != "(unknown file)" {
             let base = actx
@@ -1393,17 +1297,6 @@ if hard_mutation_repair_mode && !last_validate_failed_models.is_empty() {
             }
         }
     }
-}
-// Surface the latest typed suite-level error note (if any) to help auto-fix.
-if let Some(reason) = execution_state
-    .repair
-    .last_error_brief
-    .as_ref()
-    .map(|s| s.trim())
-    .filter(|s| !s.is_empty())
-{
-    q.push_str("\n\nSuite guard note (must resolve before validate):\n");
-    q.push_str(reason);
 }
 if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
     if let Some(detail) = execution_state.phase.phase_reason_detail.as_ref() {
@@ -1522,7 +1415,7 @@ if hard_mutation_repair_mode
             target_storage_key,
             &ladder,
             &es,
-            last_validate_brief,
+            repair_ctx,
             target_read_error,
         );
         apply_guard_block(
@@ -1545,7 +1438,10 @@ if hard_mutation_repair_mode
         repair: Some(crate::data_engineer::prompt_packets::RepairPacket {
             target_path: target.clone(),
             ladder_step: ladder.clone(),
-            last_validate_brief: last_validate_brief.clone(),
+            last_validate_brief: {
+                let ctx = repair_ctx.format_error_context();
+                if ctx.is_empty() { repair_ctx.brief.clone() } else { Some(ctx) }
+            },
             patch_contract: Some(
                 crate::prompts::patch_contract::file_patch_contract()
                     .to_string(),
@@ -1591,6 +1487,12 @@ if hard_mutation_repair_mode
         repair.push('\n');
     }
     repair.push_str("```\n");
+
+    let error_ctx = repair_ctx.format_error_context();
+    if !error_ctx.is_empty() {
+        repair.push_str("\n");
+        repair.push_str(&error_ctx);
+    }
 
     q = repair;
 }

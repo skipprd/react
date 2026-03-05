@@ -172,8 +172,6 @@ impl DataEngineerSuite {
         _execution_state: &crate::data_engineer::progress_controller::ExecutionState,
         _guard: &crate::data_engineer::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        _last_validate_brief: &Option<String>,
-        _last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
     ) -> Result<PhaseExecutorOutcome, String> {
 
 let actx = Self::agent_tool_ctx(thread_id, sctx);
@@ -602,6 +600,7 @@ let errs: Vec<String> = obs
         .map(|t| crate::data_engineer::progress_controller::FailedModelRef {
             name: t.node_id.clone(),
             file: t.target_path.as_str().to_string(),
+            ..Default::default()
         })
         .collect();
     let failure_class_state = match failure_class {

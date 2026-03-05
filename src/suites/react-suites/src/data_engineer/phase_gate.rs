@@ -156,6 +156,7 @@ mod tests {
             failed_models: vec![crate::data_engineer::progress_controller::FailedModelRef {
                 name: "stg_orders".to_string(),
                 file: "models/staging/stg_orders.sql".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         });

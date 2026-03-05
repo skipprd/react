@@ -18,6 +18,87 @@ pub struct FailedModelRef {
     pub name: String,
     #[serde(default)]
     pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Single source of truth for error/failure context injected into LLM prompts.
+///
+/// Built from `ExecutionState`; every phase executor receives this instead of
+/// ad-hoc `(Option<String>, Vec<FailedModelRef>)` tuples. The `format_error_context`
+/// method guarantees that error text is NEVER dropped regardless of whether
+/// specific failing models are identified.
+#[derive(Clone, Debug, Default)]
+pub struct RepairPromptContext {
+    pub brief: Option<String>,
+    pub failed_models: Vec<FailedModelRef>,
+    pub stall_count: usize,
+    pub attempt_count: usize,
+    pub failure_signature: Option<String>,
+    /// Suite-level guard note (e.g. from authoring budget exhaustion).
+    /// Separate from `brief` which is the dbt validation output.
+    pub guard_note: Option<String>,
+}
+
+impl RepairPromptContext {
+    /// Format all available error context for injection into an LLM prompt.
+    /// Always includes the brief (error text) AND per-model targets independently.
+    /// Escalates framing when stall_count indicates repeated failure.
+    pub fn format_error_context(&self) -> String {
+        let mut out = String::new();
+        if !self.failed_models.is_empty() {
+            out.push_str("Failing model targets:\n");
+            for fm in self.failed_models.iter().take(6) {
+                let name = if fm.name.trim().is_empty() {
+                    "unknown_model"
+                } else {
+                    fm.name.as_str()
+                };
+                let file = if fm.file.trim().is_empty() {
+                    "(unknown file)"
+                } else {
+                    fm.file.as_str()
+                };
+                out.push_str(&format!("- {name} ({file})"));
+                if let Some(ref err) = fm.error {
+                    let trimmed = err.trim();
+                    if !trimmed.is_empty() {
+                        out.push_str(&format!(" — {trimmed}"));
+                    }
+                }
+                out.push('\n');
+            }
+        }
+        if let Some(ref brief) = self.brief {
+            let trimmed = brief.trim();
+            if !trimmed.is_empty() {
+                out.push_str("\nLast dbt_validate summary:\n");
+                out.push_str(trimmed);
+                out.push('\n');
+            }
+        }
+        if let Some(ref note) = self.guard_note {
+            let trimmed = note.trim();
+            if !trimmed.is_empty() {
+                out.push_str("\nSuite guard note (must resolve before validate):\n");
+                out.push_str(trimmed);
+                out.push('\n');
+            }
+        }
+        if self.stall_count >= 2 {
+            out.push_str(&format!(
+                "\nWARNING: This repair has stalled for {} consecutive iterations \
+                 with the same error. Previous patches did NOT resolve the issue. \
+                 Read the error above carefully and make a DIFFERENT change.\n",
+                self.stall_count,
+            ));
+        }
+        out
+    }
+
+    pub fn has_context(&self) -> bool {
+        self.brief.is_some() || !self.failed_models.is_empty() || self.guard_note.is_some()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -859,6 +940,37 @@ pub enum DataEngineerEvent {
 }
 
 impl ExecutionState {
+    pub fn repair_prompt_context(&self) -> RepairPromptContext {
+        let (brief, failed_models) = if let Some(ref lv) = self.telemetry.last_validate {
+            let b = lv
+                .brief
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            (b, lv.failed_models.clone())
+        } else {
+            (None, Vec::new())
+        };
+        let guard_note = self
+            .repair
+            .last_error_brief
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        RepairPromptContext {
+            brief,
+            failed_models,
+            stall_count: self.repair.stall_count,
+            attempt_count: self.attempt_count(),
+            failure_signature: self
+                .repair
+                .last_failure_signature
+                .as_ref()
+                .map(|s| format!("{:?}", s)),
+            guard_note,
+        }
+    }
+
     fn last_validate_failed(&self) -> bool {
         self.telemetry
             .last_validate
@@ -1140,6 +1252,7 @@ impl ExecutionState {
                         .as_ref()
                         .map(|p| p.as_str().to_string())
                         .unwrap_or_default(),
+                    ..Default::default()
                 })
                 .collect(),
             failure_class: Some(failure_class),
@@ -1774,6 +1887,7 @@ pub fn failed_model_refs_from_values(values: &[Value]) -> Vec<FailedModelRef> {
                 .unwrap_or_default()
                 .trim()
                 .to_string(),
+            ..Default::default()
         })
         .collect()
 }
@@ -2030,14 +2144,17 @@ mod tests {
             FailedModelRef {
                 name: "model.pkg.stg_orders".to_string(),
                 file: "models/staging/stg_orders.sql".to_string(),
+                ..Default::default()
             },
             FailedModelRef {
                 name: "model.pkg.stg_orders".to_string(),
                 file: "models/staging/stg_orders.yml".to_string(),
+                ..Default::default()
             },
             FailedModelRef {
                 name: "model.pkg.readme".to_string(),
                 file: "README.md".to_string(),
+                ..Default::default()
             },
         ];
 
@@ -2326,6 +2443,7 @@ mod tests {
             failed_targets: vec![FailedModelRef {
                 name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                ..Default::default()
             }],
             brief: "sql validation failed".to_string(),
         });

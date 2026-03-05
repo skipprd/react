@@ -38,8 +38,7 @@ impl DataEngineerSuite {
         execution_state: &crate::data_engineer::progress_controller::ExecutionState,
         guard: &crate::data_engineer::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        last_validate_brief: &Option<String>,
-        _last_validate_failed_models: &[crate::data_engineer::progress_controller::FailedModelRef],
+        repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
     ) -> Result<PhaseExecutorOutcome, String> {
 
 // Plan phases are read-only discovery + plan authoring. They persist an approved
@@ -424,10 +423,9 @@ if !is_cleanse {
         q.push('\n');
     }
 }
-if let Some(ref brief) = last_validate_brief {
-    q.push_str("\nLast dbt_validate error summary (if any):\n");
-    q.push_str(brief);
-    q.push('\n');
+if repair_ctx.has_context() {
+    q.push_str("\n");
+    q.push_str(&repair_ctx.format_error_context());
 }
 if let Some(bs) = bootstrap_summary.as_ref() {
     q.push_str("\n\n");

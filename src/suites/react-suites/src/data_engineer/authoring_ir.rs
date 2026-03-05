@@ -58,24 +58,50 @@ pub fn compile_sql_first_draft(
             match files_tool::extract_final_select_output_columns(&patched) {
                 Ok(v) => v,
                 Err(e2) => {
-                    if has_wildcard_projection {
-                        plan_output_fields
-                            .iter()
-                            .map(|f| f.name.trim().to_string())
-                            .filter(|n| !n.is_empty())
-                            .collect()
+                    let plan_cols: BTreeSet<String> = plan_output_fields
+                        .iter()
+                        .map(|f| f.name.trim().to_string())
+                        .filter(|n| !n.is_empty())
+                        .collect();
+                    if !plan_cols.is_empty() {
+                        tracing::warn!(
+                            "authoring_ir: column extraction failed ({e}; {e2}), \
+                             falling back to plan_output_fields ({} columns)",
+                            plan_cols.len(),
+                        );
+                        plan_cols
+                    } else if has_wildcard_projection {
+                        BTreeSet::new()
                     } else {
                         return Err(format!(
-                            "authoring_ir: could not infer final output columns from sql: {}; fallback_error: {}",
-                            e, e2
+                            "authoring_ir: could not infer final output columns from sql \
+                             and plan_output_fields is empty: {e}; fallback_error: {e2}",
                         ));
                     }
                 }
             }
         }
     };
-    if cols.is_empty() && !has_wildcard_projection {
-        return Err("authoring_ir: final SELECT has no output columns".to_string());
+    if cols.is_empty() {
+        let plan_cols: Vec<String> = plan_output_fields
+            .iter()
+            .map(|f| f.name.trim().to_string())
+            .filter(|n| !n.is_empty())
+            .collect();
+        if plan_cols.is_empty() && !has_wildcard_projection {
+            return Err("authoring_ir: final SELECT has no output columns and plan_output_fields is empty".to_string());
+        }
+        if !plan_cols.is_empty() {
+            return Ok(ModelIntent {
+                sql: normalized_sql.to_string(),
+                notes: notes.to_vec(),
+                columns: plan_cols
+                    .into_iter()
+                    .map(|name| ColumnIntent { name })
+                    .collect(),
+                tests: TestsIntent::default(),
+            });
+        }
     }
 
     let mut seen = BTreeSet::new();

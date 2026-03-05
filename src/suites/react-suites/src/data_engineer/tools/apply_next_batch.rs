@@ -295,6 +295,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                 failed_targets.push(FailedModelRef {
                     name: ds.clone(),
                     file: expected_path.unwrap_or_default(),
+                    ..Default::default()
                 });
             }
             let kind = crate::data_engineer::tools::batch_sql_runner::extract_batch_failure_kind(&res)
@@ -600,6 +601,7 @@ impl Tool for ApplyNextModelBatchTool {
                 failed_targets.push(FailedModelRef {
                     name: n.clone(),
                     file: expected_path.unwrap_or_default(),
+                    ..Default::default()
                 });
             }
             let kind = crate::data_engineer::tools::batch_sql_runner::extract_batch_failure_kind(&res)
