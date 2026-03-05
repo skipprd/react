@@ -270,12 +270,19 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
 
         let batch = plan::cleanse_pending_schema_contracts(&plan);
         if batch.is_empty() {
+            let has_incomplete = plan.tasks.iter().any(|t| {
+                !matches!(t.status, crate::data_engineer::plan_types::TaskStatus::Done)
+            });
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::CleanseSchemaBatchContract {
-                    ok: true,
+                    ok: !has_incomplete,
                     kind: None,
                     reason_code: None,
-                    message: Some("no cleanse schema work remains; all pending datasets have been processed".to_string()),
+                    message: Some(if has_incomplete {
+                        "schema batch has no pending work but plan tasks are incomplete; SQL authoring must complete first".to_string()
+                    } else {
+                        "all schema work complete".to_string()
+                    }),
                     checklist_item_id: checklist_item_id.clone(),
                     attempted_dataset_ids: Vec::new(),
                     succeeded_dataset_ids: Vec::new(),
@@ -642,13 +649,20 @@ impl Tool for ApplyNextModelSchemaBatchTool {
 
         let names = plan::model_pending_schema_contracts(&plan);
         if names.is_empty() {
+            let has_incomplete = plan.tasks.iter().any(|t| {
+                !matches!(t.status, crate::data_engineer::plan_types::TaskStatus::Done)
+            });
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::ModelSchemaBatchContract {
-                    ok: true,
+                    ok: !has_incomplete,
                     checklist_item_id: checklist_item_id.clone(),
                     kind: None,
                     reason_code: None,
-                    message: Some("no model schema work remains; all pending items have been processed".to_string()),
+                    message: Some(if has_incomplete {
+                        "schema batch has no pending work but plan tasks are incomplete; SQL authoring must complete first".to_string()
+                    } else {
+                        "all schema work complete".to_string()
+                    }),
                     errors: Vec::new(),
                     attempted_item_names: Vec::new(),
                     succeeded_item_names: Vec::new(),
