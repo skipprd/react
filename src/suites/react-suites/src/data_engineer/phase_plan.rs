@@ -47,11 +47,41 @@ let track = TrackKind::try_from_plan_phase(phase)?;
 let is_cleanse = track.is_cleanse();
 let actx = Self::plan_agent_ctx(thread_id, sctx);
 
+// Detect plan-revision re-entry: if downstream phases requested a plan revision,
+// consume the violations, cancel the active plan, and fall through to LLM re-planning.
+let plan_violations: Vec<crate::data_engineer::progress_controller::PlanViolation> = {
+    let mut es = crate::data_engineer::state_manager::load_execution_state_strict(
+        &thread_store, thread_id,
+    )
+    .await?
+    .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
+    let v = es.take_pending_plan_violations();
+    if !v.is_empty() {
+        es.save(&thread_store, thread_id).await.map_err(|e| {
+            format!("failed to persist execution state after consuming plan violations: {e}")
+        })?;
+    }
+    v
+};
+let is_plan_revision = !plan_violations.is_empty();
+if is_plan_revision {
+    if let Some(mut existing_plan) = load_active_plan_for_track_spec(&actx, track).await {
+        tracing::info!(
+            "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
+            existing_plan.plan_key(),
+            plan_violations.len()
+        );
+        existing_plan.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+        crate::data_engineer::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+    }
+}
+
 // Agent-mode hard cutover: no ask/reply approval semantics.
 // Plan transitions are deterministic and state-driven; free-form question text
 // must never be interpreted as approve/reject in this mode.
 
 // If an approved/draft plan already exists (oldest active plan for this thread), move forward.
+if !is_plan_revision {
 if let Some(mut existing_plan) =
     load_active_plan_for_track_spec(&actx, track).await
 {
@@ -181,6 +211,7 @@ if let Some(mut existing_plan) =
         return Ok(PhaseExecutorOutcome::Continue);
     }
 }
+} // end if !is_plan_revision
 
 // Generate a new draft plan via LLM and then ask the user to approve it.
 Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
@@ -426,6 +457,10 @@ if !is_cleanse {
 if repair_ctx.has_context() {
     q.push_str("\n");
     q.push_str(&repair_ctx.format_error_context());
+}
+if !plan_violations.is_empty() {
+    q.push_str("\n");
+    q.push_str(&crate::data_engineer::progress_controller::format_plan_violations(&plan_violations));
 }
 if let Some(bs) = bootstrap_summary.as_ref() {
     q.push_str("\n\n");

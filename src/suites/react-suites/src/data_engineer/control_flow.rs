@@ -238,14 +238,14 @@ pub fn derive_guard_state_from_execution_state(
 }
 
 pub(crate) fn is_cleanse_replan_backtrack(from: Phase, to: Phase) -> bool {
-    matches!(from, Phase::CleanseValidate | Phase::CleanseReview)
+    matches!(from, Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview)
         && matches!(to, Phase::CleansePlan | Phase::CleanseAuthor)
 }
 
 pub(crate) fn is_model_replan_backtrack(from: Phase, to: Phase) -> bool {
     matches!(
         from,
-        Phase::ModelValidate | Phase::ModelReview | Phase::PostPublishReview
+        Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview | Phase::PostPublishReview
     ) && matches!(to, Phase::ModelPlan | Phase::ModelAuthor)
 }
 

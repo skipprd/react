@@ -210,31 +210,6 @@ async fn transition_plan_not_approved(
     .await
 }
 
-async fn transition_plan_semantic_invalid_loopback(
-    thread_store: &ThreadStore,
-    thread_id: &str,
-    phase: Phase,
-    track: TrackKind,
-    plan_key: String,
-    reason: String,
-) -> Result<(), String> {
-    crate::data_engineer::phase_contract::commit_phase_decision(
-        thread_store,
-        thread_id,
-        Some(phase),
-        crate::data_engineer::phase_contract::PhaseDecision::loopback(
-            track.plan_phase(),
-            Some(PhaseReasonCode::PlanSemanticInvalid),
-            Some(crate::data_engineer::phase_reason_detail::plan_semantic_invalid(
-                plan_key,
-                reason,
-                DataEngineerSuite::churn_audit_acceptance_criteria(),
-            )),
-        ),
-    )
-    .await
-}
-
 async fn transition_to_track_validate_with_plan_key(
     thread_store: &ThreadStore,
     thread_id: &str,
@@ -440,7 +415,7 @@ let mut actx = AgentCtx {
 // and compute the exact next batch to execute (max 5).
 let (plan_context, plan_state): (String, PlanState) =
     if is_cleanse {
-        let mut plan = match crate::data_engineer::plan::load_cleanse_plan_any(
+        let plan = match crate::data_engineer::plan::load_cleanse_plan_any(
             &actx,
         )
         .await
@@ -456,33 +431,12 @@ let (plan_context, plan_state): (String, PlanState) =
         if let control_flow::AuthoringGate::Block { reason } =
             control_flow::gate_author_phase_execution_cleanse(&plan)
         {
-            let plan_key = plan.plan_key.clone();
-            plan.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            crate::data_engineer::plan::save_cleanse_plan(&actx, &plan)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "failed to persist cancelled non-executable cleanse plan: {e}"
-                    )
-                })?;
-            apply_guard_block(
-                &thread_store,
-                thread_id,
+            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                 phase,
-                GuardBlockKind::PlanSemanticInvalid,
-                reason.clone(),
-            )
-            .await?;
-            transition_plan_semantic_invalid_loopback(
-                &thread_store,
-                thread_id,
-                phase,
-                track,
-                plan_key,
-                reason,
-            )
-            .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+                None,
+                format!("Plan is not executable: {reason}"),
+            );
+            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -690,25 +644,12 @@ let (plan_context, plan_state): (String, PlanState) =
                         PlanState::Unconstrained,
                     )
                 } else {
-                    let reason = "approved cleanse plan is not executable: no next work-group action while checklist work remains".to_string();
-                    apply_guard_block(
-                        &thread_store,
-                        thread_id,
+                    let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                         phase,
-                        GuardBlockKind::PlanSemanticInvalid,
-                        reason.clone(),
-                    )
-                    .await?;
-                    transition_plan_semantic_invalid_loopback(
-                        &thread_store,
-                        thread_id,
-                        phase,
-                        track,
-                        plan.plan_key.clone(),
-                        reason,
-                    )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                        None,
+                        "Approved cleanse plan is not executable: no next work-group action while checklist work remains",
+                    );
+                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
                 }
             }
         } else {
@@ -738,28 +679,12 @@ let (plan_context, plan_state): (String, PlanState) =
         if let control_flow::AuthoringGate::Block { reason } =
             control_flow::gate_author_phase_execution_model(&plan)
         {
-            let plan_key = plan.plan_key.clone();
-            plan.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            let _ =
-                crate::data_engineer::plan::save_model_plan(&actx, &plan).await;
-            apply_guard_block(
-                &thread_store,
-                thread_id,
+            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                 phase,
-                GuardBlockKind::PlanSemanticInvalid,
-                reason.clone(),
-            )
-            .await?;
-            transition_plan_semantic_invalid_loopback(
-                &thread_store,
-                thread_id,
-                phase,
-                track,
-                plan_key,
-                reason,
-            )
-            .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+                None,
+                format!("Plan is not executable: {reason}"),
+            );
+            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -1035,25 +960,12 @@ let (plan_context, plan_state): (String, PlanState) =
                     );
                     (ctx, PlanState::Unconstrained)
                 } else {
-                    let reason = "approved model plan is not executable: no next work-group action while checklist work remains".to_string();
-                    apply_guard_block(
-                        &thread_store,
-                        thread_id,
+                    let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                         phase,
-                        GuardBlockKind::PlanSemanticInvalid,
-                        reason.clone(),
-                    )
-                    .await?;
-                    transition_plan_semantic_invalid_loopback(
-                        &thread_store,
-                        thread_id,
-                        phase,
-                        track,
-                        plan.plan_key.clone(),
-                        reason,
-                    )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                        None,
+                        "Approved model plan is not executable: no next work-group action while checklist work remains",
+                    );
+                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
                 }
             }
         } else {

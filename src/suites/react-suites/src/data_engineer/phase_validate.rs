@@ -646,6 +646,33 @@ let errs: Vec<String> = obs
     })?;
 }
 
+// Escalate to plan revision if repeated failures indicate the plan itself is broken.
+// replan_backtracks reflects how many validate->author loopbacks have occurred for
+// the current plan. If we've already bounced back twice with no progress, the plan
+// likely contains unachievable instructions.
+{
+    let backtracks = _execution_state.phase.replan_backtracks;
+    if backtracks >= 2 {
+        tracing::warn!(
+            "data_engineer: escalating to plan revision after {} validate loopbacks (phase={})",
+            backtracks,
+            phase.as_str()
+        );
+        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            format!(
+                "Validation has failed {} consecutive times with the same or similar errors. \
+                 The author phase was unable to resolve the issue, suggesting the plan \
+                 itself contains unachievable instructions.\n\nLatest error: {}",
+                backtracks,
+                brief
+            ),
+        );
+        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+    }
+}
+
 // Validation failed -> go back to corresponding author phase.
 let trigger_step_idx = thread_state_step_count.saturating_sub(1);
 let to_phase = if phase == Phase::CleanseValidate {

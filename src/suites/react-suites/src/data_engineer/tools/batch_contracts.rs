@@ -93,6 +93,14 @@ pub(crate) struct CleanseSchemaBatchContract {
     pub progress_made: Option<bool>,
     #[serde(default)]
     pub auto_healed_wildcard_sql_dataset_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_violations: Vec<PlanViolationBrief>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct PlanViolationBrief {
+    pub task_id: String,
+    pub evidence: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,6 +127,8 @@ pub(crate) struct ModelSchemaBatchContract {
     pub progress_made: Option<bool>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_violations: Vec<PlanViolationBrief>,
 }
 
 pub(crate) fn to_json_value<T: Serialize>(v: T) -> Result<Value, String> {

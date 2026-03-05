@@ -599,8 +599,8 @@ mod tests {
             "authoring plan-not-approved loopback must use typed constructor"
         );
         assert!(
-            src.contains("phase_reason_detail::plan_semantic_invalid("),
-            "authoring semantic-invalid loopback must use typed constructor"
+            src.contains("PhaseExecutorOutcome::PlanRevisionRequested("),
+            "authoring semantic-invalid paths must use PlanRevisionRequested"
         );
         assert!(
             src.contains("phase_reason_detail::plan_key("),

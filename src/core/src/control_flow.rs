@@ -95,6 +95,9 @@ pub enum PhaseReasonCode {
     PublishConfirmedSuccess,
     PublishConfirmedFail,
 
+    // Plan revision
+    PlanRevisionRequested,
+
     // Blocking / guards
     PhaseBlocked,
 }
@@ -131,6 +134,7 @@ impl PhaseReasonCode {
             PhaseReasonCode::PublishFail => "publish_fail",
             PhaseReasonCode::PublishConfirmedSuccess => "publish_confirmed_success",
             PhaseReasonCode::PublishConfirmedFail => "publish_confirmed_fail",
+            PhaseReasonCode::PlanRevisionRequested => "plan_revision_requested",
             PhaseReasonCode::PhaseBlocked => "phase_blocked",
         }
     }

@@ -50,6 +50,7 @@ pub(crate) async fn fail_model_schema_batch(
                 .to_string()],
                 progress_made: None,
                 warnings: Vec::new(),
+                plan_violations: Vec::new(),
             },
         );
     }
@@ -66,6 +67,7 @@ pub(crate) async fn fail_model_schema_batch(
             errors: vec![error_message],
             progress_made: None,
             warnings: Vec::new(),
+            plan_violations: Vec::new(),
         },
     )
 }

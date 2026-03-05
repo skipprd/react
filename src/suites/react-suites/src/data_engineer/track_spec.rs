@@ -19,6 +19,14 @@ impl TrackKind {
         }
     }
 
+    pub fn from_any_phase(phase: Phase) -> Option<Self> {
+        match phase {
+            Phase::CleansePlan | Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview => Some(Self::Cleanse),
+            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => Some(Self::Model),
+            _ => None,
+        }
+    }
+
     pub fn is_cleanse(self) -> bool {
         matches!(self, Self::Cleanse)
     }

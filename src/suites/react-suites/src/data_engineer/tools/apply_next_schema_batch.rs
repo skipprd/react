@@ -235,6 +235,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     errors: v.errors,
                     progress_made: None,
                     auto_healed_wildcard_sql_dataset_ids: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -262,6 +263,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     .to_string()],
                     progress_made: None,
                     auto_healed_wildcard_sql_dataset_ids: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -281,6 +283,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     errors: Vec::new(),
                     progress_made: Some(false),
                     auto_healed_wildcard_sql_dataset_ids: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -300,6 +303,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     errors: vec![e],
                     progress_made: None,
                     auto_healed_wildcard_sql_dataset_ids: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -319,6 +323,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         let mut failed: Vec<String> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
         let mut auto_healed_wildcard_sql_dataset_ids: Vec<String> = Vec::new();
+        let mut plan_violations: Vec<crate::data_engineer::tools::batch_contracts::PlanViolationBrief> = Vec::new();
 
         for ds in batch.iter() {
             let Some(ds_ref) = DatasetRef::parse(ds) else {
@@ -387,9 +392,18 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         from_plan
                     } else {
                         failed.push(ds.clone());
-                        errors.push(format!(
-                            "{ds}: cannot parse allowed output columns from {sql_rel}: {e}"
-                        ));
+                        let msg = format!(
+                            "{ds}: cannot determine output columns — SQL parser failed ({e}) \
+                             and plan output_fields are empty or generic. \
+                             The plan must provide concrete output_fields for this dataset."
+                        );
+                        errors.push(msg.clone());
+                        plan_violations.push(
+                            crate::data_engineer::tools::batch_contracts::PlanViolationBrief {
+                                task_id: ds.clone(),
+                                evidence: msg,
+                            },
+                        );
                         continue;
                     }
                 }
@@ -522,6 +536,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     auto_healed_wildcard_sql_dataset_ids,
                     errors,
                     progress_made: None,
+                    plan_violations,
                 },
             );
         }
@@ -539,6 +554,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 auto_healed_wildcard_sql_dataset_ids,
                 errors,
                 progress_made: Some(!succeeded.is_empty()),
+                plan_violations,
             },
         )
     }
@@ -591,6 +607,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     failed_item_names: Vec::new(),
                     progress_made: None,
                     warnings: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -618,6 +635,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     failed_item_names: Vec::new(),
                     progress_made: None,
                     warnings: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -637,6 +655,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     failed_item_names: Vec::new(),
                     progress_made: Some(false),
                     warnings: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -654,6 +673,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     failed_item_names: Vec::new(),
                     progress_made: None,
                     warnings: Vec::new(),
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -834,6 +854,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     .to_string()],
                     progress_made: None,
                     warnings,
+                    plan_violations: Vec::new(),
                 },
             );
         }
@@ -851,6 +872,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 errors: Vec::new(),
                 progress_made: Some(true),
                 warnings,
+                plan_violations: Vec::new(),
             },
         )
     }

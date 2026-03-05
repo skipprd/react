@@ -679,11 +679,45 @@ pub struct PublishRetryState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PlanViolation {
+    pub detecting_phase: Phase,
+    pub task_id: Option<String>,
+    pub evidence: String,
+}
+
+impl PlanViolation {
+    pub fn new(detecting_phase: Phase, task_id: Option<String>, evidence: impl Into<String>) -> Self {
+        Self { detecting_phase, task_id, evidence: evidence.into() }
+    }
+}
+
+pub fn format_plan_violations(violations: &[PlanViolation]) -> String {
+    if violations.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("PLAN REVISION REQUIRED — downstream phases reported the following issues with the current plan:\n\n");
+    for (i, v) in violations.iter().enumerate() {
+        out.push_str(&format!("Issue {}:\n", i + 1));
+        out.push_str(&format!("  Detected by: {}\n", v.detecting_phase.as_str()));
+        if let Some(ref tid) = v.task_id {
+            out.push_str(&format!("  Plan task: {}\n", tid));
+        }
+        out.push_str(&format!("  Evidence: {}\n\n", v.evidence.trim()));
+    }
+    out.push_str("Revise the plan to fix these issues. Do NOT repeat the same unachievable instructions.\n");
+    out
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PendingLoopbackIntent {
     PatchImpl {
         phase: Phase,
         entry_mutation_epoch: u64,
+    },
+    PlanRevision {
+        #[serde(default)]
+        violations: Vec<PlanViolation>,
     },
 }
 
@@ -1447,6 +1481,25 @@ impl ExecutionState {
         });
         self.repair = repair;
         self.debug_assert_invariants();
+    }
+
+    pub fn set_pending_plan_revision(&mut self, violations: Vec<PlanViolation>) {
+        self.with_repair_state_mut(|repair| {
+            repair.pending_loopback_intent = Some(PendingLoopbackIntent::PlanRevision {
+                violations,
+            });
+        });
+    }
+
+    pub fn take_pending_plan_violations(&mut self) -> Vec<PlanViolation> {
+        let violations = match &self.repair.pending_loopback_intent {
+            Some(PendingLoopbackIntent::PlanRevision { violations }) => violations.clone(),
+            _ => Vec::new(),
+        };
+        if !violations.is_empty() {
+            self.clear_pending_loopback_intent();
+        }
+        violations
     }
 
     pub fn clear_pending_loopback_intent(&mut self) {

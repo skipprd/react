@@ -163,6 +163,7 @@ fn batch_lock_error(reason: &str) -> String {
 enum PhaseExecutorOutcome {
     Continue,
     Return(Vec<FlowFrame>),
+    PlanRevisionRequested(Vec<crate::data_engineer::progress_controller::PlanViolation>),
 }
 
 /// Interrupt policy used by non-deterministic single-pass modes.
@@ -2599,6 +2600,35 @@ Apply these fixes in the output.",
             match outcome {
                 PhaseExecutorOutcome::Continue => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
+                PhaseExecutorOutcome::PlanRevisionRequested(violations) => {
+                    let track = crate::data_engineer::track_spec::TrackKind::from_any_phase(phase);
+                    let Some(track) = track else {
+                        return Err(format!(
+                            "PlanRevisionRequested from phase '{}' which has no associated plan track",
+                            phase.as_str()
+                        ));
+                    };
+                    let plan_phase = track.plan_phase();
+                    crate::data_engineer::state_manager::mutate_execution_state(
+                        &thread_store,
+                        thread_id,
+                        |es| es.set_pending_plan_revision(violations),
+                    )
+                    .await
+                    .map(|_| ())?;
+                    crate::data_engineer::phase_contract::commit_phase_decision(
+                        &thread_store,
+                        thread_id,
+                        Some(phase),
+                        crate::data_engineer::phase_contract::PhaseDecision::loopback(
+                            plan_phase,
+                            Some(react_core::control_flow::PhaseReasonCode::PlanRevisionRequested),
+                            None,
+                        ),
+                    )
+                    .await?;
+                    continue;
+                }
             }
         }
 
