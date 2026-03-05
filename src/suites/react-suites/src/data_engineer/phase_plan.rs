@@ -872,13 +872,29 @@ match Agent::run_until_block_non_interactive(
                     "fixes": design_critique.fixes.clone()
                 },
             });
+            // Enrich tasks (populates inputs) BEFORE pruning, since the prune
+            // function removes tasks whose inputs don't reference known staging models.
+            let enrich_ids: Vec<String> = plan
+                .tasks
+                .iter()
+                .map(|t| t.name.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            Self::enrich_model_tasks(
+                &actx,
+                &q,
+                &design_memo,
+                &design_critique,
+                &mut plan,
+                &enrich_ids,
+            )
+            .await?;
             // Ground gold planning: gold must be based ONLY on existing staging (silver) models.
             crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(
                 &mut plan,
                 &staged.allowed_models,
             );
             if plan.tasks.is_empty() || plan.batches.is_empty() {
-                // Hard cutover: same-phase blocks are represented as GuardBlock only.
                 let tries = Self::bump_subjective_retry(
                     &thread_store,
                     thread_id,
@@ -897,21 +913,6 @@ match Agent::run_until_block_non_interactive(
                 }
                 return Ok(PhaseExecutorOutcome::Continue);
             }
-            let enrich_ids: Vec<String> = plan
-                .tasks
-                .iter()
-                .map(|t| t.name.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            Self::enrich_model_tasks(
-                &actx,
-                &q,
-                &design_memo,
-                &design_critique,
-                &mut plan,
-                &enrich_ids,
-            )
-            .await?;
             // Crash-safety: persist the grounded/pruned draft so resume/inspection reflects
             // what we actually validated/critiqued (not just the initial parsed JSON).
             crate::data_engineer::plan::save_model_plan_grounded(
