@@ -94,45 +94,32 @@ impl DataEngineerSuite {
                 "{}: dbt_validate succeeded but plan checklist work is still pending; returning to authoring",
                 signal
             );
-            apply_guard_block(
+            let detail = crate::data_engineer::phase_reason_detail::to_value(
+                &crate::data_engineer::phase_reason_detail::ValidatePassToAuthoringDetail {
+                    signal: signal.to_string(),
+                    plan_key: active_plan_key,
+                    pending_count: completion_snapshot
+                        .as_ref()
+                        .map(|snap| snap.pending_count)
+                        .unwrap_or(0),
+                    pending_refs: completion_snapshot
+                        .as_ref()
+                        .map(|snap| snap.pending_refs.clone())
+                        .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                        .unwrap_or(serde_json::Value::Array(vec![])),
+                    dbt_validate_observation,
+                    next_action: "resume_authoring_for_remaining_plan_work".to_string(),
+                    audit_acceptance: Self::churn_audit_acceptance_criteria(),
+                },
+            );
+            crate::data_engineer::retry_budget::guard_block_loopback_to_author(
                 thread_store,
                 thread_id,
                 phase,
                 GuardBlockKind::AuthoringCompletion,
-                reason.clone(),
-            )
-            .await?;
-            let to_phase = if phase == Phase::CleanseValidate {
-                Phase::CleanseAuthor
-            } else {
-                Phase::ModelAuthor
-            };
-            crate::data_engineer::phase_contract::commit_phase_decision(
-                thread_store,
-                thread_id,
-                Some(phase),
-                crate::data_engineer::phase_contract::PhaseDecision::loopback(
-                    to_phase,
-                    Some(PhaseReasonCode::ValidatePassToAuthoring),
-                    Some(crate::data_engineer::phase_reason_detail::to_value(
-                        &crate::data_engineer::phase_reason_detail::ValidatePassToAuthoringDetail {
-                            signal: signal.to_string(),
-                            plan_key: active_plan_key,
-                            pending_count: completion_snapshot
-                                .as_ref()
-                                .map(|snap| snap.pending_count)
-                                .unwrap_or(0),
-                            pending_refs: completion_snapshot
-                                .as_ref()
-                                .map(|snap| snap.pending_refs.clone())
-                                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
-                                .unwrap_or(serde_json::Value::Array(vec![])),
-                            dbt_validate_observation,
-                            next_action: "resume_authoring_for_remaining_plan_work".to_string(),
-                            audit_acceptance: Self::churn_audit_acceptance_criteria(),
-                        },
-                    )),
-                ),
+                reason,
+                PhaseReasonCode::ValidatePassToAuthoring,
+                Some(detail),
             )
             .await?;
             return Ok(());
@@ -211,49 +198,35 @@ if let Err(e) =
     )
     .await
 {
-    let tries = Self::bump_subjective_retry(
+    use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+    match Self::check_subjective_retry_budget(
         &thread_store,
         thread_id,
         phase,
         crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
     )
-    .await?;
-    if tries > crate::data_engineer::controller_kernel::subjective_retry_limit() {
-        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
-            phase,
-            None,
-            format!("Pre-validation normalization failed {tries} times: {e}"),
-        );
-        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+    .await?
+    {
+        SubjectiveRetryOutcome::Exhausted(tries) => {
+            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+                phase,
+                None,
+                format!("Pre-validation normalization failed {tries} times: {e}"),
+            );
+            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+        }
+        SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
-    let reason = format!(
-        "Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
-    );
-    apply_guard_block(
+    return crate::data_engineer::retry_budget::guard_block_loopback_to_author(
         &thread_store,
         thread_id,
         phase,
         GuardBlockKind::PrecheckFailed,
-        reason.clone(),
+        format!("Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"),
+        PhaseReasonCode::PrecheckFailed,
+        Some(serde_json::json!({ "error": e })),
     )
-    .await?;
-    let to_phase = if phase == Phase::CleanseValidate {
-        Phase::CleanseAuthor
-    } else {
-        Phase::ModelAuthor
-    };
-    crate::data_engineer::phase_contract::commit_phase_decision(
-        &thread_store,
-        thread_id,
-        Some(phase),
-        crate::data_engineer::phase_contract::PhaseDecision::loopback(
-            to_phase,
-            Some(PhaseReasonCode::PrecheckFailed),
-            Some(serde_json::json!({ "error": e })),
-        ),
-    )
-    .await?;
-    return Ok(PhaseExecutorOutcome::Continue);
+    .await;
 }
 
 // Cheap structural prechecks: fail fast on malformed/duplicated schema artifacts
@@ -262,47 +235,35 @@ if let Err(e) =
     crate::data_engineer::schema_policy::prevalidate_dbt_schema_artifacts(&actx)
         .await
 {
-    let tries = Self::bump_subjective_retry(
+    use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+    match Self::check_subjective_retry_budget(
         &thread_store,
         thread_id,
         phase,
         crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
     )
-    .await?;
-    if tries > crate::data_engineer::controller_kernel::subjective_retry_limit() {
-        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
-            phase,
-            None,
-            format!("Pre-validation structural check failed {tries} times: {e}"),
-        );
-        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+    .await?
+    {
+        SubjectiveRetryOutcome::Exhausted(tries) => {
+            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+                phase,
+                None,
+                format!("Pre-validation structural check failed {tries} times: {e}"),
+            );
+            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+        }
+        SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
-    let reason = format!("Pre-validation failed; fix DBT YAML artifacts before re-validating.\n\n{e}");
-    apply_guard_block(
+    return crate::data_engineer::retry_budget::guard_block_loopback_to_author(
         &thread_store,
         thread_id,
         phase,
         GuardBlockKind::PrecheckFailed,
-        reason.clone(),
+        format!("Pre-validation failed; fix DBT YAML artifacts before re-validating.\n\n{e}"),
+        PhaseReasonCode::PrecheckFailed,
+        Some(serde_json::json!({ "error": e })),
     )
-    .await?;
-    let to_phase = if phase == Phase::CleanseValidate {
-        Phase::CleanseAuthor
-    } else {
-        Phase::ModelAuthor
-    };
-    crate::data_engineer::phase_contract::commit_phase_decision(
-        &thread_store,
-        thread_id,
-        Some(phase),
-        crate::data_engineer::phase_contract::PhaseDecision::loopback(
-            to_phase,
-            Some(PhaseReasonCode::PrecheckFailed),
-            Some(serde_json::json!({ "error": e })),
-        ),
-    )
-    .await?;
-    return Ok(PhaseExecutorOutcome::Continue);
+    .await;
 }
 
 // Targeted pre-check (compile selected, then build selected) based on most recent patch.

@@ -1,5 +1,7 @@
+use crate::data_engineer::control_flow::Phase;
 use crate::data_engineer::plan;
 use crate::data_engineer::progress_controller::BatchFailureKind;
+use react_core::session::ThreadStore;
 
 pub const MAX_CONSECUTIVE_BATCH_FAILURES: usize = 3;
 
@@ -60,6 +62,87 @@ pub fn note_batch_result_with_failure_kind(
         return batch_budget(progress);
     }
     note_batch_result(progress, false)
+}
+
+pub(crate) enum SubjectiveRetryOutcome {
+    WithinBudget(usize),
+    Exhausted(usize),
+}
+
+/// Bump the subjective retry counter for `kind` and return whether the budget is exhausted.
+pub(crate) async fn check_subjective_retry_budget(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
+) -> Result<SubjectiveRetryOutcome, String> {
+    let cap = subjective_retry_state_cap();
+    let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
+        thread_store,
+        thread_id,
+    )
+    .await
+    .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
+    let retries = st.bump_subjective_retry(phase, kind, cap);
+    st.save(thread_store, thread_id)
+        .await
+        .map_err(|e| format!("failed to persist subjective retry: {e}"))?;
+    if retries > subjective_retry_limit() {
+        Ok(SubjectiveRetryOutcome::Exhausted(retries))
+    } else {
+        Ok(SubjectiveRetryOutcome::WithinBudget(retries))
+    }
+}
+
+/// Reset the subjective retry counter.
+pub(crate) async fn reset_subjective_retries(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+) -> Result<(), String> {
+    let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
+        thread_store,
+        thread_id,
+    )
+    .await
+    .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
+    st.reset_subjective_retry();
+    st.save(thread_store, thread_id)
+        .await
+        .map_err(|e| format!("failed to reset subjective retry: {e}"))
+}
+
+/// Apply a guard-block, commit a loopback decision to the corresponding author phase,
+/// and return `PhaseExecutorOutcome::Continue`.
+pub(crate) async fn guard_block_loopback_to_author(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    guard_kind: react_core::control_flow::GuardBlockKind,
+    reason: String,
+    reason_code: react_core::control_flow::PhaseReasonCode,
+    detail: Option<serde_json::Value>,
+) -> Result<super::PhaseExecutorOutcome, String> {
+    crate::data_engineer::phase_contract::commit_guard_block(
+        thread_store,
+        thread_id,
+        phase,
+        guard_kind,
+        reason,
+    )
+    .await?;
+    let to_phase = if phase == Phase::CleanseValidate {
+        Phase::CleanseAuthor
+    } else {
+        Phase::ModelAuthor
+    };
+    crate::data_engineer::phase_contract::commit_phase_decision(
+        thread_store,
+        thread_id,
+        Some(phase),
+        crate::data_engineer::phase_contract::PhaseDecision::loopback(to_phase, Some(reason_code), detail),
+    )
+    .await?;
+    Ok(super::PhaseExecutorOutcome::Continue)
 }
 
 #[cfg(test)]

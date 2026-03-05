@@ -87,39 +87,43 @@ impl DataEngineerSuite {
         if meta.review_ref.is_none() {
             meta.review_ref = review_ref_from_trigger;
         }
-        let mut review_retry_count = 0usize;
+        let review_retry_count;
         let is_patch_impl = meta.decision == ReviewDecision::PatchImpl;
         if is_patch_impl {
-            review_retry_count = Self::bump_subjective_retry(
+            use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+            match Self::check_subjective_retry_budget(
                 thread_store,
                 thread_id,
                 phase,
                 crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
             )
-            .await?;
+            .await?
+            {
+                SubjectiveRetryOutcome::Exhausted(tries) => {
+                    let evidence = format!(
+                        "Review PatchImpl looped {} times without convergence. The plan may contain unachievable requirements.",
+                        tries,
+                    );
+                    tracing::warn!(
+                        "data_engineer: escalating to plan revision phase={} reason={}",
+                        phase.as_str(),
+                        evidence
+                    );
+                    Self::reset_subjective_retry(thread_store, thread_id).await?;
+                    let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+                        phase,
+                        None,
+                        evidence,
+                    );
+                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                }
+                SubjectiveRetryOutcome::WithinBudget(tries) => {
+                    review_retry_count = tries;
+                }
+            }
         } else {
+            review_retry_count = 0;
             Self::reset_subjective_retry(thread_store, thread_id).await?;
-        }
-        let forced_by_subjective_retry = is_patch_impl
-            && review_retry_count > crate::data_engineer::controller_kernel::subjective_retry_limit();
-        if forced_by_subjective_retry {
-            let evidence = format!(
-                "Review PatchImpl looped {} times without convergence (limit {}). The plan may contain unachievable requirements.",
-                review_retry_count,
-                crate::data_engineer::controller_kernel::subjective_retry_limit(),
-            );
-            tracing::warn!(
-                "data_engineer: escalating to plan revision phase={} reason={}",
-                phase.as_str(),
-                evidence
-            );
-            Self::reset_subjective_retry(thread_store, thread_id).await?;
-            let violation = crate::data_engineer::progress_controller::PlanViolation::new(
-                phase,
-                None,
-                evidence,
-            );
-            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
         }
         out_frames.push(FlowFrame::Review {
             text: answer.clone(),

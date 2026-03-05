@@ -154,7 +154,7 @@ fn lock_prompt_for_plan(
     )
 }
 
-enum PhaseExecutorOutcome {
+pub(crate) enum PhaseExecutorOutcome {
     Continue,
     Return(Vec<FlowFrame>),
     PlanRevisionRequested(Vec<crate::data_engineer::progress_controller::PlanViolation>),
@@ -463,37 +463,19 @@ impl DataEngineerSuite {
         lines.join("\n")
     }
 
-    async fn bump_subjective_retry(
+    async fn check_subjective_retry_budget(
         thread_store: &ThreadStore,
         thread_id: &str,
         phase: control_flow::Phase,
         kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
-    ) -> Result<usize, String> {
-        let cap = crate::data_engineer::controller_kernel::subjective_retry_state_cap();
-        let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
-            thread_store,
-            thread_id,
-        )
-        .await
-        .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-        let retries = st.bump_subjective_retry(phase, kind, cap);
-        st.save(thread_store, thread_id).await.map_err(|e| {
-            format!("failed to persist execution_state subjective retry: {e}")
-        })?;
-        Ok(retries)
+    ) -> Result<crate::data_engineer::retry_budget::SubjectiveRetryOutcome, String> {
+        crate::data_engineer::retry_budget::check_subjective_retry_budget(
+            thread_store, thread_id, phase, kind,
+        ).await
     }
 
     async fn reset_subjective_retry(thread_store: &ThreadStore, thread_id: &str) -> Result<(), String> {
-        let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
-            thread_store,
-            thread_id,
-        )
-        .await
-        .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-        st.reset_subjective_retry();
-        st.save(thread_store, thread_id).await.map_err(|e| {
-            format!("failed to reset execution_state subjective retry: {e}")
-        })
+        crate::data_engineer::retry_budget::reset_subjective_retries(thread_store, thread_id).await
     }
 
 

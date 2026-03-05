@@ -735,24 +735,26 @@ match Agent::run_until_block_non_interactive(
                     reason.clone(),
                 )
                 .await?;
-                // Hard cutover: same-phase blocks are represented as GuardBlock only.
-                let tries = Self::bump_subjective_retry(
+                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+                match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
-                .await?;
-                if tries
-                    > crate::data_engineer::controller_kernel::subjective_retry_limit()
+                .await?
                 {
-                    return Err(format!(
-                        "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
-                        tries,
-                        sem.messages().join(" | ")
-                    ));
+                    SubjectiveRetryOutcome::Exhausted(tries) => {
+                        return Err(format!(
+                            "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
+                            tries,
+                            sem.messages().join(" | ")
+                        ));
+                    }
+                    SubjectiveRetryOutcome::WithinBudget(_) => {
+                        return Ok(PhaseExecutorOutcome::Continue);
+                    }
                 }
-                return Ok(PhaseExecutorOutcome::Continue);
             }
 
             // Persist design-review details from the critique pass for downstream review/UI.
@@ -798,23 +800,26 @@ match Agent::run_until_block_non_interactive(
                 crate::data_engineer::dataset_truth::discover_staging_models_from_storage(&actx)
                     .await;
             if staged.allowed_models.is_empty() {
-                let tries = Self::bump_subjective_retry(
+                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+                match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
                 )
-                .await?;
-                if tries
-                    > crate::data_engineer::controller_kernel::subjective_retry_limit()
+                .await?
                 {
-                    return Err(format!(
-                        "no staging models discovered in storage after {} retries (expected stg_*.sql files under models/staging/); warnings: [{}]",
-                        tries,
-                        staged.warnings.join("; ")
-                    ));
+                    SubjectiveRetryOutcome::Exhausted(tries) => {
+                        return Err(format!(
+                            "no staging models discovered in storage after {} retries (expected stg_*.sql files under models/staging/); warnings: [{}]",
+                            tries,
+                            staged.warnings.join("; ")
+                        ));
+                    }
+                    SubjectiveRetryOutcome::WithinBudget(_) => {
+                        return Ok(PhaseExecutorOutcome::Continue);
+                    }
                 }
-                return Ok(PhaseExecutorOutcome::Continue);
             }
             {
                 let names: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
@@ -895,23 +900,26 @@ match Agent::run_until_block_non_interactive(
                 &staged.allowed_models,
             );
             if plan.tasks.is_empty() || plan.batches.is_empty() {
-                let tries = Self::bump_subjective_retry(
+                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+                match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
                 )
-                .await?;
-                if tries
-                    > crate::data_engineer::controller_kernel::subjective_retry_limit()
+                .await?
                 {
-                    let allowed: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
-                    return Err(format!(
-                        "model plan grounding pruned all tasks after {} retries; LLM candidates did not reference existing staging models. allowed_models={:?}",
-                        tries, allowed
-                    ));
+                    SubjectiveRetryOutcome::Exhausted(tries) => {
+                        let allowed: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
+                        return Err(format!(
+                            "model plan grounding pruned all tasks after {} retries; LLM candidates did not reference existing staging models. allowed_models={:?}",
+                            tries, allowed
+                        ));
+                    }
+                    SubjectiveRetryOutcome::WithinBudget(_) => {
+                        return Ok(PhaseExecutorOutcome::Continue);
+                    }
                 }
-                return Ok(PhaseExecutorOutcome::Continue);
             }
             // Crash-safety: persist the grounded/pruned draft so resume/inspection reflects
             // what we actually validated/critiqued (not just the initial parsed JSON).
@@ -991,24 +999,26 @@ match Agent::run_until_block_non_interactive(
                     reason.clone(),
                 )
                 .await?;
-                // Hard cutover: same-phase blocks are represented as GuardBlock only.
-                let tries = Self::bump_subjective_retry(
+                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+                match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
-                .await?;
-                if tries
-                    > crate::data_engineer::controller_kernel::subjective_retry_limit()
+                .await?
                 {
-                    return Err(format!(
-                        "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
-                        tries,
-                        sem.messages().join(" | ")
-                    ));
+                    SubjectiveRetryOutcome::Exhausted(tries) => {
+                        return Err(format!(
+                            "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
+                            tries,
+                            sem.messages().join(" | ")
+                        ));
+                    }
+                    SubjectiveRetryOutcome::WithinBudget(_) => {
+                        return Ok(PhaseExecutorOutcome::Continue);
+                    }
                 }
-                return Ok(PhaseExecutorOutcome::Continue);
             }
 
             // Persist design-review details from the critique pass for downstream review/UI.
