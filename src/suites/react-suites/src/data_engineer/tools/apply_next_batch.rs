@@ -44,6 +44,38 @@ fn mark_in_progress_cleanse_checklist(
     }
 }
 
+async fn emit_batch_failure(
+    ctx: &AgentCtx,
+    tier: ExecutionTier,
+    batch: &[String],
+    err: &str,
+    resolve_path: impl Fn(&str) -> Option<String>,
+) -> Result<(), String> {
+    let failed_targets: Vec<FailedModelRef> = batch
+        .iter()
+        .map(|id| FailedModelRef {
+            name: id.clone(),
+            file: resolve_path(id).unwrap_or_default(),
+            ..Default::default()
+        })
+        .collect();
+    let brief = if err.trim().is_empty() {
+        format!("batch authoring failed (tier={tier:?})")
+    } else {
+        err.to_string()
+    };
+    crate::data_engineer::tools::batch_sql_runner::emit_batch_event(
+        ctx,
+        DataEngineerEvent::BatchAuthoringFailed {
+            tier,
+            kind: BatchFailureKind::Unknown,
+            failed_targets,
+            brief,
+        },
+    )
+    .await
+}
+
 fn mark_in_progress_model(plan: &mut ModelPlan, names: &[String]) {
     for n in names.iter() {
         plan::model_mark_in_progress(plan, n);
@@ -211,19 +243,17 @@ impl Tool for ApplyNextCleanseBatchTool {
         let res = match inner.call(inner_args, ctx).await {
             Ok(v) => v,
             Err(e) => {
-                // Tool error: mark whole batch as needs_update and return a structured failure (not an Err),
-                // so callers can render it and retry deterministically.
-                mark_needs_update_cleanse(
-                    &mut plan,
-                    &batch,
-                    &format!("apply_next_cleanse_batch failed: {}", e.trim()),
-                );
-                let kind = BatchFailureKind::Unknown;
+                let err_brief = format!("apply_next_cleanse_batch failed: {}", e.trim());
+                mark_needs_update_cleanse(&mut plan, &batch, &err_brief);
                 controller_kernel::note_batch_result_with_failure_kind(
                     &mut plan.progress,
                     false,
-                    Some(kind),
+                    Some(BatchFailureKind::Unknown),
                 );
+                emit_batch_failure(ctx, ExecutionTier::Cleanse, &batch, &err_brief, |ds| {
+                    plan.tasks.iter().find(|t| t.dataset_id == *ds)
+                        .and_then(|t| t.expected_model_path.clone())
+                }).await?;
                 plan::save_cleanse_plan(ctx, &plan)
                     .await
                     .map_err(|e| format!("failed to save cleanse plan after batch tool failure: {e}"))?;
@@ -237,7 +267,6 @@ impl Tool for ApplyNextCleanseBatchTool {
             }
         };
 
-        // Normalize the result shape we emit so plan progress derivation can be deterministic.
         let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         let succeeded =
             crate::data_engineer::tools::batch_sql_runner::parse_succeeded_ids(
@@ -462,12 +491,13 @@ impl Tool for ApplyNextModelBatchTool {
             }
         }
         if !gating_errors.is_empty() {
-            mark_needs_update_model(
-                &mut plan,
-                &batch_names,
-                "gold inputs are not grounded in existing silver models under models/staging/",
-            );
+            let err_brief = "gold inputs are not grounded in existing silver models under models/staging/";
+            mark_needs_update_model(&mut plan, &batch_names, err_brief);
             controller_kernel::note_batch_result(&mut plan.progress, false);
+            emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, err_brief, |n| {
+                plan.tasks.iter().find(|t| t.name == *n)
+                    .and_then(|t| t.expected_model_path.clone())
+            }).await?;
             plan::save_model_plan(ctx, &plan)
                 .await
                 .map_err(|e| format!("failed to save model plan after input gating failure: {e}"))?;
@@ -526,17 +556,17 @@ impl Tool for ApplyNextModelBatchTool {
         let res = match inner.call(serde_json::json!({ "items": items }), ctx).await {
             Ok(v) => v,
             Err(e) => {
-                mark_needs_update_model(
-                    &mut plan,
-                    &batch_names,
-                    &format!("apply_next_model_batch failed: {}", e.trim()),
-                );
-                let kind = BatchFailureKind::Unknown;
+                let err_brief = format!("apply_next_model_batch failed: {}", e.trim());
+                mark_needs_update_model(&mut plan, &batch_names, &err_brief);
                 controller_kernel::note_batch_result_with_failure_kind(
                     &mut plan.progress,
                     false,
-                    Some(kind),
+                    Some(BatchFailureKind::Unknown),
                 );
+                emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, &err_brief, |n| {
+                    plan.tasks.iter().find(|t| t.name == *n)
+                        .and_then(|t| t.expected_model_path.clone())
+                }).await?;
                 plan::save_model_plan(ctx, &plan)
                     .await
                     .map_err(|e| format!("failed to save model plan after batch tool failure: {e}"))?;
