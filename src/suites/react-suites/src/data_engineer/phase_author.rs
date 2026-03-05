@@ -559,7 +559,7 @@ let (plan_context, plan_state): (String, PlanState) =
                     expected_paths.join("\n- "),
                 );
                 ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
-                (ctx, PlanState::Unconstrained)
+                (ctx, PlanState::CleanseSchemaDatasetIds(ids.clone()))
             } else {
                 let mut ctx = format!(
                     "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
@@ -567,7 +567,12 @@ let (plan_context, plan_state): (String, PlanState) =
                     crate::data_engineer::patch_contract::single_file_patch_good_example_json()
                 );
                 ctx.push_str(&repair_ctx.format_error_context());
-                (ctx, PlanState::Unconstrained)
+                let plan_state = if !next.is_empty() {
+                    PlanState::CleanseSqlDatasetIds(next.clone())
+                } else {
+                    PlanState::Unconstrained
+                };
+                (ctx, plan_state)
             }
         } else if next.is_empty() {
             // If work-groups exist, interpret "no next SQL batch" as:
@@ -820,7 +825,12 @@ let (plan_context, plan_state): (String, PlanState) =
                     crate::data_engineer::patch_contract::single_file_patch_good_example_json()
                 );
                 ctx.push_str(&repair_ctx.format_error_context());
-                (ctx, PlanState::Unconstrained)
+                let plan_state = if !next_names.is_empty() {
+                    PlanState::ModelSqlItemNames(next_names.clone())
+                } else {
+                    PlanState::Unconstrained
+                };
+                (ctx, plan_state)
             }
         } else if next_names.is_empty() {
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =

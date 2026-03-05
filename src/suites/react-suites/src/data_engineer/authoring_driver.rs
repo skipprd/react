@@ -20,47 +20,24 @@ pub(crate) enum AuthoringTurnResult {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AuthoringToolPolicy {
     HardMutationSingleTarget,
-    HardMutationSchemaRepair,
-    HardMutationGeneric,
-    BatchingCleanseSql,
-    BatchingCleanseSchema,
-    BatchingModelSql,
-    BatchingModelSchema,
+    HardMutationBatch,
+    Batch,
     GeneralAuthoring,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct AuthoringToolPolicyInput {
-    pub hard_mutation_only: bool,
-    pub single_target_repair: bool,
-    pub allow_probe_sql: bool,
-    pub plan_batched_cleanse_sql: bool,
-    pub plan_batched_cleanse_schema: bool,
-    pub plan_batched_model_sql: bool,
-    pub plan_batched_model_schema: bool,
-}
-
-pub(crate) fn derive_authoring_tool_policy(input: AuthoringToolPolicyInput) -> AuthoringToolPolicy {
-    if input.hard_mutation_only {
-        if input.single_target_repair {
+pub(crate) fn derive_authoring_tool_policy(
+    hard_mutation_only: bool,
+    single_target_repair: bool,
+    plan_state_is_batched: bool,
+) -> AuthoringToolPolicy {
+    if hard_mutation_only {
+        if single_target_repair {
             return AuthoringToolPolicy::HardMutationSingleTarget;
         }
-        if input.allow_probe_sql {
-            return AuthoringToolPolicy::HardMutationSchemaRepair;
-        }
-        return AuthoringToolPolicy::HardMutationGeneric;
+        return AuthoringToolPolicy::HardMutationBatch;
     }
-    if input.plan_batched_cleanse_sql {
-        return AuthoringToolPolicy::BatchingCleanseSql;
-    }
-    if input.plan_batched_cleanse_schema {
-        return AuthoringToolPolicy::BatchingCleanseSchema;
-    }
-    if input.plan_batched_model_sql {
-        return AuthoringToolPolicy::BatchingModelSql;
-    }
-    if input.plan_batched_model_schema {
-        return AuthoringToolPolicy::BatchingModelSchema;
+    if plan_state_is_batched {
+        return AuthoringToolPolicy::Batch;
     }
     AuthoringToolPolicy::GeneralAuthoring
 }
@@ -147,17 +124,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tool_policy_is_parity_shaped_for_cleanse_and_model_schema_batches() {
-        let cleanse = derive_authoring_tool_policy(AuthoringToolPolicyInput {
-            plan_batched_cleanse_schema: true,
-            ..Default::default()
-        });
-        let model = derive_authoring_tool_policy(AuthoringToolPolicyInput {
-            plan_batched_model_schema: true,
-            ..Default::default()
-        });
-        assert_eq!(cleanse, AuthoringToolPolicy::BatchingCleanseSchema);
-        assert_eq!(model, AuthoringToolPolicy::BatchingModelSchema);
+    fn tool_policy_batched_when_plan_state_is_batched() {
+        assert_eq!(
+            derive_authoring_tool_policy(false, false, true),
+            AuthoringToolPolicy::Batch,
+        );
+        assert_eq!(
+            derive_authoring_tool_policy(false, false, false),
+            AuthoringToolPolicy::GeneralAuthoring,
+        );
+        assert_eq!(
+            derive_authoring_tool_policy(true, false, true),
+            AuthoringToolPolicy::HardMutationBatch,
+        );
+        assert_eq!(
+            derive_authoring_tool_policy(true, true, true),
+            AuthoringToolPolicy::HardMutationSingleTarget,
+        );
     }
 
     #[test]

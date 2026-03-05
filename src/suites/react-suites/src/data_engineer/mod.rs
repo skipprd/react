@@ -3286,11 +3286,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hard_mutation_mode_does_not_expose_apply_next_cleanse_batch_even_if_allowed_batch_present(
-    ) {
+    async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         let mut sctx = SuiteCtx::default();
         sctx.query = Some(Arc::new(MockQuery));
-        let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
             last_validate_failed: true,
@@ -3301,7 +3299,7 @@ mod tests {
             probe_satisfied: false,
         };
 
-        let (reg, card) = DataEngineerSuite::build_tools_for_phase(
+        let (_reg, card) = DataEngineerSuite::build_tools_for_phase(
             crate::data_engineer::control_flow::Phase::CleanseAuthor,
             &guard,
             true,
@@ -3315,13 +3313,7 @@ mod tests {
         .expect("build_tools_for_phase should succeed");
 
         assert!(card.contains("patch_text"));
-        assert!(!card.contains("apply_next_cleanse_batch"));
-
-        let err = reg
-            .call("apply_next_cleanse_batch", serde_json::json!({}), &actx)
-            .await
-            .unwrap_err();
-        assert!(err.contains("unknown tool"));
+        assert!(card.contains("apply_next_cleanse_batch"));
     }
 
     #[tokio::test]

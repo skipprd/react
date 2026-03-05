@@ -1,5 +1,42 @@
 use super::*;
 
+fn register_batch_tool_for_plan_state(
+    reg: &mut ToolRegistry,
+    phase: control_flow::Phase,
+    plan_state: &PlanState,
+    datasets: &Option<std::sync::Arc<dyn react_core::providers::DatasetCatalogProvider>>,
+) -> Option<&'static str> {
+    match (phase, plan_state) {
+        (control_flow::Phase::CleanseAuthor, PlanState::CleanseSqlDatasetIds(_)) => {
+            reg.register(tools::apply_next_batch::ApplyNextCleanseBatchTool {
+                datasets: datasets.clone(),
+            });
+            Some("apply_next_cleanse_batch")
+        }
+        (control_flow::Phase::CleanseAuthor, PlanState::CleanseSchemaDatasetIds(_)) => {
+            reg.register(
+                tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
+                    datasets: datasets.clone(),
+                },
+            );
+            Some("apply_next_cleanse_schema_batch")
+        }
+        (control_flow::Phase::ModelAuthor, PlanState::ModelSqlItemNames(_)) => {
+            reg.register(tools::apply_next_batch::ApplyNextModelBatchTool);
+            Some("apply_next_model_batch")
+        }
+        (control_flow::Phase::ModelAuthor, PlanState::ModelSchemaItemNames(_)) => {
+            reg.register(
+                tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
+                    datasets: datasets.clone(),
+                },
+            );
+            Some("apply_next_model_schema_batch")
+        }
+        _ => None,
+    }
+}
+
 enum FileAccessPolicy {
     ReadOnly {
         error_message: &'static str,
@@ -360,24 +397,11 @@ impl DataEngineerSuite {
                 let hard_mutation_only = (guard.last_validate_failed && !guard.mutated_since_fail)
                     || single_target_repair_path.is_some();
                 let allow_probe_sql = guard.probe_required && !guard.probe_satisfied;
-                let plan_batched_cleanse_sql = phase == control_flow::Phase::CleanseAuthor
-                    && matches!(plan_state, PlanState::CleanseSqlDatasetIds(_));
-                let plan_batched_cleanse_schema = phase == control_flow::Phase::CleanseAuthor
-                    && matches!(plan_state, PlanState::CleanseSchemaDatasetIds(_));
-                let plan_batched_model_sql = phase == control_flow::Phase::ModelAuthor
-                    && matches!(plan_state, PlanState::ModelSqlItemNames(_));
-                let plan_batched_model_schema = phase == control_flow::Phase::ModelAuthor
-                    && matches!(plan_state, PlanState::ModelSchemaItemNames(_));
+                let plan_state_is_batched = !matches!(plan_state, PlanState::Unconstrained);
                 let authoring_policy = crate::data_engineer::authoring_driver::derive_authoring_tool_policy(
-                    crate::data_engineer::authoring_driver::AuthoringToolPolicyInput {
-                        hard_mutation_only,
-                        single_target_repair: single_target_repair_path.is_some(),
-                        allow_probe_sql,
-                        plan_batched_cleanse_sql,
-                        plan_batched_cleanse_schema,
-                        plan_batched_model_sql,
-                        plan_batched_model_schema,
-                    },
+                    hard_mutation_only,
+                    single_target_repair_path.is_some(),
+                    plan_state_is_batched,
                 );
 
                 if hard_mutation_only {
@@ -645,41 +669,17 @@ impl DataEngineerSuite {
                         });
                     }
 
-                    // In hard_mutation_only mode, only expose schema-batch tools when we are in
-                    // schema repair mode (single_target_repair_path is absent). SQL-target repair
-                    // mode must stay file-targeted to avoid schema-tool no-op loops.
                     let mut tool_lines: Vec<String> = Vec::new();
-                    if phase == control_flow::Phase::CleanseAuthor
-                        && !matches!(
-                            authoring_policy,
-                            crate::data_engineer::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
-                        )
-                    {
-                        reg.register(
-                            tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
-                                datasets: sctx.datasets.clone(),
-                            },
+                    if !matches!(
+                        authoring_policy,
+                        crate::data_engineer::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
+                    ) {
+                        let batch_tool_name = register_batch_tool_for_plan_state(
+                            &mut reg, phase, plan_state, &sctx.datasets,
                         );
-                        tool_lines.push(
-                            "- apply_next_cleanse_schema_batch(args:{instructions?:string})"
-                                .to_string(),
-                        );
-                    }
-                    if phase == control_flow::Phase::ModelAuthor
-                        && !matches!(
-                            authoring_policy,
-                            crate::data_engineer::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
-                        )
-                    {
-                        reg.register(
-                            tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                datasets: sctx.datasets.clone(),
-                            },
-                        );
-                        tool_lines.push(
-                            "- apply_next_model_schema_batch(args:{instructions?:string})"
-                                .to_string(),
-                        );
+                        if let Some(name) = batch_tool_name {
+                            tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
+                        }
                     }
                     tool_lines.extend_from_slice(&[
                         "- file(args:{op:\"patch\"|\"rm\"|\"mv\", ...})".to_string(),
@@ -703,57 +703,27 @@ impl DataEngineerSuite {
                         ),
                     );
                 } else {
-                    // Normal authoring: allow read/explore + probes.
-                    if phase == control_flow::Phase::CleanseAuthor {
-                        match plan_state {
-                            PlanState::CleanseSqlDatasetIds(_) => {
-                                reg.register(tools::apply_next_batch::ApplyNextCleanseBatchTool {
+                    // Normal authoring: batch tool from PlanState + read/explore tools.
+                    let batch_tool_name = register_batch_tool_for_plan_state(
+                        &mut reg, phase, plan_state, &sctx.datasets,
+                    );
+                    if matches!(plan_state, PlanState::Unconstrained) {
+                        if phase == control_flow::Phase::CleanseAuthor {
+                            reg.register(tools::staging_model::StagingModelTool {
+                                datasets: sctx.datasets.clone(),
+                            });
+                            reg.register(
+                                tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
                                     datasets: sctx.datasets.clone(),
-                                });
-                            }
-                            PlanState::CleanseSchemaDatasetIds(_) => {
-                                reg.register(
-                                    tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
-                                        datasets: sctx.datasets.clone(),
-                                    },
-                                );
-                            }
-                            PlanState::ModelSqlItemNames(_)
-                            | PlanState::ModelSchemaItemNames(_)
-                            | PlanState::Unconstrained => {
-                                reg.register(tools::staging_model::StagingModelTool {
+                                },
+                            );
+                        } else {
+                            reg.register(tools::gold_model::GoldModelTool);
+                            reg.register(
+                                tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
                                     datasets: sctx.datasets.clone(),
-                                });
-                                reg.register(
-                                    tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
-                                        datasets: sctx.datasets.clone(),
-                                    },
-                                );
-                            }
-                        }
-                    }
-                    if phase == control_flow::Phase::ModelAuthor {
-                        match plan_state {
-                            PlanState::ModelSqlItemNames(_) => {
-                                reg.register(tools::apply_next_batch::ApplyNextModelBatchTool);
-                            }
-                            PlanState::ModelSchemaItemNames(_) => {
-                                reg.register(
-                                    tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                        datasets: sctx.datasets.clone(),
-                                    },
-                                );
-                            }
-                            PlanState::CleanseSqlDatasetIds(_)
-                            | PlanState::CleanseSchemaDatasetIds(_)
-                            | PlanState::Unconstrained => {
-                                reg.register(tools::gold_model::GoldModelTool);
-                                reg.register(
-                                    tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                        datasets: sctx.datasets.clone(),
-                                    },
-                                );
-                            }
+                                },
+                            );
                         }
                     }
                     reg.register(SqlRunTool {
@@ -765,12 +735,9 @@ impl DataEngineerSuite {
                     });
                     reg.register(JsonFileTool);
 
-                    if matches!(
-                        authoring_policy,
-                        crate::data_engineer::authoring_driver::AuthoringToolPolicy::BatchingCleanseSql
-                    ) {
+                    if let Some(batch_name) = batch_tool_name {
                         let lines = vec![
-                            "- apply_next_cleanse_batch(args:{instructions?:string})".to_string(),
+                            format!("- {batch_name}(args:{{instructions?:string}})"),
                             "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
                             "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
                             "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
@@ -782,66 +749,7 @@ impl DataEngineerSuite {
                             "Allowed tools (authoring phase; plan-batched, deterministic):",
                             lines,
                             Vec::new(),
-                            Some("Not available in this phase: staging_model (batch tool calls it deterministically), dbt_validate, publish_dbt_to_provider.".to_string()),
-                        );
-                    } else if matches!(
-                        authoring_policy,
-                        crate::data_engineer::authoring_driver::AuthoringToolPolicy::BatchingCleanseSchema
-                    ) {
-                        let lines = vec![
-                            "- apply_next_cleanse_schema_batch(args:{instructions?:string})"
-                                .to_string(),
-                            "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
-                            "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
-                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
-                                .to_string(),
-                            "- run_sql (targeted probes)".to_string(),
-                            "- artifacts".to_string(),
-                        ];
-                        tools_card = Self::build_tools_card(
-                            "Allowed tools (authoring phase; plan-batched, deterministic):",
-                            lines,
-                            Vec::new(),
-                            Some("Not available in this phase: staging_model, apply_next_cleanse_batch, dbt_validate, publish_dbt_to_provider.".to_string()),
-                        );
-                    } else if matches!(
-                        authoring_policy,
-                        crate::data_engineer::authoring_driver::AuthoringToolPolicy::BatchingModelSql
-                    ) {
-                        let lines = vec![
-                            "- apply_next_model_batch(args:{instructions?:string})".to_string(),
-                            "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
-                            "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
-                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
-                                .to_string(),
-                            "- run_sql (targeted probes)".to_string(),
-                            "- artifacts".to_string(),
-                        ];
-                        tools_card = Self::build_tools_card(
-                            "Allowed tools (authoring phase; plan-batched, deterministic):",
-                            lines,
-                            Vec::new(),
-                            Some("Not available in this phase: gold_model (batch tool calls it deterministically), dbt_validate, publish_dbt_to_provider.".to_string()),
-                        );
-                    } else if matches!(
-                        authoring_policy,
-                        crate::data_engineer::authoring_driver::AuthoringToolPolicy::BatchingModelSchema
-                    ) {
-                        let lines = vec![
-                            "- apply_next_model_schema_batch(args:{instructions?:string})"
-                                .to_string(),
-                            "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
-                            "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
-                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
-                                .to_string(),
-                            "- run_sql (targeted probes)".to_string(),
-                            "- artifacts".to_string(),
-                        ];
-                        tools_card = Self::build_tools_card(
-                            "Allowed tools (authoring phase; plan-batched, deterministic):",
-                            lines,
-                            Vec::new(),
-                            Some("Not available in this phase: gold_model, apply_next_model_batch, dbt_validate, publish_dbt_to_provider.".to_string()),
+                            Some("Not available in this phase: dbt_validate, publish_dbt_to_provider.".to_string()),
                         );
                     } else {
                         let mut lines = vec![
