@@ -163,6 +163,7 @@ fn build_staging_sys_prompt(
            - If schema_columns contains an EXACT column name with dots (e.g. context.session.id), treat it as a literal column name and reference it as a single quoted identifier like \"context.session.id\".\n\
            - Only use struct dereference (e.g. context.session.id) when schema_columns indicates a struct/row parent exists (e.g. context) AND there is no exact dotted column name.\n\
          - If a column name is reserved (e.g. timestamp), quote the identifier (\"timestamp\"). For literal dotted column names, quote the entire identifier (\"context.session.id\").\n\
+         - Prefer an explicit column list in the final SELECT; avoid SELECT *. If you use CTEs, expand the final projection rather than using SELECT * FROM cte.\n\
          - Keep changes aligned with the user's instructions, even if they are unconventional.\n"
         ,
         provider_rules = provider_rules

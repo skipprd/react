@@ -346,9 +346,6 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             let allowed_cols = match files_tool::extract_final_select_output_columns(&sql_text) {
                 Ok(s) => s.into_iter().collect::<Vec<_>>(),
                 Err(e) => {
-                    // High-signal fallback for SELECT * loops:
-                    // when SQL parsing cannot infer final columns, use the approved cleanse-plan
-                    // output field names to keep schema generation moving deterministically.
                     let from_plan = plan
                         .tasks
                         .iter()
@@ -363,6 +360,12 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         })
                         .unwrap_or_default();
                     if !from_plan.is_empty() {
+                        tracing::warn!(
+                            "{ds}: SQL parser could not extract columns from {sql_rel} ({e}); \
+                             using plan output_fields as source of truth ({} cols)",
+                            from_plan.len()
+                        );
+                        // Best-effort auto-heal: rewrite SELECT * to explicit columns if possible.
                         if let Some(rewritten_sql) =
                             rewrite_final_select_wildcard(&sql_text, &from_plan)
                         {
@@ -372,22 +375,15 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                                     .put_bytes(&sql_key, rewritten_sql.as_bytes(), "text/sql")
                                     .await
                                 {
-                                    failed.push(ds.clone());
-                                    errors.push(format!(
-                                        "{ds}: failed to auto-heal wildcard SELECT in {sql_rel}: {write_err}"
-                                    ));
-                                    continue;
+                                    tracing::warn!(
+                                        "{ds}: auto-heal wildcard rewrite failed: {write_err}"
+                                    );
+                                } else {
+                                    auto_healed_wildcard_sql_dataset_ids.push(ds.clone());
                                 }
-                                auto_healed_wildcard_sql_dataset_ids.push(ds.clone());
                             }
-                            from_plan
-                        } else {
-                            failed.push(ds.clone());
-                            errors.push(format!(
-                                "{ds}: cannot parse allowed output columns from {sql_rel}: {e}"
-                            ));
-                            continue;
                         }
+                        from_plan
                     } else {
                         failed.push(ds.clone());
                         errors.push(format!(
