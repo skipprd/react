@@ -157,6 +157,7 @@ fn schema_yml_sys_prompt_staging() -> String {
         "- Return a single-file patch as `patch_text` using Cursor/Aider hunks-only format (MUST).".to_string(),
         "- Patch MUST modify ONLY expected_rel_path (no other files).".to_string(),
         "- Do NOT add or reference columns not present in allowed_columns.".to_string(),
+        "- Do NOT re-declare sources; source definitions belong in models/schema.yml or other authorized files.".to_string(),
         "- IMPORTANT: contract enforcement is disabled. Do NOT set models[].config.contract.enforced=true.".to_string(),
         "- Prefer including all allowed_columns under models[].columns, but it is OK if some are missing while iterating.".to_string(),
         "- data_type is optional (preferred when known, omit rather than guessing).".to_string(),
