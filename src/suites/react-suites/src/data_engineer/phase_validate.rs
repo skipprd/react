@@ -202,7 +202,6 @@ if let Err(e) =
     match Self::check_subjective_retry_budget(
         &thread_store,
         thread_id,
-        phase,
         crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
     )
     .await?
@@ -239,7 +238,6 @@ if let Err(e) =
     match Self::check_subjective_retry_budget(
         &thread_store,
         thread_id,
-        phase,
         crate::data_engineer::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
     )
     .await?

@@ -466,16 +466,21 @@ impl DataEngineerSuite {
     async fn check_subjective_retry_budget(
         thread_store: &ThreadStore,
         thread_id: &str,
-        phase: control_flow::Phase,
         kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
     ) -> Result<crate::data_engineer::retry_budget::SubjectiveRetryOutcome, String> {
         crate::data_engineer::retry_budget::check_subjective_retry_budget(
-            thread_store, thread_id, phase, kind,
+            thread_store, thread_id, kind,
         ).await
     }
 
-    async fn reset_subjective_retry(thread_store: &ThreadStore, thread_id: &str) -> Result<(), String> {
-        crate::data_engineer::retry_budget::reset_subjective_retries(thread_store, thread_id).await
+    async fn clear_subjective_retries_matching(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        f: impl Fn(&crate::data_engineer::progress_controller::SubjectiveRetryKind) -> bool,
+    ) -> Result<(), String> {
+        crate::data_engineer::retry_budget::clear_subjective_retries_matching(
+            thread_store, thread_id, f,
+        ).await
     }
 
 

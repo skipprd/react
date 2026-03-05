@@ -739,7 +739,6 @@ match Agent::run_until_block_non_interactive(
                 match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
-                    phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
                 .await?
@@ -780,7 +779,12 @@ match Agent::run_until_block_non_interactive(
                 Some(&grounded.allowed),
             )
             .await?;
-            Self::reset_subjective_retry(&thread_store, thread_id).await?;
+            {
+                use crate::data_engineer::progress_controller::SubjectiveRetryKind;
+                Self::clear_subjective_retries_matching(&thread_store, thread_id, |k| {
+                    matches!(k, SubjectiveRetryKind::PlanSemanticInvalid)
+                }).await?;
+            }
             let advanced = Self::approve_cleanse_plan_draft_and_advance(
                 &thread_store,
                 thread_id,
@@ -804,7 +808,6 @@ match Agent::run_until_block_non_interactive(
                 match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
-                    phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
                 )
                 .await?
@@ -904,7 +907,6 @@ match Agent::run_until_block_non_interactive(
                 match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
-                    phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
                 )
                 .await?
@@ -1003,7 +1005,6 @@ match Agent::run_until_block_non_interactive(
                 match Self::check_subjective_retry_budget(
                     &thread_store,
                     thread_id,
-                    phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
                 .await?
@@ -1044,7 +1045,17 @@ match Agent::run_until_block_non_interactive(
                 Some(&staged.allowed_models),
             )
             .await?;
-            Self::reset_subjective_retry(&thread_store, thread_id).await?;
+            {
+                use crate::data_engineer::progress_controller::SubjectiveRetryKind;
+                Self::clear_subjective_retries_matching(&thread_store, thread_id, |k| {
+                    matches!(
+                        k,
+                        SubjectiveRetryKind::PlanSemanticInvalid
+                            | SubjectiveRetryKind::PlanGroundingEmptyAfterPrune
+                            | SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty
+                    )
+                }).await?;
+            }
             let advanced = Self::approve_model_plan_draft_and_advance(
                 &thread_store,
                 thread_id,

@@ -73,7 +73,6 @@ pub(crate) enum SubjectiveRetryOutcome {
 pub(crate) async fn check_subjective_retry_budget(
     thread_store: &ThreadStore,
     thread_id: &str,
-    phase: Phase,
     kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
 ) -> Result<SubjectiveRetryOutcome, String> {
     let cap = subjective_retry_state_cap();
@@ -83,7 +82,7 @@ pub(crate) async fn check_subjective_retry_budget(
     )
     .await
     .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-    let retries = st.bump_subjective_retry(phase, kind, cap);
+    let retries = st.bump_subjective_retry(kind, cap);
     st.save(thread_store, thread_id)
         .await
         .map_err(|e| format!("failed to persist subjective retry: {e}"))?;
@@ -94,10 +93,11 @@ pub(crate) async fn check_subjective_retry_budget(
     }
 }
 
-/// Reset the subjective retry counter.
-pub(crate) async fn reset_subjective_retries(
+/// Clear subjective retry counters matching a predicate. Persists immediately.
+pub(crate) async fn clear_subjective_retries_matching(
     thread_store: &ThreadStore,
     thread_id: &str,
+    f: impl Fn(&crate::data_engineer::progress_controller::SubjectiveRetryKind) -> bool,
 ) -> Result<(), String> {
     let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
         thread_store,
@@ -105,10 +105,10 @@ pub(crate) async fn reset_subjective_retries(
     )
     .await
     .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-    st.reset_subjective_retry();
+    st.clear_subjective_retries_matching(f);
     st.save(thread_store, thread_id)
         .await
-        .map_err(|e| format!("failed to reset subjective retry: {e}"))
+        .map_err(|e| format!("failed to clear subjective retries: {e}"))
 }
 
 /// Apply a guard-block, commit a loopback decision to the corresponding author phase,

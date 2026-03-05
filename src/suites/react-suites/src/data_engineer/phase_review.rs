@@ -94,7 +94,6 @@ impl DataEngineerSuite {
             match Self::check_subjective_retry_budget(
                 thread_store,
                 thread_id,
-                phase,
                 crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
             )
             .await?
@@ -109,7 +108,9 @@ impl DataEngineerSuite {
                         phase.as_str(),
                         evidence
                     );
-                    Self::reset_subjective_retry(thread_store, thread_id).await?;
+                    Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
+                        matches!(k, crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl)
+                    }).await?;
                     let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                         phase,
                         None,
@@ -123,7 +124,9 @@ impl DataEngineerSuite {
             }
         } else {
             review_retry_count = 0;
-            Self::reset_subjective_retry(thread_store, thread_id).await?;
+            Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
+                matches!(k, crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl)
+            }).await?;
         }
         out_frames.push(FlowFrame::Review {
             text: answer.clone(),

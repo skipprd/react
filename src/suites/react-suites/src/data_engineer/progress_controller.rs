@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use react_core::control_flow::PhaseReasonCode;
@@ -640,7 +640,7 @@ pub struct AuthoringProgressSnapshot {
     pub reason: Option<AuthoringNoProgressReason>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SubjectiveRetryKind {
     PlanSemanticInvalid,
@@ -722,13 +722,6 @@ pub enum PendingLoopbackIntent {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct SubjectiveRetryState {
-    pub phase: Phase,
-    pub kind: SubjectiveRetryKind,
-    pub count: usize,
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -784,7 +777,7 @@ pub struct ExecutionState {
     #[serde(default)]
     pub telemetry: TelemetryState,
     #[serde(default)]
-    pub subjective_retry: Option<SubjectiveRetryState>,
+    pub subjective_retries: BTreeMap<SubjectiveRetryKind, usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -1078,7 +1071,7 @@ impl ExecutionState {
             run_ok: Some(true),
             ..LastValidateState::default()
         });
-        self.subjective_retry = None;
+        self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidatePrecheckFailed);
         self.with_workflow_control_state_mut(|state| {
             state.mark_validate_success(tier);
         });
@@ -1451,27 +1444,20 @@ impl ExecutionState {
 
     pub fn bump_subjective_retry(
         &mut self,
-        phase: Phase,
         kind: SubjectiveRetryKind,
         cap: usize,
     ) -> usize {
-        let capped = cap.max(1);
-        let next_count = match self.subjective_retry.as_ref() {
-            Some(cur) if cur.phase == phase && cur.kind == kind => {
-                cur.count.saturating_add(1).min(capped)
-            }
-            _ => 1.min(capped),
-        };
-        self.subjective_retry = Some(SubjectiveRetryState {
-            phase,
-            kind,
-            count: next_count,
-        });
-        next_count
+        let entry = self.subjective_retries.entry(kind).or_insert(0);
+        *entry = (*entry).saturating_add(1).min(cap.max(1));
+        *entry
     }
 
-    pub fn reset_subjective_retry(&mut self) {
-        self.subjective_retry = None;
+    pub fn clear_subjective_retry_kind(&mut self, kind: SubjectiveRetryKind) {
+        self.subjective_retries.remove(&kind);
+    }
+
+    pub fn clear_subjective_retries_matching(&mut self, f: impl Fn(&SubjectiveRetryKind) -> bool) {
+        self.subjective_retries.retain(|k, _| !f(k));
     }
 
     pub fn set_pending_patch_impl_intent(&mut self, phase: Phase) {
@@ -2118,17 +2104,15 @@ mod tests {
             repair_started_mutation_epoch: None,
             consecutive_noop_patches: 0,
         });
-        st.subjective_retry = Some(SubjectiveRetryState {
-            phase: Phase::ModelPlan,
-            kind: SubjectiveRetryKind::PlanSemanticInvalid,
-            count: 3,
-        });
+        st.subjective_retries.insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
+        st.subjective_retries.insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
         st.apply_validate_success(ExecutionTier::Model);
         assert_eq!(st.phase.current_tier, ExecutionTier::Model);
         assert_eq!(st.phase.mode, ExecutionMode::Done);
         assert!(!st.hard_mutation_repair_mode());
         assert_eq!(st.repair_type(), RepairType::Unknown);
-        assert!(st.subjective_retry.is_none());
+        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), Some(&3));
+        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::ValidatePrecheckFailed), None);
     }
 
     #[test]
@@ -2234,32 +2218,22 @@ mod tests {
     }
 
     #[test]
-    fn subjective_retry_is_single_state_and_bounded() {
+    fn subjective_retry_per_kind_and_bounded() {
         let mut st = ExecutionState::new();
-        assert_eq!(
-            st.bump_subjective_retry(Phase::CleansePlan, SubjectiveRetryKind::PlanSemanticInvalid, 3),
-            1
-        );
-        assert_eq!(
-            st.bump_subjective_retry(Phase::CleansePlan, SubjectiveRetryKind::PlanSemanticInvalid, 3),
-            2
-        );
-        assert_eq!(
-            st.bump_subjective_retry(Phase::CleansePlan, SubjectiveRetryKind::PlanSemanticInvalid, 3),
-            3
-        );
-        assert_eq!(
-            st.bump_subjective_retry(Phase::CleansePlan, SubjectiveRetryKind::PlanSemanticInvalid, 3),
-            3
-        );
-        assert_eq!(
-            st.bump_subjective_retry(
-                Phase::ModelPlan,
-                SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
-                3
-            ),
-            1
-        );
+        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 1);
+        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 2);
+        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 3);
+        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 3);
+
+        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanGroundingEmptyAfterPrune, 3), 1);
+        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), Some(&3));
+
+        st.clear_subjective_retry_kind(SubjectiveRetryKind::PlanSemanticInvalid);
+        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), None);
+        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanGroundingEmptyAfterPrune), Some(&1));
+
+        st.clear_subjective_retries_matching(|k| matches!(k, SubjectiveRetryKind::PlanGroundingEmptyAfterPrune));
+        assert!(st.subjective_retries.is_empty());
     }
 
     #[test]
