@@ -474,7 +474,7 @@ impl DataEngineerSuite {
         thread_id: &str,
         phase: control_flow::Phase,
         kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
-    ) -> usize {
+    ) -> Result<usize, String> {
         let cap = crate::data_engineer::controller_kernel::subjective_retry_state_cap();
         let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
             thread_store,
@@ -483,13 +483,13 @@ impl DataEngineerSuite {
         .await
         .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
         let retries = st.bump_subjective_retry(phase, kind, cap);
-        if let Err(e) = st.save(thread_store, thread_id).await {
-            tracing::warn!("failed to persist execution_state subjective retry: {}", e);
-        }
-        retries
+        st.save(thread_store, thread_id).await.map_err(|e| {
+            format!("failed to persist execution_state subjective retry: {e}")
+        })?;
+        Ok(retries)
     }
 
-    async fn reset_subjective_retry(thread_store: &ThreadStore, thread_id: &str) {
+    async fn reset_subjective_retry(thread_store: &ThreadStore, thread_id: &str) -> Result<(), String> {
         let mut st = crate::data_engineer::progress_controller::ExecutionState::load(
             thread_store,
             thread_id,
@@ -497,9 +497,9 @@ impl DataEngineerSuite {
         .await
         .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
         st.reset_subjective_retry();
-        if let Err(e) = st.save(thread_store, thread_id).await {
-            tracing::warn!("failed to reset execution_state subjective retry: {}", e);
-        }
+        st.save(thread_store, thread_id).await.map_err(|e| {
+            format!("failed to reset execution_state subjective retry: {e}")
+        })
     }
 
 
@@ -2577,7 +2577,9 @@ Apply these fixes in the output.",
                     .await?;
                     let mut es = execution_state.clone();
                     es.mark_failed(reason.clone());
-                    let _ = es.save(&thread_store, thread_id).await;
+                    es.save(&thread_store, thread_id).await.map_err(|e| {
+                        format!("failed to persist fail-fast mark_failed: {e}")
+                    })?;
                     return Err(reason);
                 }
             }
@@ -2650,7 +2652,9 @@ Apply these fixes in the output.",
                 es.hard_mutation_repair_mode(),
             ));
             es.mark_failed(budget_msg.clone());
-            let _ = es.save(&thread_store, thread_id).await;
+            if let Err(e) = es.save(&thread_store, thread_id).await {
+                tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
+            }
         }
         Err(budget_msg)
     }

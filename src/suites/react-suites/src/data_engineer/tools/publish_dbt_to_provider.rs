@@ -160,10 +160,11 @@ impl Tool for PublishDbtToProviderTool {
         if !confirm {
             if !tid.is_empty() {
                 if let Some(store) = ctx.thread_store.as_ref() {
-                    let _ = state_manager::mutate_execution_state(store, &tid, |es| {
+                    state_manager::mutate_execution_state(store, &tid, |es| {
                         es.set_pending_publish_plan(plan_sha256.clone());
                     })
-                    .await;
+                    .await
+                    .map_err(|e| format!("failed to persist pending_publish_plan: {e}"))?;
                 }
             }
             emit_trace(ctx, "publish awaiting approval");
@@ -265,10 +266,11 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish finished");
         if !tid.is_empty() {
             if let Some(store) = ctx.thread_store.as_ref() {
-                let _ = state_manager::mutate_execution_state(store, &tid, |es| {
+                state_manager::mutate_execution_state(store, &tid, |es| {
                     es.mark_publish_complete(plan_sha256.clone());
                 })
-                .await;
+                .await
+                .map_err(|e| format!("failed to persist mark_publish_complete: {e}"))?;
             }
         }
         Ok(serde_json::json!({

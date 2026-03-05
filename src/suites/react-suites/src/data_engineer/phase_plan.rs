@@ -742,7 +742,7 @@ match Agent::run_until_block_non_interactive(
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
-                .await;
+                .await?;
                 if tries
                     > crate::data_engineer::controller_kernel::subjective_retry_limit()
                 {
@@ -778,7 +778,7 @@ match Agent::run_until_block_non_interactive(
                 Some(&grounded.allowed),
             )
             .await?;
-            Self::reset_subjective_retry(&thread_store, thread_id).await;
+            Self::reset_subjective_retry(&thread_store, thread_id).await?;
             let advanced = Self::approve_cleanse_plan_draft_and_advance(
                 &thread_store,
                 thread_id,
@@ -804,7 +804,7 @@ match Agent::run_until_block_non_interactive(
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
                 )
-                .await;
+                .await?;
                 if tries
                     > crate::data_engineer::controller_kernel::subjective_retry_limit()
                 {
@@ -885,7 +885,7 @@ match Agent::run_until_block_non_interactive(
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
                 )
-                .await;
+                .await?;
                 if tries
                     > crate::data_engineer::controller_kernel::subjective_retry_limit()
                 {
@@ -997,7 +997,7 @@ match Agent::run_until_block_non_interactive(
                     phase,
                     crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
                 )
-                .await;
+                .await?;
                 if tries
                     > crate::data_engineer::controller_kernel::subjective_retry_limit()
                 {
@@ -1033,7 +1033,7 @@ match Agent::run_until_block_non_interactive(
                 Some(&staged.allowed_models),
             )
             .await?;
-            Self::reset_subjective_retry(&thread_store, thread_id).await;
+            Self::reset_subjective_retry(&thread_store, thread_id).await?;
             let advanced = Self::approve_model_plan_draft_and_advance(
                 &thread_store,
                 thread_id,

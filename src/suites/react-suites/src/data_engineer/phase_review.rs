@@ -96,9 +96,9 @@ impl DataEngineerSuite {
                 phase,
                 crate::data_engineer::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
             )
-            .await;
+            .await?;
         } else {
-            Self::reset_subjective_retry(thread_store, thread_id).await;
+            Self::reset_subjective_retry(thread_store, thread_id).await?;
         }
         let forced_by_subjective_retry = is_patch_impl
             && review_retry_count > crate::data_engineer::controller_kernel::subjective_retry_limit();
@@ -118,7 +118,7 @@ impl DataEngineerSuite {
                 "\n\nProgress guard: review remained subjective without convergence (retry_count={}). Proceeding to next phase to avoid non-convergent review loops.",
                 review_retry_count,
             ));
-            Self::reset_subjective_retry(thread_store, thread_id).await;
+            Self::reset_subjective_retry(thread_store, thread_id).await?;
         }
         out_frames.push(FlowFrame::Review {
             text: answer.clone(),
@@ -185,12 +185,13 @@ impl DataEngineerSuite {
             }
             ReviewDecision::PatchImpl => {
                 let back = patch_impl_target_phase(phase, meta.tier);
-                let _ = crate::data_engineer::state_manager::mutate_execution_state(
+                crate::data_engineer::state_manager::mutate_execution_state(
                     thread_store,
                     thread_id,
                     |es| es.set_pending_patch_impl_intent(back),
                 )
-                .await;
+                .await
+                .map(|_| ())?;
                 commit_phase_decision(
                     thread_store,
                     thread_id,
