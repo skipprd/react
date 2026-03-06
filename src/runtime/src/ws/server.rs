@@ -2008,6 +2008,7 @@ async fn synthesize_title(llm: &react_core::llm::DynLlm, question: &str, answer:
                     temperature: None,
                     top_p: None,
                     reasoning_effort: None,
+                    timeout_secs: None,
                 },
             )
         }

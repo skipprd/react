@@ -57,20 +57,9 @@ pub struct LlmCallOptions {
     ///
     /// Callers should assume the runtime default is `Low` unless overridden.
     pub reasoning_effort: Option<ReasoningEffort>,
-}
-
-impl LlmCallOptions {
-    pub fn new(prompt_id: &'static str, expected_format: LlmExpectedFormat) -> Self {
-        Self {
-            prompt_id,
-            thread_id: None,
-            expected_format,
-            max_output_tokens: None,
-            temperature: None,
-            top_p: None,
-            reasoning_effort: None,
-        }
-    }
+    /// Per-call timeout in seconds. When set, `AgentCtx::llm_chat` wraps the call in
+    /// `tokio::time::timeout`. The transport-level HTTP timeout remains as a safety net.
+    pub timeout_secs: Option<u64>,
 }
 
 /// High-level abstraction for large language models used by the ReAct runtime.

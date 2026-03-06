@@ -508,6 +508,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::DiscoveryModel => {
@@ -528,6 +529,7 @@ impl DataEngineerSuite {
                     top_p: Some(0.95),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::DesignMemo => {
@@ -547,6 +549,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::DesignCritique => {
@@ -568,6 +571,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::SkeletonOrCandidates => {
@@ -584,6 +588,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::EnrichmentCompile => {
@@ -600,6 +605,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                    timeout_secs: None,
                 }
             }
             PlanningLlmProfile::EnrichmentReason => {
@@ -616,6 +622,7 @@ impl DataEngineerSuite {
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                    timeout_secs: None,
                 }
             }
         }
@@ -1126,7 +1133,7 @@ impl DataEngineerSuite {
             Self::excerpt(planning_context, 80_000),
             Self::excerpt(memo, 40_000)
         );
-        let raw = ctx.llm.chat(
+        let raw = ctx.llm_chat(
             &[
                 ChatMessage {
                     role: "system".to_string(),
@@ -1138,7 +1145,8 @@ impl DataEngineerSuite {
                 },
             ],
             &opts,
-        )?;
+        )
+        .await?;
         Self::parse_json_typed_lenient::<crate::data_engineer::plan_schema::PlanDesignCritiqueV1>(&raw)
     }
 
@@ -1167,21 +1175,21 @@ impl DataEngineerSuite {
             "data_engineer.plan_design_memo_revise",
             ctx.thread_id.clone(),
         );
-        ctx.llm
-            .chat(
-                &[
-                    ChatMessage {
-                        role: "system".to_string(),
-                        content: sys,
-                    },
-                    ChatMessage {
-                        role: "user".to_string(),
-                        content: user,
-                    },
-                ],
-                &opts,
-            )
-            .map_err(|e| e.to_string())
+        ctx.llm_chat(
+            &[
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: sys,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user,
+                },
+            ],
+            &opts,
+        )
+        .await
+        .map_err(|e| e.to_string())
     }
 
     async fn produce_critiqued_design_memo(
@@ -1301,7 +1309,7 @@ Apply these fixes in the output.",
             Self::excerpt(memo, 30_000),
             Self::critique_guidance(critique)
         );
-        let raw = ctx.llm.chat(
+        let raw = ctx.llm_chat(
             &[
                 ChatMessage {
                     role: "system".to_string(),
@@ -1313,7 +1321,8 @@ Apply these fixes in the output.",
                 },
             ],
             &opts,
-        )?;
+        )
+        .await?;
         Self::parse_json_typed_lenient::<crate::data_engineer::plan_schema::ModelPlanCandidatesV1>(&raw)
     }
 
@@ -1669,7 +1678,7 @@ Apply these fixes in the output.",
                     &[],
                 )
             );
-            let reason_memo = ctx.llm.chat(
+            let reason_memo = ctx.llm_chat(
                 &[
                     ChatMessage {
                         role: "system".to_string(),
@@ -1685,7 +1694,8 @@ Apply these fixes in the output.",
                     "data_engineer.cleanse_plan_enrich_reason",
                     ctx.thread_id.clone(),
                 ),
-            )?;
+            )
+            .await?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
@@ -1698,7 +1708,7 @@ Apply these fixes in the output.",
                     crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
                 >(),
             };
-            let raw = ctx.llm.chat(
+            let raw = ctx.llm_chat(
                 &[
                     ChatMessage {
                         role: "system".to_string(),
@@ -1710,7 +1720,8 @@ Apply these fixes in the output.",
                     },
                 ],
                 &opts,
-            )?;
+            )
+            .await?;
             let enrich = Self::parse_json_typed_lenient::<
                 crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
             >(&raw)?;
@@ -1742,7 +1753,7 @@ Apply these fixes in the output.",
                     prompt_id: "data_engineer.cleanse_plan_enrich_retry",
                     ..opts
                 };
-                let retry_raw = ctx.llm.chat(
+                let retry_raw = ctx.llm_chat(
                     &[
                         ChatMessage {
                             role: "system".to_string(),
@@ -1754,7 +1765,8 @@ Apply these fixes in the output.",
                         },
                     ],
                     &retry_opts,
-                )?;
+                )
+                .await?;
                 let retry_enrich = Self::parse_json_typed_lenient::<
                     crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
                 >(&retry_raw)?;
@@ -1832,7 +1844,7 @@ Apply these fixes in the output.",
                     &[],
                 )
             );
-            let reason_memo = ctx.llm.chat(
+            let reason_memo = ctx.llm_chat(
                 &[
                     ChatMessage {
                         role: "system".to_string(),
@@ -1848,7 +1860,8 @@ Apply these fixes in the output.",
                     "data_engineer.model_plan_enrich_reason",
                     ctx.thread_id.clone(),
                 ),
-            )?;
+            )
+            .await?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
@@ -1861,7 +1874,7 @@ Apply these fixes in the output.",
                     crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
                 >(),
             };
-            let raw = ctx.llm.chat(
+            let raw = ctx.llm_chat(
                 &[
                     ChatMessage {
                         role: "system".to_string(),
@@ -1873,7 +1886,8 @@ Apply these fixes in the output.",
                     },
                 ],
                 &opts,
-            )?;
+            )
+            .await?;
             let enrich = Self::parse_json_typed_lenient::<
                 crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
             >(&raw)?;
@@ -1905,7 +1919,7 @@ Apply these fixes in the output.",
                     prompt_id: "data_engineer.model_plan_enrich_retry",
                     ..opts
                 };
-                let retry_raw = ctx.llm.chat(
+                let retry_raw = ctx.llm_chat(
                     &[
                         ChatMessage {
                             role: "system".to_string(),
@@ -1917,7 +1931,8 @@ Apply these fixes in the output.",
                         },
                     ],
                     &retry_opts,
-                )?;
+                )
+                .await?;
                 let retry_enrich = Self::parse_json_typed_lenient::<
                     crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
                 >(&retry_raw)?;
@@ -2264,6 +2279,7 @@ Apply these fixes in the output.",
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -2345,6 +2361,7 @@ Apply these fixes in the output.",
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await

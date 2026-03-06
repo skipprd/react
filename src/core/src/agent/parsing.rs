@@ -1,73 +1,9 @@
 use serde_json::Value;
 
+use super::llm_gateway::escape_control_chars_in_json_strings;
 use super::{Agent, AgentStepTypeV1, AgentStepV1, CompleteEnvelope, ParsedStep, SchemaId};
 
 impl Agent {
-    /// Some model backends emit "JSON-like" text with literal control characters (e.g. raw newlines)
-    /// inside string values. That is invalid JSON and `serde_json` will reject it.
-    ///
-    /// This function repairs ONLY those invalid characters inside string literals by escaping them.
-    /// It is intentionally conservative: it does not try to fix other kinds of malformed JSON.
-    fn escape_control_chars_in_json_strings(s: &str) -> String {
-        let mut out = String::with_capacity(s.len() + 8);
-        let mut in_str = false;
-        let mut esc = false;
-        for ch in s.chars() {
-            if in_str {
-                if esc {
-                    // Preserve whatever was escaped (including escaped newlines like \n).
-                    out.push(ch);
-                    esc = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    out.push(ch);
-                    esc = true;
-                    continue;
-                }
-                match ch {
-                    // Escape raw control characters that are illegal in JSON strings.
-                    '\n' => out.push_str("\\n"),
-                    '\r' => out.push_str("\\r"),
-                    '\t' => out.push_str("\\t"),
-                    '\u{08}' => out.push_str("\\b"),
-                    '\u{0C}' => out.push_str("\\f"),
-                    '"' => {
-                        out.push(ch);
-                        in_str = false;
-                    }
-                    c if (c as u32) < 0x20 => {
-                        // Any remaining control chars -> \u00XX
-                        out.push_str(&format!("\\u{:04x}", c as u32));
-                    }
-                    _ => out.push(ch),
-                }
-                continue;
-            }
-
-            // Not in string
-            if esc {
-                out.push(ch);
-                esc = false;
-                continue;
-            }
-            match ch {
-                '"' => {
-                    out.push(ch);
-                    in_str = true;
-                }
-                '\\' => {
-                    // Outside strings this is still meaningful JSON (e.g. escapes in whitespace-less JSON5-ish),
-                    // but we preserve it.
-                    out.push(ch);
-                    esc = true;
-                }
-                _ => out.push(ch),
-            }
-        }
-        out
-    }
-
     fn strip_markdown_code_fences(raw: &str) -> String {
         let t = raw.trim();
         if !t.starts_with("```") {
@@ -93,7 +29,7 @@ impl Agent {
                 Ok(v) => Ok(v),
                 Err(e) => {
                     // Repair raw control chars inside JSON strings (literal newlines, etc).
-                    let repaired = Agent::escape_control_chars_in_json_strings(raw_json);
+                    let repaired = escape_control_chars_in_json_strings(raw_json);
                     serde_json::from_str::<Value>(&repaired)
                         .map_err(|_| format!("{what} is not valid JSON string: {e}"))
                 }
@@ -104,7 +40,7 @@ impl Agent {
             Ok(v) => v,
             Err(e) => {
                 // Conservative repair: escape control chars inside strings (raw newlines, etc).
-                let repaired = Self::escape_control_chars_in_json_strings(trimmed);
+                let repaired = escape_control_chars_in_json_strings(trimmed);
                 serde_json::from_str::<Value>(&repaired)
                     .map_err(|_| format!("invalid JSON from model: {}", e))?
             }

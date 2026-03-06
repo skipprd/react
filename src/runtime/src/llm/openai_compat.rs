@@ -48,6 +48,7 @@ mod tests {
                     temperature: None,
                     top_p: None,
                     reasoning_effort: None,
+                    timeout_secs: None,
                 },
             )
             .unwrap();
@@ -134,11 +135,10 @@ pub struct OpenAICompatModel {
 
 impl OpenAICompatModel {
     pub fn new(cfg: LlmConfig) -> Self {
-        // Increase default timeout to accommodate /v1/responses latency on newer models
         let http_timeout_secs: u64 =
-            crate::helpers::configuration::Config::getenv("LLM_HTTP_TIMEOUT_SECS", "120")
+            crate::helpers::configuration::Config::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
                 .parse()
-                .unwrap_or(120);
+                .unwrap_or(1200);
         let agent = ureq::AgentBuilder::new()
             .timeout(std::time::Duration::from_secs(http_timeout_secs))
             .build();

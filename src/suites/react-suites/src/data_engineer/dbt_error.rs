@@ -423,8 +423,8 @@ fn tail_lines(s: &str, max_lines: usize, max_chars: usize) -> String {
 /// Summarize a dbt compile/build failure into a terminal-friendly, high-signal summary.
 ///
 /// This is intentionally LLM-driven for accuracy across adapters. Output is a JSON object.
-pub fn summarize_dbt_failure_llm(
-    llm: &dyn react_core::llm::LargeLanguageModel,
+pub async fn summarize_dbt_failure_llm(
+    ctx: &react_core::agent::AgentCtx,
     errors: &[String],
     logs: &serde_json::Value,
     runtime_failures: &[serde_json::Value],
@@ -491,24 +491,24 @@ pub fn summarize_dbt_failure_llm(
         })
         .to_string(),
     };
-    let resp = llm.chat(
-        &[
-            react_core::llm::ChatMessage {
-                role: "system".to_string(),
-                content: sys.to_string(),
-            },
-            msg,
-        ],
-        &react_core::llm::LlmCallOptions {
-            prompt_id: "data_engineer.dbt_error.summarize",
-            thread_id: None,
-            expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-            max_output_tokens: None,
-            temperature: None,
-            top_p: None,
-            reasoning_effort: None,
+    let messages = vec![
+        react_core::llm::ChatMessage {
+            role: "system".to_string(),
+            content: sys.to_string(),
         },
-    )?;
+        msg,
+    ];
+    let opts = react_core::llm::LlmCallOptions {
+        prompt_id: "data_engineer.dbt_error.summarize",
+        thread_id: None,
+        expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+        max_output_tokens: None,
+        temperature: None,
+        top_p: None,
+        reasoning_effort: None,
+        timeout_secs: None,
+    };
+    let resp = ctx.llm_chat(&messages, &opts).await?;
 
     let mut parsed: DbtFailureSummary =
         serde_json::from_str(resp.trim()).map_err(|e| format!("failed to parse LLM JSON: {e}"))?;
@@ -618,20 +618,52 @@ mod tests {
         );
     }
 
-    #[test]
-    fn summarize_dbt_failure_llm_parses_and_truncates() {
-        let llm = MockLlm {
+    #[tokio::test]
+    async fn summarize_dbt_failure_llm_parses_and_truncates() {
+        use std::sync::Arc;
+        let llm: Arc<dyn react_core::llm::LargeLanguageModel> = Arc::new(MockLlm {
             responses: std::sync::Mutex::new(vec![serde_json::json!({
                 "summary": "Root cause line 1\nRoot cause line 2",
                 "failing_nodes": ["stg_x"],
                 "suggested_next_files": ["models/staging/stg_x.sql"]
             })
             .to_string()]),
+        });
+        let storage: Arc<dyn react_core::storage::StorageAdapter> =
+            Arc::new(react_core::storage::InMemoryStorageAdapter::default());
+        let keyspace: Arc<dyn react_core::keyspace::Keyspace> =
+            Arc::new(react_core::keyspace::DefaultKeyspace::new("b".to_string()));
+        let scope = react_core::scope::RequestScope {
+            tenant: "t".to_string(),
+            workspace: "w".to_string(),
+            project_id: "p".to_string(),
+        };
+        let ctx = react_core::agent::AgentCtx {
+            top_k: 1,
+            per_step_timeout_secs: 1,
+            max_steps: 1,
+            thread_id: None,
+            progress_tx: None,
+            pre_step_tx: None,
+            trace_tx: None,
+            agent_name: Some("test".to_string()),
+            policy: Arc::new(react_core::agent::DefaultPolicy),
+            llm,
+            storage,
+            scope,
+            keyspace,
+            query: None,
+            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
+            dbt: None,
+            vector: None,
+            thread_store: None,
+            exec_ctx: None,
+            resolved_config: None,
         };
         let errors = vec!["Compilation Error: nope".to_string()];
         let logs = serde_json::json!({"compile": {"stdout": "x", "stderr": ""}});
         let rf: Vec<serde_json::Value> = vec![];
-        let out = summarize_dbt_failure_llm(&llm, &errors, &logs, &rf, 10).unwrap();
+        let out = summarize_dbt_failure_llm(&ctx, &errors, &logs, &rf, 10).await.unwrap();
         // `.len()` is bytes; ellipsis is multi-byte. Bound by chars.
         assert!(out.summary.chars().count() <= 11); // 10 + ellipsis
         assert_eq!(out.failing_nodes, vec!["stg_x".to_string()]);

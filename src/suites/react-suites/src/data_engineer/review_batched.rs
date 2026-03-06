@@ -85,62 +85,6 @@ fn take_head_tail(text: &str, max_chars: usize) -> String {
     )
 }
 
-/// Conservative JSON repair: escape raw control characters inside string literals.
-///
-/// Some providers occasionally emit JSON-like output containing literal newlines/tabs inside string
-/// values, which is invalid JSON. This function repairs only those cases; it does not attempt to
-/// fix truncation (EOF) or other structural issues.
-fn escape_control_chars_in_json_strings(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    let mut in_str = false;
-    let mut esc = false;
-    for ch in s.chars() {
-        if in_str {
-            if esc {
-                out.push(ch);
-                esc = false;
-                continue;
-            }
-            if ch == '\\' {
-                out.push(ch);
-                esc = true;
-                continue;
-            }
-            match ch {
-                '\n' => out.push_str("\\n"),
-                '\r' => out.push_str("\\r"),
-                '\t' => out.push_str("\\t"),
-                '\u{08}' => out.push_str("\\b"),
-                '\u{0C}' => out.push_str("\\f"),
-                '"' => {
-                    out.push(ch);
-                    in_str = false;
-                }
-                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-                _ => out.push(ch),
-            }
-            continue;
-        }
-        if esc {
-            out.push(ch);
-            esc = false;
-            continue;
-        }
-        match ch {
-            '"' => {
-                out.push(ch);
-                in_str = true;
-            }
-            '\\' => {
-                out.push(ch);
-                esc = true;
-            }
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 async fn read_project_file(actx: &AgentCtx, path: &str, max_chars: usize) -> Option<ProjectFile> {
     let tool = FilesTool { datasets: None };
     let obs = tool
@@ -359,8 +303,8 @@ fn system_prompt_for_unify(plan_kind: Option<PlanKind>) -> String {
 }
 
 async fn llm_json(
-    ctx: &SuiteCtx,
-    _actx: &AgentCtx,
+    _ctx: &SuiteCtx,
+    actx: &AgentCtx,
     thread_id: &str,
     phase: Phase,
     name: &str,
@@ -506,6 +450,7 @@ async fn llm_json(
             top_p: Some(1.0),
             max_output_tokens: Some(phase_budget),
             reasoning_effort: Some(review_reasoning_effort),
+            timeout_secs: None,
         }),
         Phase::ModelReview => Some(LlmCallOptions {
             prompt_id,
@@ -515,6 +460,7 @@ async fn llm_json(
             top_p: Some(1.0),
             max_output_tokens: Some(phase_budget),
             reasoning_effort: Some(review_reasoning_effort),
+            timeout_secs: None,
         }),
         Phase::PostPublishReview => Some(LlmCallOptions {
             prompt_id,
@@ -524,6 +470,7 @@ async fn llm_json(
             top_p: Some(1.0),
             max_output_tokens: Some(phase_budget),
             reasoning_effort: Some(review_reasoning_effort),
+            timeout_secs: None,
         }),
         _ => None,
     };
@@ -539,144 +486,18 @@ async fn llm_json(
         },
     ];
 
-    // Persist LLM observability via core module when enabled.
-    // Best-effort: we log the full messages as prompt parts (system+user).
-    let store = ThreadStore::new(ctx.storage.clone(), ctx.scope.clone(), ctx.keyspace.clone());
-    if react_core::llm_observability::llm_calls_enabled() {
-        let call_id = react_core::llm_observability::next_call_id(thread_id);
-        let prompt_hash = react_core::llm_observability::prompt_hash_for_messages(&messages);
-        let built = react_core::llm_observability::build_parts_for_thread(
-            thread_id,
-            &[
-                react_core::llm_observability::PartInput {
-                    name: format!("review.{}.system", name),
-                    text: messages[0].content.clone(),
-                },
-                react_core::llm_observability::PartInput {
-                    name: format!("review.{}.user", name),
-                    text: messages[1].content.clone(),
-                },
-            ],
-        );
-
-        // We append the llm_call step after we have response_text below.
-        let mut opts = llm_options.unwrap_or_else(|| {
-            react_core::llm::LlmCallOptions::new(
-                "data_engineer.review_batched.llm_json",
-                LlmExpectedFormat::JsonObject,
-            )
-        });
-        opts.expected_format = LlmExpectedFormat::JsonObject;
-        let res = ctx.llm.chat(&messages, &opts);
-        let (ok, raw) = match &res {
-            Ok(t) => (true, t.clone()),
-            Err(e) => (false, format!("LLM_ERROR: {}", e)),
-        };
-        let response_hash = react_core::llm_observability::sha256_hex_str(&raw);
-        let response_text = if react_core::llm_observability::llm_response_text_enabled() {
-            Some(react_core::llm_observability::redact_common_secrets(&raw))
-        } else {
-            None
-        };
-        let agent = "review".to_string();
-        let ts = utc_ts();
-        let _ = store
-            .append_step(
-                thread_id,
-                ThreadStep::LlmCall {
-                    call_id,
-                    model: "unknown".to_string(),
-                    phase: phase.as_str().to_string(),
-                    prompt_hash,
-                    parts: built.parts,
-                    part_hashes: built.part_hashes,
-                    response_hash,
-                    response_text,
-                    observation: if ok {
-                        Observation::ok()
-                    } else {
-                        Observation::fail(vec!["llm_call_failed".to_string()])
-                    },
-                    ts,
-                    agent,
-                },
-            )
-            .await;
-        if !ok {
-            return Err(raw);
-        }
-        // Be robust to rare truncation/control-char issues: try a conservative repair and a single retry
-        // with a tighter "JSON only" reminder + higher max_output_tokens (for unify).
-        match serde_json::from_str::<Value>(&raw) {
-            Ok(v) => return Ok(v),
-            Err(e1) => {
-                let repaired = escape_control_chars_in_json_strings(&raw);
-                if let Ok(v) = serde_json::from_str::<Value>(&repaired) {
-                    return Ok(v);
-                }
-
-                let mut retry_messages = messages.clone();
-                retry_messages.push(ChatMessage {
-                    role: "user".to_string(),
-                    content: "IMPORTANT: Return ONLY a single JSON object. Keep all strings concise; if `final_review_text` would be long, summarize and cap it. No markdown, no code fences.".to_string(),
-                });
-                let mut retry_opts = opts;
-                if name == "unify" {
-                    retry_opts.max_output_tokens =
-                        Some(retry_opts.max_output_tokens.unwrap_or(0).max(3600));
-                }
-                let raw2 = ctx
-                    .llm
-                    .chat(&retry_messages, &retry_opts)
-                    .map_err(|e| e.to_string())?;
-                return serde_json::from_str::<Value>(&raw2).map_err(|e2| {
-                    format!(
-                        "review {}: expected JSON, got parse error: {} (first_error: {})",
-                        name, e2, e1
-                    )
-                });
-            }
-        }
-    }
-
-    let mut opts = llm_options.unwrap_or_else(|| {
-        react_core::llm::LlmCallOptions::new(
-            "data_engineer.review_batched.llm_json",
-            LlmExpectedFormat::JsonObject,
-        )
+    let mut opts = llm_options.unwrap_or_else(|| react_core::llm::LlmCallOptions {
+        prompt_id: "data_engineer.review_batched.llm_json",
+        thread_id: None,
+        expected_format: LlmExpectedFormat::JsonObject,
+        max_output_tokens: None,
+        temperature: None,
+        top_p: None,
+        reasoning_effort: None,
+        timeout_secs: None,
     });
     opts.expected_format = LlmExpectedFormat::JsonObject;
-    let raw = ctx.llm.chat(&messages, &opts).map_err(|e| e.to_string())?;
-    match serde_json::from_str::<Value>(&raw) {
-        Ok(v) => Ok(v),
-        Err(e1) => {
-            let repaired = escape_control_chars_in_json_strings(&raw);
-            if let Ok(v) = serde_json::from_str::<Value>(&repaired) {
-                return Ok(v);
-            }
-            // One retry (same idea as observability branch, minus logging).
-            let mut retry_messages = messages.clone();
-            retry_messages.push(ChatMessage {
-                role: "user".to_string(),
-                content: "IMPORTANT: Return ONLY a single JSON object. Keep all strings concise. No markdown, no code fences.".to_string(),
-            });
-            let mut retry_opts = opts;
-            if name == "unify" {
-                retry_opts.max_output_tokens =
-                    Some(retry_opts.max_output_tokens.unwrap_or(0).max(3600));
-            }
-            let raw2 = ctx
-                .llm
-                .chat(&retry_messages, &retry_opts)
-                .map_err(|e| e.to_string())?;
-            serde_json::from_str::<Value>(&raw2).map_err(|e2| {
-                format!(
-                    "review {}: expected JSON, got parse error: {} (first_error: {})",
-                    name, e2, e1
-                )
-            })
-        }
-    }
+    actx.llm_chat_json::<Value>(&messages, &opts).await
 }
 
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {

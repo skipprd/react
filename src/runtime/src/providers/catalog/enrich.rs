@@ -101,6 +101,7 @@ async fn llm_reason_pass(
         temperature: None,
         top_p: None,
         reasoning_effort: None,
+        timeout_secs: None,
     };
     if llm_timeout_secs == 0 {
         tokio::task::spawn_blocking(move || {
@@ -149,6 +150,7 @@ async fn llm_compile_pass_json(
         temperature: None,
         top_p: None,
         reasoning_effort: None,
+        timeout_secs: None,
     };
     let text = if llm_timeout_secs == 0 {
         tokio::task::spawn_blocking(move || {

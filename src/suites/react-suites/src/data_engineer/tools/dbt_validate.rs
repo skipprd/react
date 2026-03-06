@@ -483,12 +483,12 @@ impl Tool for DbtValidateTool {
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
                 match crate::data_engineer::dbt_error::summarize_dbt_failure_llm(
-                    ctx.llm.as_ref(),
+                    ctx,
                     &errors,
                     &logs,
                     &rf,
                     2000,
-                ) {
+                ).await {
                     Ok(sum) => {
                         obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                         obj.insert(

@@ -229,6 +229,7 @@ impl LlmRouter {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             };
             let text = model.chat(&msgs, &opts)?;
             return Ok(ChatResponse { text, raw: None });

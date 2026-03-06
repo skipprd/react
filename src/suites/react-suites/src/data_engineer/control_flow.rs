@@ -364,12 +364,12 @@ impl DeterministicDbtValidateOnce {
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
                 if let Ok(sum) = crate::data_engineer::dbt_error::summarize_dbt_failure_llm(
-                    ctx.llm.as_ref(),
+                    ctx,
                     &errors,
                     &logs,
                     &rf,
                     2000,
-                ) {
+                ).await {
                     obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                     obj.insert(
                         "failing_nodes".to_string(),
@@ -462,12 +462,12 @@ impl DeterministicDbtValidateTargetedOnce {
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
                 if let Ok(sum) = crate::data_engineer::dbt_error::summarize_dbt_failure_llm(
-                    ctx.llm.as_ref(),
+                    ctx,
                     &errors,
                     &logs,
                     &rf,
                     2000,
-                ) {
+                ).await {
                     obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                     obj.insert(
                         "failing_nodes".to_string(),

@@ -13,6 +13,7 @@ use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 
 mod helpers;
+mod llm_gateway;
 mod parsing;
 mod run_loop;
 
@@ -445,6 +446,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -508,6 +510,7 @@ mod tests {
             top_p: Some(0.8),
             max_output_tokens: Some(1234),
             reasoning_effort: None,
+            timeout_secs: None,
         };
         let _out = Agent::run_until_block(&reg, &ctx, "sys", "tools", "q", opts)
             .await
@@ -571,6 +574,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -688,6 +692,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -759,6 +764,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await;
@@ -893,6 +899,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -997,6 +1004,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await
@@ -1065,6 +1073,7 @@ mod tests {
                 temperature: None,
                 top_p: None,
                 reasoning_effort: None,
+                timeout_secs: None,
             },
         )
         .await

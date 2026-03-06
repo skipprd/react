@@ -198,8 +198,9 @@ pub async fn llm_draft_sql_json(
         top_p: Some(1.0),
         max_output_tokens: Some(max_output_tokens),
         reasoning_effort: None,
+        timeout_secs: None,
     };
-    let raw = ctx.llm.chat(&messages, &opts).map_err(|e| e.to_string())?;
+    let raw = ctx.llm_chat(&messages, &opts).await?;
     let payload: SqlFirstDraftPayload = parse_json_object_lenient(&raw)?;
     let sql = payload.sql.trim().to_string();
     if sql.is_empty() {

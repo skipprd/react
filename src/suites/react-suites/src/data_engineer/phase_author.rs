@@ -1441,6 +1441,7 @@ let llm_options = if is_cleanse {
         top_p: Some(1.0),
         max_output_tokens: Some(author_max_tokens),
         reasoning_effort: None,
+        timeout_secs: None,
     }
 } else {
     let author_max_tokens: u32 = std::env::var("LLM_AUTHOR_MAX_TOKENS_MODEL")
@@ -1457,6 +1458,7 @@ let llm_options = if is_cleanse {
         top_p: Some(1.0),
         max_output_tokens: Some(author_max_tokens),
         reasoning_effort: None,
+        timeout_secs: None,
     }
 };
 let pre_mutation_epoch = execution_state.repair.mutation_epoch;

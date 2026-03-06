@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use crate::llm::router::LlmRouter;
 use crate::llm::thread_ctx;
 use crate::llm::types::ChatResponseFormat;
 use crate::llm::types::LlmExecutionMode;
-use crate::llm::{create_llm, ChatMessage, LargeLanguageModel, LlmConfig};
+use crate::llm::{ChatMessage, LargeLanguageModel};
 use react_core::llm::{LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
 
 fn openai_schema_name(s: &str) -> String {
@@ -36,41 +34,6 @@ mod tests {
             openai_schema_name("patch_protocol/single-file@v1"),
             "patch_protocol_single-file_v1"
         );
-    }
-}
-
-/// Lightweight session wrapper around the configured LLM.
-/// For local llama.cpp this will reuse the shared model underneath; for HTTP it reuses the HTTP client.
-#[derive(Clone)]
-pub struct LlmSession {
-    llm: Arc<dyn LargeLanguageModel>,
-}
-
-impl LlmSession {
-    pub fn new(cfg: &LlmConfig) -> Self {
-        Self {
-            llm: create_llm(cfg),
-        }
-    }
-
-    /// Run a strict JSON prompt with a conservative token cap enforced in the backend.
-    /// Returns the raw model text; callers should parse JSON strictly.
-    pub fn chat_strict(&self, prompt: &str) -> Result<String, String> {
-        self.llm.chat(
-            &[ChatMessage {
-                role: "user".into(),
-                content: prompt.into(),
-            }],
-            &LlmCallOptions {
-                prompt_id: "react.session.chat_strict",
-                thread_id: None,
-                expected_format: LlmExpectedFormat::JsonObject,
-                max_output_tokens: None,
-                temperature: None,
-                top_p: None,
-                reasoning_effort: None,
-            },
-        )
     }
 }
 

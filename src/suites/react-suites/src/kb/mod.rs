@@ -101,6 +101,7 @@ impl KbSuite {
                 reasoning_effort: Some(effort),
                 temperature: None,
                 top_p: None,
+                timeout_secs: None,
             }
         })
         .await

@@ -445,6 +445,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         crate::data_engineer::files_patch_repair::default_patch_loop_max_output_tokens(),
                     ),
                     reasoning_effort: None,
+                    timeout_secs: None,
                 }),
             )
             .await {
@@ -781,6 +782,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                         ),
                     ),
                     reasoning_effort: None,
+                    timeout_secs: None,
                 }),
             )
             .await

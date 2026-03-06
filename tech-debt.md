@@ -49,16 +49,8 @@ Remaining drift: the grounding/compile/enrich/prune pipelines in `phase_plan.rs`
 
 Involved code: `src/suites/react-suites/src/data_engineer/phase_plan.rs`, `src/suites/react-suites/src/data_engineer/plan_review_helpers.rs`, `src/suites/react-suites/src/data_engineer/phase_author.rs`.
 
-## Suite-Owned LLM Calls Are Not First-Class Runtime Events
-Many suite paths call `ctx.llm.chat(...)` directly. Those calls do not consistently participate in the same visibility model as the core agent loop, so long-running LLM work can be real but look idle in thread history and UI projections.
+## Suite-Owned LLM Calls Are Not First-Class Runtime Events (resolved)
+All suite LLM calls now go through `AgentCtx::llm_chat` / `llm_chat_json`, which emit `LlmStart`/`LlmEnd`/`LlmCall` thread events automatically. Zero direct `ctx.llm.chat(...)` calls remain in suites. Dead code removed: `record_llm_call_observability`, per-callsite `llm_calls_enabled()` checks, manual `ThreadStep::LlmCall` construction, duplicate `escape_control_chars_in_json_strings`, dead `LlmSession`/`chat_strict`, and `LlmCallOptions::new`.
 
-Root cause: there is no single suite-owned observed LLM wrapper that enforces prompt identity, phase/substage context, start/end events, and shared timeout behavior.
-
-Involved code: `src/suites/react-suites/src/data_engineer/mod.rs`, `src/core/src/agent/run_loop.rs`, `src/core/src/session/projection.rs`, `src/runtime/src/llm/router.rs`.
-
-## Runtime Timeout And Retry Policy Is Fragmented
-LLM timeout and retry behavior is split across runtime layers and suite-local loops. This makes latency and apparent stalls harder to reason about and leads to inconsistent observability across call sites.
-
-Root cause: transport policy, blocking behavior, and local retry logic are not funneled through one shared path.
-
-Involved code: `src/runtime/src/llm/router.rs`, `src/runtime/src/llm/openai_compat.rs`, `src/suites/react-suites/src/data_engineer/review_batched.rs`, `src/suites/react-suites/src/data_engineer/patch_protocol.rs`, `src/suites/react-suites/src/data_engineer/dbt_repair/remediate.rs`.
+## Runtime Timeout And Retry Policy Is Fragmented (resolved)
+`LlmCallOptions.timeout_secs` provides per-call timeout support via `AgentCtx::llm_chat`. JSON parse retry with escape-repair is unified in `llm_chat_json`. Suite-local observability and retry code has been removed from `review_batched.rs`, `patch_protocol.rs`, and `remediate.rs`. `openai_compat.rs` timeout default aligned to 1200s to match `router.rs`.
