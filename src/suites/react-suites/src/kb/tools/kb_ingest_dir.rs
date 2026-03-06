@@ -165,8 +165,7 @@ impl Tool for KbIngestDirTool {
             let end = (idx + batch).min(chunks.len());
             let texts: Vec<String> = chunks[idx..end].iter().map(|c| c.text.clone()).collect();
             let vecs = ctx
-                .llm
-                .embed(&texts)
+                .llm_embed(&texts)
                 .map_err(|e| format!("embed failed: {}", e))?;
             for (k, v) in vecs.into_iter().enumerate() {
                 chunks[idx + k].vector = v;

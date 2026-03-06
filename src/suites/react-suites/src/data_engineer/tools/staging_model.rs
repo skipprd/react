@@ -281,7 +281,7 @@ impl Tool for StagingModelTool {
         // For existing schema.yml, avoid applying no-op patches (diff parsers may reject header-only diffs).
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let schema_rel = project_files::MODELS_SCHEMA_YML.to_string();
@@ -1186,7 +1186,7 @@ mod tests {
         // Ensure we didn't write schema.yml as a side effect.
         let schema_key = format!(
             "{}{}",
-            ctx.keyspace.dbt_prefix(&ctx.scope),
+            ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]),
             crate::data_engineer::project_files::MODELS_SCHEMA_YML
         );
         assert!(storage.get_bytes(&schema_key).await.is_err());

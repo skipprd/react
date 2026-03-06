@@ -171,7 +171,7 @@ impl DataEngineerSuite {
     pub(super) async fn has_any_gold_model_sql(actx: &AgentCtx) -> bool {
         let base = actx
             .keyspace
-            .dbt_prefix(&actx.scope)
+            .scoped_prefix(&actx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let prefixes = [

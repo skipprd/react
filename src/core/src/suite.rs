@@ -87,6 +87,10 @@ impl SuiteCtx {
             state: None,
         }
     }
+
+    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        self.llm.embed(texts)
+    }
 }
 
 impl Default for SuiteCtx {
@@ -176,14 +180,16 @@ pub trait Suite: Send + Sync {
 pub trait WorkflowSuiteContract {
     type Phase: Copy + Eq + Send + Sync + 'static;
     type ReasonCode: Copy + Eq + Send + Sync + 'static;
+    type GuardKind: Copy + Eq + Send + Sync + 'static;
     type State: Clone + Send + Sync + 'static;
     type Event: Send + Sync + 'static;
 
     fn phase_as_str(phase: Self::Phase) -> &'static str;
     fn reason_as_str(reason: Self::ReasonCode) -> &'static str;
+    fn guard_kind_as_str(kind: Self::GuardKind) -> &'static str;
     fn is_backtrack(from: Self::Phase, to: Self::Phase) -> bool;
     fn replan_backtrack_cap() -> usize;
-    fn pre_turn(_state: &Self::State) -> crate::workflow::PreTurnDirective {
+    fn pre_turn(_state: &Self::State) -> crate::workflow::PreTurnDirective<Self::GuardKind> {
         crate::workflow::PreTurnDirective::Proceed
     }
 

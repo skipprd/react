@@ -11,20 +11,33 @@ use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 pub struct LanceVectorStore {
     pub keyspace: Arc<dyn crate::providers::Keyspace>,
     pub scope: RequestScope,
+    /// URI scheme + root for LanceDB paths (e.g. `s3://bucket` or `file:///data/root`).
+    pub uri_prefix: String,
 }
 
 impl LanceVectorStore {
-    pub fn new(keyspace: Arc<dyn crate::providers::Keyspace>, scope: RequestScope) -> Self {
-        Self { keyspace, scope }
+    pub fn new(
+        keyspace: Arc<dyn crate::providers::Keyspace>,
+        scope: RequestScope,
+        uri_prefix: String,
+    ) -> Self {
+        Self {
+            keyspace,
+            scope,
+            uri_prefix,
+        }
     }
 
     fn store_for(&self, scope: &RequestScope) -> LanceDbStore {
-        let uri = self.keyspace.lancedb_uri(scope);
+        let uri = format!(
+            "{}/{}/{}/{}/lancedb",
+            self.uri_prefix, scope.tenant, scope.workspace, scope.project_id
+        );
         LanceDbStore::new(&uri)
     }
 
     pub fn global_dbt_examples_store(&self) -> GlobalLanceDbStore {
-        let uri = self.keyspace.global_dbt_examples_lancedb_uri();
+        let uri = format!("{}/dbt-examples/lancedb", self.uri_prefix);
         GlobalLanceDbStore::new(uri)
     }
 }

@@ -1,6 +1,4 @@
-use react_core::control_flow::PhaseReasonCode;
-#[cfg(test)]
-use react_core::control_flow::GuardBlockKind;
+use crate::data_engineer::domain_types::{GuardBlockKind, PhaseReasonCode};
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 use serde_json::Value;
 
@@ -10,7 +8,7 @@ use crate::data_engineer::control_flow::{
 use crate::data_engineer::progress_controller::ExecutionState;
 use crate::data_engineer::state_manager;
 
-pub type PhaseDirective = react_core::workflow::PhaseDirective<Phase, PhaseReasonCode>;
+pub type PhaseDirective = react_core::workflow::PhaseDirective<Phase, PhaseReasonCode, GuardBlockKind>;
 
 pub async fn dispatch_phase_transition(
     store: &ThreadStore,
@@ -84,7 +82,7 @@ pub async fn dispatch_phase_transition(
             ThreadStep::Phase {
                 phase: phase.as_str().to_string(),
                 from_phase: from_phase.map(|p| p.as_str().to_string()),
-                reason_code,
+                reason_code: reason_code.map(|rc| rc.as_str().to_string()),
                 reason_detail,
                 observation: Observation::ok(),
                 ts: chrono::Utc::now().to_rfc3339(),
@@ -136,7 +134,7 @@ pub async fn apply_phase_directive(
                 thread_id,
                 ThreadStep::GuardBlock {
                     phase: phase.as_str().to_string(),
-                    kind,
+                    kind: kind.as_str().to_string(),
                     reason: reason.clone(),
                     observation: Observation::fail(vec![reason]),
                     ts: chrono::Utc::now().to_rfc3339(),

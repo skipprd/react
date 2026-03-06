@@ -28,7 +28,7 @@ async fn list_artifacts(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
     let mut items: Vec<Value> = Vec::new();
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let kinds: &[(&str, &str, &str)] =
@@ -99,7 +99,7 @@ async fn get_artifact(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
     };
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, rel_path);

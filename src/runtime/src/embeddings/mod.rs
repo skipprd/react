@@ -1,3 +1,4 @@
+use react_core::keyspace::encode_key_component;
 use serde_json::Value;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -52,7 +53,7 @@ pub async fn sync_pipeline(
         // Catalog
         let mut dataset_text = String::new();
         let mut field_count_ns: usize = 0;
-        let catalog_key = keyspace.catalog_key(scope, ns);
+        let catalog_key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(ns))]);
         if let Ok(val) = storage.get_json(&catalog_key).await {
             // Dataset description
             if let Some(desc) = val.get("description").and_then(|x| x.as_str()) {
@@ -200,7 +201,7 @@ pub async fn sync_pipeline(
 
         // Artifacts: index current (non-versioned) DBT project content (rich types)
         {
-            let base = keyspace.dbt_prefix(scope).trim_end_matches('/').to_string();
+            let base = keyspace.scoped_prefix(scope, &["dbt"]).trim_end_matches('/').to_string();
             // Directory scanners with inferred types
             #[derive(Clone, Copy)]
             struct Scan<'a> {

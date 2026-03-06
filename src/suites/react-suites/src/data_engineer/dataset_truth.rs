@@ -177,7 +177,7 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
     let mut out = GroundedStagingModelSet::default();
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";

@@ -1029,7 +1029,7 @@ impl DbtProjectProvider {
         scope: &RequestScope,
         project_name: &str,
     ) -> Result<(), String> {
-        let project_key = self.keyspace.dbt_project_key(scope);
+        let project_key = self.keyspace.scoped_key(scope, &["dbt", "dbt_project.yml"]);
         let existing = if self.storage.head_etag(&project_key).await?.is_some() {
             Some(self.storage.get_bytes(&project_key).await?)
         } else {
@@ -1065,7 +1065,7 @@ impl DbtProjectProvider {
         if sanitized.changed {
             write_file(proj_path, sanitized.text.as_bytes())?;
             // Best-effort persistence back to storage for future runs.
-            let project_key = self.keyspace.dbt_project_key(scope);
+            let project_key = self.keyspace.scoped_key(scope, &["dbt", "dbt_project.yml"]);
             let _ = self
                 .storage
                 .put_bytes(&project_key, sanitized.text.as_bytes(), "text/yaml")
@@ -1170,7 +1170,7 @@ impl DbtProvider for DbtProjectProvider {
         if !rel.starts_with("models/") || !rel.ends_with(".sql") || rel.contains("..") {
             return Err("model rel_path must be a safe models/*.sql path".to_string());
         }
-        let key = format!("{}{}", self.keyspace.dbt_prefix(scope), rel);
+        let key = format!("{}{}", self.keyspace.scoped_prefix(scope, &["dbt"]), rel);
         self.storage
             .put_bytes(&key, sql.as_bytes(), "text/sql")
             .await?;
@@ -1187,7 +1187,7 @@ impl DbtProvider for DbtProjectProvider {
         if !rel.starts_with("metrics/") || !rel.ends_with(".yaml") || rel.contains("..") {
             return Err("metric rel_path must be a safe metrics/*.yaml path".to_string());
         }
-        let key = format!("{}{}", self.keyspace.dbt_prefix(scope), rel);
+        let key = format!("{}{}", self.keyspace.scoped_prefix(scope, &["dbt"]), rel);
         self.storage
             .put_bytes(&key, yaml_text.as_bytes(), "text/yaml")
             .await?;
@@ -1205,7 +1205,7 @@ impl DbtProvider for DbtProjectProvider {
             args.project_name.clone()
         };
         let s3_prefix_base = {
-            let pref = self.keyspace.dbt_prefix(scope);
+            let pref = self.keyspace.scoped_prefix(scope, &["dbt"]);
             if pref.ends_with('/') {
                 pref
             } else {

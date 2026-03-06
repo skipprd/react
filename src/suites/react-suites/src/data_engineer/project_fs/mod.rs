@@ -228,7 +228,7 @@ pub fn normalize_rel_path(rel: &str) -> Result<String, String> {
 pub fn join_storage_key(ctx: &AgentCtx, rel: &str) -> String {
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     format!("{}/{}", base, rel)
@@ -253,7 +253,7 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
             .strip_prefix(
                 &(ctx
                     .keyspace
-                    .dbt_prefix(&ctx.scope)
+                    .scoped_prefix(&ctx.scope, &["dbt"])
                     .trim_end_matches('/')
                     .to_string()
                     + "/"),
@@ -1244,7 +1244,7 @@ async fn postprocess_schema_yml(
     {
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string()
             + "/";

@@ -1,8 +1,6 @@
-use serde_json::Value;
-
 use super::{Agent, AgentCtx};
 
-pub(crate) fn title_case_words(s: &str) -> String {
+pub fn title_case_words(s: &str) -> String {
     let mut out = String::new();
     for (i, w) in s.split_whitespace().enumerate() {
         if i > 0 {
@@ -15,105 +13,6 @@ pub(crate) fn title_case_words(s: &str) -> String {
         }
     }
     out
-}
-
-pub(crate) fn clean_tool_name(name: &str, args: &Value) -> String {
-    match name {
-        "file" => {
-            let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
-            match op {
-                "get" => {
-                    let p = args
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("Read {p}");
-                    }
-                    "Read file".to_string()
-                }
-                "list" => {
-                    let p = args
-                        .get("prefix")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("List {p}");
-                    }
-                    "List files".to_string()
-                }
-                "get_json" => {
-                    let p = args
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("Read JSON {p}");
-                    }
-                    "Read JSON".to_string()
-                }
-                "patch" => {
-                    let p = args
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("Patch {p}");
-                    }
-                    "Patch file".to_string()
-                }
-                _ => {
-                    if !op.is_empty() {
-                        return format!("file {op}");
-                    }
-                    "file".to_string()
-                }
-            }
-        }
-        "run_sql" => "Run SQL".to_string(),
-        "sql_schema" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Describe {t}")
-            } else {
-                "List tables".to_string()
-            }
-        }
-        "sql_stats" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Stats {t}")
-            } else {
-                "Stats".to_string()
-            }
-        }
-        "sql_sample" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Sample {t}")
-            } else {
-                "Sample".to_string()
-            }
-        }
-        "vect_query" => "Vector search".to_string(),
-        other => title_case_words(&other.replace('_', " ")),
-    }
 }
 
 impl Agent {

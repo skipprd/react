@@ -25,7 +25,7 @@ async fn ensure_dbt_utils_package(ctx: &AgentCtx) -> Result<Option<RemediationDi
     // Returns Some(diff) if packages.yml was mutated.
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/packages.yml", base);
@@ -196,7 +196,7 @@ fn extract_sql_rel_paths_from_dbt_errors(errors: &[String]) -> Vec<String> {
 fn storage_keys_for_rel_paths(ctx: &AgentCtx, rels: &[String]) -> Vec<String> {
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let mut out: Vec<String> = Vec::new();
@@ -1223,7 +1223,7 @@ mod tests {
         // packages.yml should now exist and include dbt_utils.
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let key = format!("{}/packages.yml", base);

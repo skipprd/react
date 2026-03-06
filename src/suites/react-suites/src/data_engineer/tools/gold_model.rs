@@ -6,6 +6,7 @@ use tokio::task::JoinSet;
 use tracing::info;
 
 use react_core::agent::AgentCtx;
+use react_core::keyspace::encode_key_component;
 use react_core::tools::Tool;
 
 use crate::data_engineer::dbt_repair::remediate::active_provider_dialect;
@@ -177,9 +178,9 @@ impl Tool for GoldModelTool {
         let plan_opt = plan::load_model_plan(ctx).await;
         let global_semantic_context = ctx
             .storage
-            .get_json(&ctx.keyspace.semantic_key(
+            .get_json(&ctx.keyspace.scoped_key(
                 &ctx.scope,
-                react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+                &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
             ))
             .await
             .ok()
@@ -187,7 +188,7 @@ impl Tool for GoldModelTool {
 
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let query = ctx.warehouse.clone();

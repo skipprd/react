@@ -20,7 +20,7 @@ impl Tool for VectQueryTool {
         let k = args.get("k").and_then(|x| x.as_u64()).unwrap_or(100) as usize;
 
         let embed_chars: usize = query_text.len();
-        let vec = match ctx.llm.embed(&[query_text.to_string()]) {
+        let vec = match ctx.llm_embed(&[query_text.to_string()]) {
             Ok(mut v) => v.pop().unwrap_or_default(),
             Err(e) => {
                 return Ok(

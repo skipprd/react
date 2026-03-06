@@ -658,7 +658,7 @@ async fn main() {
                 }
             }
 
-            let (storage, keyspace, _suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
+            let (storage, keyspace, _suite_bucket, lance_uri_prefix) = if cfg.storage.mode == rc::StorageMode::Local {
                 let root = cfg
                     .storage
                     .path
@@ -675,11 +675,13 @@ async fn main() {
                         std::process::exit(1);
                     }
                 };
+                let lance_prefix = format!("file://{}", root);
                 let keyspace = Arc::new(LocalKeyspace::new(root));
                 (
                     storage,
                     keyspace as Arc<dyn react::providers::Keyspace>,
                     "local".to_string(),
+                    lance_prefix,
                 )
             } else {
                 let b = cfg
@@ -693,8 +695,9 @@ async fn main() {
                     });
                 let storage = Arc::new(S3StorageAdapter::from_env(b.clone()).await)
                     as Arc<dyn react::adapters::storage::StorageAdapter>;
+                let lance_prefix = format!("s3://{}", b);
                 let keyspace = Arc::new(DefaultKeyspace::new(b.clone()));
-                (storage, keyspace as Arc<dyn react::providers::Keyspace>, b)
+                (storage, keyspace as Arc<dyn react::providers::Keyspace>, b, lance_prefix)
             };
             let secrets = Arc::new(EnvSecretsProvider::default());
             let llm = llm::create_llm(&llm::config_from_resolved(&cfg));
@@ -791,6 +794,7 @@ async fn main() {
                 suite_ctx.vector = Some(Arc::new(LanceVectorStore::new(
                     keyspace.clone(),
                     cfg.scope.clone(),
+                    lance_uri_prefix.clone(),
                 )));
             }
 
@@ -973,7 +977,7 @@ async fn main() {
                 }
             }
 
-            let (storage, keyspace, _suite_bucket) = if cfg.storage.mode == rc::StorageMode::Local {
+            let (storage, keyspace, _suite_bucket, lance_uri_prefix) = if cfg.storage.mode == rc::StorageMode::Local {
                 let root = cfg
                     .storage
                     .path
@@ -990,11 +994,13 @@ async fn main() {
                         std::process::exit(1);
                     }
                 };
+                let lance_prefix = format!("file://{}", root);
                 let keyspace = Arc::new(LocalKeyspace::new(root));
                 (
                     storage,
                     keyspace as Arc<dyn react::providers::Keyspace>,
                     "local".to_string(),
+                    lance_prefix,
                 )
             } else {
                 let b = cfg
@@ -1008,8 +1014,9 @@ async fn main() {
                     });
                 let storage = Arc::new(S3StorageAdapter::from_env(b.clone()).await)
                     as Arc<dyn react::adapters::storage::StorageAdapter>;
+                let lance_prefix = format!("s3://{}", b);
                 let keyspace = Arc::new(DefaultKeyspace::new(b.clone()));
-                (storage, keyspace as Arc<dyn react::providers::Keyspace>, b)
+                (storage, keyspace as Arc<dyn react::providers::Keyspace>, b, lance_prefix)
             };
             let secrets = Arc::new(EnvSecretsProvider::default());
             let llm = llm::create_llm(&llm::config_from_resolved(&cfg));
@@ -1104,6 +1111,7 @@ async fn main() {
                 suite_ctx.vector = Some(Arc::new(LanceVectorStore::new(
                     keyspace.clone(),
                     cfg.scope.clone(),
+                    lance_uri_prefix.clone(),
                 )));
             }
 

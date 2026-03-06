@@ -774,9 +774,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                     );
                     ev.for_cid = Some(cid.clone());
                     ev.reason_code = Some(
-                        react_core::control_flow::PhaseReasonCode::PreflightStart
-                            .as_str()
-                            .to_string(),
+                        "preflight_start".to_string(),
                     );
                     let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
                     state.buffer_last(&s);
@@ -893,7 +891,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                     &store,
                                     &thread_id,
                                     ThreadStep::Complete {
-                                        kind: react_core::session::CompleteKind::from(kind.clone()),
+                                        kind: kind.clone(),
                                         payload: payload.clone(),
                                         display: display.clone(),
                                         observation: Observation::ok(),
@@ -1096,9 +1094,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                     );
                     ev.for_cid = Some(cid.clone());
                     ev.reason_code = Some(
-                        react_core::control_flow::PhaseReasonCode::PreflightStart
-                            .as_str()
-                            .to_string(),
+                        "preflight_start".to_string(),
                     );
                     let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
                     state.buffer_last(&s);
@@ -1809,7 +1805,7 @@ async fn ensure_preflight_phase_step(
             ThreadStep::Phase {
                 phase: "preflight".to_string(),
                 from_phase: None,
-                reason_code: Some(react_core::control_flow::PhaseReasonCode::PreflightStart),
+                reason_code: Some("preflight_start".to_string()),
                 reason_detail: Some(serde_json::Value::Object(detail)),
                 observation: Observation::ok(),
                 ts: ts.clone(),
@@ -2745,9 +2741,7 @@ async fn run_agent_with_processing_suite(
             );
             ev.for_cid = Some(cid.to_string());
             ev.reason_code = Some(
-                react_core::control_flow::PhaseReasonCode::PreflightStart
-                    .as_str()
-                    .to_string(),
+                "preflight_start".to_string(),
             );
             let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
             state.buffer_last(&s);
@@ -3042,8 +3036,7 @@ async fn run_agent_with_processing_suite(
                             );
                             ev.for_cid = Some(cid.to_string());
                             ev.from_phase = from_phase.clone();
-                            ev.reason_code =
-                                reason_code.as_ref().map(|rc| rc.as_str().to_string());
+                            ev.reason_code = reason_code.clone();
                             ev.from_phase_runs = from_runs;
                             ev.from_phase_total_runtime_ms = from_total;
                             ev.reason_detail = reason_detail.as_ref().and_then(|v| {
@@ -3359,7 +3352,7 @@ async fn run_agent_with_processing_suite(
                                     &store,
                                     thread_id,
                                     ThreadStep::Complete {
-                                        kind: react_core::session::CompleteKind::from(kind.clone()),
+                                        kind: kind.clone(),
                                         payload: payload.clone(),
                                         display: display.clone(),
                                         observation: Observation::ok(),
@@ -4045,7 +4038,7 @@ mod tests {
                     agent: "agent".to_string(),
                 },
                 ThreadStep::Complete {
-                    kind: react_core::session::CompleteKind::Generic,
+                    kind: "generic".to_string(),
                     payload: serde_json::json!({ "text": "done" }),
                     display: Some("done".to_string()),
                     observation: Observation::ok(),

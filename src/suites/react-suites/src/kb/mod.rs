@@ -109,7 +109,7 @@ impl KbSuite {
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.into(),
+                kind: result.kind.clone(),
                 payload: result.payload,
                 display: result.display,
             }]),

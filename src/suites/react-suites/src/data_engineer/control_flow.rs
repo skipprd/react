@@ -455,6 +455,53 @@ impl DeterministicDbtValidateTargetedOnce {
     }
 }
 
+pub fn de_clean_tool_name(name: &str, args: &Value) -> String {
+    match name {
+        "file" => {
+            let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
+            match op {
+                "get" => {
+                    let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if !p.is_empty() { return format!("Read {p}"); }
+                    "Read file".to_string()
+                }
+                "list" => {
+                    let p = args.get("prefix").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if !p.is_empty() { return format!("List {p}"); }
+                    "List files".to_string()
+                }
+                "patch" => {
+                    let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if !p.is_empty() { return format!("Patch {p}"); }
+                    "Patch file".to_string()
+                }
+                _ => {
+                    if !op.is_empty() { return format!("file {op}"); }
+                    "file".to_string()
+                }
+            }
+        }
+        "json_file" => {
+            let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if !p.is_empty() { format!("JSON {p}") } else { "JSON file".to_string() }
+        }
+        "sql_schema" => {
+            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if !t.is_empty() { format!("Describe {t}") } else { "List tables".to_string() }
+        }
+        "sql_stats" => {
+            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if !t.is_empty() { format!("Stats {t}") } else { "Stats".to_string() }
+        }
+        "sql_sample" => {
+            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if !t.is_empty() { format!("Sample {t}") } else { "Sample".to_string() }
+        }
+        "run_sql" => "Run SQL".to_string(),
+        other => other.replace('_', " "),
+    }
+}
+
 pub async fn call_and_record_tool(
     store: &ThreadStore,
     thread_id: &str,
@@ -464,107 +511,8 @@ pub async fn call_and_record_tool(
     ctx: &AgentCtx,
     timeout_secs: u64,
 ) -> Value {
-    fn clean_tool_name(name: &str, args: &Value) -> String {
-        match name {
-            "file" => {
-                let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
-                match op {
-                    "get" => {
-                        let p = args
-                            .get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .trim();
-                        if !p.is_empty() {
-                            return format!("Read {p}");
-                        }
-                        "Read file".to_string()
-                    }
-                    "list" => {
-                        let p = args
-                            .get("prefix")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .trim();
-                        if !p.is_empty() {
-                            return format!("List {p}");
-                        }
-                        "List files".to_string()
-                    }
-                    "patch" => {
-                        let p = args
-                            .get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .trim();
-                        if !p.is_empty() {
-                            return format!("Patch {p}");
-                        }
-                        "Patch file".to_string()
-                    }
-                    _ => {
-                        if !op.is_empty() {
-                            return format!("file {op}");
-                        }
-                        "file".to_string()
-                    }
-                }
-            }
-            "json_file" => {
-                let p = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if !p.is_empty() {
-                    format!("JSON {p}")
-                } else {
-                    "JSON file".to_string()
-                }
-            }
-            "sql_schema" => {
-                let t = args
-                    .get("table")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if !t.is_empty() {
-                    format!("Describe {t}")
-                } else {
-                    "List tables".to_string()
-                }
-            }
-            "sql_stats" => {
-                let t = args
-                    .get("table")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if !t.is_empty() {
-                    format!("Stats {t}")
-                } else {
-                    "Stats".to_string()
-                }
-            }
-            "sql_sample" => {
-                let t = args
-                    .get("table")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
-                if !t.is_empty() {
-                    format!("Sample {t}")
-                } else {
-                    "Sample".to_string()
-                }
-            }
-            "run_sql" => "Run SQL".to_string(),
-            other => other.replace('_', " "),
-        }
-    }
-
     let agent = agent.unwrap_or_else(|| "unknown".to_string());
-    let clean_name = clean_tool_name(tool.name(), &args);
+    let clean_name = de_clean_tool_name(tool.name(), &args);
     let tool_id = uuid::Uuid::new_v4().to_string();
     let ts_start = chrono::Utc::now().to_rfc3339();
     if let Err(e) = store

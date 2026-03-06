@@ -3,6 +3,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use react_core::agent::AgentCtx;
+use react_core::keyspace::encode_key_component;
 use react_core::tools::Tool;
 
 pub struct CatalogNoteTool;
@@ -56,7 +57,7 @@ impl Tool for CatalogNoteTool {
         let thread_id = ctx.thread_id.clone().unwrap_or_default();
 
         // Resolve catalog key
-        let catalog_key = ctx.keyspace.catalog_key(&ctx.scope, &dataset_id);
+        let catalog_key = ctx.keyspace.scoped_key(&ctx.scope, &["catalog", &format!("{}.yaml", encode_key_component(&dataset_id))]);
         let mut catalog: Value = ctx
             .storage
             .get_json(&catalog_key)
@@ -153,7 +154,7 @@ impl Tool for CatalogNoteTool {
             if src.is_empty() {
                 return Vec::new();
             }
-            ctx.llm.embed(&src.to_vec()).unwrap_or_default()
+            ctx.llm_embed(&src.to_vec()).unwrap_or_default()
         };
         let existing_vecs = embed(&existing_facts);
         let proposed_vecs = embed(&proposed);
@@ -228,7 +229,7 @@ impl Tool for CatalogNoteTool {
             .ok_or_else(|| "vector provider missing".to_string())?;
         let epoch = chrono::Utc::now().timestamp() as u64;
         let mut vec1: Vec<f32> = Vec::new();
-        if let Ok(vv) = ctx.llm.embed(&[digest.clone()]) {
+        if let Ok(vv) = ctx.llm_embed(&[digest.clone()]) {
             if let Some(v) = vv.get(0) {
                 vec1 = v.clone();
             }

@@ -4,7 +4,7 @@ use crate::data_engineer::{
     control_flow, DataEngineerSuite, PhaseExecutorOutcome,
 };
 use react_core::suite::{FlowFrame, SuiteCtx};
-use react_core::control_flow::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
+use crate::data_engineer::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use react_core::session::ThreadStore;
 
 fn effective_review_tier(phase: control_flow::Phase, tier: ReviewTier) -> ReviewTier {

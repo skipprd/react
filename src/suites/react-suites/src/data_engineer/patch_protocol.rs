@@ -347,7 +347,7 @@ pub async fn llm_patch_loop_single_file(
 
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, expected_rel_path);

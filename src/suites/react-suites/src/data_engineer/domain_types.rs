@@ -1,18 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Minimal, strongly-typed control-flow primitives shared across suites and the WS/UI layer.
-///
-/// This is intentionally KISS:
-/// - Enums capture *decisions* and *reasons* (finite sets) for compile-time exhaustiveness.
-/// - Free-form detail remains `serde_json::Value` (debug-only) and must not drive behavior.
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewDecision {
-    /// No action required; proceed forward in the deterministic pipeline.
     Proceed,
-    /// The implementation deviates from the approved plan/spec; return to authoring.
     PatchImpl,
 }
 
@@ -38,26 +30,16 @@ pub struct ReviewDecisionMeta {
     pub tier: ReviewTier,
     #[serde(default)]
     pub dataset_ids: Vec<String>,
-    /// Optional stable reference to the persisted review text (suite-defined key).
     #[serde(default)]
     pub review_ref: Option<Value>,
 }
 
-/// Reason codes for phase transitions recorded in thread logs.
-///
-/// These are intended for UI/debuggability and (critically) for suites that want to
-/// branch deterministically on the most recent phase entry reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PhaseReasonCode {
-    // Generic
     PhaseSet,
-
-    // Preflight
     PreflightStart,
     PreflightOk,
-
-    // Planning
     PlanApproved,
     PlanAutoApproved,
     PlanAlreadyApproved,
@@ -66,39 +48,25 @@ pub enum PhaseReasonCode {
     PlanInvalidEmpty,
     PlanPrunedEmpty,
     PlanSemanticInvalid,
-
-    // Execution / workgroups
     WorkGroupValidate,
     PlanTasksDone,
     NoWorkAllDone,
-
-    // Authoring / validate
     AuthoringComplete,
     PrecheckFailed,
     ValidatePassToReview,
     ValidatePassToAuthoring,
     ValidateFail,
-
-    // Review decisions
     ReviewProceed,
     ReviewPatchImpl,
-
-    // Review snapshot markers (non-transition, same-phase annotations)
     ReviewProjectSummary,
     ReviewBatch,
     ReviewFinalUnify,
-
-    // Publish
     UserApprovedPublish,
     PublishSuccess,
     PublishFail,
     PublishConfirmedSuccess,
     PublishConfirmedFail,
-
-    // Plan revision
     PlanRevisionRequested,
-
-    // Blocking / guards
     PhaseBlocked,
 }
 
@@ -140,7 +108,6 @@ impl PhaseReasonCode {
     }
 }
 
-/// Guard block categories recorded in the thread log/state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GuardBlockKind {

@@ -1064,7 +1064,7 @@ if !is_cleanse {
     // can reliably build marts from existing stg_* models (no guessing).
     let base = actx
         .keyspace
-        .dbt_prefix(&actx.scope)
+        .scoped_prefix(&actx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
@@ -1228,7 +1228,7 @@ if hard_mutation_repair_mode && !repair_ctx.failed_models.is_empty() {
         if !file.is_empty() && file != "(unknown file)" {
             let base = actx
                 .keyspace
-                .dbt_prefix(&actx.scope)
+                .scoped_prefix(&actx.scope, &["dbt"])
                 .trim_end_matches('/')
                 .to_string();
             let key = format!("{}/{}", base, file);
@@ -1344,12 +1344,12 @@ if hard_mutation_repair_mode
     let mut target_storage_key: Option<String> = None;
     let mut target_read_error: Option<String> = None;
     if !target.is_empty() {
-        let base = actx
-            .keyspace
-            .dbt_prefix(&actx.scope)
-            .trim_end_matches('/')
-            .to_string();
-        let key = format!("{}/{}", base, target);
+    let base = actx
+        .keyspace
+        .scoped_prefix(&actx.scope, &["dbt"])
+        .trim_end_matches('/')
+        .to_string();
+    let key = format!("{}/{}", base, target);
         target_storage_key = Some(key.clone());
         match actx.storage.get_bytes(&key).await {
             Ok(bytes) => {

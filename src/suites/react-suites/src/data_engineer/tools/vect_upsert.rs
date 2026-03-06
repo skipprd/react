@@ -32,7 +32,7 @@ impl Tool for VectUpsertTool {
                     .to_string()
             })
             .collect();
-        let vecs = ctx.llm.embed(&texts).map_err(|e| e.to_string())?;
+        let vecs = ctx.llm_embed(&texts).map_err(|e| e.to_string())?;
 
         let epoch = chrono::Utc::now().timestamp() as u64;
         let mut items: Vec<VectorChunk> = Vec::new();

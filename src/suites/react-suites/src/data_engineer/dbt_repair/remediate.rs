@@ -263,7 +263,7 @@ pub async fn llm_should_remediate_sql(
 pub async fn list_sql_keys_for_scope(ctx: &AgentCtx) -> Result<Vec<String>, String> {
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
@@ -426,7 +426,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
             }
             let base = ctx
                 .keyspace
-                .dbt_prefix(&ctx.scope)
+                .scoped_prefix(&ctx.scope, &["dbt"])
                 .trim_end_matches('/')
                 .to_string();
             let rel = ch
@@ -714,7 +714,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     // Only consider keys under dbt prefix and never in target/_versions.
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     keys.retain(|k| {
@@ -1313,7 +1313,7 @@ pub async fn remediate_unresolved_columns_with_llm(
         }
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let rel = ch
@@ -1546,7 +1546,7 @@ mod tests {
         let ctx = make_ctx(storage.clone(), llm);
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         storage

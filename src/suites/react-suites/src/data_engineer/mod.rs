@@ -7,7 +7,8 @@ use react_core::suite::{FlowFrame, Suite, SuiteCtx};
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
-use react_core::control_flow::{GuardBlockKind, PhaseReasonCode};
+use crate::data_engineer::domain_types::{GuardBlockKind, PhaseReasonCode};
+use react_core::keyspace::encode_key_component;
 use react_core::llm::LlmCallOptions;
 use react_core::session::{CatalogBootstrapState, ThreadBootstrapState, ThreadStore, ToolStepStatus};
 use react_core::tools::ToolRegistry;
@@ -27,6 +28,7 @@ const PLAN_SPEC_PLACEHOLDER_SENTINEL: &str = "__REQUIRES_PLAN_ENRICHMENT__";
 impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
     type Phase = control_flow::Phase;
     type ReasonCode = PhaseReasonCode;
+    type GuardKind = GuardBlockKind;
     type State = crate::data_engineer::progress_controller::ExecutionState;
     type Event = crate::data_engineer::progress_controller::DataEngineerEvent;
 
@@ -36,6 +38,10 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
 
     fn reason_as_str(reason: Self::ReasonCode) -> &'static str {
         reason.as_str()
+    }
+
+    fn guard_kind_as_str(kind: Self::GuardKind) -> &'static str {
+        kind.as_str()
     }
 
     fn is_backtrack(from: Self::Phase, to: Self::Phase) -> bool {
@@ -48,7 +54,7 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
 
     fn pre_turn(
         state: &crate::data_engineer::progress_controller::ExecutionState,
-    ) -> react_core::workflow::PreTurnDirective {
+    ) -> react_core::workflow::PreTurnDirective<Self::GuardKind> {
         let phase = state
             .phase_state()
             .current_phase
@@ -85,6 +91,8 @@ impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
 pub mod controller_event;
 pub mod controller_kernel;
 pub mod control_flow;
+pub mod domain_types;
+pub mod thread_cache;
 pub mod dataset_truth;
 pub mod dbt;
 pub mod dbt_error;
@@ -197,6 +205,10 @@ impl AgentPolicy for InterruptOnlyPolicy {
             return Some((InterruptKind::AwaitApproval, prompt));
         }
         None
+    }
+
+    fn clean_tool_name(&self, name: &str, args: &serde_json::Value) -> String {
+        crate::data_engineer::control_flow::de_clean_tool_name(name, args)
     }
 
     fn timeout_for_tool(&self, action_name: &str) -> Option<u64> {
@@ -2013,9 +2025,9 @@ Apply these fixes in the output.",
         }
 
         // Also detect whether the global semantic context exists.
-        let global_key = sctx.keyspace.semantic_key(
+        let global_key = sctx.keyspace.scoped_key(
             &sctx.scope,
-            react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+            &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
         );
         tracing::info!(
             "data_engineer: refreshing canonical catalogs/stats for {} dataset(s)",
@@ -2293,7 +2305,7 @@ Apply these fixes in the output.",
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.into(),
+                kind: result.kind.clone(),
                 payload: result.payload,
                 display: result.display,
             }]),
@@ -2375,7 +2387,7 @@ Apply these fixes in the output.",
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.into(),
+                kind: result.kind.clone(),
                 payload: result.payload,
                 display: result.display,
             }]),
@@ -3822,7 +3834,7 @@ mod tests {
 
         let prior_review_answer = "Please add tests.";
         let mut st = ExecutionState::new();
-        st.phase.phase_reason_code = Some(react_core::control_flow::PhaseReasonCode::ReviewPatchImpl);
+        st.phase.phase_reason_code = Some(crate::data_engineer::domain_types::PhaseReasonCode::ReviewPatchImpl);
         st.phase.phase_reason_detail = Some(serde_json::json!({
             "review_phase":"cleanse_review",
             "meta": {"decision":"patch_impl", "dataset_ids": ["x"], "tier":"silver"},
@@ -3872,7 +3884,7 @@ mod tests {
         use crate::data_engineer::progress_controller::ExecutionState;
 
         let mut st = ExecutionState::new();
-        st.phase.phase_reason_code = Some(react_core::control_flow::PhaseReasonCode::ValidatePassToReview);
+        st.phase.phase_reason_code = Some(crate::data_engineer::domain_types::PhaseReasonCode::ValidatePassToReview);
         st.phase.phase_reason_detail = Some(serde_json::json!({"dbt_validate_step_idx": 1}));
 
         let q = DataEngineerSuite::build_review_question_with_context(

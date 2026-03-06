@@ -6048,8 +6048,10 @@ version = "0.0.0-git"
 dependencies = [
  "async-trait",
  "chrono",
+ "dashmap 5.5.3",
  "diffy",
  "hex",
+ "once_cell",
  "react-core",
  "schemars 1.2.1",
  "serde",

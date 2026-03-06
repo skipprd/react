@@ -75,9 +75,9 @@ async fn collect_sql_model_name_collisions(
     limit: usize,
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     let limit = limit.max(1).min(2000);
-    let base = ctx
+    let base =     ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/", base);
@@ -126,7 +126,7 @@ async fn collect_staging_model_names_from_ymls(
     let limit = limit.max(1).min(500);
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
@@ -558,7 +558,7 @@ pub async fn normalize_schema_artifacts_for_validate(
 
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
@@ -682,7 +682,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
     // in the corresponding staging SQL output.
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);

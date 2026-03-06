@@ -3,7 +3,8 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::control_flow::{PhaseReasonCode, ReviewDecision, ReviewTier};
+use crate::data_engineer::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
+use react_core::keyspace::encode_key_component;
 use react_core::llm::{ChatMessage, LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 use react_core::tools::Tool;
@@ -166,7 +167,7 @@ async fn append_review_step(
             ThreadStep::Phase {
                 phase: phase.as_str().to_string(),
                 from_phase: Some(phase.as_str().to_string()),
-                reason_code: Some(code),
+                reason_code: Some(code.as_str().to_string()),
                 reason_detail: Some(detail),
                 observation: Observation::ok(),
                 ts: utc_ts(),
@@ -500,9 +501,9 @@ async fn llm_json(
 }
 
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {
-    let key = sctx.keyspace.semantic_key(
+    let key = sctx.keyspace.scoped_key(
         &sctx.scope,
-        react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
     );
     actx.storage
         .get_json(&key)
@@ -1751,7 +1752,7 @@ mod tests {
         // dbt files
         let base = actx
             .keyspace
-            .dbt_prefix(&actx.scope)
+            .scoped_prefix(&actx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let put = |rel: &str, content: &str| {
@@ -1983,9 +1984,9 @@ mod tests {
             project_id: "p".into(),
         };
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let gkey = keyspace.semantic_key(
+        let gkey = keyspace.scoped_key(
             &scope,
-            react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+            &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
         );
         storage
             .put_bytes(
@@ -2000,7 +2001,7 @@ mod tests {
 
         // Seed minimal dbt files expected by project snapshot.
         let base = keyspace
-            .dbt_prefix(&scope)
+            .scoped_prefix(&scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
         storage

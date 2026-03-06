@@ -117,9 +117,9 @@ pub(crate) async fn guard_block_loopback_to_author(
     thread_store: &ThreadStore,
     thread_id: &str,
     phase: Phase,
-    guard_kind: react_core::control_flow::GuardBlockKind,
+    guard_kind: crate::data_engineer::domain_types::GuardBlockKind,
     reason: String,
-    reason_code: react_core::control_flow::PhaseReasonCode,
+    reason_code: crate::data_engineer::domain_types::PhaseReasonCode,
     detail: Option<serde_json::Value>,
 ) -> Result<super::PhaseExecutorOutcome, String> {
     crate::data_engineer::phase_contract::commit_guard_block(

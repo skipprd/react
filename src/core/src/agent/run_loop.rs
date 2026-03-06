@@ -7,7 +7,6 @@ use crate::schema_registry::SchemaId;
 use crate::session::{ThreadStep, ToolObservation, ToolStepStatus};
 use crate::tools::ToolRegistry;
 
-use super::helpers::clean_tool_name;
 use super::{
     Agent, AgentCtx, NonInteractivePolicyAdapter, ParsedStep, RunOutcome,
     RunOutcomeNonInteractive, StepBoundaryReason,
@@ -233,7 +232,7 @@ impl Agent {
                 .agent_name
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
-            let clean_name = clean_tool_name(action_name_str, &args);
+            let clean_name = ctx.policy.clean_tool_name(action_name_str, &args);
             if let Some(store) = store {
                 let _ = store
                     .append_step(

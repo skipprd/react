@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
-use react_core::control_flow::PhaseReasonCode;
+use crate::data_engineer::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
 
 use crate::data_engineer::control_flow::Phase;

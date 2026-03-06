@@ -11,7 +11,7 @@ use crate::data_engineer::progress_controller::ExecutionState;
 use crate::data_engineer::state_manager;
 use react_core::agent::AgentCtx;
 use react_core::providers::{CatalogProvider, DatasetCatalogProvider};
-use react_core::session::ThreadCacheStore;
+use crate::data_engineer::thread_cache::ThreadCacheStore;
 use react_core::tools::Tool;
 use std::sync::Arc;
 
@@ -111,7 +111,7 @@ impl Tool for PublishDbtToProviderTool {
         }
 
         // Fetch manifest.json from storage (uploaded by validate_project when compile succeeds)
-        let base = ctx.keyspace.dbt_prefix(&ctx.scope);
+        let base = ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]);
         let base = base.trim_end_matches('/').to_string() + "/";
         let manifest_key = format!("{}target/manifest.json", base);
         let manifest_bytes = ctx
@@ -521,7 +521,7 @@ mod tests {
             if !args.build {
                 let base = self
                     .keyspace
-                    .dbt_prefix(scope)
+                    .scoped_prefix(scope, &["dbt"])
                     .trim_end_matches('/')
                     .to_string()
                     + "/";

@@ -1,3 +1,4 @@
+use react_core::keyspace::encode_key_component;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -192,9 +193,9 @@ fn global_semantic_key(
     keyspace: &Arc<dyn crate::providers::Keyspace>,
     scope: &crate::providers::RequestScope,
 ) -> String {
-    keyspace.semantic_key(
+    keyspace.scoped_key(
         scope,
-        react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
     )
 }
 
@@ -526,7 +527,7 @@ Output JSON only:",
                 dataset_id,
                 text
             );
-            let key = keyspace.catalog_key(scope, dataset_id);
+            let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
             if let Ok(mut v) = storage.get_json(&key).await {
                 // Do NOT overwrite an existing human-edited description.
                 let mut should_write = true;
@@ -561,7 +562,7 @@ Output JSON only:",
     // Field-level enrichment
     // Prefer stats embedded in catalog; fallback to separate stats JSON if present
     let ns_stats: Option<crate::discover::stats::DatasetFieldStats> = {
-        let key = keyspace.catalog_key(scope, dataset_id);
+        let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
         match storage.get_json(&key).await {
             Ok(val) => {
                 super::stats_from_catalog::dataset_field_stats_from_catalog_json(dataset_id, &val)
@@ -570,7 +571,7 @@ Output JSON only:",
         }
     };
     // Load existing catalog (may be YAML stored as JSON via helper)
-    let key = keyspace.catalog_key(scope, dataset_id);
+    let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
     if let Ok(val) = storage.get_json(&key).await {
         // Build DataCatalog from existing JSON
         let mut catalog = DataCatalog {
@@ -1228,7 +1229,7 @@ pub async fn run_llm_global_context_enrichment_all(
     let mut wrote = false;
 
     for ds in dss.iter() {
-        let key = keyspace.catalog_key(scope, ds);
+        let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(ds))]);
         let Ok(cat_json) = storage.get_json(&key).await else {
             continue;
         };

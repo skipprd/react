@@ -2,11 +2,10 @@ use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::control_flow::{GuardBlockKind, PhaseReasonCode};
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
 use crate::storage::StorageAdapter;
@@ -158,71 +157,6 @@ pub enum LlmStepStatus {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum CompleteKind {
-    Generic,
-    Ask,
-    Kb,
-    Other(String),
-}
-
-impl CompleteKind {
-    pub fn as_str(&self) -> &str {
-        match self {
-            CompleteKind::Generic => "generic",
-            CompleteKind::Ask => "ask",
-            CompleteKind::Kb => "kb",
-            CompleteKind::Other(s) => s.as_str(),
-        }
-    }
-}
-
-impl Default for CompleteKind {
-    fn default() -> Self {
-        CompleteKind::Generic
-    }
-}
-
-impl From<String> for CompleteKind {
-    fn from(value: String) -> Self {
-        match value.as_str() {
-            "generic" => CompleteKind::Generic,
-            "ask" => CompleteKind::Ask,
-            "kb" => CompleteKind::Kb,
-            _ => CompleteKind::Other(value),
-        }
-    }
-}
-
-impl From<CompleteKind> for String {
-    fn from(value: CompleteKind) -> Self {
-        match value {
-            CompleteKind::Generic => "generic".to_string(),
-            CompleteKind::Ask => "ask".to_string(),
-            CompleteKind::Kb => "kb".to_string(),
-            CompleteKind::Other(s) => s,
-        }
-    }
-}
-
-impl Serialize for CompleteKind {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for CompleteKind {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(CompleteKind::from(s))
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ArtifactKind {
@@ -711,7 +645,7 @@ pub enum ThreadStep {
         phase: String,
         from_phase: Option<String>,
         #[serde(default)]
-        reason_code: Option<PhaseReasonCode>,
+        reason_code: Option<String>,
         reason_detail: Option<Value>,
         observation: Observation,
         ts: String,
@@ -719,7 +653,7 @@ pub enum ThreadStep {
     },
     GuardBlock {
         phase: String,
-        kind: GuardBlockKind,
+        kind: String,
         reason: String,
         observation: Observation,
         ts: String,
@@ -728,7 +662,7 @@ pub enum ThreadStep {
     ArtifactFocus {
         kind: ArtifactKind,
         name: String,
-        dataset_id: Option<String>,
+        entity_id: Option<String>,
         exists: bool,
         observation: Observation,
         ts: String,
@@ -737,7 +671,7 @@ pub enum ThreadStep {
     ArtifactSaved {
         kind: ArtifactKind,
         name: String,
-        dataset_id: Option<String>,
+        entity_id: Option<String>,
         key: String,
         status: ArtifactSaveStatus,
         lines_added: u64,
@@ -762,7 +696,7 @@ pub enum ThreadStep {
         agent: String,
     },
     Complete {
-        kind: CompleteKind,
+        kind: String,
         payload: Value,
         #[serde(default)]
         display: Option<String>,
@@ -827,7 +761,7 @@ impl Default for ThreadLog {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadResult {
-    pub kind: CompleteKind,
+    pub kind: String,
     pub payload: Value,
     #[serde(default)]
     pub display: Option<String>,
@@ -850,81 +784,6 @@ fn cache() -> &'static DashMap<String, CacheEntry> {
     THREAD_CACHE.get_or_init(|| DashMap::new())
 }
 
-// Per-thread, in-memory context cache (not persisted)
-#[derive(Clone, Debug, Default)]
-pub struct ThreadCache {
-    pub candidates: Vec<(String, String, f32)>, // (project_id, dataset_id, score)
-    pub schemas: HashMap<String, Vec<(String, String)>>, // dataset FQN -> [(name, type)]
-    pub samples: HashMap<String, Vec<Vec<String>>>, // dataset FQN -> rows
-    /// Last published curated relations (materialized in the warehouse), best-effort.
-    pub published_relations: Vec<String>, // dataset FQN list (e.g. catalog.db.table)
-    /// Digest of the manifest that produced `published_relations`, best-effort.
-    pub published_manifest_sha256: Option<String>,
-    pub updated_at: Option<Instant>,
-}
-
-static THREAD_CTX_CACHE: OnceCell<DashMap<String, ThreadCache>> = OnceCell::new();
-fn ctx_cache() -> &'static DashMap<String, ThreadCache> {
-    THREAD_CTX_CACHE.get_or_init(|| DashMap::new())
-}
-
-impl ThreadCache {
-    pub fn ttl_fresh(&self, secs: u64) -> bool {
-        match self.updated_at {
-            Some(t) => t.elapsed().as_secs() < secs,
-            None => false,
-        }
-    }
-}
-
-pub struct ThreadCacheStore;
-
-impl ThreadCacheStore {
-    pub fn get(thread_id: &str) -> Option<ThreadCache> {
-        ctx_cache().get(thread_id).map(|c| c.clone())
-    }
-    pub fn set(thread_id: &str, cache: ThreadCache) {
-        ctx_cache().insert(thread_id.to_string(), cache);
-    }
-    pub fn update_candidates(thread_id: &str, cands: Vec<(String, String, f32)>) {
-        let mut entry = ctx_cache()
-            .get(thread_id)
-            .map(|e| e.clone())
-            .unwrap_or_default();
-        entry.candidates = cands;
-        entry.updated_at = Some(Instant::now());
-        ctx_cache().insert(thread_id.to_string(), entry);
-    }
-    pub fn update_schema(thread_id: &str, dataset_fqn: &str, cols: Vec<(String, String)>) {
-        let mut entry = ctx_cache()
-            .get(thread_id)
-            .map(|e| e.clone())
-            .unwrap_or_default();
-        entry.schemas.insert(dataset_fqn.to_string(), cols);
-        entry.updated_at = Some(Instant::now());
-        ctx_cache().insert(thread_id.to_string(), entry);
-    }
-    pub fn update_samples(thread_id: &str, dataset_fqn: &str, rows: Vec<Vec<String>>) {
-        let mut entry = ctx_cache()
-            .get(thread_id)
-            .map(|e| e.clone())
-            .unwrap_or_default();
-        entry.samples.insert(dataset_fqn.to_string(), rows);
-        entry.updated_at = Some(Instant::now());
-        ctx_cache().insert(thread_id.to_string(), entry);
-    }
-
-    pub fn update_published(thread_id: &str, manifest_sha256: &str, relations: Vec<String>) {
-        let mut entry = ctx_cache()
-            .get(thread_id)
-            .map(|e| e.clone())
-            .unwrap_or_default();
-        entry.published_relations = relations;
-        entry.published_manifest_sha256 = Some(manifest_sha256.to_string());
-        entry.updated_at = Some(Instant::now());
-        ctx_cache().insert(thread_id.to_string(), entry);
-    }
-}
 
 mod materialization;
 mod projection;
@@ -1321,7 +1180,7 @@ mod tests {
             .append_step(
                 tid,
                 ThreadStep::Complete {
-                    kind: CompleteKind::Generic,
+                    kind: "generic".to_string(),
                     payload: serde_json::json!({"text":"ok"}),
                     display: Some("ok".to_string()),
                     observation: Observation::ok(),

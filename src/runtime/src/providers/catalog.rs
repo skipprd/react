@@ -13,6 +13,7 @@ pub mod utils;
 
 pub use types::{DataCatalog, SemanticModel};
 
+use react_core::keyspace::encode_key_component;
 use react_core::providers::{CatalogProvider, DatasetId};
 
 /// Default catalog provider implementation (current behavior).
@@ -65,7 +66,7 @@ impl CatalogProvider for DefaultCatalogProvider {
         dataset_id: &str,
     ) -> Result<Option<DataCatalog>, String> {
         let canonical = Self::canonical_dataset_id(dataset_id)?;
-        let key = self.keyspace.catalog_key(scope, &canonical);
+        let key = self.keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(&canonical))]);
         match self.storage.get_json(&key).await {
             Ok(val) => Ok(Some(
                 serde_json::from_value::<DataCatalog>(val).map_err(|e| e.to_string())?,
@@ -82,7 +83,7 @@ impl CatalogProvider for DefaultCatalogProvider {
     ) -> Result<(), String> {
         // Canonical path: YAML -> serde_yaml::Value -> JSON written.
         let canonical = Self::canonical_dataset_id(dataset_id)?;
-        let key = self.keyspace.catalog_key(scope, &canonical);
+        let key = self.keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(&canonical))]);
         let yaml = serde_yaml::to_string(catalog).map_err(|e| e.to_string())?;
         let value =
             serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);

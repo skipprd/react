@@ -1,6 +1,7 @@
 use super::stats_from_catalog::dataset_field_stats_from_catalog_json;
 use super::types::{SemanticField, SemanticFieldRole, SemanticModel};
 use crate::discover::stats::DatasetFieldStats;
+use react_core::keyspace::encode_key_component;
 use std::sync::Arc;
 
 fn classify_field(
@@ -28,7 +29,7 @@ pub async fn infer_semantic_model_async(
 ) -> SemanticModel {
     // Prefer stats embedded in Catalog; fallback to separate stats object if present
     let ns_stats: Option<DatasetFieldStats> = {
-        let key = keyspace.catalog_key(scope, dataset_id);
+        let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
         match storage.get_json(&key).await {
             Ok(val) => dataset_field_stats_from_catalog_json(dataset_id, &val),
             Err(_) => None,

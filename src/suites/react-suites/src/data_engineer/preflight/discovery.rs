@@ -32,7 +32,7 @@ pub async fn run_discovery(
             }
         }
     };
-    let vec = match sctx.llm.embed(&[question.to_string()]) {
+    let vec = match sctx.llm_embed(&[question.to_string()]) {
         Ok(mut v) => v.pop().unwrap_or_default(),
         Err(_) => Vec::new(),
     };

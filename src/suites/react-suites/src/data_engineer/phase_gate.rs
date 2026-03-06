@@ -1,4 +1,4 @@
-use react_core::control_flow::GuardBlockKind;
+use crate::data_engineer::domain_types::GuardBlockKind;
 
 use crate::data_engineer::control_flow::Phase;
 use crate::data_engineer::progress_controller::{
@@ -6,7 +6,7 @@ use crate::data_engineer::progress_controller::{
     DEFAULT_MAX_STALL_COUNT,
 };
 
-pub type PreTurnDirective = react_core::workflow::PreTurnDirective;
+pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
 pub fn evaluate_pre_turn_directive(
     execution_state: &ExecutionState,
@@ -15,48 +15,48 @@ pub fn evaluate_pre_turn_directive(
 ) -> PreTurnDirective {
     let phase_state = execution_state.phase_state();
     let repair_state = execution_state.repair_state();
-    let core_snapshot = react_core::workflow::PreTurnStateSnapshot {
-        mode_is_mutate: matches!(phase_state.mode, ExecutionMode::Mutate),
-        stall_count: repair_state.stall_count,
-        max_stall_count: DEFAULT_MAX_STALL_COUNT,
-        replan_backtracks: phase_state.replan_backtracks,
-        hard_mutation_repair_mode: false,
-        ladder_stop: false,
-        target_path: None,
-        attempt_count: 0,
-    };
-    let core_eval = react_core::workflow::evaluate_pre_turn_directive(
-        &core_snapshot,
-        max_replan_backtracks,
-    );
-    if let PreTurnDirective::FailFast { kind, reason } = core_eval {
-        if kind == GuardBlockKind::BatchLocked {
-            return PreTurnDirective::FailFast {
-                kind,
-                reason: format!(
-                    "failed to make progress for this thread: observed {} validate/review loopback(s) to plan/author in active track '{}' since the last successful dbt_validate (limit {}). Stopping this thread. Please inspect the latest validate/review errors and apply a targeted fix before rerunning.",
-                    phase_state.replan_backtracks,
-                    phase.as_str(),
-                    max_replan_backtracks
-                ),
-            };
-        }
-        return PreTurnDirective::FailFast { kind, reason };
+
+    if matches!(phase_state.mode, ExecutionMode::Mutate)
+        && repair_state.stall_count >= DEFAULT_MAX_STALL_COUNT
+    {
+        return PreTurnDirective::FailFast {
+            kind: GuardBlockKind::AuthoringToValidate,
+            reason: format!(
+                "failed to make progress for this thread: execution_state stall_count={} reached max_stall_count={} in mode=mutate",
+                repair_state.stall_count, DEFAULT_MAX_STALL_COUNT
+            ),
+        };
+    }
+
+    if phase_state.replan_backtracks >= max_replan_backtracks {
+        return PreTurnDirective::FailFast {
+            kind: GuardBlockKind::BatchLocked,
+            reason: format!(
+                "failed to make progress for this thread: observed {} validate/review loopback(s) to plan/author in active track '{}' since the last successful dbt_validate (limit {}). Stopping this thread. Please inspect the latest validate/review errors and apply a targeted fix before rerunning.",
+                phase_state.replan_backtracks,
+                phase.as_str(),
+                max_replan_backtracks
+            ),
+        };
     }
 
     let single_target_repair_path = derive_single_target_repair_path(execution_state);
-    let core_repair_snapshot = react_core::workflow::PreTurnStateSnapshot {
-        mode_is_mutate: false,
-        stall_count: 0,
-        max_stall_count: 1,
-        replan_backtracks: 0,
-        hard_mutation_repair_mode: repair_state.hard_mutation_repair_mode()
-            && single_target_repair_path.is_some(),
-        ladder_stop: repair_state.ladder_step() == RepairLadderStep::Stop,
-        target_path: single_target_repair_path.clone(),
-        attempt_count: repair_state.attempt_count(),
-    };
-    react_core::workflow::evaluate_pre_turn_directive(&core_repair_snapshot, usize::MAX)
+    if repair_state.hard_mutation_repair_mode()
+        && single_target_repair_path.is_some()
+        && repair_state.ladder_step() == RepairLadderStep::Stop
+    {
+        let target = single_target_repair_path.as_deref().unwrap_or("(unknown target)");
+        return PreTurnDirective::FailFast {
+            kind: GuardBlockKind::AuthoringToValidate,
+            reason: format!(
+                "failed to make progress for this thread: deterministic repair ladder reached stop for '{}' after {} attempt(s). Apply a manual fix and rerun.",
+                target.trim(),
+                repair_state.attempt_count()
+            ),
+        };
+    }
+
+    PreTurnDirective::Proceed
 }
 
 pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Phase) -> bool {

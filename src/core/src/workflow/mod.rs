@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::control_flow::GuardBlockKind;
 use crate::suite::{WorkflowNodeContract, WorkflowSuiteContract};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,7 +12,7 @@ pub enum TransitionIntent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PhaseDirective<P, R> {
+pub enum PhaseDirective<P, R, G> {
     Transition {
         to: P,
         intent: TransitionIntent,
@@ -22,7 +21,7 @@ pub enum PhaseDirective<P, R> {
     },
     Block {
         phase: P,
-        kind: GuardBlockKind,
+        kind: G,
         reason: String,
     },
 }
@@ -36,63 +35,9 @@ pub fn reason_detail_value<T: TypedReasonDetail>(detail: &T) -> Value {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PreTurnDirective {
+pub enum PreTurnDirective<G = String> {
     Proceed,
-    FailFast {
-        kind: GuardBlockKind,
-        reason: String,
-    },
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PreTurnStateSnapshot {
-    pub mode_is_mutate: bool,
-    pub stall_count: usize,
-    pub max_stall_count: usize,
-    pub replan_backtracks: usize,
-    pub hard_mutation_repair_mode: bool,
-    pub ladder_stop: bool,
-    pub target_path: Option<String>,
-    pub attempt_count: usize,
-}
-
-pub fn evaluate_pre_turn_directive(
-    st: &PreTurnStateSnapshot,
-    max_replan_backtracks: usize,
-) -> PreTurnDirective {
-    if st.mode_is_mutate && st.stall_count >= st.max_stall_count {
-        return PreTurnDirective::FailFast {
-            kind: GuardBlockKind::AuthoringToValidate,
-            reason: format!(
-                "failed to make progress for this thread: execution_state stall_count={} reached max_stall_count={} in mode=mutate",
-                st.stall_count, st.max_stall_count
-            ),
-        };
-    }
-
-    if st.replan_backtracks >= max_replan_backtracks {
-        return PreTurnDirective::FailFast {
-            kind: GuardBlockKind::BatchLocked,
-            reason: format!(
-                "failed to make progress for this thread: observed {} validate/review loopback(s) since the last successful validate (limit {}).",
-                st.replan_backtracks, max_replan_backtracks
-            ),
-        };
-    }
-
-    if st.hard_mutation_repair_mode && st.ladder_stop {
-        let target = st.target_path.as_deref().unwrap_or("(unknown target)");
-        return PreTurnDirective::FailFast {
-            kind: GuardBlockKind::AuthoringToValidate,
-            reason: format!(
-                "failed to make progress for this thread: deterministic repair ladder reached stop for '{}' after {} attempt(s). Apply a manual fix and rerun.",
-                target.trim(),
-                st.attempt_count
-            ),
-        };
-    }
-
-    PreTurnDirective::Proceed
+    FailFast { kind: G, reason: String },
 }
 
 pub fn next_replan_backtracks(
@@ -115,7 +60,7 @@ pub fn next_replan_backtracks(
 }
 
 /// Executes suite-defined pre-turn guard logic through the typed workflow contract.
-pub fn evaluate_pre_turn<C: WorkflowSuiteContract>(state: &C::State) -> PreTurnDirective {
+pub fn evaluate_pre_turn<C: WorkflowSuiteContract>(state: &C::State) -> PreTurnDirective<C::GuardKind> {
     C::pre_turn(state)
 }
 
@@ -136,22 +81,6 @@ mod tests {
     use crate::suite::{WorkflowNodeContract, WorkflowSuiteContract};
 
     #[test]
-    fn preturn_stall_failfast() {
-        let st = PreTurnStateSnapshot {
-            mode_is_mutate: true,
-            stall_count: 3,
-            max_stall_count: 3,
-            ..Default::default()
-        };
-        match evaluate_pre_turn_directive(&st, 3) {
-            PreTurnDirective::FailFast { kind, .. } => {
-                assert_eq!(kind, GuardBlockKind::AuthoringToValidate);
-            }
-            _ => panic!("expected failfast"),
-        }
-    }
-
-    #[test]
     fn loopback_counter_rules() {
         assert_eq!(next_replan_backtracks(2, TransitionIntent::Annotation, true, 5), 2);
         assert_eq!(next_replan_backtracks(2, TransitionIntent::Forward, true, 5), 0);
@@ -168,6 +97,11 @@ mod tests {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum DummyReason {
         X,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum DummyGuard {
+        Blocked,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -193,6 +127,7 @@ mod tests {
     impl WorkflowSuiteContract for DummyContract {
         type Phase = DummyPhase;
         type ReasonCode = DummyReason;
+        type GuardKind = DummyGuard;
         type State = DummyState;
         type Event = DummyEvent;
 
@@ -202,16 +137,19 @@ mod tests {
         fn reason_as_str(_reason: Self::ReasonCode) -> &'static str {
             "dummy_reason"
         }
+        fn guard_kind_as_str(_kind: Self::GuardKind) -> &'static str {
+            "blocked"
+        }
         fn is_backtrack(_from: Self::Phase, _to: Self::Phase) -> bool {
             false
         }
         fn replan_backtrack_cap() -> usize {
             1
         }
-        fn pre_turn(state: &Self::State) -> PreTurnDirective {
+        fn pre_turn(state: &Self::State) -> PreTurnDirective<Self::GuardKind> {
             if state.blocked {
                 PreTurnDirective::FailFast {
-                    kind: GuardBlockKind::BatchLocked,
+                    kind: DummyGuard::Blocked,
                     reason: "blocked".to_string(),
                 }
             } else {

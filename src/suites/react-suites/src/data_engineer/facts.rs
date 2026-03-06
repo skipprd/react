@@ -186,7 +186,7 @@ pub fn extract_missing_columns_from_dbt_errors(errors: &[String]) -> Vec<String>
 }
 
 fn dbt_storage_key(ctx: &AgentCtx, rel_path: &str) -> String {
-    let base = ctx.keyspace.dbt_prefix(&ctx.scope);
+    let base = ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]);
     let base = base.trim_end_matches('/').to_string() + "/";
     format!("{}{}", base, rel_path.trim_start_matches('/'))
 }
@@ -278,7 +278,7 @@ pub async fn load_manifest_index(ctx: &AgentCtx) -> BTreeMap<String, (String, St
     let mut out: BTreeMap<String, (String, String)> = BTreeMap::new();
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
@@ -343,7 +343,7 @@ pub async fn load_manifest_source_index(ctx: &AgentCtx) -> BTreeMap<(String, Str
     let mut out: BTreeMap<(String, String), String> = BTreeMap::new();
     let base = ctx
         .keyspace
-        .dbt_prefix(&ctx.scope)
+        .scoped_prefix(&ctx.scope, &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
@@ -705,7 +705,7 @@ mod tests {
         // Seed manifest.json that maps ref('stg_dep') to a concrete relation.
         let base = ctx
             .keyspace
-            .dbt_prefix(&ctx.scope)
+            .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string()
             + "/";

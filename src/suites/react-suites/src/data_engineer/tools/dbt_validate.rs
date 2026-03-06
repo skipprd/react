@@ -89,7 +89,7 @@ async fn probe_compiled_model_sql(
     _project_name: &str,
     select_terms: &[String],
 ) -> Result<serde_json::Value, String> {
-    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace.dbt_prefix(&ctx.scope));
+    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]));
     let mut keys = ctx
         .storage
         .list_prefix(&compiled_prefix)

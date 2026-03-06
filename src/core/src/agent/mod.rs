@@ -143,6 +143,12 @@ pub trait AgentPolicy: Send + Sync {
         None
     }
 
+    /// Human-readable name for a tool call, used in `ThreadStep::ToolStart.clean_name`.
+    /// Override in suites that have domain-specific tool names.
+    fn clean_tool_name(&self, name: &str, _args: &Value) -> String {
+        helpers::title_case_words(&name.replace('_', " "))
+    }
+
     /// Handle a model-emitted complete step. Return:
     /// - `Ok(Some(RunOutcome::Complete{..}))` to accept and finish
     /// - `Ok(None)` to reject and continue (policy should append an Observation to transcript)
@@ -189,7 +195,7 @@ impl AgentPolicy for DefaultPolicy {
         complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         let result = ThreadResult {
-            kind: crate::session::CompleteKind::from(complete_env.kind.clone()),
+            kind: complete_env.kind.clone(),
             payload: complete_env.payload.clone(),
             display: complete_env.display.clone(),
         };

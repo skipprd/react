@@ -1,4 +1,4 @@
-use react_core::control_flow::{GuardBlockKind, PhaseReasonCode};
+use crate::data_engineer::domain_types::{GuardBlockKind, PhaseReasonCode};
 use react_core::session::ThreadStore;
 
 use crate::data_engineer::control_flow::{Phase, TransitionIntent};

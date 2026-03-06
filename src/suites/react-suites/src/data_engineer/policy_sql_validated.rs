@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::{AgentPolicy, CompleteEnvelope, InterruptKind, RunOutcome};
+use crate::data_engineer::thread_cache::ThreadCacheStore;
 use react_core::session::{
-    Observation, ThreadCacheStore, ThreadResult, ThreadStep, ThreadStore, ToolObservation,
+    Observation, ThreadResult, ThreadStep, ThreadStore, ToolObservation,
     ToolStepStatus,
 };
 use react_core::tools::ToolRegistry;
@@ -101,6 +102,10 @@ impl AgentPolicy for SqlValidatedPolicy {
             }
         }
         None
+    }
+
+    fn clean_tool_name(&self, name: &str, args: &serde_json::Value) -> String {
+        crate::data_engineer::control_flow::de_clean_tool_name(name, args)
     }
 
     async fn handle_complete(
@@ -226,7 +231,7 @@ impl AgentPolicy for SqlValidatedPolicy {
 
             // Authoring agents complete without SQL validation (Ask-only concern).
             let result = ThreadResult {
-                kind: react_core::session::CompleteKind::from(complete_env.kind.clone()),
+                kind: complete_env.kind.clone(),
                 payload: complete_env.payload.clone(),
                 display: complete_env.display.clone(),
             };
@@ -341,7 +346,7 @@ impl AgentPolicy for SqlValidatedPolicy {
             return Ok(None);
         }
         let result = ThreadResult {
-            kind: react_core::session::CompleteKind::from(complete_env.kind.clone()),
+            kind: complete_env.kind.clone(),
             payload: complete_env.payload.clone(),
             display: complete_env.display.clone(),
         };
@@ -427,7 +432,7 @@ impl AgentPolicy for SqlValidatedPolicy {
         Ok(RunOutcome::Complete {
             thread_id: thread_id.to_string(),
             result: ThreadResult {
-                kind: react_core::session::CompleteKind::Generic,
+                kind: "generic".to_string(),
                 payload: serde_json::json!({ "text": summary.clone() }),
                 display: Some(summary),
             },
@@ -469,7 +474,7 @@ mod tests {
                 ThreadStep::ArtifactSaved {
                     kind: react_core::session::ArtifactKind::Model,
                     name: "m".to_string(),
-                    dataset_id: Some("d".to_string()),
+                    entity_id: Some("d".to_string()),
                     key: "dbt/models/d/m.sql".to_string(),
                     status: react_core::session::ArtifactSaveStatus::Added,
                     lines_added: 1,

@@ -33,8 +33,7 @@ impl Tool for KbSearchTool {
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
         let mut vecs = ctx
-            .llm
-            .embed(&[query.clone()])
+            .llm_embed(&[query.clone()])
             .map_err(|e| format!("embed failed: {}", e))?;
         let qv = vecs.pop().unwrap_or_default();
         if qv.is_empty() {

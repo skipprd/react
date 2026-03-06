@@ -3,6 +3,7 @@ use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision}
 use crate::data_engineer::phase_plan_lifecycle::TrackPlanDoc;
 use crate::data_engineer::plan_progress::MAX_BATCH_SIZE;
 use crate::data_engineer::plan_types::TrackPlan;
+use react_core::keyspace::encode_key_component;
 
 fn auto_approved_plan_detail(source: &str) -> serde_json::Value {
     crate::data_engineer::phase_reason_detail::plan_auto_approved(source)
@@ -473,9 +474,9 @@ if !is_cleanse {
 // CRITICAL: global_semantic_context is intended for GOLD model planning only,
 // not for SILVER/cleanse planning.
 if !is_cleanse {
-    let global_key = sctx.keyspace.semantic_key(
+    let global_key = sctx.keyspace.scoped_key(
         &sctx.scope,
-        react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID,
+        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
     );
     if let Ok(v) = sctx.storage.get_json(&global_key).await {
         q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
@@ -602,8 +603,8 @@ match Agent::run_until_block_non_interactive(
             plan.progress.last_applied_step_idx = thread_state_step_count;
             // Capture a cheap snapshot for “current project as-is” provenance.
             plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace.dbt_prefix(&actx.scope),
-                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.dbt_project_key(&actx.scope)).await.ok().flatten(),
+                "dbt_prefix": actx.keyspace.scoped_prefix(&actx.scope, &["dbt"]),
+                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.scoped_key(&actx.scope, &["dbt", "dbt_project.yml"])).await.ok().flatten(),
                 "plan_design_memo": Self::excerpt(&design_memo, 12_000),
                 "plan_design_critique": {
                     "ok": design_critique.ok,
@@ -858,8 +859,8 @@ match Agent::run_until_block_non_interactive(
             // historical log and accidentally mark tasks done from prior cycles.
             plan.progress.last_applied_step_idx = thread_state_step_count;
             plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace.dbt_prefix(&actx.scope),
-                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.dbt_project_key(&actx.scope)).await.ok().flatten(),
+                "dbt_prefix": actx.keyspace.scoped_prefix(&actx.scope, &["dbt"]),
+                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.scoped_key(&actx.scope, &["dbt", "dbt_project.yml"])).await.ok().flatten(),
                 "plan_design_memo": Self::excerpt(&design_memo, 12_000),
                 "plan_design_critique": {
                     "ok": design_critique.ok,

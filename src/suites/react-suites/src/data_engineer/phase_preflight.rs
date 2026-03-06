@@ -1,6 +1,6 @@
 use crate::data_engineer::{control_flow, DataEngineerSuite, PhaseExecutorOutcome};
 use react_core::suite::SuiteCtx;
-use react_core::control_flow::PhaseReasonCode;
+use crate::data_engineer::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
 
 impl DataEngineerSuite {
@@ -17,13 +17,13 @@ impl DataEngineerSuite {
         }
         if let Some(dbt) = sctx.dbt.as_ref() {
             if let Err(e) = dbt.ensure_minimal_project(&sctx.scope).await {
-                let key = sctx.keyspace.dbt_project_key(&sctx.scope);
+                let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
                 return Err(format!(
                     "failed to create the dbt project in storage. expected file: {key}. error: {e}. this is usually an s3 permission/prefix issue."
                 ));
             }
         }
-        let key = sctx.keyspace.dbt_project_key(&sctx.scope);
+        let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
         match sctx.storage.head_etag(&key).await {
             Ok(Some(_)) => {}
             Ok(None) => {

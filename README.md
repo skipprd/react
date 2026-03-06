@@ -102,7 +102,7 @@ The **effective output token limit** is controlled by the environment variable *
 ```
 react (workspace root)
 │
-├── src/core          (react-core)        Core loop, traits, session, types — no infra deps
+├── src/core          (react-core)        Generic loop, traits, session — no infra or domain deps
 ├── src/runtime       (react)             CLI, WS server, concrete provider wiring
 ├── src/suites        (react-suites)      Suite implementations
 │   └── lib.rs + one directory per suite (data_engineer/, kb/)
@@ -116,7 +116,7 @@ react (workspace root)
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other.
+**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, thread caches) live exclusively in the suite that owns them.
 
 ```
 runtime ──► react-core ◄── react-suites
@@ -145,7 +145,7 @@ The WS server is a thin routing layer. It never calls the agent loop directly.
 
 | FlowFrame | ServerMessage |
 |-----------|---------------|
-| `Complete { kind, payload, display }` | `Final` |
+| `Complete { kind: String, payload, display }` | `Final` |
 | `Review { text, meta }` | `Review` |
 | `Checkpoint { kind, payload }` | `Review` (checkpoint surfaced as review) |
 | `Interrupt { kind: "await_approval", prompt }` | `AwaitApproval` |
@@ -162,11 +162,15 @@ A suite owns:
 | Concern | Description |
 |---------|-------------|
 | **Phase order** | An enum of phases forming a state machine |
+| **Domain types** | Control flow enums (`PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, etc.) in a `domain_types` module |
 | **Prompts** | System prompt and tool card per phase |
 | **Tool registry** | Which tools are available in each phase |
 | **Policy** | An `AgentPolicy` that gates completions and interrupts |
 | **Planning LLM calls** | Pre-loop LLM work (design memos, enrichment, critique) via `AgentCtx::llm_chat` |
 | **Phase transition logic** | Rules for advancing, looping back, or blocking |
+| **Pre-turn guards** | `evaluate_pre_turn_directive` and `PreTurnStateSnapshot` — prevents runaway phases |
+| **Thread cache** | Per-thread in-memory caching (e.g. `ThreadCache`/`ThreadCacheStore` in `data_engineer/thread_cache.rs`) |
+| **Keyspace extensions** | Domain-specific key helpers (`catalog_key`, `semantic_key`, `dbt_prefix`, `lancedb_uri`, etc.) built on core's generic `scoped_key`/`scoped_prefix` |
 | **Agent types** | Different modes of the same suite (e.g. interactive ask vs autonomous agent) |
 
 Registered suites:
@@ -177,10 +181,10 @@ Suites return `Vec<FlowFrame>` to the transport:
 
 ```rust
 enum FlowFrame {
-    Complete   { kind, payload, display },   // terminal result
-    Review     { text, meta },               // review checkpoint
-    Checkpoint { kind, payload },            // internal checkpoint
-    Interrupt  { kind, prompt },             // pause for user/approval
+    Complete   { kind: String, payload, display },   // terminal result
+    Review     { text, meta },                       // review checkpoint
+    Checkpoint { kind, payload },                    // internal checkpoint
+    Interrupt  { kind, prompt },                     // pause for user/approval
 }
 ```
 
@@ -287,15 +291,15 @@ Parsing is strict (validated against `AgentStepV1` JSON schema). Invalid JSON tr
 
 **File**: `src/core/src/agent/llm_gateway.rs`
 
-All LLM calls — whether from the agent loop or from suite planning code — go through a single entry point on `AgentCtx`:
+All LLM calls — whether from the agent loop or from suite planning code — go through gateway methods on `AgentCtx` and `SuiteCtx`:
 
-| Method | Purpose |
-|--------|---------|
-| `llm_chat(messages, options)` | Raw chat completion. Emits `LlmStart`/`LlmEnd`/`LlmCall` thread events automatically. Supports per-call `timeout_secs`. |
-| `llm_chat_json<T>(messages, options)` | Calls `llm_chat`, deserialises the response as JSON, auto-repairs malformed JSON (escape control chars), and retries once with a "return only JSON" nudge on failure. |
-| `llm_embed(text)` | Embedding pass-through. |
+| Method | Available on | Purpose |
+|--------|-------------|---------|
+| `llm_chat(messages, options)` | `AgentCtx` | Raw chat completion. Emits `LlmStart`/`LlmEnd`/`LlmCall` thread events automatically. Supports per-call `timeout_secs`. |
+| `llm_chat_json<T>(messages, options)` | `AgentCtx` | Calls `llm_chat`, deserialises the response as JSON, auto-repairs malformed JSON (escape control chars), and retries once with a "return only JSON" nudge on failure. |
+| `llm_embed(text)` | `AgentCtx`, `SuiteCtx` | Embedding gateway. Suite code uses `SuiteCtx::llm_embed()` outside the agent loop; within the loop, tools use `AgentCtx::llm_embed()`. Both route through the same underlying LLM handle. |
 
-This eliminates scattered observability code and ensures every LLM interaction appears in the thread timeline.
+This eliminates scattered observability code, ensures every LLM interaction appears in the thread timeline, and gives suites a single embed entry point regardless of context.
 
 #### 7. Tools
 
@@ -326,6 +330,7 @@ Policies let suites control the agent loop's behaviour without modifying it:
 | `timeout_for_tool(name)` | Before tool execution | Per-tool timeout override. |
 | `prelude_lines(...)` | Before prompt construction | Extra transcript lines injected before the user's question. |
 | `fallback(...)` | Step limit reached | Default: interrupt with "step limit" message. |
+| `clean_tool_name(name)` | Prompt rendering | Formats raw tool names for display. Core provides a default (`title_case_words`); suites override for domain-specific formatting. |
 
 Key policy patterns:
 - **`InterruptOnlyPolicy`** — converts `ask_user`/`ask_approval` tool calls into interrupts; used in interactive modes.
@@ -347,7 +352,7 @@ Providers are trait objects injected via `SuiteCtx`. The core and suites never i
 | `VectorStore` | Embedding upsert/query |
 | `DbtProvider` | dbt project scaffolding, validation, run |
 | `StorageAdapter` | Key-value persistence (local FS or S3) |
-| `Keyspace` | Scoped key/URI layout for persistence (tenant/workspace/project hierarchy) |
+| `Keyspace` | Generic scoped key layout. Requires only `scoped_key(scope, segments)` and `scoped_prefix(scope, segments)`; default impls cover thread/log keys. Domain-specific key methods (catalog, semantic, dbt, lancedb, etc.) are defined in suites, not core. A free function `encode_key_component()` encodes arbitrary identifiers for key segments. |
 | `StateStore` | Execution state persistence |
 | `SecretsProvider` | Credential resolution |
 
@@ -360,15 +365,20 @@ The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider s
 Every interaction is stored as a **thread** — an append-only sequence of `ThreadStep`s:
 
 ```
-ThreadStep::User         — user message
-ThreadStep::LlmStart     — LLM call began (prompt hash, call id)
-ThreadStep::LlmEnd       — LLM call returned (call id, token count)
-ThreadStep::LlmCall      — full LLM interaction (messages, response, metadata)
-ThreadStep::ToolStart     — tool invoked (name, args)
-ThreadStep::ToolEnd       — tool returned (name, result, duration)
-ThreadStep::Phase         — phase transition
-ThreadStep::Complete      — terminal result
+ThreadStep::User           — user message
+ThreadStep::LlmStart       — LLM call began (prompt hash, call id)
+ThreadStep::LlmEnd         — LLM call returned (call id, token count)
+ThreadStep::LlmCall        — full LLM interaction (messages, response, metadata)
+ThreadStep::ToolStart      — tool invoked (name, args)
+ThreadStep::ToolEnd        — tool returned (name, result, duration)
+ThreadStep::Phase          — phase transition (reason_code: Option<String>)
+ThreadStep::GuardBlock     — guard prevented execution (kind: String)
+ThreadStep::ArtifactFocus  — artifact selected for work (entity_id)
+ThreadStep::ArtifactSaved  — artifact persisted (entity_id)
+ThreadStep::Complete       — terminal result (kind: String)
 ```
+
+`ThreadStep` uses **strings at the serialization boundary**: `Phase.reason_code` is `Option<String>`, `GuardBlock.kind` is `String`, `Complete.kind` is `String`. Suites maintain compile-time enum safety internally; conversion to/from strings happens at the recording point. This keeps core free of domain-specific enum variants.
 
 `ThreadStore` persists steps as JSON via `StorageAdapter` + `Keyspace`. This gives full observability and replay capability.
 
@@ -376,7 +386,9 @@ ThreadStep::Complete      — terminal result
 
 ### Phase-driven workflow
 
-Suites orchestrate multi-phase workflows. Each phase is a node in a state machine; the suite's `control_flow` module defines valid transitions.
+Suites orchestrate multi-phase workflows. Each phase is a node in a state machine; the suite's own modules define valid transitions and domain-specific types.
+
+Core provides the generic `WorkflowSuiteContract` trait with associated types `Phase`, `ReasonCode`, `GuardKind`, `State`, and `Event`. `PhaseDirective<P, R, G>` is generic over phase, reason, and guard kind. Domain-specific types like `PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, and `ReviewTier` live entirely in the suite (e.g. `data_engineer/domain_types.rs`), not in core.
 
 #### `data_engineer` phases (example)
 
@@ -419,16 +431,17 @@ run_agent (phase loop)
   │
   ├── Load ExecutionState → current phase
   │
-  ├── evaluate_pre_turn_directive(snapshot)
+  ├── [suite] evaluate_pre_turn_directive(snapshot)
   │     ├── Proceed → continue
   │     └── FailFast → Block (stall / replan cap / repair ladder)
+  │     (suite-owned; core has no pre-turn evaluation logic)
   │
   ├── execute_phase(phase)
   │     ├── Build system prompt + tool card for this phase
   │     ├── Register phase-appropriate tools
   │     ├── Construct AgentCtx with policy (SuiteCtx → AgentCtx)
   │     ├── Run Agent::run_until_block (the ReAct loop)
-  │     └── Map RunOutcome to PhaseDirective
+  │     └── Map RunOutcome to PhaseDirective<P, R, G>
   │           ├── Transition { to, intent, reason }
   │           └── Block { kind, reason }
   │
@@ -451,7 +464,9 @@ run_agent (phase loop)
 
 #### Guards
 
-`PreTurnDirective::FailFast` prevents runaway execution:
+Guards are suite-owned. Core defines `PreTurnDirective<G>` generic over a guard kind type; the suite supplies its own `GuardBlockKind` enum via `WorkflowSuiteContract::GuardKind` and implements `guard_kind_as_str()` for serialization. `evaluate_pre_turn_directive` and `PreTurnStateSnapshot` live entirely in the suite (e.g. `data_engineer/phase_gate.rs`), not in core.
+
+The `data_engineer` suite's `PreTurnDirective::FailFast` guards prevent runaway execution:
 - **Stall in mutate mode** — author phase not making progress
 - **Replan backtrack cap** — too many plan revisions (batch locked)
 - **Repair ladder stop** — dbt repair attempts exhausted
@@ -490,7 +505,7 @@ run_agent (phase loop)
 
 ### Extending the system
 
-- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, control flow, prompts, and tools. Register it in `src/suites/react-suites/src/lib.rs` (`default_registry`).
+- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, `domain_types` module (reason codes, guard kinds), control flow, prompts, and tools. Implement `WorkflowSuiteContract` with your associated types and register it in `src/suites/react-suites/src/lib.rs` (`default_registry`).
 - **Add a tool**: implement `Tool` and register it in the relevant phase's tool registry
 - **Add a provider**: define a trait in `react-core`, implement it in a new module crate, wire it in the runtime
 - **Add an agent type**: define a new variant in the suite's `AgentMode` enum, select appropriate tools/policy/phases for it
