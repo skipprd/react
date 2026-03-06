@@ -348,6 +348,7 @@ pub trait TrackPlan {
     fn set_status(&mut self, status: PlanStatus);
     fn tasks_len(&self) -> usize;
     fn batches_len(&self) -> usize;
+    fn progress_mut(&mut self) -> &mut PlanProgress;
     fn is_empty(&self) -> bool {
         self.tasks_len() == 0 || self.batches_len() == 0
     }
@@ -359,6 +360,7 @@ impl TrackPlan for CleansePlan {
     fn set_status(&mut self, status: PlanStatus) { self.status = status; }
     fn tasks_len(&self) -> usize { self.tasks.len() }
     fn batches_len(&self) -> usize { self.batches.len() }
+    fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
 }
 
 impl TrackPlan for ModelPlan {
@@ -367,6 +369,7 @@ impl TrackPlan for ModelPlan {
     fn set_status(&mut self, status: PlanStatus) { self.status = status; }
     fn tasks_len(&self) -> usize { self.tasks.len() }
     fn batches_len(&self) -> usize { self.batches.len() }
+    fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
 }
 
 #[derive(Clone, Debug)]

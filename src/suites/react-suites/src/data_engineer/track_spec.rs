@@ -74,32 +74,3 @@ impl TrackKind {
     }
 }
 
-pub trait TrackSpec {
-    type Plan;
-    type TaskId;
-
-    const KIND: TrackKind;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CleanseDatasetId(pub String);
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ModelItemName(pub String);
-
-pub struct CleanseSpec;
-pub struct ModelSpec;
-
-impl TrackSpec for CleanseSpec {
-    type Plan = crate::data_engineer::plan::CleansePlan;
-    type TaskId = CleanseDatasetId;
-
-    const KIND: TrackKind = TrackKind::Cleanse;
-}
-
-impl TrackSpec for ModelSpec {
-    type Plan = crate::data_engineer::plan::ModelPlan;
-    type TaskId = ModelItemName;
-
-    const KIND: TrackKind = TrackKind::Model;
-}

@@ -42,10 +42,10 @@ Root cause: typed plan wrappers exist, but they are not yet the primary control-
 
 Involved code: `src/suites/react-suites/src/data_engineer/plan_types.rs`, `src/suites/react-suites/src/data_engineer/plan_grounding.rs`, `src/suites/react-suites/src/data_engineer/phase_plan.rs`, `src/suites/react-suites/src/data_engineer/phase_author.rs`.
 
-## Cleanse And Model Pipelines Drift
-Cleanse and model planning follow the same broad lifecycle but are implemented as large mirrored branches. This increases drift risk and makes it harder for the compiler to enforce one shared lifecycle shape across tracks.
+## Cleanse And Model Pipelines Drift (partially addressed)
+Plan approval, semantic validation retry, and design review stamping have been unified across tracks. `approve_plan_draft_and_advance` now dispatches on `TrackKind` via `TrackPlanDoc`, `handle_plan_semantic_failure` and `stamp_design_review` remove duplicated blocks in `phase_plan.rs`, and dead generic-dispatch types (`TrackSpec`, `CleanseSpec`, `ModelSpec`) have been removed in favour of runtime `TrackKind` dispatch.
 
-Root cause: shared lifecycle structure is encoded procedurally instead of through a generic track abstraction.
+Remaining drift: the grounding/compile/enrich/prune pipelines in `phase_plan.rs` still have parallel cleanse vs model branches (~250 lines each) because the data sources and plan shapes differ fundamentally (raw datasets vs staging models, skeleton vs candidates). The `phase_author.rs` authoring loop has a similar parallel structure for plan loading, next-action resolution, and batch-state mapping. These could be further unified via a track-parameterised pipeline abstraction, but the per-track deltas are large enough that the complexity trade-off needs care.
 
 Involved code: `src/suites/react-suites/src/data_engineer/phase_plan.rs`, `src/suites/react-suites/src/data_engineer/plan_review_helpers.rs`, `src/suites/react-suites/src/data_engineer/phase_author.rs`.
 

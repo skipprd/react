@@ -12,19 +12,56 @@ async fn load_active_plan_for_track_spec(
     actx: &AgentCtx,
     track: TrackKind,
 ) -> Option<TrackPlanDoc> {
-    match track {
-        TrackKind::Cleanse => {
-            crate::data_engineer::phase_plan_lifecycle::load_active_plan_for_spec::<
-                crate::data_engineer::CleanseSpec,
-            >(actx)
-            .await
-        }
-        TrackKind::Model => {
-            crate::data_engineer::phase_plan_lifecycle::load_active_plan_for_spec::<
-                crate::data_engineer::ModelSpec,
-            >(actx)
-            .await
-        }
+    crate::data_engineer::phase_plan_lifecycle::load_plan_for_track(actx, track).await
+}
+
+/// Shared handler for plan semantic validation failure: emit guard block + check retry budget.
+async fn handle_plan_semantic_failure(
+    sem: &crate::data_engineer::plan::PlanSemanticValidation,
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: control_flow::Phase,
+) -> Result<PhaseExecutorOutcome, String> {
+    let sem_errors = sem.messages();
+    let reason = format!(
+        "Plan failed semantic validation (design-first). Errors:\n- {}",
+        sem_errors.join("\n- ")
+    );
+    apply_guard_block(thread_store, thread_id, phase, GuardBlockKind::PlanSemanticInvalid, reason).await?;
+    use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
+    match DataEngineerSuite::check_subjective_retry_budget(
+        thread_store,
+        thread_id,
+        crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
+    ).await? {
+        SubjectiveRetryOutcome::Exhausted(tries) => Err(format!(
+            "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
+            tries, sem.messages().join(" | ")
+        )),
+        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::Continue),
+    }
+}
+
+/// Stamp design-review details from the critique pass into the plan's project_snapshot.
+fn stamp_design_review(
+    snapshot: &mut serde_json::Value,
+    track: TrackKind,
+    critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
+) {
+    if snapshot.is_null() {
+        *snapshot = serde_json::json!({});
+    }
+    if let Some(obj) = snapshot.as_object_mut() {
+        obj.insert(
+            "plan_design_review".to_string(),
+            serde_json::json!({
+                "ok": critique.ok,
+                "kind": format!("{}_plan", track.as_str()),
+                "blockers": critique.blockers,
+                "fixes": critique.fixes,
+                "ts": chrono::Utc::now().to_rfc3339(),
+            }),
+        );
     }
 }
 
@@ -179,32 +216,17 @@ if let Some(mut existing_plan) =
             .await?;
             return Ok(PhaseExecutorOutcome::Continue);
         }
-        let advanced = match existing_plan {
-            TrackPlanDoc::Cleanse(_) => {
-                Self::approve_cleanse_plan_draft_and_advance(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    &actx,
-                    thread_state_step_count,
-                    PhaseReasonCode::PlanAutoApproved,
-                    auto_approved_plan_detail("existing_draft_plan"),
-                )
-                .await?
-            }
-            TrackPlanDoc::Model(_) => {
-                Self::approve_model_plan_draft_and_advance(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    &actx,
-                    thread_state_step_count,
-                    PhaseReasonCode::PlanAutoApproved,
-                    auto_approved_plan_detail("existing_draft_plan"),
-                )
-                .await?
-            }
-        };
+        let advanced = Self::approve_plan_draft_and_advance(
+            &thread_store,
+            thread_id,
+            phase,
+            track,
+            &actx,
+            thread_state_step_count,
+            PhaseReasonCode::PlanAutoApproved,
+            auto_approved_plan_detail("existing_draft_plan"),
+        )
+        .await?;
         if advanced {
             return Ok(PhaseExecutorOutcome::Continue);
         }
@@ -722,56 +744,10 @@ match Agent::run_until_block_non_interactive(
                     )
                 })?;
             if !sem.ok {
-                let sem_errors = sem.messages();
-                let reason = format!(
-                    "Plan failed semantic validation (design-first). Errors:\n- {}",
-                    sem_errors.join("\n- ")
-                );
-                apply_guard_block(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    GuardBlockKind::PlanSemanticInvalid,
-                    reason.clone(),
-                )
-                .await?;
-                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
-                match Self::check_subjective_retry_budget(
-                    &thread_store,
-                    thread_id,
-                    crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
-                )
-                .await?
-                {
-                    SubjectiveRetryOutcome::Exhausted(tries) => {
-                        return Err(format!(
-                            "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
-                            tries,
-                            sem.messages().join(" | ")
-                        ));
-                    }
-                    SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::Continue);
-                    }
-                }
+                return handle_plan_semantic_failure(&sem, &thread_store, thread_id, phase).await;
             }
 
-            // Persist design-review details from the critique pass for downstream review/UI.
-            if plan.project_snapshot.is_null() {
-                plan.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = plan.project_snapshot.as_object_mut() {
-                obj.insert(
-                    "plan_design_review".to_string(),
-                    serde_json::json!({
-                        "ok": design_critique.ok,
-                        "kind": "cleanse_plan",
-                        "blockers": design_critique.blockers,
-                        "fixes": design_critique.fixes,
-                        "ts": chrono::Utc::now().to_rfc3339(),
-                    }),
-                );
-            }
+            stamp_design_review(&mut plan.project_snapshot, track, &design_critique);
 
             crate::data_engineer::plan::save_cleanse_plan_grounded(
                 &actx,
@@ -785,10 +761,11 @@ match Agent::run_until_block_non_interactive(
                     matches!(k, SubjectiveRetryKind::PlanSemanticInvalid)
                 }).await?;
             }
-            let advanced = Self::approve_cleanse_plan_draft_and_advance(
+            let advanced = Self::approve_plan_draft_and_advance(
                 &thread_store,
                 thread_id,
                 phase,
+                track,
                 &actx,
                 thread_state_step_count,
                 PhaseReasonCode::PlanAutoApproved,
@@ -988,56 +965,10 @@ match Agent::run_until_block_non_interactive(
                 )
             })?;
             if !sem.ok {
-                let sem_errors = sem.messages();
-                let reason = format!(
-                    "Plan failed semantic validation (design-first). Errors:\n- {}",
-                    sem_errors.join("\n- ")
-                );
-                apply_guard_block(
-                    &thread_store,
-                    thread_id,
-                    phase,
-                    GuardBlockKind::PlanSemanticInvalid,
-                    reason.clone(),
-                )
-                .await?;
-                use crate::data_engineer::retry_budget::SubjectiveRetryOutcome;
-                match Self::check_subjective_retry_budget(
-                    &thread_store,
-                    thread_id,
-                    crate::data_engineer::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
-                )
-                .await?
-                {
-                    SubjectiveRetryOutcome::Exhausted(tries) => {
-                        return Err(format!(
-                            "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
-                            tries,
-                            sem.messages().join(" | ")
-                        ));
-                    }
-                    SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::Continue);
-                    }
-                }
+                return handle_plan_semantic_failure(&sem, &thread_store, thread_id, phase).await;
             }
 
-            // Persist design-review details from the critique pass for downstream review/UI.
-            if plan.project_snapshot.is_null() {
-                plan.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = plan.project_snapshot.as_object_mut() {
-                obj.insert(
-                    "plan_design_review".to_string(),
-                    serde_json::json!({
-                        "ok": design_critique.ok,
-                        "kind": "model_plan",
-                        "blockers": design_critique.blockers,
-                        "fixes": design_critique.fixes,
-                        "ts": chrono::Utc::now().to_rfc3339(),
-                    }),
-                );
-            }
+            stamp_design_review(&mut plan.project_snapshot, track, &design_critique);
 
             crate::data_engineer::plan::save_model_plan_grounded(
                 &actx,
@@ -1056,10 +987,11 @@ match Agent::run_until_block_non_interactive(
                     )
                 }).await?;
             }
-            let advanced = Self::approve_model_plan_draft_and_advance(
+            let advanced = Self::approve_plan_draft_and_advance(
                 &thread_store,
                 thread_id,
                 phase,
+                track,
                 &actx,
                 thread_state_step_count,
                 PhaseReasonCode::PlanAutoApproved,

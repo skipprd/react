@@ -2,7 +2,7 @@ use react_core::agent::AgentCtx;
 
 use crate::data_engineer::plan;
 use crate::data_engineer::plan_types::{CleansePlan, ModelPlan, PlanStatus, TrackPlan};
-use crate::data_engineer::track_spec::{TrackKind, TrackSpec};
+use crate::data_engineer::track_spec::TrackKind;
 
 #[derive(Clone)]
 pub(super) enum TrackPlanDoc {
@@ -41,12 +41,19 @@ impl TrackPlan for TrackPlanDoc {
             Self::Model(p) => p.batches_len(),
         }
     }
+    fn progress_mut(&mut self) -> &mut crate::data_engineer::plan_types::PlanProgress {
+        match self {
+            Self::Cleanse(p) => p.progress_mut(),
+            Self::Model(p) => p.progress_mut(),
+        }
+    }
 }
 
-pub(super) async fn load_active_plan_for_spec<S: TrackSpec>(
+pub(super) async fn load_plan_for_track(
     actx: &AgentCtx,
+    track: TrackKind,
 ) -> Option<TrackPlanDoc> {
-    match S::KIND {
+    match track {
         TrackKind::Cleanse => plan::load_cleanse_plan(actx).await.map(TrackPlanDoc::Cleanse),
         TrackKind::Model => plan::load_model_plan(actx).await.map(TrackPlanDoc::Model),
     }

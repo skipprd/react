@@ -20,231 +20,121 @@ impl DataEngineerSuite {
         out
     }
 
-    pub(super) async fn approve_cleanse_plan_draft_and_advance(
+    pub(super) async fn approve_plan_draft_and_advance(
         thread_store: &ThreadStore,
         thread_id: &str,
         phase: control_flow::Phase,
+        track: crate::data_engineer::track_spec::TrackKind,
         actx: &AgentCtx,
         log_len: usize,
         transition_reason_code: PhaseReasonCode,
         transition_reason_detail: serde_json::Value,
     ) -> Result<bool, String> {
-        let Some(mut p) = crate::data_engineer::plan::load_cleanse_plan(actx).await else {
+        use crate::data_engineer::phase_plan_lifecycle::{load_plan_for_track, save_plan, TrackPlanDoc};
+        use crate::data_engineer::plan_types::TrackPlan;
+
+        let Some(mut doc) = load_plan_for_track(actx, track).await else {
             return Ok(false);
         };
-        if p.status != crate::data_engineer::plan::PlanStatus::Draft {
+        if doc.status() != crate::data_engineer::plan::PlanStatus::Draft {
             return Ok(false);
         }
 
         // Defensive grounding at approval time (facts can change; never assume).
-        let mut candidates: Vec<String> = Vec::new();
-        for t in p.tasks.iter() {
-            if !t.dataset_id.trim().is_empty() {
-                candidates.push(t.dataset_id.trim().to_string());
-            }
-        }
-        for b in p.batches.iter() {
-            for ds in b.iter() {
-                if !ds.trim().is_empty() {
-                    candidates.push(ds.trim().to_string());
+        match &mut doc {
+            TrackPlanDoc::Cleanse(p) => {
+                let mut candidates: Vec<String> = Vec::new();
+                for t in p.tasks.iter() {
+                    if !t.dataset_id.trim().is_empty() {
+                        candidates.push(t.dataset_id.trim().to_string());
+                    }
                 }
+                for b in p.batches.iter() {
+                    for ds in b.iter() {
+                        if !ds.trim().is_empty() {
+                            candidates.push(ds.trim().to_string());
+                        }
+                    }
+                }
+                candidates.sort();
+                candidates.dedup();
+                let grounded = crate::data_engineer::dataset_truth::build_grounded_raw_dataset_set(
+                    actx, &actx.warehouse, &candidates,
+                ).await;
+                crate::data_engineer::plan::prune_cleanse_plan_to_grounded_raw_datasets(p, &grounded.allowed);
+            }
+            TrackPlanDoc::Model(p) => {
+                let stg = crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await;
+                crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(p, &stg.allowed_models);
             }
         }
-        candidates.sort();
-        candidates.dedup();
-        let grounded = crate::data_engineer::dataset_truth::build_grounded_raw_dataset_set(
-            actx,
-            &actx.warehouse,
-            &candidates,
-        )
-        .await;
-        crate::data_engineer::plan::prune_cleanse_plan_to_grounded_raw_datasets(
-            &mut p,
-            &grounded.allowed,
-        );
-        if p.tasks.is_empty() || p.batches.is_empty() {
-            p.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            crate::data_engineer::plan::save_cleanse_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist pruned-empty cleanse plan: {e}"))?;
-            // Stay in plan phase; the next iteration will generate a new plan.
+
+        if doc.is_empty() {
+            doc.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+            save_plan(actx, &doc).await
+                .map_err(|e| format!("failed to persist pruned-empty {} plan: {e}", track.as_str()))?;
             commit_phase_decision(
-                thread_store,
-                thread_id,
-                Some(phase),
+                thread_store, thread_id, Some(phase),
                 PhaseDecision::annotation(
                     phase,
                     Some(PhaseReasonCode::PlanPrunedEmpty),
                     Some(crate::data_engineer::phase_reason_detail::to_value(
                         &crate::data_engineer::phase_reason_detail::PlanPrunedEmptyDetail {
-                            plan_key: p.plan_key.clone(),
+                            plan_key: doc.plan_key().to_string(),
                         },
                     )),
                 ),
-            )
-            .await?;
+            ).await?;
             return Ok(true);
         }
 
         // Auto-heal (semantic): ensure the approved plan is executable (or cancel so we can replan).
-        let v = crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
-            actx, &mut p,
-        )
-        .await?;
-        if !v.ok {
-            p.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            crate::data_engineer::plan::save_cleanse_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist semantically-invalid cleanse plan: {e}"))?;
-            commit_phase_decision(
-                thread_store,
-                thread_id,
-                Some(phase),
-                PhaseDecision::annotation(
-                    phase,
-                    Some(PhaseReasonCode::PlanSemanticInvalid),
-                    Some(crate::data_engineer::phase_reason_detail::to_value(
-                        &crate::data_engineer::phase_reason_detail::PlanSemanticInvalidErrorsDetail {
-                            plan_key: p.plan_key.clone(),
-                            errors: v.errors.clone(),
-                        },
-                    )),
-                ),
-            )
-            .await?;
-            return Ok(true);
-        }
-
-        p.status = crate::data_engineer::plan::PlanStatus::Approved;
-        // Scope progress to *this* plan instance so old tool calls can't auto-complete a newly approved plan.
-        p.progress.last_applied_step_idx = log_len;
-        crate::data_engineer::plan::save_cleanse_plan(actx, &p)
-            .await
-            .map_err(|e| format!("failed to persist approved cleanse plan: {e}"))?;
-        crate::data_engineer::state_manager::mutate_execution_state(
-            thread_store,
-            thread_id,
-            |es| es.clear_pending_loopback_intent(),
-        )
-        .await
-        .map_err(|e| format!("failed to clear pending loopback intent: {e}"))?;
-
-        commit_phase_decision(
-            thread_store,
-            thread_id,
-            Some(phase),
-            PhaseDecision::forward(
-                control_flow::Phase::CleanseAuthor,
-                Some(transition_reason_code),
-                Some(transition_reason_detail),
-            ),
-        )
-        .await?;
-        Ok(true)
-    }
-
-    pub(super) async fn approve_model_plan_draft_and_advance(
-        thread_store: &ThreadStore,
-        thread_id: &str,
-        phase: control_flow::Phase,
-        actx: &AgentCtx,
-        log_len: usize,
-        transition_reason_code: PhaseReasonCode,
-        transition_reason_detail: serde_json::Value,
-    ) -> Result<bool, String> {
-        let Some(mut p) = crate::data_engineer::plan::load_model_plan(actx).await else {
-            return Ok(false);
+        let v = match &mut doc {
+            TrackPlanDoc::Cleanse(p) => {
+                crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(actx, p).await?
+            }
+            TrackPlanDoc::Model(p) => {
+                let stg = crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await;
+                crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(actx, p, &stg.allowed_models).await?
+            }
         };
-        if p.status != crate::data_engineer::plan::PlanStatus::Draft {
-            return Ok(false);
-        }
-
-        // Defensive grounding at approval time: gold must rely only on existing staging models.
-        let stg =
-            crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await;
-        crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(
-            &mut p,
-            &stg.allowed_models,
-        );
-        if p.tasks.is_empty() || p.batches.is_empty() {
-            p.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            crate::data_engineer::plan::save_model_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist pruned-empty model plan: {e}"))?;
-            // Stay in plan phase; the next iteration will generate a new plan.
-            commit_phase_decision(
-                thread_store,
-                thread_id,
-                Some(phase),
-                PhaseDecision::annotation(
-                    phase,
-                    Some(PhaseReasonCode::PlanPrunedEmpty),
-                    Some(crate::data_engineer::phase_reason_detail::to_value(
-                        &crate::data_engineer::phase_reason_detail::PlanPrunedEmptyDetail {
-                            plan_key: p.plan_key.clone(),
-                        },
-                    )),
-                ),
-            )
-            .await?;
-            return Ok(true);
-        }
-
-        // Auto-heal (semantic): ensure the approved plan is executable (or cancel so we can replan).
-        let v = crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(
-            actx,
-            &mut p,
-            &stg.allowed_models,
-        )
-        .await?;
         if !v.ok {
-            p.status = crate::data_engineer::plan::PlanStatus::Cancelled;
-            crate::data_engineer::plan::save_model_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist semantically-invalid model plan: {e}"))?;
+            doc.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+            save_plan(actx, &doc).await
+                .map_err(|e| format!("failed to persist semantically-invalid {} plan: {e}", track.as_str()))?;
             commit_phase_decision(
-                thread_store,
-                thread_id,
-                Some(phase),
+                thread_store, thread_id, Some(phase),
                 PhaseDecision::annotation(
                     phase,
                     Some(PhaseReasonCode::PlanSemanticInvalid),
                     Some(crate::data_engineer::phase_reason_detail::to_value(
                         &crate::data_engineer::phase_reason_detail::PlanSemanticInvalidErrorsDetail {
-                            plan_key: p.plan_key.clone(),
+                            plan_key: doc.plan_key().to_string(),
                             errors: v.errors.clone(),
                         },
                     )),
                 ),
-            )
-            .await?;
+            ).await?;
             return Ok(true);
         }
 
-        p.status = crate::data_engineer::plan::PlanStatus::Approved;
-        p.progress.last_applied_step_idx = log_len;
-        crate::data_engineer::plan::save_model_plan(actx, &p)
-            .await
-            .map_err(|e| format!("failed to persist approved model plan: {e}"))?;
+        doc.set_status(crate::data_engineer::plan::PlanStatus::Approved);
+        doc.progress_mut().last_applied_step_idx = log_len;
+        save_plan(actx, &doc).await
+            .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
         crate::data_engineer::state_manager::mutate_execution_state(
-            thread_store,
-            thread_id,
+            thread_store, thread_id,
             |es| es.clear_pending_loopback_intent(),
-        )
-        .await
-        .map_err(|e| format!("failed to clear pending loopback intent: {e}"))?;
+        ).await.map_err(|e| format!("failed to clear pending loopback intent: {e}"))?;
 
         commit_phase_decision(
-            thread_store,
-            thread_id,
-            Some(phase),
+            thread_store, thread_id, Some(phase),
             PhaseDecision::forward(
-                control_flow::Phase::ModelAuthor,
+                track.author_phase(),
                 Some(transition_reason_code),
                 Some(transition_reason_detail),
             ),
-        )
-        .await?;
+        ).await?;
         Ok(true)
     }
 
