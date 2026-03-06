@@ -32,10 +32,10 @@ Make sure the venv is activated (`source .venv/bin/activate`) whenever you run t
 
 ### Run the server
 
-From this repository root:
+From the repository root:
 
 ```bash
-cargo run --manifest-path src/Cargo.toml -p react -- serve --config src/runtime/config.example.yml --port 8787 --terminal
+cargo run -p react -- serve --config src/runtime/config.example.yml --port 8787 --terminal
 ```
 
 The server speaks WebSocket on `ws://localhost:8787/` using schemas in `src/runtime/openapi/ws-core.yaml` plus suite overlays.
@@ -48,7 +48,7 @@ Notes:
 
 The **effective output token limit** is controlled by the environment variable **`LLM_MAX_TOKENS`**.
 
-- When you run `react serve` with a YAML config (e.g. `runtime/config.example.yml`), the loader in `src/config.rs` will **set `LLM_MAX_TOKENS` from `llm.max_tokens` if it is not already set**.
+- When you run `react serve` with a YAML config (e.g. `src/runtime/config.example.yml`), the loader in `src/runtime/src/config.rs` will **set `LLM_MAX_TOKENS` from `llm.max_tokens` if it is not already set**.
 - If you see errors like `parser_error invalid JSON twice` during large batch scaffolds, your model output is likely being **truncated**. Increase `llm.max_tokens` (or set `LLM_MAX_TOKENS` explicitly) so tool-call JSON can fit (for `gpt-5.x`, **8192** is a reasonable starting point).
 
 ---
@@ -100,11 +100,12 @@ The **effective output token limit** is controlled by the environment variable *
 ### Crate structure
 
 ```
-react (workspace)
+react (workspace root)
 │
 ├── src/core          (react-core)        Core loop, traits, session, types — no infra deps
 ├── src/runtime       (react)             CLI, WS server, concrete provider wiring
-├── src/suites        (react-suites)      Suite implementations (data_engineer, kb, dbt)
+├── src/suites        (react-suites)      Suite implementations
+│   └── lib.rs + one directory per suite (data_engineer/, kb/)
 │
 └── src/modules                           Pluggable provider implementations
     ├── storage                           S3 adapter
@@ -115,12 +116,12 @@ react (workspace)
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions.
+**Dependency rule**: `react-core` has zero workspace dependencies. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other.
 
 ```
 runtime ──► react-core ◄── react-suites
   │                             │
-  └──► modules (storage,        └── (uses core traits)
+  └──► modules (storage,        └── (uses core traits only)
        providers)
 ```
 
@@ -138,13 +139,25 @@ The WS server is a thin routing layer. It never calls the agent loop directly.
 - Creates/loads threads and persists user steps
 - Resolves `suite_id` + `agent_type` and dispatches to the suite
 - Converts the suite's `FlowFrame` output into wire-format `ServerMessage`s and streams them back
-- Manages the `SuiteCtx` lifecycle (injected capabilities for each request)
+- Constructs the `SuiteCtx` (injected capabilities) for each request via the runtime's provider wiring
+
+**`FlowFrame` → wire mapping:**
+
+| FlowFrame | ServerMessage |
+|-----------|---------------|
+| `Complete { kind, payload, display }` | `Final` |
+| `Review { text, meta }` | `Review` |
+| `Checkpoint { kind, payload }` | `Review` (checkpoint surfaced as review) |
+| `Interrupt { kind: "await_approval", prompt }` | `AwaitApproval` |
+| `Interrupt { kind: "await_user", prompt }` | `AwaitUser` |
 
 #### 2. Suites — product surfaces
 
 **Crate**: `react-suites` · **Files**: `src/suites/react-suites/src/<suite_name>/`
 
-A suite is a self-contained product workflow. It owns:
+A suite is a self-contained product workflow. Each suite directory owns everything it needs: prompts, tools, policies, phase logic, preflight, and dbt helpers. Suites depend only on `react-core` traits, never on each other.
+
+A suite owns:
 
 | Concern | Description |
 |---------|-------------|
@@ -154,11 +167,11 @@ A suite is a self-contained product workflow. It owns:
 | **Policy** | An `AgentPolicy` that gates completions and interrupts |
 | **Planning LLM calls** | Pre-loop LLM work (design memos, enrichment, critique) via `AgentCtx::llm_chat` |
 | **Phase transition logic** | Rules for advancing, looping back, or blocking |
+| **Agent types** | Different modes of the same suite (e.g. interactive ask vs autonomous agent) |
 
 Registered suites:
 - **`data_engineer`** — multi-phase analytics + dbt workflow (plan → author → validate → review → publish)
 - **`kb`** — knowledge-base Q&A
-- **`dbt`** — dbt-focused workflow
 
 Suites return `Vec<FlowFrame>` to the transport:
 
@@ -171,13 +184,71 @@ enum FlowFrame {
 }
 ```
 
-#### 3. Agent loop — ReAct runtime
+#### 3. Contexts — `SuiteCtx` vs `AgentCtx`
+
+Two context structs carry capabilities through the system. Understanding the boundary between them is key:
+
+**`SuiteCtx`** is the suite's "world" — everything the runtime injects at request time:
+
+```
+SuiteCtx
+├── storage          StorageAdapter (S3 / local FS)
+├── scope            RequestScope (tenant / workspace / project)
+├── keyspace         Keyspace (persistence key layout)
+├── secrets          SecretsProvider
+├── llm              Raw LLM handle
+├── resolved_config  Parsed YAML config
+├── query?           QueryProvider
+├── datasets?        DatasetCatalogProvider
+├── warehouse        WarehouseProvider
+├── catalog?         CatalogProvider
+├── vector?          VectorStore
+├── dbt?             DbtProvider
+├── state?           StateStore
+└── trace_tx?        Trace channel
+```
+
+**`AgentCtx`** is what the suite builds *per phase* for the agent loop. It narrows `SuiteCtx` to what a single ReAct invocation needs:
+
+```
+AgentCtx
+├── llm              LLM handle (from SuiteCtx)
+├── policy           AgentPolicy (suite-chosen, phase-specific)
+├── storage          StorageAdapter
+├── scope / keyspace (from SuiteCtx)
+├── query? / warehouse / dbt? / vector?   (subset of providers)
+├── thread_store?    ThreadStore (for transcript persistence)
+├── max_steps        Step limit for this phase
+├── per_step_timeout_secs
+├── resolved_config  (from SuiteCtx)
+└── exec_ctx?        ExecutionContext (for hierarchical UI rendering)
+```
+
+The `SuiteCtx → AgentCtx` construction is where the suite sets the policy, step limits, and tool registry for each phase. The agent loop itself never sees `SuiteCtx`.
+
+#### 4. Agent types
+
+A single suite can support multiple **agent types** (modes of operation). The client specifies the agent type when sending a message; the suite uses it to select different tools, policies, prompts, and phase subsets.
+
+The `data_engineer` suite supports:
+
+| Agent type | Behaviour |
+|------------|-----------|
+| `agent` | Autonomous multi-phase workflow (plan → author → validate → review → publish). Non-interactive — the agent never pauses to ask the user. |
+| `ask` | Interactive analytics Q&A. Single-phase: user asks, agent queries data, returns an answer. |
+| `review` | Read-only project review. Inspects dbt artifacts and returns a structured assessment. |
+| `model` | Focused modeling workflow (gold-tier authoring). |
+| `cleanse` | Focused cleansing workflow (silver-tier authoring). |
+
+Agent types determine which `AgentPolicy` is used (e.g. `NonInteractivePolicyAdapter` for `agent` mode, `InterruptOnlyPolicy` + `SqlValidatedPolicy` for `ask` mode), which tools appear in the tool card, and which phases execute.
+
+#### 5. Agent loop — ReAct runtime
 
 **Crate**: `react-core` · **Files**: `src/core/src/agent/`
 
 The agent loop is a generic ReAct executor. It has no knowledge of suites, phases, or domain logic — it only knows about tools, an LLM, and a policy.
 
-Each invocation receives an `AgentCtx` (LLM handle, tools, policy, thread store, options) and runs:
+Each invocation receives an `AgentCtx` and runs:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -212,7 +283,7 @@ The LLM returns a **schema-validated JSON action** on every turn:
 
 Parsing is strict (validated against `AgentStepV1` JSON schema). Invalid JSON triggers up to 2 retries with a reduced prompt before the loop gives up.
 
-#### 4. LLM gateway
+#### 6. LLM gateway
 
 **File**: `src/core/src/agent/llm_gateway.rs`
 
@@ -226,7 +297,7 @@ All LLM calls — whether from the agent loop or from suite planning code — go
 
 This eliminates scattered observability code and ensures every LLM interaction appears in the thread timeline.
 
-#### 5. Tools
+#### 7. Tools
 
 **Files**: `src/core/src/tools/mod.rs` (trait + registry), suite-specific tools under each suite directory
 
@@ -242,7 +313,7 @@ trait Tool: Send + Sync {
 
 `ToolRegistry` is a `HashMap<&str, Box<dyn Tool>>`. The agent loop calls `tools.call(name, args, ctx)`, applies a per-tool timeout (from the policy), persists `ToolStart`/`ToolEnd` thread steps, and appends the result as an observation to the transcript.
 
-#### 6. Policies
+#### 8. Policies
 
 **Trait**: `AgentPolicy` in `src/core/src/agent/mod.rs`
 
@@ -261,7 +332,7 @@ Key policy patterns:
 - **`NonInteractivePolicyAdapter`** — wraps any policy and suppresses all interrupts; the agent never pauses in non-interactive mode (but the user can still inject context into a running thread).
 - **`SqlValidatedPolicy`** — gates completion on successful SQL execution / dbt validation.
 
-#### 7. Providers — capabilities injection
+#### 9. Providers — capabilities injection
 
 **Traits**: `src/core/src/providers/` · **Concrete impls**: `src/modules/` + `src/runtime/src/providers/`
 
@@ -276,12 +347,13 @@ Providers are trait objects injected via `SuiteCtx`. The core and suites never i
 | `VectorStore` | Embedding upsert/query |
 | `DbtProvider` | dbt project scaffolding, validation, run |
 | `StorageAdapter` | Key-value persistence (local FS or S3) |
+| `Keyspace` | Scoped key/URI layout for persistence (tenant/workspace/project hierarchy) |
 | `StateStore` | Execution state persistence |
 | `SecretsProvider` | Credential resolution |
 
 The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
 
-#### 8. Session and persistence
+#### 10. Session and persistence
 
 **Files**: `src/core/src/session/`
 
@@ -335,10 +407,12 @@ Suites orchestrate multi-phase workflows. Each phase is a node in a state machin
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+Not all agent types traverse the full graph. `ask` mode runs a single phase (no state machine). `review` mode runs only a review phase. The `agent` type drives the full plan → author → validate → review → publish pipeline.
+
 #### How a phase executes
 
 ```
-Suite.handle_user(thread_id, text, ctx)
+Suite.handle_user(thread_id, text, agent_type, ctx)
   │
   ▼
 run_agent (phase loop)
@@ -352,7 +426,7 @@ run_agent (phase loop)
   ├── execute_phase(phase)
   │     ├── Build system prompt + tool card for this phase
   │     ├── Register phase-appropriate tools
-  │     ├── Construct AgentCtx with policy
+  │     ├── Construct AgentCtx with policy (SuiteCtx → AgentCtx)
   │     ├── Run Agent::run_until_block (the ReAct loop)
   │     └── Map RunOutcome to PhaseDirective
   │           ├── Transition { to, intent, reason }
@@ -390,9 +464,11 @@ run_agent (phase loop)
  Client                WS Server              Suite                Agent Loop
    │                      │                      │                      │
    │── user message ─────►│                      │                      │
+   │                      │── build SuiteCtx     │                      │
    │                      │── resolve suite ─────►│                      │
    │                      │   + agent_type       │                      │
    │                      │                      │── load phase state   │
+   │                      │                      │── build AgentCtx     │
    │                      │                      │── execute_phase ────►│
    │                      │                      │                      │── LLM call
    │                      │                      │                      │── parse action
@@ -414,8 +490,9 @@ run_agent (phase loop)
 
 ### Extending the system
 
-- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, control flow, and register it in `src/suites/react-suites/src/registry.rs`
+- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, control flow, prompts, and tools. Register it in `src/suites/react-suites/src/lib.rs` (`default_registry`).
 - **Add a tool**: implement `Tool` and register it in the relevant phase's tool registry
 - **Add a provider**: define a trait in `react-core`, implement it in a new module crate, wire it in the runtime
+- **Add an agent type**: define a new variant in the suite's `AgentMode` enum, select appropriate tools/policy/phases for it
 - **Change completion semantics**: implement a new `AgentPolicy` and use it in the suite's `AgentCtx`
 - **Swap infra**: construct a different `SuiteCtx` (different providers/storage/keyspace) and pass it to `ws::server::start_with_ctx`
