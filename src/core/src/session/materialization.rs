@@ -132,9 +132,7 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
         ThreadStep::ToolEnd { .. } => {}
         ThreadStep::LlmStart { .. } => {}
         ThreadStep::LlmEnd { .. } => {}
-        ThreadStep::Final { ts, observation, .. } => {
-            // A `final` marks the end of a run. Close out the currently-running phase so
-            // UIs can mark the terminal phase (often `done`) as completed.
+        ThreadStep::Complete { ts, observation, .. } => {
             let Some(ph) = st
                 .current_phase
                 .clone()
@@ -167,10 +165,10 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
                 }
             }
         }
-        ThreadStep::AskUser { prompt, ts, .. } => {
-            block_current_phase(st, prompt, ts);
+        ThreadStep::Checkpoint { .. } => {
+            // Checkpoints are durable milestones but do NOT close the current phase.
         }
-        ThreadStep::AskApproval { prompt, ts, .. } => {
+        ThreadStep::Interrupt { prompt, ts, .. } => {
             block_current_phase(st, prompt, ts);
         }
         ThreadStep::GuardBlock { reason, ts, .. } => {

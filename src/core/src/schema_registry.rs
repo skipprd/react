@@ -26,7 +26,7 @@ impl SchemaId {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct FinalEnvelopeV1 {
+pub struct CompleteEnvelopeV1 {
     pub kind: String,
     /// JSON-encoded payload.
     ///
@@ -42,7 +42,7 @@ pub struct FinalEnvelopeV1 {
 #[serde(rename_all = "snake_case")]
 pub enum AgentStepTypeV1 {
     Tool,
-    Final,
+    Complete,
 }
 
 /// Exactly one agent step result (wire format).
@@ -65,9 +65,9 @@ pub struct AgentStepV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
 
-    /// Final envelope when `type` is `"final"`, otherwise null.
-    #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
-    pub final_: Option<FinalEnvelopeV1>,
+    /// Complete envelope when `type` is `"complete"`, otherwise null.
+    #[serde(rename = "complete", default, skip_serializing_if = "Option::is_none")]
+    pub complete: Option<CompleteEnvelopeV1>,
 }
 
 /// Patch protocol schema for a single expected file.
@@ -270,22 +270,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_step_schema_accepts_tool_and_final() {
+    fn agent_step_schema_accepts_tool_and_complete() {
         let tool = serde_json::json!({
             "type": "tool",
             "name": "file",
             "args": "{\"op\":\"list\",\"prefix\":\"models/\"}",
-            "final": null
+            "complete": null
         });
         validate(SchemaId::AgentStepV1, &tool).expect("tool should validate");
 
-        let fin = serde_json::json!({
-            "type": "final",
+        let comp = serde_json::json!({
+            "type": "complete",
             "name": null,
             "args": null,
-            "final": { "kind": "generic", "payload": "{\"text\":\"ok\"}", "display": "ok" }
+            "complete": { "kind": "generic", "payload": "{\"text\":\"ok\"}", "display": "ok" }
         });
-        validate(SchemaId::AgentStepV1, &fin).expect("final should validate");
+        validate(SchemaId::AgentStepV1, &comp).expect("complete should validate");
     }
 
     #[test]
@@ -310,10 +310,10 @@ mod tests {
     }
 
     #[test]
-    fn final_envelope_required_includes_display_for_openai() {
+    fn complete_envelope_required_includes_display_for_openai() {
         let s = json_schema(SchemaId::AgentStepV1);
         let defs = s.get("$defs").and_then(|v| v.as_object()).expect("$defs");
-        let env = defs.get("FinalEnvelopeV1").expect("FinalEnvelopeV1");
+        let env = defs.get("CompleteEnvelopeV1").expect("CompleteEnvelopeV1");
         let req = env
             .get("required")
             .and_then(|v| v.as_array())

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use react_core::agent::{Agent, AgentCtx, DefaultPolicy, RunOutcome};
+use react_core::agent::{Agent, AgentCtx, DefaultPolicy, InterruptKind, RunOutcome};
 use react_core::session::ThreadStore;
 use react_core::tools::ToolRegistry;
 
@@ -105,22 +105,25 @@ impl KbSuite {
         })
         .await
         {
-            Ok(RunOutcome::Final {
+            Ok(RunOutcome::Complete {
                 thread_id: _tid,
                 result,
-            }) => Ok(vec![FlowFrame::Final {
+            }) => Ok(vec![FlowFrame::Complete {
                 kind: result.kind.into(),
                 payload: result.payload,
                 display: result.display,
             }]),
-            Ok(RunOutcome::AwaitUser {
+            Ok(RunOutcome::Interrupt {
                 thread_id: _tid,
+                kind,
                 prompt,
-            }) => Ok(vec![FlowFrame::AwaitUser { prompt }]),
-            Ok(RunOutcome::AwaitApproval {
-                thread_id: _tid,
+            }) => Ok(vec![FlowFrame::Interrupt {
+                kind: match kind {
+                    InterruptKind::AwaitUser => "await_user".to_string(),
+                    InterruptKind::AwaitApproval => "await_approval".to_string(),
+                },
                 prompt,
-            }) => Ok(vec![FlowFrame::AwaitApproval { prompt }]),
+            }]),
             Err(e) => Err(e),
         }
     }

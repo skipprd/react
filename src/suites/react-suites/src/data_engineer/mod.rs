@@ -6,7 +6,7 @@ use crate::flow_frame::FlowFrame;
 use crate::preflight::PreflightProvider;
 use crate::suite::{Suite, SuiteCtx};
 use react_core::agent::{
-    Agent, AgentCtx, AgentPolicy, Interrupt, RunOutcome, RunOutcomeNonInteractive,
+    Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
 use react_core::control_flow::{GuardBlockKind, PhaseReasonCode};
 use react_core::llm::LlmCallOptions;
@@ -172,7 +172,7 @@ impl AgentPolicy for InterruptOnlyPolicy {
         action_name: &str,
         args: &serde_json::Value,
         obs: &serde_json::Value,
-    ) -> Option<Interrupt> {
+    ) -> Option<(InterruptKind, String)> {
         if action_name == "ask_user" {
             let prompt = args
                 .get("prompt")
@@ -180,7 +180,7 @@ impl AgentPolicy for InterruptOnlyPolicy {
                 .or_else(|| obs.get("prompt").and_then(|x| x.as_str()))
                 .unwrap_or("Please provide additional context.")
                 .to_string();
-            return Some(Interrupt::AwaitUser { prompt });
+            return Some((InterruptKind::AwaitUser, prompt));
         }
         if action_name == "ask_approval" {
             let prompt = args
@@ -189,7 +189,7 @@ impl AgentPolicy for InterruptOnlyPolicy {
                 .or_else(|| obs.get("prompt").and_then(|x| x.as_str()))
                 .unwrap_or("Please review and approve/reject.")
                 .to_string();
-            return Some(Interrupt::AwaitApproval { prompt });
+            return Some((InterruptKind::AwaitApproval, prompt));
         }
         None
     }
@@ -244,17 +244,17 @@ impl AgentPolicy for InterruptOnlyPolicy {
         Some(secs)
     }
 
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
         transcript: &mut Vec<String>,
         store: Option<&react_core::session::ThreadStore>,
         thread_id: &str,
-        final_env: &react_core::agent::FinalEnvelope,
+        complete_env: &react_core::agent::CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         react_core::agent::DefaultPolicy
-            .handle_final(tools, ctx, transcript, store, thread_id, final_env)
+            .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await
     }
 }
@@ -429,7 +429,7 @@ impl DataEngineerSuite {
         frames: Vec<FlowFrame>,
     ) -> Result<Vec<FlowFrame>, String> {
         let await_user_prompt = frames.iter().find_map(|f| match f {
-            FlowFrame::AwaitUser { prompt } => Some(prompt.clone()),
+            FlowFrame::Interrupt { kind, prompt } if kind == "await_user" => Some(prompt.clone()),
             _ => None,
         });
         if let Some(prompt) = await_user_prompt {
@@ -2268,22 +2268,25 @@ Apply these fixes in the output.",
         )
         .await
         {
-            Ok(RunOutcome::Final {
+            Ok(RunOutcome::Complete {
                 thread_id: _tid,
                 result,
-            }) => Ok(vec![FlowFrame::Final {
+            }) => Ok(vec![FlowFrame::Complete {
                 kind: result.kind.into(),
                 payload: result.payload,
                 display: result.display,
             }]),
-            Ok(RunOutcome::AwaitUser {
+            Ok(RunOutcome::Interrupt {
                 thread_id: _tid,
+                kind,
                 prompt,
-            }) => Ok(vec![FlowFrame::AwaitUser { prompt }]),
-            Ok(RunOutcome::AwaitApproval {
-                thread_id: _tid,
-                prompt,
-            }) => Ok(vec![FlowFrame::AwaitApproval { prompt }]),
+            }) => {
+                let kind_str = match kind {
+                    react_core::agent::InterruptKind::AwaitUser => "await_user",
+                    react_core::agent::InterruptKind::AwaitApproval => "await_approval",
+                };
+                Ok(vec![FlowFrame::Interrupt { kind: kind_str.to_string(), prompt }])
+            }
             Err(e) => Err(e),
         }
     }
@@ -2346,22 +2349,25 @@ Apply these fixes in the output.",
         )
         .await
         {
-            Ok(RunOutcome::Final {
+            Ok(RunOutcome::Complete {
                 thread_id: _tid,
                 result,
-            }) => Ok(vec![FlowFrame::Final {
+            }) => Ok(vec![FlowFrame::Complete {
                 kind: result.kind.into(),
                 payload: result.payload,
                 display: result.display,
             }]),
-            Ok(RunOutcome::AwaitUser {
+            Ok(RunOutcome::Interrupt {
                 thread_id: _tid,
+                kind,
                 prompt,
-            }) => Ok(vec![FlowFrame::AwaitUser { prompt }]),
-            Ok(RunOutcome::AwaitApproval {
-                thread_id: _tid,
-                prompt,
-            }) => Ok(vec![FlowFrame::AwaitApproval { prompt }]),
+            }) => {
+                let kind_str = match kind {
+                    react_core::agent::InterruptKind::AwaitUser => "await_user",
+                    react_core::agent::InterruptKind::AwaitApproval => "await_approval",
+                };
+                Ok(vec![FlowFrame::Interrupt { kind: kind_str.to_string(), prompt }])
+            }
             Err(e) => Err(e),
         }
     }
@@ -2398,9 +2404,8 @@ Apply these fixes in the output.",
 
     fn plan_agent_ctx(thread_id: &str, sctx: &SuiteCtx) -> AgentCtx {
         // Plan phases (cleanse_plan/model_plan) are tool-heavy: they must do discovery and evidence,
-        // then emit a final plan object. The small 6-step budget used for some helper contexts can
-        // cause a fallback Final ("No result") which then fails plan JSON parsing and shows up as a
-        // misleading "final.kind/payload must be valid for the plan" error.
+        // then emit a complete plan object. The small 6-step budget used for some helper contexts can
+        // cause a fallback ("No result") which then fails plan JSON parsing.
         let thread_store = ThreadStore::new(
             sctx.storage.clone(),
             sctx.scope.clone(),
@@ -3671,22 +3676,24 @@ mod tests {
 
     #[test]
     fn non_interactive_contract_rejects_await_user_for_agent_type() {
-        let frames = vec![FlowFrame::AwaitUser {
+        let frames = vec![FlowFrame::Interrupt {
+            kind: "await_user".to_string(),
             prompt: "x".to_string(),
         }];
         let err = DataEngineerSuite::enforce_non_interactive_contract(AgentMode::Agent, frames)
-            .expect_err("agent type must reject AwaitUser");
+            .expect_err("agent type must reject await_user interrupt");
         assert!(err.contains("agent_mode_await_user_forbidden"));
     }
 
     #[test]
     fn non_interactive_contract_allows_await_user_for_non_agent_when_not_headless() {
-        let frames = vec![FlowFrame::AwaitUser {
+        let frames = vec![FlowFrame::Interrupt {
+            kind: "await_user".to_string(),
             prompt: "x".to_string(),
         }];
         let out = DataEngineerSuite::enforce_non_interactive_contract(AgentMode::Review, frames)
-            .expect("non-agent should allow AwaitUser when not headless");
-        assert!(matches!(out.first(), Some(FlowFrame::AwaitUser { .. })));
+            .expect("non-agent should allow await_user interrupt when not headless");
+        assert!(matches!(out.first(), Some(FlowFrame::Interrupt { .. })));
     }
 
     #[tokio::test]

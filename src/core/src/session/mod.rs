@@ -159,53 +159,53 @@ pub enum LlmStepStatus {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum FinalKind {
+pub enum CompleteKind {
     Generic,
     Ask,
     Kb,
     Other(String),
 }
 
-impl FinalKind {
+impl CompleteKind {
     pub fn as_str(&self) -> &str {
         match self {
-            FinalKind::Generic => "generic",
-            FinalKind::Ask => "ask",
-            FinalKind::Kb => "kb",
-            FinalKind::Other(s) => s.as_str(),
+            CompleteKind::Generic => "generic",
+            CompleteKind::Ask => "ask",
+            CompleteKind::Kb => "kb",
+            CompleteKind::Other(s) => s.as_str(),
         }
     }
 }
 
-impl Default for FinalKind {
+impl Default for CompleteKind {
     fn default() -> Self {
-        FinalKind::Generic
+        CompleteKind::Generic
     }
 }
 
-impl From<String> for FinalKind {
+impl From<String> for CompleteKind {
     fn from(value: String) -> Self {
         match value.as_str() {
-            "generic" => FinalKind::Generic,
-            "ask" => FinalKind::Ask,
-            "kb" => FinalKind::Kb,
-            _ => FinalKind::Other(value),
+            "generic" => CompleteKind::Generic,
+            "ask" => CompleteKind::Ask,
+            "kb" => CompleteKind::Kb,
+            _ => CompleteKind::Other(value),
         }
     }
 }
 
-impl From<FinalKind> for String {
-    fn from(value: FinalKind) -> Self {
+impl From<CompleteKind> for String {
+    fn from(value: CompleteKind) -> Self {
         match value {
-            FinalKind::Generic => "generic".to_string(),
-            FinalKind::Ask => "ask".to_string(),
-            FinalKind::Kb => "kb".to_string(),
-            FinalKind::Other(s) => s,
+            CompleteKind::Generic => "generic".to_string(),
+            CompleteKind::Ask => "ask".to_string(),
+            CompleteKind::Kb => "kb".to_string(),
+            CompleteKind::Other(s) => s,
         }
     }
 }
 
-impl Serialize for FinalKind {
+impl Serialize for CompleteKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -214,13 +214,13 @@ impl Serialize for FinalKind {
     }
 }
 
-impl<'de> Deserialize<'de> for FinalKind {
+impl<'de> Deserialize<'de> for CompleteKind {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(FinalKind::from(s))
+        Ok(CompleteKind::from(s))
     }
 }
 
@@ -746,13 +746,8 @@ pub enum ThreadStep {
         ts: String,
         agent: String,
     },
-    AskUser {
-        prompt: String,
-        observation: Observation,
-        ts: String,
-        agent: String,
-    },
-    AskApproval {
+    Interrupt {
+        kind: String,
         prompt: String,
         observation: Observation,
         ts: String,
@@ -766,11 +761,18 @@ pub enum ThreadStep {
         ts: String,
         agent: String,
     },
-    Final {
-        kind: FinalKind,
+    Complete {
+        kind: CompleteKind,
         payload: Value,
         #[serde(default)]
         display: Option<String>,
+        observation: Observation,
+        ts: String,
+        agent: String,
+    },
+    Checkpoint {
+        kind: String,
+        payload: Value,
         observation: Observation,
         ts: String,
         agent: String,
@@ -792,10 +794,10 @@ impl ThreadStep {
             ThreadStep::GuardBlock { ts, .. } => ts,
             ThreadStep::ArtifactFocus { ts, .. } => ts,
             ThreadStep::ArtifactSaved { ts, .. } => ts,
-            ThreadStep::AskUser { ts, .. } => ts,
-            ThreadStep::AskApproval { ts, .. } => ts,
+            ThreadStep::Interrupt { ts, .. } => ts,
             ThreadStep::ReviewResponse { ts, .. } => ts,
-            ThreadStep::Final { ts, .. } => ts,
+            ThreadStep::Complete { ts, .. } => ts,
+            ThreadStep::Checkpoint { ts, .. } => ts,
         }
     }
 }
@@ -825,7 +827,7 @@ impl Default for ThreadLog {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadResult {
-    pub kind: FinalKind,
+    pub kind: CompleteKind,
     pub payload: Value,
     #[serde(default)]
     pub display: Option<String>,
@@ -1281,7 +1283,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn final_closes_out_current_phase_as_completed() {
+    async fn complete_closes_out_current_phase_as_completed() {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope {
@@ -1318,8 +1320,8 @@ mod tests {
         store
             .append_step(
                 tid,
-                ThreadStep::Final {
-                    kind: FinalKind::Generic,
+                ThreadStep::Complete {
+                    kind: CompleteKind::Generic,
                     payload: serde_json::json!({"text":"ok"}),
                     display: Some("ok".to_string()),
                     observation: Observation::ok(),

@@ -3,7 +3,7 @@
 pub fn author_system_prompt_common() -> &'static str {
     r#"At each step, you must either:
 - Call ONE tool
-- Or finish with a final result
+- Or finish with a complete result
 
 Your response format is defined by the system-provided output contract (schema). Do not invent your own wrapper formats or add prose outside the contracted output.
 
@@ -15,14 +15,14 @@ Hard rules:
 - You CAN execute DBT when those tools are available in the current tool card:
   - Use the available validate tool to run deps/parse/compile and optionally build.
   - Use the available publish tool to publish (it may require approval before build).
-  - NEVER claim “I can’t run dbt” or “run it locally for me”. If DBT fails, iterate until it passes; if blocked by external config and interrupt tools are unavailable, return a concise blocking requirement in final output.
+  - NEVER claim “I can’t run dbt” or “run it locally for me”. If DBT fails, iterate until it passes; if blocked by external config and interrupt tools are unavailable, return a concise blocking requirement in complete output.
 - Iteration discipline (CRITICAL):
   - Apply this section only when `dbt_validate` is available in the current tool card.
-  - If `dbt_validate` fails for ANY reason, you MUST NOT finalize. Instead:
+  - If `dbt_validate` fails for ANY reason, you MUST NOT complete. Instead:
     - identify the failure class (YAML/profile/config vs SQL/refs vs warehouse environment),
     - make the smallest artifact edit(s) necessary,
     - re-run `dbt_validate` and repeat until clean.
-  - After authoring/saving DBT artifacts, compile-only validation is NOT sufficient to finalize. When validation is available, run `dbt_validate` with build=true (or run=true) and achieve run_ok=true, unless the system explicitly allows compile-only finalization.
+  - After authoring/saving DBT artifacts, compile-only validation is NOT sufficient to complete. When validation is available, run `dbt_validate` with build=true (or run=true) and achieve run_ok=true, unless the system explicitly allows compile-only completion.
   - If `dbt_validate` fails AFTER a successful compile (runtime/test failures; `compile_ok=true` but `run_ok=false`):
     - Your next step MUST be a FIX to DBT artifacts.
     - Do NOT immediately re-run `dbt_validate` as the very next step.

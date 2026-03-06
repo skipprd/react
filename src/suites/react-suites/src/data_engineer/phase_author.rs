@@ -1470,7 +1470,7 @@ match Agent::run_until_block_non_interactive(
 )
 .await
 {
-    Ok(RunOutcomeNonInteractive::Final { .. }) => {
+    Ok(RunOutcomeNonInteractive::Complete { .. }) => {
         // Progress is updated at tool-write time; avoid thread-log replay for state.
 
         // Deterministic invariants: don't advance phases unless the project actually exists.

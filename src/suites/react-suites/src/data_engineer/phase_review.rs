@@ -39,13 +39,13 @@ impl DataEngineerSuite {
     ) -> Result<PhaseExecutorOutcome, String> {
         let review_q = Self::build_review_question_with_context(question, phase, execution_state);
         let frames = review_batched::run_batched_review(thread_id, &review_q, phase, sctx).await?;
-        let first = frames.into_iter().next().unwrap_or(FlowFrame::Final {
+        let first = frames.into_iter().next().unwrap_or(FlowFrame::Complete {
             kind: "generic".to_string(),
             payload: serde_json::json!({ "text": "" }),
             display: None,
         });
         let (answer, decision_meta_v) = match first {
-            FlowFrame::Final {
+            FlowFrame::Complete {
                 payload, display, ..
             } => {
                 let ans = display

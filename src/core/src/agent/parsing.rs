@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::{Agent, AgentStepTypeV1, AgentStepV1, FinalEnvelope, ParsedStep, SchemaId};
+use super::{Agent, AgentStepTypeV1, AgentStepV1, CompleteEnvelope, ParsedStep, SchemaId};
 
 impl Agent {
     /// Some model backends emit "JSON-like" text with literal control characters (e.g. raw newlines)
@@ -127,9 +127,9 @@ impl Agent {
                 let Some(args_json) = step.args else {
                     return Err("agent.step.v1 validation error: missing tool args".to_string());
                 };
-                if step.final_.is_some() {
+                if step.complete.is_some() {
                     return Err(
-                        "agent.step.v1 validation error: tool step must not include final".to_string(),
+                        "agent.step.v1 validation error: tool step must not include complete".to_string(),
                     );
                 }
                 let args: Value = parse_json_from_model_string_field(
@@ -138,25 +138,25 @@ impl Agent {
                 )?;
                 Ok(ParsedStep::Tool { name, args })
             }
-            AgentStepTypeV1::Final => {
+            AgentStepTypeV1::Complete => {
                 if step.name.is_some() || step.args.is_some() {
                     return Err(
-                        "agent.step.v1 validation error: final step must not include name/args"
+                        "agent.step.v1 validation error: complete step must not include name/args"
                             .to_string(),
                     );
                 }
-                let Some(fin) = step.final_ else {
-                    return Err("agent.step.v1 validation error: missing final".to_string());
+                let Some(comp) = step.complete else {
+                    return Err("agent.step.v1 validation error: missing complete".to_string());
                 };
                 let payload: Value = parse_json_from_model_string_field(
-                    &fin.payload,
-                    "agent.step.v1 validation error: final.payload",
+                    &comp.payload,
+                    "agent.step.v1 validation error: complete.payload",
                 )?;
-                Ok(ParsedStep::Final {
-                    final_env: FinalEnvelope {
-                        kind: fin.kind,
+                Ok(ParsedStep::Complete {
+                    complete_env: CompleteEnvelope {
+                        kind: comp.kind,
                         payload,
-                        display: fin.display,
+                        display: comp.display,
                     },
                 })
             }

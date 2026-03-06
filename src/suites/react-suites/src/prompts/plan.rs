@@ -3,10 +3,10 @@ pub fn cleanse_plan_system_prompt() -> String {
 
 Goal:
 - Gather grounded project/warehouse evidence for planning.
-- Do NOT author the final plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
+- Do NOT author the plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
 
 Hard rules:
-- At each step, call ONE tool or finish with final.kind="plan_discovery_ready".
+- At each step, call ONE tool or finish with complete.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/tables.
 - Keep outputs concise and factual.
 
@@ -21,8 +21,8 @@ Discovery requirements:
 - Prefer bounded reads and targeted probes.
 
 When finished:
-- final.kind MUST be "plan_discovery_ready".
-- final.payload MUST be a small JSON object:
+- complete.kind MUST be "plan_discovery_ready".
+- complete.payload MUST be a small JSON object:
   {"kind":"cleanse_plan","status":"ready","notes":"<short>"}.
 "#
     .to_string()
@@ -33,10 +33,10 @@ pub fn model_plan_system_prompt() -> String {
 
 Goal:
 - Gather grounded project/warehouse evidence for planning.
-- Do NOT author the final plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
+- Do NOT author the plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
 
 Hard rules:
-- At each step, call ONE tool or finish with final.kind="plan_discovery_ready".
+- At each step, call ONE tool or finish with complete.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/models.
 - Keep outputs concise and factual.
 
@@ -58,8 +58,8 @@ Discovery requirements:
 - Never use metadata pseudo-SQL in run_sql (e.g. SHOW SCHEMAS / SHOW TABLES / DESCRIBE / EXPLAIN / USE).
 
 When finished:
-- final.kind MUST be "plan_discovery_ready".
-- final.payload MUST be a small JSON object:
+- complete.kind MUST be "plan_discovery_ready".
+- complete.payload MUST be a small JSON object:
   {"kind":"model_plan","status":"ready","notes":"<short>"}.
 "#
     .to_string()

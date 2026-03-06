@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use react_core::agent::{AgentPolicy, FinalEnvelope, Interrupt, RunOutcome};
+use react_core::agent::{AgentPolicy, CompleteEnvelope, InterruptKind, RunOutcome};
 use react_core::session::{
     Observation, ThreadCacheStore, ThreadResult, ThreadStep, ThreadStore, ToolObservation,
     ToolStepStatus,
@@ -10,8 +10,8 @@ use react_core::tools::ToolRegistry;
 
 use super::types::DatasetCandidate;
 
-/// Policy for analytics-style suites: accept a model-emitted `final` only after validating that
-/// Ask-mode `final.payload.sql` runs successfully (via the `run_sql` tool) and returns at least one row.
+/// Policy for analytics-style suites: accept a model-emitted complete step only after validating that
+/// Ask-mode `complete.payload.sql` runs successfully (via the `run_sql` tool) and returns at least one row.
 ///
 /// This policy also supports user/approval interrupts by configured tool names.
 pub struct SqlValidatedPolicy {
@@ -67,7 +67,7 @@ impl AgentPolicy for SqlValidatedPolicy {
         action_name: &str,
         args: &Value,
         obs: &Value,
-    ) -> Option<Interrupt> {
+    ) -> Option<(InterruptKind, String)> {
         if action_name == self.user_tool {
             let prompt = args
                 .get("prompt")
@@ -75,7 +75,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                 .or_else(|| obs.get("prompt").and_then(|x| x.as_str()))
                 .unwrap_or("Please provide additional context.")
                 .to_string();
-            return Some(Interrupt::AwaitUser { prompt });
+            return Some((InterruptKind::AwaitUser, prompt));
         }
         if action_name == self.approval_tool {
             let prompt = args
@@ -84,7 +84,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                 .or_else(|| obs.get("prompt").and_then(|x| x.as_str()))
                 .unwrap_or("Please review and approve/reject.")
                 .to_string();
-            return Some(Interrupt::AwaitApproval { prompt });
+            return Some((InterruptKind::AwaitApproval, prompt));
         }
         if action_name == "publish_dbt_to_provider" {
             let awaiting = obs
@@ -97,37 +97,37 @@ impl AgentPolicy for SqlValidatedPolicy {
                     .and_then(|x| x.as_str())
                     .unwrap_or("Please review and approve/reject.")
                     .to_string();
-                return Some(Interrupt::AwaitApproval { prompt });
+                return Some((InterruptKind::AwaitApproval, prompt));
             }
         }
         None
     }
 
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         tools: &ToolRegistry,
         ctx: &react_core::agent::AgentCtx,
         transcript: &mut Vec<String>,
         store: Option<&ThreadStore>,
         thread_id: &str,
-        final_env: &FinalEnvelope,
+        complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         let is_authoring = matches!(ctx.agent_name.as_deref(), Some("model") | Some("cleanse"));
         let is_ask = matches!(ctx.agent_name.as_deref(), Some("ask"));
 
-        // For DBT-authoring agents, require successful dbt_validate before allowing final.
+        // For DBT-authoring agents, require successful dbt_validate before allowing completion.
         //
         // IMPORTANT:
-        // - If artifacts were authored, a compile-only validate is not sufficient to finalize; we require
+        // - If artifacts were authored, a compile-only validate is not sufficient to complete; we require
         //   a runtime validate (build/run) to pass (run_ok=true) unless explicitly overridden.
-        // - This prevents "compiles cleanly" finals that still have runtime/test failures.
+        // - This prevents "compiles cleanly" completions that still have runtime/test failures.
         if is_authoring {
             if let Some(store) = store {
                 let log = match store.get(thread_id).await {
                     Ok(l) => l,
                     Err(e) => {
                         transcript.push(format!(
-                            "Observation: dbt_validate_required; thread log unavailable so validation status is unknown ({e}). Call dbt_validate before finalizing."
+                            "Observation: dbt_validate_required; thread log unavailable so validation status is unknown ({e}). Call dbt_validate before completing."
                         ));
                         return Ok(None);
                     }
@@ -163,7 +163,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                     // (Suite-level post-run validation is not sufficient for this policy gate.)
                     let Some(v) = last_validate else {
                         transcript.push(
-                            "Observation: dbt_validate_required; you must run dbt_validate after writing artifacts before finalizing.".to_string(),
+                            "Observation: dbt_validate_required; you must run dbt_validate after writing artifacts before completing.".to_string(),
                         );
                         return Ok(None);
                     };
@@ -187,14 +187,14 @@ impl AgentPolicy for SqlValidatedPolicy {
                         _ => (false, false, None, false, false),
                     };
                     let runtime_validate = build || run || run_ok.is_some();
-                    let allow_compile_only = std::env::var("DBT_ALLOW_COMPILE_ONLY_FINAL")
+                    let allow_compile_only = std::env::var("DBT_ALLOW_COMPILE_ONLY_COMPLETE")
                         .ok()
                         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                         .unwrap_or(false);
 
                     if !(ok && compile_ok) {
                         transcript.push(
-                            "Observation: dbt_validate_failed; you must fix DBT artifacts and re-run dbt_validate until compile_ok=true before finalizing."
+                            "Observation: dbt_validate_failed; you must fix DBT artifacts and re-run dbt_validate until compile_ok=true before completing."
                                 .to_string(),
                         );
                         return Ok(None);
@@ -202,7 +202,7 @@ impl AgentPolicy for SqlValidatedPolicy {
 
                     if !runtime_validate && !allow_compile_only {
                         transcript.push(
-                            "Observation: dbt_validate_incomplete; compile-only validation is not sufficient after authoring DBT artifacts. Re-run dbt_validate with build=true (or run=true) and fix any runtime/test failures before finalizing."
+                            "Observation: dbt_validate_incomplete; compile-only validation is not sufficient after authoring DBT artifacts. Re-run dbt_validate with build=true (or run=true) and fix any runtime/test failures before completing."
                                 .to_string(),
                         );
                         return Ok(None);
@@ -210,7 +210,7 @@ impl AgentPolicy for SqlValidatedPolicy {
 
                     if runtime_validate && run_ok != Some(true) {
                         transcript.push(
-                            "Observation: dbt_validate_run_failed; you must fix runtime/test failures and re-run dbt_validate until run_ok=true before finalizing."
+                            "Observation: dbt_validate_run_failed; you must fix runtime/test failures and re-run dbt_validate until run_ok=true before completing."
                                 .to_string(),
                         );
                         return Ok(None);
@@ -218,17 +218,17 @@ impl AgentPolicy for SqlValidatedPolicy {
                 }
             } else {
                 transcript.push(
-                    "Observation: dbt_validate_required; thread_store missing so validation status is unknown. Call dbt_validate before finalizing."
+                    "Observation: dbt_validate_required; thread_store missing so validation status is unknown. Call dbt_validate before completing."
                         .to_string(),
                 );
                 return Ok(None);
             }
 
-            // Authoring agents finalize without SQL validation (Ask-only concern).
+            // Authoring agents complete without SQL validation (Ask-only concern).
             let result = ThreadResult {
-                kind: react_core::session::FinalKind::from(final_env.kind.clone()),
-                payload: final_env.payload.clone(),
-                display: final_env.display.clone(),
+                kind: react_core::session::CompleteKind::from(complete_env.kind.clone()),
+                payload: complete_env.payload.clone(),
+                display: complete_env.display.clone(),
             };
             if let Some(store) = store {
                 let agent = ctx
@@ -238,7 +238,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                 let _ = store
                     .append_step(
                         thread_id,
-                        ThreadStep::Final {
+                        ThreadStep::Complete {
                             kind: result.kind.clone(),
                             payload: result.payload.clone(),
                             display: result.display.clone(),
@@ -249,26 +249,26 @@ impl AgentPolicy for SqlValidatedPolicy {
                     )
                     .await;
             }
-            return Ok(Some(RunOutcome::Final {
+            return Ok(Some(RunOutcome::Complete {
                 thread_id: thread_id.to_string(),
                 result,
             }));
         }
 
-        // Ask mode: require and validate SQL+data before finalizing.
+        // Ask mode: require and validate SQL+data before completing.
         if !is_ask {
-            transcript.push("Observation: invalid_final_kind; only ask/model/cleanse agents may finalize in this suite.".to_string());
+            transcript.push("Observation: invalid_complete_kind; only ask/model/cleanse agents may complete in this suite.".to_string());
             return Ok(None);
         }
-        if final_env.kind != "ask" {
+        if complete_env.kind != "ask" {
             transcript.push(format!(
-                "Observation: invalid_final_kind; ask agent must finalize with final.kind='ask' (got '{}').",
-                final_env.kind
+                "Observation: invalid_complete_kind; ask agent must complete with complete.kind='ask' (got '{}').",
+                complete_env.kind
             ));
             return Ok(None);
         }
 
-        let sql_opt = final_env
+        let sql_opt = complete_env
             .payload
             .get("sql")
             .and_then(|x| x.as_str())
@@ -276,14 +276,14 @@ impl AgentPolicy for SqlValidatedPolicy {
         if let Some(sql_str) = sql_opt.as_ref() {
             let sql_lower = sql_str.to_lowercase();
             if sql_lower.contains(" default.") {
-                transcript.push("Observation: invalid final SQL - 'default.*' schema is forbidden. Use fully-qualified <catalog>.<database>.<table>.".to_string());
+                transcript.push("Observation: invalid complete SQL - 'default.*' schema is forbidden. Use fully-qualified <catalog>.<database>.<table>.".to_string());
                 return Ok(None);
             }
         }
         let sql_for_run = match sql_opt.as_ref() {
             Some(s) if !s.trim().is_empty() => s.clone(),
             _ => {
-                transcript.push("Observation: final requires a valid SQL and data; please provide SQL and call run_sql before finalizing.".to_string());
+                transcript.push("Observation: complete requires a valid SQL and data; please provide SQL and call run_sql before completing.".to_string());
                 return Ok(None);
             }
         };
@@ -341,9 +341,9 @@ impl AgentPolicy for SqlValidatedPolicy {
             return Ok(None);
         }
         let result = ThreadResult {
-            kind: react_core::session::FinalKind::from(final_env.kind.clone()),
-            payload: final_env.payload.clone(),
-            display: final_env.display.clone(),
+            kind: react_core::session::CompleteKind::from(complete_env.kind.clone()),
+            payload: complete_env.payload.clone(),
+            display: complete_env.display.clone(),
         };
         if let Some(store) = store {
             let agent = ctx
@@ -353,7 +353,7 @@ impl AgentPolicy for SqlValidatedPolicy {
             let _ = store
                 .append_step(
                     thread_id,
-                    ThreadStep::Final {
+                    ThreadStep::Complete {
                         kind: result.kind.clone(),
                         payload: result.payload.clone(),
                         display: result.display.clone(),
@@ -364,7 +364,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                 )
                 .await;
         }
-        Ok(Some(RunOutcome::Final {
+        Ok(Some(RunOutcome::Complete {
             thread_id: thread_id.to_string(),
             result,
         }))
@@ -424,10 +424,10 @@ impl AgentPolicy for SqlValidatedPolicy {
                 }
             }
         }
-        Ok(RunOutcome::Final {
+        Ok(RunOutcome::Complete {
             thread_id: thread_id.to_string(),
             result: ThreadResult {
-                kind: react_core::session::FinalKind::Generic,
+                kind: react_core::session::CompleteKind::Generic,
                 payload: serde_json::json!({ "text": summary.clone() }),
                 display: Some(summary),
             },
@@ -543,20 +543,20 @@ mod tests {
         let policy = SqlValidatedPolicy::default();
         let mut transcript: Vec<String> = Vec::new();
         let tools = ToolRegistry::new();
-        let final_env = FinalEnvelope {
+        let complete_env = CompleteEnvelope {
             kind: "ask".to_string(),
             payload: serde_json::json!({"answer":"x","sql":"SELECT 1 AS ok"}),
             display: None,
         };
 
         let out = policy
-            .handle_final(
+            .handle_complete(
                 &tools,
                 &ctx,
                 &mut transcript,
                 Some(&store),
                 tid.as_str(),
-                &final_env,
+                &complete_env,
             )
             .await
             .unwrap();

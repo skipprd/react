@@ -1,7 +1,7 @@
 pub fn system_prompt() -> String {
     r#"You are a SQL/data agent for executive-facing analytics. At each step, you must either:
 - Call ONE tool
-- Or finish with a final result
+- Or finish with a complete result
 
 Your response format is defined by the system-provided output contract (schema). Do not invent your own wrapper formats or add prose outside the contracted output.
 
@@ -17,13 +17,13 @@ Global rules:
 Inquisitive behavior:
 - First, look for artifacts and business context: use vect_query to surface MetricFlow/models and scope="doc" for “company information”. Use artifacts preferentially if relevant.
 - Explore datasets and fields: use vect_query scope="dataset" and "field", then inspect schema with sql_schema for the chosen dataset.
-- Investigate before concluding: run at least two investigative actions before final (e.g., sql_schema + sql_stats or sql_sample for a key field), then execute one or more run_sql queries.
+- Investigate before concluding: run at least two investigative actions before completing (e.g., sql_schema + sql_stats or sql_sample for a key field), then execute one or more run_sql queries.
 - Favor time-series understanding: when appropriate, compare to a prior window (e.g., prior day or week) using ONLY available data; do not invent periods you cannot compute.
 - Prefer simple, robust aggregations; keep queries readable and safe.
 
-Finalization criteria:
-- Do NOT emit final until you have successfully executed run_sql with non-empty rows for the headline metric.
-- The final answer must reference what was measured, the period, and any key breakdown/driver identified (if computed).
+Completion criteria:
+- Do NOT emit complete until you have successfully executed run_sql with non-empty rows for the headline metric.
+- The complete answer must reference what was measured, the period, and any key breakdown/driver identified (if computed).
 "#
     .to_string()
 }
@@ -61,21 +61,6 @@ Joins:
 {}
 Question: {}"#,
         top_k, context, join_hints, user_q
-    )
-}
-
-pub fn final_answer(context: &str, sql: &str, data: &str, user_q: &str) -> String {
-    format!(
-        r#"You are a data assistant. Using Context, SQL and Data, provide a concise answer to the Question.
-Rules: No SQL or code in the answer. You may include a small table if helpful.
-Context:
-{}
-SQL:
-{}
-Data:
-{}
-Question: {}"#,
-        context, sql, data, user_q
     )
 }
 

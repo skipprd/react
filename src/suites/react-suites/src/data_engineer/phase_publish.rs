@@ -191,7 +191,7 @@ impl DataEngineerSuite {
             answer.push_str("\nLatest review summary:\n");
             answer.push_str(&last);
         }
-        out_frames.push(FlowFrame::Final {
+        out_frames.push(FlowFrame::Complete {
             kind: "generic".to_string(),
             payload: serde_json::json!({ "text": answer.clone() }),
             display: Some(answer),

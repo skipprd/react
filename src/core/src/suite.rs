@@ -21,7 +21,7 @@ use tokio::sync::mpsc::UnboundedSender;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum FlowFrame {
-    Final {
+    Complete {
         kind: String,
         payload: Value,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,8 +32,14 @@ pub enum FlowFrame {
         #[serde(skip_serializing_if = "Option::is_none")]
         meta: Option<Value>,
     },
-    AwaitUser { prompt: String },
-    AwaitApproval { prompt: String },
+    Checkpoint {
+        kind: String,
+        payload: Value,
+    },
+    Interrupt {
+        kind: String,
+        prompt: String,
+    },
 }
 
 /// Context passed to suites.

@@ -650,7 +650,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                     item.title = log.title.clone();
                     item.suite_id = Some(suite_id);
                     item.agent_type = Some(agent_type);
-                    // compute preview from last user or final
+                    // compute preview from last user or complete
                     let mut preview: Option<String> = None;
                     for step in log.steps.iter().rev() {
                         match step {
@@ -658,7 +658,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                 preview = Some(text.to_string());
                                 break;
                             }
-                            ThreadStep::Final {
+                            ThreadStep::Complete {
                                 payload, display, ..
                             } => {
                                 preview =
@@ -886,14 +886,14 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                 .await;
                                 let _ = store.finalize_title(&thread_id, &title).await;
                             }
-                            // Persist final so reconnect/history can observe completion.
+                            // Persist complete so reconnect/history can observe completion.
                             {
                                 let store = state.thread_store();
                                 append_step_if_new(
                                     &store,
                                     &thread_id,
-                                    ThreadStep::Final {
-                                        kind: react_core::session::FinalKind::from(kind.clone()),
+                                    ThreadStep::Complete {
+                                        kind: react_core::session::CompleteKind::from(kind.clone()),
                                         payload: payload.clone(),
                                         display: display.clone(),
                                         observation: Observation::ok(),
@@ -948,7 +948,8 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                 append_step_if_new(
                                     &store,
                                     &thread_id,
-                                    ThreadStep::AskUser {
+                                    ThreadStep::Interrupt {
+                                        kind: "await_user".to_string(),
                                         prompt,
                                         observation: Observation::ok(),
                                         ts: chrono::Utc::now().to_rfc3339(),
@@ -979,7 +980,8 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                 append_step_if_new(
                                     &store,
                                     &thread_id,
-                                    ThreadStep::AskApproval {
+                                    ThreadStep::Interrupt {
+                                        kind: "await_approval".to_string(),
                                         prompt,
                                         observation: Observation::ok(),
                                         ts: chrono::Utc::now().to_rfc3339(),
@@ -1202,7 +1204,8 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                             let _ = store
                                 .append_step(
                                     &thread_id,
-                                    ThreadStep::AskUser {
+                                    ThreadStep::Interrupt {
+                                        kind: "await_user".to_string(),
                                         prompt,
                                         observation: Observation::ok(),
                                         ts: chrono::Utc::now().to_rfc3339(),
@@ -1709,20 +1712,17 @@ async fn append_step_if_new(store: &ThreadStore, thread_id: &str, step: ThreadSt
         .ok()
         .and_then(|l| l.steps.last().cloned())
     {
-        Some(ThreadStep::AskUser { prompt: p1, .. }) => {
-            matches!(&step, ThreadStep::AskUser { prompt: p2, .. } if p1 == *p2)
+        Some(ThreadStep::Interrupt { prompt: p1, .. }) => {
+            matches!(&step, ThreadStep::Interrupt { prompt: p2, .. } if p1 == *p2)
         }
-        Some(ThreadStep::AskApproval { prompt: p1, .. }) => {
-            matches!(&step, ThreadStep::AskApproval { prompt: p2, .. } if p1 == *p2)
-        }
-        Some(ThreadStep::Final {
+        Some(ThreadStep::Complete {
             kind: k1,
             payload: pl1,
             display: d1,
             ..
         }) => matches!(
             &step,
-            ThreadStep::Final { kind: k2, payload: pl2, display: d2, .. }
+            ThreadStep::Complete { kind: k2, payload: pl2, display: d2, .. }
                 if k1 == *k2 && pl1 == *pl2 && d1 == *d2
         ),
         _ => false,
@@ -1767,10 +1767,10 @@ fn summarize_step(step: &ThreadStep) -> String {
         | ThreadStep::GuardBlock { agent, .. }
         | ThreadStep::ArtifactFocus { agent, .. }
         | ThreadStep::ArtifactSaved { agent, .. }
-        | ThreadStep::AskUser { agent, .. }
-        | ThreadStep::AskApproval { agent, .. }
+        | ThreadStep::Interrupt { agent, .. }
         | ThreadStep::ReviewResponse { agent, .. }
-        | ThreadStep::Final { agent, .. } => agent.as_str(),
+        | ThreadStep::Complete { agent, .. }
+        | ThreadStep::Checkpoint { agent, .. } => agent.as_str(),
     };
     let raw = serde_json::to_string(step).unwrap_or_else(|_| "{\"type\":\"unknown\"}".to_string());
     let raw = truncate_str(&raw, 220);
@@ -3267,10 +3267,16 @@ async fn run_agent_with_processing_suite(
                 };
                 let convert = |ff: react_core::suite::FlowFrame| -> AgentFrame {
                     match ff {
-                        react_core::suite::FlowFrame::Final { kind, payload, display } => AgentFrame::Final { kind, payload, display },
+                        react_core::suite::FlowFrame::Complete { kind, payload, display } => AgentFrame::Final { kind, payload, display },
                         react_core::suite::FlowFrame::Review { text, meta } => AgentFrame::Review { text, meta },
-                        react_core::suite::FlowFrame::AwaitUser { prompt } => AgentFrame::AwaitUser { prompt },
-                        react_core::suite::FlowFrame::AwaitApproval { prompt } => AgentFrame::AwaitApproval { prompt },
+                        react_core::suite::FlowFrame::Checkpoint { kind, payload } => AgentFrame::Review { text: kind, meta: Some(payload) },
+                        react_core::suite::FlowFrame::Interrupt { kind, prompt } => {
+                            if kind == "await_approval" {
+                                AgentFrame::AwaitApproval { prompt }
+                            } else {
+                                AgentFrame::AwaitUser { prompt }
+                            }
+                        }
                     }
                 };
                 let frames = frames.into_iter().map(convert).collect::<Vec<_>>();
@@ -3351,8 +3357,8 @@ async fn run_agent_with_processing_suite(
                                 append_step_if_new(
                                     &store,
                                     thread_id,
-                                    ThreadStep::Final {
-                                        kind: react_core::session::FinalKind::from(kind.clone()),
+                                    ThreadStep::Complete {
+                                        kind: react_core::session::CompleteKind::from(kind.clone()),
                                         payload: payload.clone(),
                                         display: display.clone(),
                                         observation: Observation::ok(),
@@ -3415,7 +3421,8 @@ async fn run_agent_with_processing_suite(
                                 append_step_if_new(
                                     &store,
                                     thread_id,
-                                    ThreadStep::AskUser {
+                                    ThreadStep::Interrupt {
+                                        kind: "await_user".to_string(),
                                         prompt: prompt.clone(),
                                         observation: Observation::ok(),
                                         ts: chrono::Utc::now().to_rfc3339(),
@@ -3462,7 +3469,8 @@ async fn run_agent_with_processing_suite(
                                 append_step_if_new(
                                     &store,
                                     thread_id,
-                                    ThreadStep::AskApproval {
+                                    ThreadStep::Interrupt {
+                                        kind: "await_approval".to_string(),
                                         prompt: prompt.clone(),
                                         observation: Observation::ok(),
                                         ts: chrono::Utc::now().to_rfc3339(),
@@ -3538,7 +3546,7 @@ async fn run_suite_and_frames(
     // Delegate to suites
     let convert = |ff: react_core::suite::FlowFrame| -> AgentFrame {
         match ff {
-            react_core::suite::FlowFrame::Final {
+            react_core::suite::FlowFrame::Complete {
                 kind,
                 payload,
                 display,
@@ -3548,9 +3556,13 @@ async fn run_suite_and_frames(
                 display,
             },
             react_core::suite::FlowFrame::Review { text, meta } => AgentFrame::Review { text, meta },
-            react_core::suite::FlowFrame::AwaitUser { prompt } => AgentFrame::AwaitUser { prompt },
-            react_core::suite::FlowFrame::AwaitApproval { prompt } => {
-                AgentFrame::AwaitApproval { prompt }
+            react_core::suite::FlowFrame::Checkpoint { kind, payload } => AgentFrame::Review { text: kind, meta: Some(payload) },
+            react_core::suite::FlowFrame::Interrupt { kind, prompt } => {
+                if kind == "await_approval" {
+                    AgentFrame::AwaitApproval { prompt }
+                } else {
+                    AgentFrame::AwaitUser { prompt }
+                }
             }
         }
     };
@@ -3577,9 +3589,8 @@ fn compute_unread_for_log(log: &ThreadLog, seen_seq: i32) -> (i32, i32) {
             ThreadStep::User { .. } => {
                 tseq += 1;
             }
-            ThreadStep::Final { .. }
-            | ThreadStep::AskUser { .. }
-            | ThreadStep::AskApproval { .. }
+            ThreadStep::Complete { .. }
+            | ThreadStep::Interrupt { .. }
             | ThreadStep::ReviewResponse { .. } => {
                 tseq += 1;
                 if tseq > seen_seq {
@@ -3614,7 +3625,7 @@ async fn build_history(
                     created_at: step.ts().to_string(),
                 });
             }
-            ThreadStep::Final {
+            ThreadStep::Complete {
                 payload, display, ..
             } => {
                 tseq += 1;
@@ -3649,16 +3660,7 @@ async fn build_history(
                     created_at: step.ts().to_string(),
                 });
             }
-            ThreadStep::AskUser { prompt, .. } => {
-                tseq += 1;
-                all_msgs.push(api::HistoryResponseMessagesInner {
-                    thread_seq: tseq,
-                    role: m::history_response_messages_inner::Role::Assistant,
-                    content: prompt.to_string(),
-                    created_at: step.ts().to_string(),
-                });
-            }
-            ThreadStep::AskApproval { prompt, .. } => {
+            ThreadStep::Interrupt { prompt, .. } => {
                 tseq += 1;
                 all_msgs.push(api::HistoryResponseMessagesInner {
                     thread_seq: tseq,
@@ -3797,7 +3799,7 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::Final {
+            Ok(vec![react_core::suite::FlowFrame::Complete {
                 kind: "ask".to_string(),
                 payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
                 display: Some("ok".to_string()),
@@ -3811,7 +3813,7 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::Final {
+            Ok(vec![react_core::suite::FlowFrame::Complete {
                 kind: "ask".to_string(),
                 payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
                 display: Some("ok".to_string()),
@@ -3865,7 +3867,7 @@ mod tests {
 
             // Sleep long enough for WS ticks (tool/state) to emit at least once.
             tokio::time::sleep(Duration::from_millis(650)).await;
-            Ok(vec![react_core::suite::FlowFrame::Final {
+            Ok(vec![react_core::suite::FlowFrame::Complete {
                 kind: "ask".to_string(),
                 payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
                 display: Some("ok".to_string()),
@@ -3892,7 +3894,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitApproval {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_approval".to_string(),
                 prompt: "approve?".to_string(),
             }])
         }
@@ -3904,7 +3907,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitApproval {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_approval".to_string(),
                 prompt: "approve?".to_string(),
             }])
         }
@@ -3916,7 +3920,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitApproval {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_approval".to_string(),
                 prompt: "approve?".to_string(),
             }])
         }
@@ -3941,7 +3946,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitUser {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_user".to_string(),
                 prompt: "Plan-batched authoring is locked (cleanse).".to_string(),
             }])
         }
@@ -3953,7 +3959,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitUser {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_user".to_string(),
                 prompt: "Plan-batched authoring is locked (cleanse).".to_string(),
             }])
         }
@@ -3965,7 +3972,8 @@ mod tests {
             _agent_type: &str,
             _ctx: &SuiteCtx,
         ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-            Ok(vec![react_core::suite::FlowFrame::AwaitUser {
+            Ok(vec![react_core::suite::FlowFrame::Interrupt {
+                kind: "await_user".to_string(),
                 prompt: "Plan-batched authoring is locked (cleanse).".to_string(),
             }])
         }
@@ -4035,8 +4043,8 @@ mod tests {
                     ts: "t".to_string(),
                     agent: "agent".to_string(),
                 },
-                ThreadStep::Final {
-                    kind: react_core::session::FinalKind::Generic,
+                ThreadStep::Complete {
+                    kind: react_core::session::CompleteKind::Generic,
                     payload: serde_json::json!({ "text": "done" }),
                     display: Some("done".to_string()),
                     observation: Observation::ok(),
@@ -4550,7 +4558,7 @@ mod tests {
         process_open(&msg, &mut state, &mut sink).await.unwrap();
 
         let log = store.get(&thread_id).await.unwrap();
-        assert!(matches!(log.steps.last(), Some(ThreadStep::Final { .. })));
+        assert!(matches!(log.steps.last(), Some(ThreadStep::Complete { .. })));
     }
 
     #[tokio::test]
@@ -4596,7 +4604,7 @@ mod tests {
         let log = store.get(&thread_id).await.unwrap();
         assert!(matches!(
             log.steps.last(),
-            Some(ThreadStep::AskApproval { .. })
+            Some(ThreadStep::Interrupt { .. })
         ));
     }
 

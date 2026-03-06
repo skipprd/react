@@ -10,7 +10,7 @@ use crate::tools::ToolRegistry;
 
 use super::helpers::clean_tool_name;
 use super::{
-    Agent, AgentCtx, Interrupt, NonInteractivePolicyAdapter, ParsedStep, RunOutcome,
+    Agent, AgentCtx, NonInteractivePolicyAdapter, ParsedStep, RunOutcome,
     RunOutcomeNonInteractive, StepBoundaryReason,
 };
 
@@ -245,22 +245,17 @@ impl Agent {
         )
         .await?
         {
-            RunOutcome::Final { thread_id, result } => {
-                Ok(RunOutcomeNonInteractive::Final { thread_id, result })
+            RunOutcome::Complete { thread_id, result } => {
+                Ok(RunOutcomeNonInteractive::Complete { thread_id, result })
             }
-            // Non-interactive single-step runs suppress tool interrupts; remaining AwaitUser
-            // outcomes represent deterministic step boundaries (budget exhaustion).
-            RunOutcome::AwaitUser {
+            RunOutcome::Interrupt {
                 thread_id,
+                kind: _,
                 prompt: _,
             } => Ok(RunOutcomeNonInteractive::StepBoundary {
                 thread_id,
                 reason: StepBoundaryReason::StepBudgetExhausted,
             }),
-            RunOutcome::AwaitApproval { prompt, .. } => Err(format!(
-                "non_interactive_contract_violation: received AwaitApproval outcome in non-interactive mode: {}",
-                prompt
-            )),
         }
     }
 
@@ -408,15 +403,14 @@ impl Agent {
                 }
             };
             let (action_name, args) = match step {
-                ParsedStep::Final { final_env: env } => {
+                ParsedStep::Complete { complete_env: env } => {
                     if let Some(outcome) = ctx
                         .policy
-                        .handle_final(tools, ctx, &mut transcript, store, &tid, &env)
+                        .handle_complete(tools, ctx, &mut transcript, store, &tid, &env)
                         .await?
                     {
                         return Ok(outcome);
                     }
-                    // Policy rejected final; continue.
                     continue;
                 }
                 ParsedStep::Tool { name, args } => (name, args),
@@ -500,24 +494,15 @@ impl Agent {
             }
 
             // Policy may turn this tool into an interrupt.
-            if let Some(int) = ctx
+            if let Some((kind, prompt)) = ctx
                 .policy
                 .interrupt_for_action(action_name_str, &args, &raw_obs)
             {
-                match int {
-                    Interrupt::AwaitUser { prompt } => {
-                        return Ok(RunOutcome::AwaitUser {
-                            thread_id: tid,
-                            prompt,
-                        });
-                    }
-                    Interrupt::AwaitApproval { prompt } => {
-                        return Ok(RunOutcome::AwaitApproval {
-                            thread_id: tid,
-                            prompt,
-                        });
-                    }
-                }
+                return Ok(RunOutcome::Interrupt {
+                    thread_id: tid,
+                    kind,
+                    prompt,
+                });
             }
 
             Self::transcript_add(

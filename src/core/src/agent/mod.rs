@@ -18,7 +18,7 @@ mod run_loop;
 
 #[derive(serde::Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct FinalEnvelope {
+pub struct CompleteEnvelope {
     pub kind: String,
     pub payload: Value,
     #[serde(default)]
@@ -36,7 +36,7 @@ pub struct AgentCtx {
     /// Optional trace channel for streaming prompt/response summaries and tool actions.
     pub trace_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     pub agent_name: Option<String>,
-    /// Suite-provided policy that defines what \"final\" means, what context to inject, and any
+    /// Suite-provided policy that defines what completion means, what context to inject, and any
     /// required validations. This is the primary extension point that keeps the core loop agnostic.
     pub policy: Arc<dyn AgentPolicy>,
     /// LLM provider to use for the ReAct loop.
@@ -73,26 +73,29 @@ pub struct Agent;
 #[derive(Clone, Debug)]
 pub(crate) enum ParsedStep {
     Tool { name: String, args: Value },
-    Final { final_env: FinalEnvelope },
+    Complete { complete_env: CompleteEnvelope },
 }
 
 pub enum RunOutcome {
-    Final {
+    Complete {
         thread_id: String,
         result: ThreadResult,
     },
-    AwaitUser {
+    Interrupt {
         thread_id: String,
-        prompt: String,
-    },
-    AwaitApproval {
-        thread_id: String,
+        kind: InterruptKind,
         prompt: String,
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InterruptKind {
+    AwaitUser,
+    AwaitApproval,
+}
+
 pub enum RunOutcomeNonInteractive {
-    Final {
+    Complete {
         thread_id: String,
         result: ThreadResult,
     },
@@ -105,11 +108,6 @@ pub enum RunOutcomeNonInteractive {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepBoundaryReason {
     StepBudgetExhausted,
-}
-
-pub enum Interrupt {
-    AwaitUser { prompt: String },
-    AwaitApproval { prompt: String },
 }
 
 #[async_trait]
@@ -125,13 +123,13 @@ pub trait AgentPolicy: Send + Sync {
     }
 
     /// Optional interrupt hook: after a tool action executes, policy may convert it into a control
-    /// flow interrupt (await user / await approval). This keeps the core loop tool-name agnostic.
+    /// flow interrupt. Returns `(InterruptKind, prompt)`. Non-interactive mode suppresses these.
     fn interrupt_for_action(
         &self,
         _action_name: &str,
         _args: &Value,
         _obs: &Value,
-    ) -> Option<Interrupt> {
+    ) -> Option<(InterruptKind, String)> {
         None
     }
 
@@ -144,20 +142,20 @@ pub trait AgentPolicy: Send + Sync {
         None
     }
 
-    /// Handle a model-emitted `{ \"final\": {...} }`. Return:
-    /// - `Ok(Some(RunOutcome::Final{..}))` to accept and finish
+    /// Handle a model-emitted complete step. Return:
+    /// - `Ok(Some(RunOutcome::Complete{..}))` to accept and finish
     /// - `Ok(None)` to reject and continue (policy should append an Observation to transcript)
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
         transcript: &mut Vec<String>,
         store: Option<&ThreadStore>,
         thread_id: &str,
-        final_env: &FinalEnvelope,
+        complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String>;
 
-    /// If we exhaust steps without reaching an accepted final, produce a fallback.
+    /// If we exhaust steps without reaching an accepted completion, produce a fallback.
     async fn fallback(
         &self,
         _tools: &ToolRegistry,
@@ -166,32 +164,33 @@ pub trait AgentPolicy: Send + Sync {
         _store: Option<&ThreadStore>,
         thread_id: &str,
     ) -> Result<RunOutcome, String> {
-        Ok(RunOutcome::AwaitUser {
+        Ok(RunOutcome::Interrupt {
             thread_id: thread_id.to_string(),
-            prompt: "Agent reached step limit without producing a valid final. Please retry."
+            kind: InterruptKind::AwaitUser,
+            prompt: "Agent reached step limit without producing a valid completion. Please retry."
                 .to_string(),
         })
     }
 }
 
-/// Default policy: accept any well-formed typed final envelope.
+/// Default policy: accept any well-formed typed complete envelope.
 pub struct DefaultPolicy;
 
 #[async_trait]
 impl AgentPolicy for DefaultPolicy {
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         _tools: &ToolRegistry,
         ctx: &AgentCtx,
         _transcript: &mut Vec<String>,
         store: Option<&ThreadStore>,
         thread_id: &str,
-        final_env: &FinalEnvelope,
+        complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         let result = ThreadResult {
-            kind: crate::session::FinalKind::from(final_env.kind.clone()),
-            payload: final_env.payload.clone(),
-            display: final_env.display.clone(),
+            kind: crate::session::CompleteKind::from(complete_env.kind.clone()),
+            payload: complete_env.payload.clone(),
+            display: complete_env.display.clone(),
         };
         if let Some(store) = store {
             let agent = ctx
@@ -202,7 +201,7 @@ impl AgentPolicy for DefaultPolicy {
             let _ = store
                 .append_step(
                     thread_id,
-                    ThreadStep::Final {
+                    ThreadStep::Complete {
                         kind: result.kind.clone(),
                         payload: result.payload.clone(),
                         display: result.display.clone(),
@@ -213,7 +212,7 @@ impl AgentPolicy for DefaultPolicy {
                 )
                 .await;
         }
-        Ok(Some(RunOutcome::Final {
+        Ok(Some(RunOutcome::Complete {
             thread_id: thread_id.to_string(),
             result,
         }))
@@ -244,8 +243,7 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         _action_name: &str,
         _args: &Value,
         _obs: &Value,
-    ) -> Option<Interrupt> {
-        // Hard cutover: non-interactive runs never emit interactive interrupts.
+    ) -> Option<(InterruptKind, String)> {
         None
     }
 
@@ -253,17 +251,17 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         self.inner.timeout_for_tool(action_name)
     }
 
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
         transcript: &mut Vec<String>,
         store: Option<&ThreadStore>,
         thread_id: &str,
-        final_env: &FinalEnvelope,
+        complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         self.inner
-            .handle_final(tools, ctx, transcript, store, thread_id, final_env)
+            .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await
     }
 
@@ -275,8 +273,6 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         store: Option<&ThreadStore>,
         thread_id: &str,
     ) -> Result<RunOutcome, String> {
-        // Keep underlying fallback semantics; run_until_block_non_interactive maps
-        // step-budget AwaitUser fallbacks to a typed StepBoundary handoff.
         self.inner
             .fallback(tools, ctx, transcript, store, thread_id)
             .await
@@ -361,17 +357,17 @@ mod tests {
             Some(self.secs)
         }
 
-        async fn handle_final(
+        async fn handle_complete(
             &self,
             tools: &ToolRegistry,
             ctx: &AgentCtx,
             transcript: &mut Vec<String>,
             store: Option<&crate::session::ThreadStore>,
             thread_id: &str,
-            final_env: &FinalEnvelope,
+            complete_env: &CompleteEnvelope,
         ) -> Result<Option<RunOutcome>, String> {
             self.inner
-                .handle_final(tools, ctx, transcript, store, thread_id, final_env)
+                .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
                 .await
         }
     }
@@ -394,8 +390,8 @@ mod tests {
     async fn per_tool_timeout_override_is_used() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                "{\"type\":\"tool\",\"name\":\"slow_tool\",\"args\":\"{}\",\"final\":null}".to_string(),
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+                "{\"type\":\"tool\",\"name\":\"slow_tool\",\"args\":\"{}\",\"complete\":null}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
             ])),
         });
         let storage = Arc::new(InMemoryStorageAdapter::default());
@@ -454,14 +450,14 @@ mod tests {
         .await
         .expect("ok");
         match out {
-            RunOutcome::Final { result, .. } => {
+            RunOutcome::Complete { result, .. } => {
                 assert_eq!(result.kind.as_str(), "generic");
                 assert_eq!(
                     result.payload.get("text").and_then(|x| x.as_str()),
                     Some("ok")
                 );
             }
-            _ => panic!("expected final outcome"),
+            _ => panic!("expected complete outcome"),
         }
     }
 
@@ -470,7 +466,7 @@ mod tests {
         let last_opts: Arc<Mutex<Option<crate::llm::LlmCallOptions>>> = Arc::new(Mutex::new(None));
         let llm = Arc::new(CapturingOptionsModel {
             replies: Arc::new(Mutex::new(vec![
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
             ])),
             last_opts: last_opts.clone(),
         });
@@ -523,10 +519,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn final_payload_round_trips_as_json_value() {
+    async fn complete_payload_round_trips_as_json_value() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"obj\\\":{\\\"hello\\\":\\\"world\\\",\\\"n\\\":1}}\",\"display\":null}}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"obj\\\":{\\\"hello\\\":\\\"world\\\",\\\"n\\\":1}}\",\"display\":null}}".to_string(),
             ])),
         });
         let storage = Arc::new(InMemoryStorageAdapter::default());
@@ -580,27 +576,26 @@ mod tests {
         .await
         .expect("ok");
         match out {
-            RunOutcome::Final { result, .. } => {
+            RunOutcome::Complete { result, .. } => {
                 assert_eq!(result.kind.as_str(), "generic");
                 let obj = result.payload.get("obj").expect("obj");
                 assert_eq!(obj.get("hello").and_then(|x| x.as_str()), Some("world"));
                 assert_eq!(obj.get("n").and_then(|x| x.as_i64()), Some(1));
             }
-            _ => panic!("expected final outcome"),
+            _ => panic!("expected complete outcome"),
         }
     }
 
     #[test]
     fn parse_agent_step_repairs_raw_newlines_inside_json_strings() {
-        // NOTE: This is intentionally invalid JSON: literal newline in the string value.
         let raw =
-            "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"line1\nline2\\\"}\",\"display\":null}}";
+            "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"line1\nline2\\\"}\",\"display\":null}}";
         let step = Agent::parse_agent_step(raw).expect("should repair and parse");
         match step {
-            ParsedStep::Final { final_env } => {
-                assert_eq!(final_env.kind, "generic");
+            ParsedStep::Complete { complete_env } => {
+                assert_eq!(complete_env.kind, "generic");
                 assert_eq!(
-                    final_env
+                    complete_env
                         .payload
                         .get("text")
                         .and_then(|x| x.as_str())
@@ -608,15 +603,15 @@ mod tests {
                     "line1\nline2"
                 );
             }
-            _ => panic!("expected final step"),
+            _ => panic!("expected complete step"),
         }
     }
 
     #[test]
     fn parse_agent_step_rejects_concatenated_multiple_json_objects() {
         let raw = concat!(
-            "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"final\":null}",
-            "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{}\",\"display\":null}}"
+            "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}",
+            "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{}\",\"display\":null}}"
         );
         let err = Agent::parse_agent_step(raw).expect_err("should reject concatenation");
         assert!(
@@ -640,12 +635,9 @@ mod tests {
     async fn invalid_json_from_model_is_retried_with_minimal_prompt() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                // Truncated/invalid JSON (EOF mid-string).
                 "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{".to_string(),
-                // Retry succeeds.
-                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"final\":null}".to_string(),
-                // Then final.
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
             ])),
         });
         let storage = Arc::new(InMemoryStorageAdapter::default());
@@ -702,10 +694,10 @@ mod tests {
         .expect("run should succeed after retry");
 
         match out {
-            RunOutcome::Final { thread_id, .. } => {
+            RunOutcome::Complete { thread_id, .. } => {
                 assert_eq!(thread_id, "tid".to_string());
             }
-            _ => panic!("expected final outcome"),
+            _ => panic!("expected complete outcome"),
         }
     }
 
@@ -714,8 +706,7 @@ mod tests {
         let replies = Arc::new(Mutex::new(vec![
             // Provider-side failure surfaced as plain text (common in some router layers).
             "LLM_ERROR: You exceeded your current quota".to_string(),
-            // If the agent incorrectly retries, it would consume this.
-            "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"final\":null}".to_string(),
+            "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}".to_string(),
         ]));
         let llm = Arc::new(ScriptedModel {
             replies: replies.clone(),
@@ -818,7 +809,7 @@ mod tests {
     async fn patch_protocol_response_is_wrapped_as_file_patch_action() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                // Model mistakenly emits patch-protocol response object (no action/final envelope).
+                // Model mistakenly emits patch-protocol response object (no action/complete envelope).
                 serde_json::json!({
                     "notes": ["example"],
                     "replace_range": {
@@ -829,16 +820,14 @@ mod tests {
                     }
                 })
                 .to_string(),
-                // Retry: model emits a correct tool step.
                 serde_json::json!({
                     "type": "tool",
                     "name": "file",
                     "args": "{\"op\":\"patch\",\"replace_range\":{\"path\":\"models/staging/stg_x.yml\",\"start_line\":1,\"end_line\":10,\"new_text\":\"version: 2\\n\"}}",
-                    "final": null
+                    "complete": null
                 })
                 .to_string(),
-                // Then finish.
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
             ])),
         });
 
@@ -916,10 +905,10 @@ mod tests {
         assert!(saw, "expected file patch tool to be invoked");
 
         match out {
-            RunOutcome::Final { result, .. } => {
+            RunOutcome::Complete { result, .. } => {
                 assert_eq!(result.kind.as_str(), "generic");
             }
-            _ => panic!("expected final outcome"),
+            _ => panic!("expected complete outcome"),
         }
     }
 
@@ -932,26 +921,24 @@ mod tests {
             action_name: &str,
             _args: &Value,
             _obs: &Value,
-        ) -> Option<Interrupt> {
+        ) -> Option<(InterruptKind, String)> {
             if action_name == "noop" {
-                return Some(Interrupt::AwaitUser {
-                    prompt: "need input".to_string(),
-                });
+                return Some((InterruptKind::AwaitUser, "need input".to_string()));
             }
             None
         }
 
-        async fn handle_final(
+        async fn handle_complete(
             &self,
             tools: &ToolRegistry,
             ctx: &AgentCtx,
             transcript: &mut Vec<String>,
             store: Option<&ThreadStore>,
             thread_id: &str,
-            final_env: &FinalEnvelope,
+            complete_env: &CompleteEnvelope,
         ) -> Result<Option<RunOutcome>, String> {
             DefaultPolicy
-                .handle_final(tools, ctx, transcript, store, thread_id, final_env)
+                .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
                 .await
         }
     }
@@ -960,8 +947,8 @@ mod tests {
     async fn run_until_block_non_interactive_suppresses_policy_interrupts() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"final\":null}".to_string(),
-                "{\"type\":\"final\",\"name\":null,\"args\":null,\"final\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}".to_string(),
+                "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
             ])),
         });
         let storage = Arc::new(InMemoryStorageAdapter::default());
@@ -1016,7 +1003,7 @@ mod tests {
         .expect("non-interactive run should finish without AwaitUser");
 
         match out {
-            RunOutcomeNonInteractive::Final { result, .. } => {
+            RunOutcomeNonInteractive::Complete { result, .. } => {
                 assert_eq!(result.kind.as_str(), "generic");
             }
             RunOutcomeNonInteractive::StepBoundary { .. } => {
@@ -1029,7 +1016,7 @@ mod tests {
     async fn run_until_block_non_interactive_returns_step_boundary_on_step_budget_exhaustion() {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"final\":null}".to_string(),
+                "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}".to_string(),
             ])),
         });
         let storage = Arc::new(InMemoryStorageAdapter::default());

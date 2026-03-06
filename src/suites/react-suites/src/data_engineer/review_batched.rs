@@ -869,7 +869,7 @@ async fn persist_review_final_to_plan(
                     serde_json::json!(REVIEW_SNAPSHOT_VERSION),
                 );
                 review_obj.insert(
-                    "final".to_string(),
+                    "result".to_string(),
                     serde_json::json!({
                         "decision": decision,
                         "tier": tier,
@@ -881,7 +881,7 @@ async fn persist_review_final_to_plan(
             }
             de_plan::save_cleanse_plan(actx, &p)
                 .await
-                .map_err(|e| format!("failed to persist cleanse review final: {e}"))?;
+                .map_err(|e| format!("failed to persist cleanse review result: {e}"))?;
         }
     } else if plan_kind == PlanKind::Model {
         if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await {
@@ -899,7 +899,7 @@ async fn persist_review_final_to_plan(
                     serde_json::json!(REVIEW_SNAPSHOT_VERSION),
                 );
                 review_obj.insert(
-                    "final".to_string(),
+                    "result".to_string(),
                     serde_json::json!({
                         "decision": decision,
                         "tier": tier,
@@ -911,7 +911,7 @@ async fn persist_review_final_to_plan(
             }
             de_plan::save_model_plan(actx, &p)
                 .await
-                .map_err(|e| format!("failed to persist model review final: {e}"))?;
+                .map_err(|e| format!("failed to persist model review result: {e}"))?;
         }
     }
     Ok(())
@@ -1788,7 +1788,7 @@ pub async fn run_batched_review(
         .await?;
     }
 
-    Ok(vec![FlowFrame::Final {
+    Ok(vec![FlowFrame::Complete {
         kind: "generic".to_string(),
         payload: serde_json::json!({
             "text": final_review_text.clone(),
@@ -2109,7 +2109,7 @@ mod tests {
         let out = run_batched_review("tid", "goal", Phase::CleanseReview, &sctx)
             .await
             .expect("ok");
-        assert!(matches!(out[0], FlowFrame::Final { .. }));
+        assert!(matches!(out[0], FlowFrame::Complete { .. }));
 
         // Thread log step should store review by reference (not the full text).
         let thread_store =
@@ -2148,7 +2148,7 @@ mod tests {
                 .len()
                 >= 2
         );
-        assert!(review.get("final").is_some());
+        assert!(review.get("result").is_some());
     }
 
     #[tokio::test]

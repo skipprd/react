@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use react_core::agent::{
-    Agent, AgentCtx, AgentPolicy, DefaultPolicy, FinalEnvelope, Interrupt, RunOutcome,
+    Agent, AgentCtx, AgentPolicy, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
 };
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
@@ -55,35 +55,35 @@ impl AgentPolicy for InterruptOnAskUser {
         action_name: &str,
         _args: &Value,
         obs: &Value,
-    ) -> Option<Interrupt> {
+    ) -> Option<(InterruptKind, String)> {
         if action_name == "ask_user" {
             let prompt = obs
                 .get("prompt")
                 .and_then(|x| x.as_str())
                 .unwrap_or("x")
                 .to_string();
-            return Some(Interrupt::AwaitUser { prompt });
+            return Some((InterruptKind::AwaitUser, prompt));
         }
         None
     }
 
-    async fn handle_final(
+    async fn handle_complete(
         &self,
         _tools: &ToolRegistry,
         _ctx: &react_core::agent::AgentCtx,
         _transcript: &mut Vec<String>,
         _store: Option<&ThreadStore>,
         _thread_id: &str,
-        _final_env: &FinalEnvelope,
+        _complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
         Ok(None)
     }
 }
 
 #[tokio::test]
-async fn agent_default_policy_accepts_typed_final() {
+async fn agent_default_policy_accepts_typed_complete() {
     let llm = Arc::new(FixedJsonModel {
-        out: r#"{"type":"final","name":null,"args":null,"final":{"kind":"kb","payload":"{\"answer\":\"hello\"}","display":null}} "#.to_string(),
+        out: r#"{"type":"complete","name":null,"args":null,"complete":{"kind":"kb","payload":"{\"answer\":\"hello\"}","display":null}} "#.to_string(),
     });
     let ctx = AgentCtx {
         top_k: 1,
@@ -131,21 +131,21 @@ async fn agent_default_policy_accepts_typed_final() {
     .await
     .expect("run");
     match out {
-        RunOutcome::Final { result, .. } => {
+        RunOutcome::Complete { result, .. } => {
             assert_eq!(result.kind.as_str(), "kb");
             assert_eq!(
                 result.payload.get("answer").and_then(|x| x.as_str()),
                 Some("hello")
             );
         }
-        _ => panic!("expected final"),
+        _ => panic!("expected complete"),
     }
 }
 
 #[tokio::test]
 async fn agent_does_not_special_case_ask_user_tool_name() {
     let llm = Arc::new(FixedJsonModel {
-        out: r#"{"type":"tool","name":"ask_user","args":"{}","final":null} "#.to_string(),
+        out: r#"{"type":"tool","name":"ask_user","args":"{}","complete":null} "#.to_string(),
     });
     let ctx = AgentCtx {
         top_k: 1,
@@ -194,10 +194,11 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
     .await
     .expect("run");
     match out {
-        // OK: did not become AwaitUser automatically from tool name; it simply hit fallback.
-        RunOutcome::AwaitUser { .. } => {}
+        RunOutcome::Interrupt { kind, .. } => {
+            assert_eq!(kind, react_core::agent::InterruptKind::AwaitUser);
+        }
         other => panic!(
-            "expected AwaitUser fallback (no final produced), got {:?}",
+            "expected Interrupt fallback (no complete produced), got {:?}",
             std::mem::discriminant(&other)
         ),
     }
@@ -206,7 +207,7 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
 #[tokio::test]
 async fn agent_interrupts_only_when_policy_requests_it() {
     let llm = Arc::new(FixedJsonModel {
-        out: r#"{"type":"tool","name":"ask_user","args":"{}","final":null} "#.to_string(),
+        out: r#"{"type":"tool","name":"ask_user","args":"{}","complete":null} "#.to_string(),
     });
     let ctx = AgentCtx {
         top_k: 1,
@@ -255,8 +256,11 @@ async fn agent_interrupts_only_when_policy_requests_it() {
     .await
     .expect("run");
     match out {
-        RunOutcome::AwaitUser { prompt, .. } => assert_eq!(prompt, "hi"),
-        _ => panic!("expected AwaitUser"),
+        RunOutcome::Interrupt { kind, prompt, .. } => {
+            assert_eq!(kind, react_core::agent::InterruptKind::AwaitUser);
+            assert_eq!(prompt, "hi");
+        }
+        _ => panic!("expected Interrupt(AwaitUser)"),
     }
 }
 

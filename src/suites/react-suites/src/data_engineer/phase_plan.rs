@@ -510,7 +510,7 @@ match Agent::run_until_block_non_interactive(
 )
 .await
 {
-    Ok(RunOutcomeNonInteractive::Final {
+    Ok(RunOutcomeNonInteractive::Complete {
         thread_id: _tid,
         result: _result,
     }) => {
