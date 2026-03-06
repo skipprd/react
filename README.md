@@ -1,6 +1,6 @@
 ## ReAct (`react` crate)
 
-This crate implements a **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server routes each request to a **suite**, and the suite runs a **ReAct loop** (LLM → tool calls → observations → final/interrupt), using injected providers (query/catalog/vector/dbt/storage).
+This crate implements a **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server routes each request to a **suite**, and the suite runs a **ReAct loop** (LLM → tool calls → observations → complete/interrupt), using injected providers (query/catalog/vector/dbt/storage).
 
 ### Getting started
 
@@ -67,14 +67,14 @@ The **effective output token limit** is controlled by the environment variable *
 - A **suite** owns:
   - Which tools exist (tool registry)
   - Which prompts are used (system prompt + tool card)
-  - Which policy defines “final” and interrupts
+  - Which policy defines "complete" and interrupts
   - Optional preflight behavior (dataset discovery/context injection)
 
 The default registry is built in `src/suites/react-suites/src/registry.rs`. Registered suites include:
 - **`data_engineer`**: analytics + DBT workflow (`src/suites/react-suites/src/data_engineer/`)
 - **`kb`**: local knowledge-base workflow (`src/suites/react-suites/src/kb/`)
 
-Suites receive a `SuiteCtx` (injected capabilities) and return `FlowFrame`s (`Final`, `AwaitUser`, `AwaitApproval`).
+Suites receive a `SuiteCtx` (injected capabilities) and return `FlowFrame`s (`Complete`, `Interrupt`, `Checkpoint`).
 
 #### Agent loop: ReAct runtime
 
@@ -83,9 +83,9 @@ Suites receive a `SuiteCtx` (injected capabilities) and return `FlowFrame`s (`Fi
   - Maintain transcript state
   - Call the LLM and parse strict JSON actions:
     - `{"type":"tool","name":"<tool_name>","args":{...}}`
-    - `{"type":"final","final":{...}}`
+    - `{"type":"complete","complete":{...}}`
   - Execute tools via `ToolRegistry`
-  - Apply suite policy (`AgentPolicy`) to accept/reject finals and convert tool actions into interrupts
+  - Apply suite policy (`AgentPolicy`) to accept/reject completions and convert tool actions into interrupts
 
 #### Tools
 
@@ -111,7 +111,6 @@ The concrete providers used by the CLI server (`src/runtime/src/main.rs`) determ
 ### Extending the system
 
 - **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` and register it in `src/suites/react-suites/src/registry.rs`
-- **Add a tool**: implement `Tool` and register it in the relevant suite flow’s tool registry
-- **Change “final” semantics**: implement a new `AgentPolicy` and use it in the suite’s `AgentCtx`
+- **Add a tool**: implement `Tool` and register it in the relevant suite flow's tool registry
+- **Change "complete" semantics**: implement a new `AgentPolicy` and use it in the suite's `AgentCtx`
 - **Swap infra**: construct a different `SuiteCtx` (different providers/storage/keyspace) and pass it to `ws::server::start_with_ctx`
-
