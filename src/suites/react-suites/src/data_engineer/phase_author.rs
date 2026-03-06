@@ -429,14 +429,18 @@ let (plan_context, plan_state): (String, PlanState) =
             }
         };
         if let control_flow::AuthoringGate::Block { reason } =
-            control_flow::gate_author_phase_execution_cleanse(&plan)
+            control_flow::gate_author_phase_execution(&plan)
         {
             let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                 phase,
                 None,
                 format!("Plan is not executable: {reason}"),
             );
-            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+            crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                &thread_store, thread_id, phase, vec![violation],
+                crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+            ).await?;
+            return Ok(PhaseExecutorOutcome::Continue);
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -489,7 +493,11 @@ let (plan_context, plan_state): (String, PlanState) =
             None,
             format!("Cleanse batch lock: {reason}"),
         );
-        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+        crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+            &thread_store, thread_id, phase, vec![violation],
+            crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+        ).await?;
+        return Ok(PhaseExecutorOutcome::Continue);
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -659,7 +667,11 @@ let (plan_context, plan_state): (String, PlanState) =
                         None,
                         "Approved cleanse plan is not executable: no next work-group action while checklist work remains",
                     );
-                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                    crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                        &thread_store, thread_id, phase, vec![violation],
+                        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+                    ).await?;
+                    return Ok(PhaseExecutorOutcome::Continue);
                 }
             }
         } else {
@@ -687,14 +699,18 @@ let (plan_context, plan_state): (String, PlanState) =
             }
         };
         if let control_flow::AuthoringGate::Block { reason } =
-            control_flow::gate_author_phase_execution_model(&plan)
+            control_flow::gate_author_phase_execution(&plan)
         {
             let violation = crate::data_engineer::progress_controller::PlanViolation::new(
                 phase,
                 None,
                 format!("Plan is not executable: {reason}"),
             );
-            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+            crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                &thread_store, thread_id, phase, vec![violation],
+                crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+            ).await?;
+            return Ok(PhaseExecutorOutcome::Continue);
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -745,7 +761,11 @@ let (plan_context, plan_state): (String, PlanState) =
             None,
             format!("Model batch lock: {reason}"),
         );
-        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+        crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+            &thread_store, thread_id, phase, vec![violation],
+            crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+        ).await?;
+        return Ok(PhaseExecutorOutcome::Continue);
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -985,7 +1005,11 @@ let (plan_context, plan_state): (String, PlanState) =
                         None,
                         "Approved model plan is not executable: no next work-group action while checklist work remains",
                     );
-                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                    crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                        &thread_store, thread_id, phase, vec![violation],
+                        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+                    ).await?;
+                    return Ok(PhaseExecutorOutcome::Continue);
                 }
             }
         } else {
@@ -1528,17 +1552,17 @@ match Agent::run_until_block_non_interactive(
             return Ok(PhaseExecutorOutcome::Continue);
         }
         if matches!(
-            gate_state.repair.pending_loopback_intent.as_ref(),
-            Some(crate::data_engineer::progress_controller::PendingLoopbackIntent::PatchImpl { phase: p, .. }) if *p == phase
+            gate_state.repair.pending_patch_impl.as_ref(),
+            Some(intent) if intent.phase == phase
         ) {
             crate::data_engineer::state_manager::mutate_execution_state(
                 &thread_store,
                 thread_id,
-                |es| es.clear_pending_loopback_intent(),
+                |es| es.clear_pending_patch_impl(),
             )
             .await
             .map_err(|e| {
-                format!("failed to clear pending patch-impl loopback intent: {e}")
+                format!("failed to clear pending patch-impl intent: {e}")
             })?;
         }
 
@@ -1618,7 +1642,11 @@ match Agent::run_until_block_non_interactive(
                         None,
                         format!("Authoring repair stall: {message}"),
                     );
-                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                    crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                        &thread_store, thread_id, phase, vec![violation],
+                        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+                    ).await?;
+                    return Ok(PhaseExecutorOutcome::Continue);
                 }
                 crate::data_engineer::authoring_driver::AuthoringTurnResult::Continue => {}
             }

@@ -47,6 +47,12 @@ impl TrackPlan for TrackPlanDoc {
             Self::Model(p) => p.progress_mut(),
         }
     }
+    fn executable_plan_issues(&self) -> Vec<String> {
+        match self {
+            Self::Cleanse(p) => p.executable_plan_issues(),
+            Self::Model(p) => p.executable_plan_issues(),
+        }
+    }
 }
 
 pub(super) async fn load_plan_for_track(

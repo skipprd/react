@@ -116,7 +116,11 @@ impl DataEngineerSuite {
                         None,
                         evidence,
                     );
-                    return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+                    crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                        thread_store, thread_id, phase, vec![violation],
+                        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+                    ).await?;
+                    return Ok(PhaseExecutorOutcome::Continue);
                 }
                 SubjectiveRetryOutcome::WithinBudget(tries) => {
                     review_retry_count = tries;
@@ -149,7 +153,7 @@ impl DataEngineerSuite {
                 crate::data_engineer::state_manager::mutate_execution_state(
                     thread_store,
                     thread_id,
-                    |es| es.clear_pending_loopback_intent(),
+                    |es| es.clear_pending_patch_impl(),
                 )
                 .await
                 .map(|_| ())?;

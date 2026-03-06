@@ -20,17 +20,11 @@ pub enum PhaseDirective<P, R> {
         reason_code: Option<R>,
         reason_detail: Option<Value>,
     },
-    Annotate {
-        phase: P,
-        reason_code: R,
-        reason_detail: Option<Value>,
-    },
     Block {
         phase: P,
         kind: GuardBlockKind,
         reason: String,
     },
-    Stay,
 }
 
 pub trait TypedReasonDetail: Serialize {}

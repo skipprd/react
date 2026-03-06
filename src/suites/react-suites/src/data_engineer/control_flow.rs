@@ -5,7 +5,6 @@ use tokio::time::timeout;
 use tracing::warn;
 
 use react_core::agent::AgentCtx;
-use react_core::control_flow::PhaseReasonCode;
 use react_core::providers::DbtValidateArgs;
 use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
 use react_core::tools::Tool;
@@ -154,18 +153,6 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
     }
 }
 
-pub(crate) fn is_annotation_reason(reason_code: Option<PhaseReasonCode>) -> bool {
-    matches!(
-        reason_code,
-        Some(
-            PhaseReasonCode::PhaseSet
-                | PhaseReasonCode::ReviewProjectSummary
-                | PhaseReasonCode::ReviewBatch
-                | PhaseReasonCode::ReviewFinalUnify
-                | PhaseReasonCode::PhaseBlocked
-        )
-    )
-}
 
 pub(crate) fn replan_backtrack_counter_cap() -> usize {
     std::env::var("AGENT_MAX_REPLAN_BACKTRACKS")
@@ -237,16 +224,23 @@ pub fn derive_guard_state_from_execution_state(
     }
 }
 
-pub(crate) fn is_cleanse_replan_backtrack(from: Phase, to: Phase) -> bool {
-    matches!(from, Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview)
-        && matches!(to, Phase::CleansePlan | Phase::CleanseAuthor)
-}
-
-pub(crate) fn is_model_replan_backtrack(from: Phase, to: Phase) -> bool {
-    matches!(
-        from,
-        Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview | Phase::PostPublishReview
-    ) && matches!(to, Phase::ModelPlan | Phase::ModelAuthor)
+pub(crate) fn is_replan_backtrack(from: Phase, to: Phase) -> bool {
+    use crate::data_engineer::track_spec::TrackKind;
+    // PostPublishReview can backtrack into the model track
+    let from_track = TrackKind::from_any_phase(from)
+        .or(if from == Phase::PostPublishReview { Some(TrackKind::Model) } else { None });
+    let Some(from_track) = from_track else {
+        return false;
+    };
+    let Some(to_track) = TrackKind::from_any_phase(to) else {
+        return false;
+    };
+    if from_track != to_track {
+        return false;
+    }
+    let plan = from_track.plan_phase();
+    let author = from_track.author_phase();
+    from != plan && (to == plan || to == author)
 }
 
 #[derive(Clone, Debug)]
@@ -255,35 +249,13 @@ pub enum AuthoringGate {
     Block { reason: String },
 }
 
-pub fn gate_author_phase_execution_cleanse(
-    plan: &crate::data_engineer::plan::CleansePlan,
-) -> AuthoringGate {
-    let issues = crate::data_engineer::plan::cleanse_executable_plan_issues(plan);
+pub fn gate_author_phase_execution(plan: &impl crate::data_engineer::plan_types::TrackPlan) -> AuthoringGate {
+    let issues = plan.executable_plan_issues();
     if issues.is_empty() {
         return AuthoringGate::Allow;
     }
     let mut msg = String::from(
-        "Approved cleanse plan is not executable. Re-enter planning before authoring:\n",
-    );
-    for issue in issues.iter().take(8) {
-        msg.push_str("- ");
-        msg.push_str(issue);
-        msg.push('\n');
-    }
-    AuthoringGate::Block {
-        reason: msg.trim().to_string(),
-    }
-}
-
-pub fn gate_author_phase_execution_model(
-    plan: &crate::data_engineer::plan::ModelPlan,
-) -> AuthoringGate {
-    let issues = crate::data_engineer::plan::model_executable_plan_issues(plan);
-    if issues.is_empty() {
-        return AuthoringGate::Allow;
-    }
-    let mut msg = String::from(
-        "Approved model plan is not executable. Re-enter planning before authoring:\n",
+        "Approved plan is not executable. Re-enter planning before authoring:\n",
     );
     for issue in issues.iter().take(8) {
         msg.push_str("- ");

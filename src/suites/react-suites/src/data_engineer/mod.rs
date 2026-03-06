@@ -36,8 +36,7 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
     }
 
     fn is_backtrack(from: Self::Phase, to: Self::Phase) -> bool {
-        control_flow::is_cleanse_replan_backtrack(from, to)
-            || control_flow::is_model_replan_backtrack(from, to)
+        control_flow::is_replan_backtrack(from, to)
     }
 
     fn replan_backtrack_cap() -> usize {
@@ -67,16 +66,16 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
 }
 
 impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
-    type Node = crate::data_engineer::workflow_node::WorkflowNode;
+    type Node = crate::data_engineer::control_flow::Phase;
 
     fn node_from_state(
         state: &crate::data_engineer::progress_controller::ExecutionState,
     ) -> Self::Node {
-        crate::data_engineer::workflow_node::WorkflowNode::from_state(state)
+        state.phase.current_phase.unwrap_or(crate::data_engineer::control_flow::Phase::Preflight)
     }
 
     fn phase_from_node(node: Self::Node) -> Self::Phase {
-        node.as_phase()
+        node
     }
 }
 
@@ -133,7 +132,6 @@ mod tool_registry_builder;
 mod track_spec;
 pub mod transition_dispatcher;
 pub mod tools;
-mod workflow_node;
 pub(crate) use track_spec::TrackKind;
 
 fn lock_prompt_for_plan(
@@ -157,7 +155,6 @@ fn lock_prompt_for_plan(
 pub(crate) enum PhaseExecutorOutcome {
     Continue,
     Return(Vec<FlowFrame>),
-    PlanRevisionRequested(Vec<crate::data_engineer::progress_controller::PlanViolation>),
 }
 
 /// Interrupt policy used by non-deterministic single-pass modes.
@@ -2541,10 +2538,7 @@ Apply these fixes in the output.",
             )
             .await?
             .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-            let node = <Self as react_core::suite::WorkflowNodeContract>::node_from_state(
-                &execution_state,
-            );
-            let phase = <Self as react_core::suite::WorkflowNodeContract>::phase_from_node(node);
+            let phase = execution_state.phase.current_phase.unwrap_or(control_flow::Phase::Preflight);
             let thread_state_step_count = thread_store
                 .get_thread_state(thread_id)
                 .await
@@ -2588,10 +2582,9 @@ Apply these fixes in the output.",
             }
 
             let repair_ctx = execution_state.repair_prompt_context();
-            let outcome = Self::execute_workflow_node(
+            let outcome = Self::execute_phase(
                 &thread_store,
                 thread_id,
-                node,
                 phase,
                 question,
                 sctx,
@@ -2605,35 +2598,6 @@ Apply these fixes in the output.",
             match outcome {
                 PhaseExecutorOutcome::Continue => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
-                PhaseExecutorOutcome::PlanRevisionRequested(violations) => {
-                    let track = crate::data_engineer::track_spec::TrackKind::from_any_phase(phase);
-                    let Some(track) = track else {
-                        return Err(format!(
-                            "PlanRevisionRequested from phase '{}' which has no associated plan track",
-                            phase.as_str()
-                        ));
-                    };
-                    let plan_phase = track.plan_phase();
-                    crate::data_engineer::state_manager::mutate_execution_state(
-                        &thread_store,
-                        thread_id,
-                        |es| es.set_pending_plan_revision(violations),
-                    )
-                    .await
-                    .map(|_| ())?;
-                    crate::data_engineer::phase_contract::commit_phase_decision(
-                        &thread_store,
-                        thread_id,
-                        Some(phase),
-                        crate::data_engineer::phase_contract::PhaseDecision::loopback(
-                            plan_phase,
-                            Some(react_core::control_flow::PhaseReasonCode::PlanRevisionRequested),
-                            None,
-                        ),
-                    )
-                    .await?;
-                    continue;
-                }
             }
         }
 
@@ -2662,10 +2626,9 @@ Apply these fixes in the output.",
         Err(budget_msg)
     }
 
-    async fn execute_workflow_node(
+    async fn execute_phase(
         thread_store: &ThreadStore,
         thread_id: &str,
-        node: crate::data_engineer::workflow_node::WorkflowNode,
         phase: crate::data_engineer::control_flow::Phase,
         question: &str,
         sctx: &SuiteCtx,
@@ -2675,12 +2638,12 @@ Apply these fixes in the output.",
         repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
         out_frames: &mut Vec<FlowFrame>,
     ) -> Result<PhaseExecutorOutcome, String> {
-        match node {
-            crate::data_engineer::workflow_node::WorkflowNode::Preflight => {
+        use crate::data_engineer::control_flow::Phase;
+        match phase {
+            Phase::Preflight => {
                 Self::execute_preflight_phase(thread_store, thread_id, sctx).await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::CleansePlan
-            | crate::data_engineer::workflow_node::WorkflowNode::ModelPlan => {
+            Phase::CleansePlan | Phase::ModelPlan => {
                 Self::execute_plan_phase(
                     thread_store,
                     thread_id,
@@ -2694,8 +2657,7 @@ Apply these fixes in the output.",
                 )
                 .await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::CleanseAuthor
-            | crate::data_engineer::workflow_node::WorkflowNode::ModelAuthor => {
+            Phase::CleanseAuthor | Phase::ModelAuthor => {
                 Self::execute_author_phase(
                     thread_store,
                     thread_id,
@@ -2709,8 +2671,7 @@ Apply these fixes in the output.",
                 )
                 .await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::CleanseValidate
-            | crate::data_engineer::workflow_node::WorkflowNode::ModelValidate => {
+            Phase::CleanseValidate | Phase::ModelValidate => {
                 Self::execute_validate_phase(
                     thread_store,
                     thread_id,
@@ -2723,9 +2684,7 @@ Apply these fixes in the output.",
                 )
                 .await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::CleanseReview
-            | crate::data_engineer::workflow_node::WorkflowNode::ModelReview
-            | crate::data_engineer::workflow_node::WorkflowNode::PostPublishReview => {
+            Phase::CleanseReview | Phase::ModelReview | Phase::PostPublishReview => {
                 Self::execute_review_phase(
                     thread_store,
                     thread_id,
@@ -2738,13 +2697,13 @@ Apply these fixes in the output.",
                 )
                 .await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::PublishAwaitApproval => {
+            Phase::PublishAwaitApproval => {
                 Self::execute_publish_await_approval_phase(thread_store, thread_id, sctx).await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::Publish => {
+            Phase::Publish => {
                 Self::execute_publish_phase(thread_store, thread_id, sctx).await
             }
-            crate::data_engineer::workflow_node::WorkflowNode::Done => {
+            Phase::Done => {
                 Self::execute_done_phase(out_frames)
             }
         }
@@ -3921,12 +3880,12 @@ mod tests {
     fn patch_impl_intent_requires_mutation_epoch_advance() {
         use crate::data_engineer::control_flow::Phase;
         use crate::data_engineer::progress_controller::{
-            ExecutionState, PendingLoopbackIntent,
+            ExecutionState, PatchImplIntent,
         };
 
         let mut st = ExecutionState::new();
         st.repair.mutation_epoch = 4;
-        st.repair.pending_loopback_intent = Some(PendingLoopbackIntent::PatchImpl {
+        st.repair.pending_patch_impl = Some(PatchImplIntent {
             phase: Phase::ModelAuthor,
             entry_mutation_epoch: 4,
         });

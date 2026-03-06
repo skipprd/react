@@ -5,8 +5,7 @@ use react_core::session::{Observation, ThreadStep, ThreadStore};
 use serde_json::Value;
 
 use crate::data_engineer::control_flow::{
-    allowed_next_phases, is_annotation_reason, is_cleanse_replan_backtrack,
-    is_model_replan_backtrack, replan_backtrack_counter_cap, Phase, TransitionIntent,
+    allowed_next_phases, is_replan_backtrack, replan_backtrack_counter_cap, Phase, TransitionIntent,
 };
 use crate::data_engineer::progress_controller::ExecutionState;
 use crate::data_engineer::state_manager;
@@ -24,8 +23,7 @@ pub async fn dispatch_phase_transition(
     reason_detail: Option<Value>,
 ) -> Result<(), String> {
     if let Some(from) = from_phase {
-        let is_same_phase_annotation = intent == TransitionIntent::Annotation
-            || (from == phase && is_annotation_reason(reason_code));
+        let is_same_phase_annotation = intent == TransitionIntent::Annotation;
         if !is_same_phase_annotation && !allowed_next_phases(from).contains(&phase) {
             return Err(format!(
                 "invalid_phase_transition: from='{}' to='{}' reason='{}'",
@@ -44,18 +42,17 @@ pub async fn dispatch_phase_transition(
         .unwrap_or_else(ExecutionState::new);
     let prev_state = st.clone();
     if let Some(from) = from_phase {
-        let is_backtrack =
-            is_cleanse_replan_backtrack(from, phase) || is_model_replan_backtrack(from, phase);
+        let is_backtrack = is_replan_backtrack(from, phase);
         match intent {
             TransitionIntent::Annotation => {}
             TransitionIntent::Forward => {
-                st.mutate_phase_state(|phase_state| {
+                st.with_phase_state_mut(|phase_state| {
                     phase_state.replan_backtracks = 0;
                 });
             }
             TransitionIntent::Loopback => {
                 let current = st.phase_state().replan_backtracks;
-                st.mutate_phase_state(|phase_state| {
+                st.with_phase_state_mut(|phase_state| {
                     phase_state.replan_backtracks = react_core::workflow::next_replan_backtracks(
                         current,
                         intent,
@@ -73,7 +70,7 @@ pub async fn dispatch_phase_transition(
     if matches!(phase, Phase::CleansePlan | Phase::ModelPlan) && from_phase != Some(phase) {
         st.reset_plan_bootstrap(phase);
     }
-    st.mutate_phase_state(|phase_state| {
+    st.with_phase_state_mut(|phase_state| {
         phase_state.current_phase = Some(phase);
         phase_state.phase_reason_code = reason_code.clone();
         phase_state.phase_reason_detail = reason_detail.clone();
@@ -130,23 +127,6 @@ pub async fn apply_phase_directive(
             )
             .await
         }
-        PhaseDirective::Annotate {
-            phase,
-            reason_code,
-            reason_detail,
-        } => {
-            dispatch_phase_transition(
-                store,
-                thread_id,
-                agent,
-                from_phase.or(Some(phase)),
-                phase,
-                TransitionIntent::Annotation,
-                Some(reason_code),
-                reason_detail,
-            )
-            .await
-        }
         PhaseDirective::Block {
             phase,
             kind,
@@ -165,7 +145,6 @@ pub async fn apply_phase_directive(
             )
             .await
             .map_err(|e| format!("failed to append guard step: {e}")),
-        PhaseDirective::Stay => Ok(()),
     }
 }
 
@@ -353,9 +332,10 @@ mod tests {
             tid,
             Some("agent".to_string()),
             Some(Phase::CleansePlan),
-            PhaseDirective::Annotate {
-                phase: Phase::CleansePlan,
-                reason_code: PhaseReasonCode::PhaseSet,
+            PhaseDirective::Transition {
+                to: Phase::CleansePlan,
+                intent: TransitionIntent::Annotation,
+                reason_code: Some(PhaseReasonCode::PhaseSet),
                 reason_detail: Some(serde_json::json!({"note":"x"})),
             },
         )
@@ -406,7 +386,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_phase_directive_transition_and_stay_are_handled() {
+    async fn apply_phase_directive_transition_is_handled() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
         let scope = RequestScope {
             tenant: "t".into(),
@@ -415,21 +395,7 @@ mod tests {
         };
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
-        let tid = "tid-phase-directive-stay";
-
-        apply_phase_directive(
-            &store,
-            tid,
-            Some("agent".to_string()),
-            None,
-            PhaseDirective::Stay,
-        )
-        .await
-        .expect("stay should succeed");
-        assert!(
-            store.get(tid).await.is_err(),
-            "stay should not append thread steps"
-        );
+        let tid = "tid-phase-directive-transition";
 
         apply_phase_directive(
             &store,
@@ -599,8 +565,8 @@ mod tests {
             "authoring plan-not-approved loopback must use typed constructor"
         );
         assert!(
-            src.contains("PhaseExecutorOutcome::PlanRevisionRequested("),
-            "authoring semantic-invalid paths must use PlanRevisionRequested"
+            src.contains("commit_plan_revision_loopback("),
+            "authoring semantic-invalid paths must use commit_plan_revision_loopback"
         );
         assert!(
             src.contains("phase_reason_detail::plan_key("),

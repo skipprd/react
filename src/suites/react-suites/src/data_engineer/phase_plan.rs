@@ -85,31 +85,41 @@ let is_cleanse = track.is_cleanse();
 let actx = Self::plan_agent_ctx(thread_id, sctx);
 
 // Detect plan-revision re-entry: if downstream phases requested a plan revision,
-// consume the violations, cancel the active plan, and fall through to LLM re-planning.
-let plan_violations: Vec<crate::data_engineer::progress_controller::PlanViolation> = {
+// consume the intent and branch on strategy.
+let plan_revision: Option<crate::data_engineer::progress_controller::PlanRevisionIntent> = {
     let mut es = crate::data_engineer::state_manager::load_execution_state_strict(
         &thread_store, thread_id,
     )
     .await?
     .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-    let v = es.take_pending_plan_violations();
-    if !v.is_empty() {
+    let rev = es.take_pending_plan_revision();
+    if rev.is_some() {
         es.save(&thread_store, thread_id).await.map_err(|e| {
-            format!("failed to persist execution state after consuming plan violations: {e}")
+            format!("failed to persist execution state after consuming plan revision: {e}")
         })?;
     }
-    v
+    rev
 };
-let is_plan_revision = !plan_violations.is_empty();
-if is_plan_revision {
-    if let Some(mut existing_plan) = load_active_plan_for_track_spec(&actx, track).await {
-        tracing::info!(
-            "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
-            existing_plan.plan_key(),
-            plan_violations.len()
-        );
-        existing_plan.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
-        crate::data_engineer::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+let plan_violations: Vec<crate::data_engineer::progress_controller::PlanViolation> =
+    plan_revision.as_ref().map(|r| r.violations.clone()).unwrap_or_default();
+let is_plan_revision = plan_revision.is_some();
+if let Some(ref revision) = plan_revision {
+    match revision.strategy {
+        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite => {
+            if let Some(mut existing_plan) = load_active_plan_for_track_spec(&actx, track).await {
+                tracing::info!(
+                    "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
+                    existing_plan.plan_key(),
+                    plan_violations.len()
+                );
+                existing_plan.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+                crate::data_engineer::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+            }
+        }
+        crate::data_engineer::progress_controller::PlanRevisionStrategy::Amend => {
+            // Keep plan alive; violations will be injected into the LLM prompt
+            // for targeted amendment.
+        }
     }
 }
 
@@ -155,7 +165,7 @@ if let Some(mut existing_plan) =
         crate::data_engineer::state_manager::mutate_execution_state(
             &thread_store,
             thread_id,
-            |es| es.clear_pending_loopback_intent(),
+            |es| es.clear_pending_patch_impl(),
         )
         .await
         .map(|_| ())?;

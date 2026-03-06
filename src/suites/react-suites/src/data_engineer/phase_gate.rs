@@ -2,7 +2,7 @@ use react_core::control_flow::GuardBlockKind;
 
 use crate::data_engineer::control_flow::Phase;
 use crate::data_engineer::progress_controller::{
-    ExecutionMode, ExecutionState, PendingLoopbackIntent, RepairLadderStep,
+    ExecutionMode, ExecutionState, RepairLadderStep,
     DEFAULT_MAX_STALL_COUNT,
 };
 
@@ -61,14 +61,10 @@ pub fn evaluate_pre_turn_directive(
 
 pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Phase) -> bool {
     let repair = execution_state.repair_state();
-    let Some(PendingLoopbackIntent::PatchImpl {
-        phase: intent_phase,
-        entry_mutation_epoch,
-    }) = repair.pending_loopback_intent.as_ref()
-    else {
+    let Some(intent) = repair.pending_patch_impl.as_ref() else {
         return false;
     };
-    *intent_phase == phase && repair.mutation_epoch <= *entry_mutation_epoch
+    intent.phase == phase && repair.mutation_epoch <= intent.entry_mutation_epoch
 }
 
 pub fn derive_single_target_repair_path(execution_state: &ExecutionState) -> Option<String> {

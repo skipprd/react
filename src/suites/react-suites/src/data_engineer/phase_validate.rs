@@ -212,7 +212,11 @@ if let Err(e) =
                 None,
                 format!("Pre-validation normalization failed {tries} times: {e}"),
             );
-            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+            crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                thread_store, thread_id, phase, vec![violation],
+                crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+            ).await?;
+            return Ok(PhaseExecutorOutcome::Continue);
         }
         SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
@@ -248,7 +252,11 @@ if let Err(e) =
                 None,
                 format!("Pre-validation structural check failed {tries} times: {e}"),
             );
-            return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+            crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+                thread_store, thread_id, phase, vec![violation],
+                crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+            ).await?;
+            return Ok(PhaseExecutorOutcome::Continue);
         }
         SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
@@ -658,7 +666,11 @@ let errs: Vec<String> = obs
                 brief
             ),
         );
-        return Ok(PhaseExecutorOutcome::PlanRevisionRequested(vec![violation]));
+        crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+            thread_store, thread_id, phase, vec![violation],
+            crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+        ).await?;
+        return Ok(PhaseExecutorOutcome::Continue);
     }
 }
 

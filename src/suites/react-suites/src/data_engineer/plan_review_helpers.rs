@@ -124,8 +124,8 @@ impl DataEngineerSuite {
             .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
         crate::data_engineer::state_manager::mutate_execution_state(
             thread_store, thread_id,
-            |es| es.clear_pending_loopback_intent(),
-        ).await.map_err(|e| format!("failed to clear pending loopback intent: {e}"))?;
+            |es| es.clear_pending_patch_impl(),
+        ).await.map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
 
         commit_phase_decision(
             thread_store, thread_id, Some(phase),

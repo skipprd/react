@@ -710,16 +710,31 @@ pub fn format_plan_violations(violations: &[PlanViolation]) -> String {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PendingLoopbackIntent {
-    PatchImpl {
-        phase: Phase,
-        entry_mutation_epoch: u64,
-    },
-    PlanRevision {
-        #[serde(default)]
-        violations: Vec<PlanViolation>,
-    },
+#[serde(deny_unknown_fields)]
+pub struct PatchImplIntent {
+    pub phase: Phase,
+    pub entry_mutation_epoch: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRevisionIntent {
+    pub violations: Vec<PlanViolation>,
+    #[serde(default)]
+    pub strategy: PlanRevisionStrategy,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanRevisionStrategy {
+    Rewrite,
+    Amend,
+}
+
+impl Default for PlanRevisionStrategy {
+    fn default() -> Self {
+        Self::Rewrite
+    }
 }
 
 
@@ -808,6 +823,8 @@ pub struct PhaseState {
     pub current_tier: ExecutionTier,
     #[serde(default)]
     pub mode: ExecutionMode,
+    #[serde(default)]
+    pub pending_plan_revision: Option<PlanRevisionIntent>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -828,7 +845,7 @@ pub struct RepairState {
     #[serde(default)]
     pub last_error_brief: Option<String>,
     #[serde(default)]
-    pub pending_loopback_intent: Option<PendingLoopbackIntent>,
+    pub pending_patch_impl: Option<PatchImplIntent>,
 }
 
 impl RepairState {
@@ -924,6 +941,7 @@ impl WorkflowControlState {
     fn mark_validate_success(&mut self, tier: ExecutionTier) {
         self.phase.current_tier = tier;
         self.phase.mode = ExecutionMode::Done;
+        self.phase.pending_plan_revision = None;
 
         self.repair.last_failure_signature = None;
         self.repair.repair_backlog.clear();
@@ -934,7 +952,7 @@ impl WorkflowControlState {
             ..ProgressDelta::default()
         });
         self.repair.last_error_brief = None;
-        self.repair.pending_loopback_intent = None;
+        self.repair.pending_patch_impl = None;
 
         self.publish.publish_approval = None;
         self.publish.publish_retries.clear();
@@ -1081,11 +1099,7 @@ impl ExecutionState {
         &self.phase
     }
 
-    pub(crate) fn mutate_phase_state(&mut self, mutate: impl FnOnce(&mut PhaseState)) {
-        self.with_phase_state_mut(mutate);
-    }
-
-    fn with_phase_state_mut(&mut self, mutate: impl FnOnce(&mut PhaseState)) {
+    pub(crate) fn with_phase_state_mut(&mut self, mutate: impl FnOnce(&mut PhaseState)) {
         mutate(&mut self.phase);
         self.debug_assert_invariants();
     }
@@ -1461,37 +1475,35 @@ impl ExecutionState {
     }
 
     pub fn set_pending_patch_impl_intent(&mut self, phase: Phase) {
-        let mut repair = self.repair.clone();
-        repair.pending_loopback_intent = Some(PendingLoopbackIntent::PatchImpl {
-            phase,
-            entry_mutation_epoch: repair.mutation_epoch,
-        });
-        self.repair = repair;
-        self.debug_assert_invariants();
-    }
-
-    pub fn set_pending_plan_revision(&mut self, violations: Vec<PlanViolation>) {
+        let epoch = self.repair.mutation_epoch;
         self.with_repair_state_mut(|repair| {
-            repair.pending_loopback_intent = Some(PendingLoopbackIntent::PlanRevision {
-                violations,
+            repair.pending_patch_impl = Some(PatchImplIntent {
+                phase,
+                entry_mutation_epoch: epoch,
             });
         });
     }
 
-    pub fn take_pending_plan_violations(&mut self) -> Vec<PlanViolation> {
-        let violations = match &self.repair.pending_loopback_intent {
-            Some(PendingLoopbackIntent::PlanRevision { violations }) => violations.clone(),
-            _ => Vec::new(),
-        };
-        if !violations.is_empty() {
-            self.clear_pending_loopback_intent();
-        }
-        violations
+    pub fn set_pending_plan_revision(&mut self, violations: Vec<PlanViolation>, strategy: PlanRevisionStrategy) {
+        self.with_phase_state_mut(|phase| {
+            phase.pending_plan_revision = Some(PlanRevisionIntent {
+                violations,
+                strategy,
+            });
+        });
     }
 
-    pub fn clear_pending_loopback_intent(&mut self) {
+    pub fn take_pending_plan_revision(&mut self) -> Option<PlanRevisionIntent> {
+        let rev = self.phase.pending_plan_revision.take();
+        if rev.is_some() {
+            self.debug_assert_invariants();
+        }
+        rev
+    }
+
+    pub fn clear_pending_patch_impl(&mut self) {
         self.with_repair_state_mut(|repair| {
-            repair.pending_loopback_intent = None;
+            repair.pending_patch_impl = None;
         });
     }
 
@@ -1624,15 +1636,13 @@ impl ExecutionState {
         affected_paths: Vec<String>,
         select_terms: Vec<String>,
     ) {
-        let mut repair = self.repair.clone();
-        repair.mutation_epoch = repair.mutation_epoch.saturating_add(1);
+        self.repair.mutation_epoch = self.repair.mutation_epoch.saturating_add(1);
         self.telemetry.last_mutation_summary = Some(LastMutationSummary {
             op,
             affected_paths,
             select_terms,
             ts: Some(chrono::Utc::now().to_rfc3339()),
         });
-        self.repair = repair;
         self.debug_assert_invariants();
     }
 
@@ -1693,11 +1703,9 @@ impl ExecutionState {
                 self.apply_validate_failure(tier, failure_class, sig, repair_intent, Some(brief));
             }
             DataEngineerEvent::BatchAuthoringRecovered => {
-                let mut repair = self.repair.clone();
-                Self::disable_repair_mode(&mut repair);
-                repair.last_error_brief = None;
-                repair.pending_loopback_intent = None;
-                self.repair = repair;
+                Self::disable_repair_mode(&mut self.repair);
+                self.repair.last_error_brief = None;
+                self.repair.pending_patch_impl = None;
                 self.debug_assert_invariants();
             }
         }

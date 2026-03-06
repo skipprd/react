@@ -349,6 +349,7 @@ pub trait TrackPlan {
     fn tasks_len(&self) -> usize;
     fn batches_len(&self) -> usize;
     fn progress_mut(&mut self) -> &mut PlanProgress;
+    fn executable_plan_issues(&self) -> Vec<String>;
     fn is_empty(&self) -> bool {
         self.tasks_len() == 0 || self.batches_len() == 0
     }
@@ -361,6 +362,9 @@ impl TrackPlan for CleansePlan {
     fn tasks_len(&self) -> usize { self.tasks.len() }
     fn batches_len(&self) -> usize { self.batches.len() }
     fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
+    fn executable_plan_issues(&self) -> Vec<String> {
+        crate::data_engineer::plan_progress::cleanse_executable_plan_issues(self)
+    }
 }
 
 impl TrackPlan for ModelPlan {
@@ -370,19 +374,16 @@ impl TrackPlan for ModelPlan {
     fn tasks_len(&self) -> usize { self.tasks.len() }
     fn batches_len(&self) -> usize { self.batches.len() }
     fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
+    fn executable_plan_issues(&self) -> Vec<String> {
+        crate::data_engineer::plan_progress::model_executable_plan_issues(self)
+    }
 }
 
 #[derive(Clone, Debug)]
-pub enum PlanIRDraft {
-    Cleanse(CleansePlan),
-    Model(ModelPlan),
-}
+pub struct GroundedCleansePlan(pub(crate) CleansePlan);
 
 #[derive(Clone, Debug)]
-pub struct GroundedCleansePlan(pub CleansePlan);
-
-#[derive(Clone, Debug)]
-pub struct GroundedModelPlan(pub ModelPlan);
+pub struct GroundedModelPlan(pub(crate) ModelPlan);
 
 #[derive(Clone, Debug)]
 pub enum PersistableCleansePlan {
