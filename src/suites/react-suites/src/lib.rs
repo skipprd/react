@@ -1,21 +1,16 @@
 //! Suites for the ReAct runtime.
 //!
-//! This crate is where all usecase/business logic lives: prompts, tool selection,
-//! and suite orchestration. It depends on `react-core` (the generic runner).
+//! Each suite is a self-contained product workflow that depends only on `react-core`.
 
-pub mod config;
 pub mod data_engineer;
-pub mod data_engineer_shared;
-pub mod dbt;
-pub mod flow_frame;
 pub mod kb;
-pub mod preflight;
-pub mod prompts;
-pub mod registry;
-pub mod suite_template;
-pub mod suite;
-pub mod util;
 
-pub use config::ReactResolvedConfig;
+pub use react_core::resolved_config::ReactResolvedConfig;
 pub use react_core::suite::{DynSuite, FlowFrame, Suite, SuiteCtx, SuiteRegistry};
-pub use registry::default_registry;
+
+pub fn default_registry() -> SuiteRegistry {
+    let mut reg = SuiteRegistry::new();
+    reg.register(data_engineer::DataEngineerSuite);
+    reg.register(kb::KbSuite);
+    reg
+}

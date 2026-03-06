@@ -2,8 +2,8 @@ use async_trait::async_trait;
 
 #[derive(Clone)]
 pub struct PreflightBundle {
-    pub discovery: crate::preflight::discovery::DiscoveryBundle,
-    pub preflight: Option<crate::preflight::catalog_preflight::PreflightOutcome>,
+    pub discovery: super::discovery::DiscoveryBundle,
+    pub preflight: Option<super::catalog_preflight::PreflightOutcome>,
 }
 
 #[async_trait]
@@ -13,14 +13,14 @@ pub trait PreflightProvider: Send + Sync {
         thread_id: &str,
         question: &str,
         agent_type: &str,
-        sctx: &crate::suite::SuiteCtx,
+        sctx: &react_core::suite::SuiteCtx,
     ) -> PreflightBundle;
 }
 
 /// Default preflight provider, backed by the existing catalog + discovery codepaths.
 #[derive(Default)]
 pub struct CatalogPreflightProvider {
-    pub discovery_limits: crate::preflight::discovery::DiscoveryLimits,
+    pub discovery_limits: super::discovery::DiscoveryLimits,
     pub run_preflight_on_bundle: bool,
 }
 
@@ -31,9 +31,9 @@ impl PreflightProvider for CatalogPreflightProvider {
         thread_id: &str,
         question: &str,
         agent_type: &str,
-        sctx: &crate::suite::SuiteCtx,
+        sctx: &react_core::suite::SuiteCtx,
     ) -> PreflightBundle {
-        let discovery = crate::preflight::discovery::run_discovery_cached(
+        let discovery = super::discovery::run_discovery_cached(
             thread_id,
             question,
             &self.discovery_limits,
@@ -42,7 +42,7 @@ impl PreflightProvider for CatalogPreflightProvider {
         .await;
         let preflight = if self.run_preflight_on_bundle {
             Some(
-                crate::preflight::catalog_preflight::run_preflight_on_bundle(thread_id, agent_type)
+                super::catalog_preflight::run_preflight_on_bundle(thread_id, agent_type)
                     .await,
             )
         } else {

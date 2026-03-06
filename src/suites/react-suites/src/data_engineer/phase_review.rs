@@ -3,8 +3,7 @@ use crate::data_engineer::review_batched;
 use crate::data_engineer::{
     control_flow, DataEngineerSuite, PhaseExecutorOutcome,
 };
-use crate::flow_frame::FlowFrame;
-use crate::suite::SuiteCtx;
+use react_core::suite::{FlowFrame, SuiteCtx};
 use react_core::control_flow::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use react_core::session::ThreadStore;
 

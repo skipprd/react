@@ -1,10 +1,9 @@
 use async_trait::async_trait;
 
-use crate::data_engineer_shared::policy_sql_validated::SqlValidatedPolicy;
-use crate::data_engineer_shared::types::DatasetCandidate;
-use crate::flow_frame::FlowFrame;
-use crate::preflight::PreflightProvider;
-use crate::suite::{Suite, SuiteCtx};
+use self::policy_sql_validated::SqlValidatedPolicy;
+use self::types::DatasetCandidate;
+use self::preflight::PreflightProvider;
+use react_core::suite::{FlowFrame, Suite, SuiteCtx};
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
@@ -19,6 +18,10 @@ use crate::data_engineer::phase_contract::{
 };
 
 pub struct DataEngineerSuite;
+
+pub fn resolved_config_from_ctx(ctx: &AgentCtx) -> Option<&react_core::resolved_config::ReactResolvedConfig> {
+    ctx.resolved_config.as_ref().map(|c| c.as_ref())
+}
 const PLAN_SPEC_PLACEHOLDER_SENTINEL: &str = "__REQUIRES_PLAN_ENRICHMENT__";
 
 impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
@@ -83,6 +86,7 @@ pub mod controller_event;
 pub mod controller_kernel;
 pub mod control_flow;
 pub mod dataset_truth;
+pub mod dbt;
 pub mod dbt_error;
 pub mod dbt_repair;
 pub mod facts;
@@ -132,6 +136,10 @@ mod tool_registry_builder;
 mod track_spec;
 pub mod transition_dispatcher;
 pub mod tools;
+pub mod types;
+pub mod util;
+pub mod policy_sql_validated;
+pub mod preflight;
 pub(crate) use track_spec::TrackKind;
 
 fn lock_prompt_for_plan(
@@ -1080,7 +1088,7 @@ impl DataEngineerSuite {
         } else {
             "model_plan"
         };
-        let sys = crate::prompts::plan::plan_design_memo_system_prompt(kind);
+        let sys = prompts::plan::plan_design_memo_system_prompt(kind);
         let user = format!(
             "Planning kind: {kind}\n\nContext:\n{}\n\nWrite the design memo.",
             Self::excerpt(planning_context, 120_000)
@@ -1124,7 +1132,7 @@ impl DataEngineerSuite {
             "data_engineer.plan_design_critique",
             ctx.thread_id.clone(),
         );
-        let sys = crate::prompts::plan::plan_design_critique_system_prompt(kind);
+        let sys = prompts::plan::plan_design_critique_system_prompt(kind);
         let user = format!(
             "Planning kind: {kind}\n\nContext:\n{}\n\nDesign memo:\n{}\n\nReturn critique JSON.",
             Self::excerpt(planning_context, 80_000),
@@ -1160,7 +1168,7 @@ impl DataEngineerSuite {
         } else {
             "model_plan"
         };
-        let sys = crate::prompts::plan::plan_design_memo_system_prompt(kind);
+        let sys = prompts::plan::plan_design_memo_system_prompt(kind);
         let user = format!(
             "Planning kind: {kind}\n\nContext:\n{}\n\nCurrent design memo:\n{}\n\nCritique JSON:\n{}\n\nRewrite the design memo in free text so the critique blockers/fixes are addressed.\nDo not return JSON.",
             Self::excerpt(planning_context, 90_000),
@@ -1299,7 +1307,7 @@ Apply these fixes in the output.",
                 crate::data_engineer::plan_schema::ModelPlanCandidatesV1,
             >(),
         };
-        let sys = crate::prompts::plan::model_plan_candidates_system_prompt();
+        let sys = prompts::plan::model_plan_candidates_system_prompt();
         let user = format!(
             "Context:\n{}\n\nDesign memo:\n{}\n\n{}\n\nReturn candidate-selection JSON.",
             Self::excerpt(planning_context, 60_000),
@@ -1679,7 +1687,7 @@ Apply these fixes in the output.",
                 &[
                     ChatMessage {
                         role: "system".to_string(),
-                        content: crate::prompts::plan::plan_enrichment_reason_system_prompt(),
+                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
                     },
                     ChatMessage {
                         role: "user".to_string(),
@@ -1709,7 +1717,7 @@ Apply these fixes in the output.",
                 &[
                     ChatMessage {
                         role: "system".to_string(),
-                        content: crate::prompts::plan::cleanse_plan_enrichment_system_prompt(),
+                        content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
                     },
                     ChatMessage {
                         role: "user".to_string(),
@@ -1754,7 +1762,7 @@ Apply these fixes in the output.",
                     &[
                         ChatMessage {
                             role: "system".to_string(),
-                            content: crate::prompts::plan::cleanse_plan_enrichment_system_prompt(),
+                            content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
                         },
                         ChatMessage {
                             role: "user".to_string(),
@@ -1845,7 +1853,7 @@ Apply these fixes in the output.",
                 &[
                     ChatMessage {
                         role: "system".to_string(),
-                        content: crate::prompts::plan::plan_enrichment_reason_system_prompt(),
+                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
                     },
                     ChatMessage {
                         role: "user".to_string(),
@@ -1875,7 +1883,7 @@ Apply these fixes in the output.",
                 &[
                     ChatMessage {
                         role: "system".to_string(),
-                        content: crate::prompts::plan::model_plan_enrichment_system_prompt(),
+                        content: prompts::plan::model_plan_enrichment_system_prompt(),
                     },
                     ChatMessage {
                         role: "user".to_string(),
@@ -1920,7 +1928,7 @@ Apply these fixes in the output.",
                     &[
                         ChatMessage {
                             role: "system".to_string(),
-                            content: crate::prompts::plan::model_plan_enrichment_system_prompt(),
+                            content: prompts::plan::model_plan_enrichment_system_prompt(),
                         },
                         ChatMessage {
                             role: "user".to_string(),
@@ -1969,15 +1977,15 @@ Apply these fixes in the output.",
     }
 
     fn inject_review_question(question: &str) -> String {
-        crate::prompts::shared::user_goal_line("Review request:", question)
+        prompts::shared::user_goal_line("Review request:", question)
     }
 
     fn inject_model_question(question: &str) -> String {
-        crate::prompts::shared::user_goal_line("Modeling goal:", question)
+        prompts::shared::user_goal_line("Modeling goal:", question)
     }
 
     fn inject_cleanse_question(question: &str) -> String {
-        crate::prompts::shared::user_goal_line("Cleansing goal:", question)
+        prompts::shared::user_goal_line("Cleansing goal:", question)
     }
 
     /// Hard cutover: refresh canonical catalog state on every run.
@@ -2212,11 +2220,11 @@ Apply these fixes in the output.",
         question: &str,
         sctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let sys = crate::util::time_context::with_time_context(prompts::ask_system_prompt());
+        let sys = util::time_context::with_time_context(prompts::ask_system_prompt());
         let tools_card = Self::build_tools_card_for_agent_type(AgentMode::Ask);
 
-        let pf = crate::preflight::CatalogPreflightProvider {
-            discovery_limits: crate::preflight::discovery::DiscoveryLimits::default(),
+        let pf = preflight::CatalogPreflightProvider {
+            discovery_limits: preflight::discovery::DiscoveryLimits::default(),
             run_preflight_on_bundle: false,
         };
         let bundle = pf.run(thread_id, question, "ask", sctx).await.discovery;
@@ -2310,7 +2318,7 @@ Apply these fixes in the output.",
         sctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
-        let sys = crate::util::time_context::with_time_context(prompts::review_system_prompt());
+        let sys = util::time_context::with_time_context(prompts::review_system_prompt());
         let tools_card = Self::build_tools_card_for_agent_type(AgentMode::Review);
 
         let registry = Self::build_tools(AgentMode::Review, sctx)?;

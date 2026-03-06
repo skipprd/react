@@ -9,9 +9,8 @@ use react_core::providers::DbtValidateArgs;
 use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
 use react_core::tools::Tool;
 
-use crate::config;
 use crate::data_engineer::tools::files_tool::FilesTool;
-use crate::dbt;
+use crate::data_engineer::dbt;
 pub use react_core::workflow::TransitionIntent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,7 +279,7 @@ impl DeterministicDbtValidateOnce {
             .dbt
             .as_ref()
             .ok_or_else(|| "dbt provider missing".to_string())?;
-        let Some(cfg) = config::resolved_config_from_ctx(ctx) else {
+        let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) else {
             return Err(
                 "resolved_config missing (needed to generate profiles.yml deterministically)"
                     .to_string(),
@@ -377,7 +376,7 @@ impl DeterministicDbtValidateTargetedOnce {
             .dbt
             .as_ref()
             .ok_or_else(|| "dbt provider missing".to_string())?;
-        let Some(cfg) = config::resolved_config_from_ctx(ctx) else {
+        let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) else {
             return Err(
                 "resolved_config missing (needed to generate profiles.yml deterministically)"
                     .to_string(),

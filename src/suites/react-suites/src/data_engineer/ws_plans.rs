@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::suite::SuiteCtx;
+use react_core::suite::SuiteCtx;
 
 use super::plan as de_plan;
 

@@ -8,8 +8,7 @@ use react_core::llm::{ChatMessage, LlmCallOptions, LlmExpectedFormat, ReasoningE
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 use react_core::tools::Tool;
 
-use crate::flow_frame::FlowFrame;
-use crate::suite::SuiteCtx;
+use react_core::suite::{FlowFrame, SuiteCtx};
 
 use super::control_flow::Phase;
 use super::plan_kind::PlanKind;

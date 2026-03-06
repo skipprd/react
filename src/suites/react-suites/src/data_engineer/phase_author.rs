@@ -376,7 +376,7 @@ let mut repair_type = execution_state.repair_type();
 if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
     repair_type = crate::data_engineer::progress_controller::RepairType::Schema;
 }
-let sys = crate::util::time_context::with_time_context(if is_cleanse {
+let sys = crate::data_engineer::util::time_context::with_time_context(if is_cleanse {
     prompts::cleanse_system_prompt()
 } else {
     prompts::model_system_prompt()
@@ -1109,7 +1109,7 @@ q.push_str(&plan_context);
 // - In authoring, include ALL relations in the current approved batch.
 // - Also include any recent validate-fail facts snapshot if present.
 {
-    let dialect = crate::config::resolved_config_from_ctx(&actx)
+    let dialect = crate::data_engineer::resolved_config_from_ctx(&actx)
         .as_ref()
         .map(|cfg| crate::data_engineer::dbt_repair::remediate::active_provider_dialect(cfg))
         .unwrap_or_else(|| "Unknown SQL dialect".to_string());
@@ -1396,7 +1396,7 @@ if hard_mutation_repair_mode
             ladder_step: ladder.clone(),
             last_validate_brief: repair_ctx.brief.clone(),
             patch_contract: Some(
-                crate::prompts::patch_contract::file_patch_contract()
+                crate::data_engineer::prompts::patch_contract::file_patch_contract()
                     .to_string(),
             ),
         }),

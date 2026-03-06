@@ -451,7 +451,7 @@ pub async fn llm_patch_loop_single_file(
                 return Err(format!(
                     "invalid_json: {}\n\nExpected patch contract:\n{}\n\nResponse excerpt:\n{}",
                     e.trim(),
-                    crate::prompts::patch_contract::llm_patch_response_contract(),
+                    crate::data_engineer::prompts::patch_contract::llm_patch_response_contract(),
                     excerpt_for_error(&resp_text, 2000)
                 ));
             }
@@ -652,33 +652,33 @@ mod tests {
         assert!(err.contains("must target expected path"));
     }
 
-    fn minimal_cfg() -> Arc<crate::config::ReactResolvedConfig> {
-        Arc::new(crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+    fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
+        Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: RequestScope {
                 tenant: "t".to_string(),
                 workspace: "w".to_string(),
                 project_id: "p".to_string(),
             },
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "test_raw".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: true,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved {
+                    naming: react_core::resolved_config::DbtNamingResolved {
                         target_schema: "test".to_string(),
                         silver_suffix: "silver".to_string(),
                         gold_suffix: "warehouse".to_string(),
@@ -689,7 +689,7 @@ mod tests {
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         })
     }

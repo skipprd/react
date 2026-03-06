@@ -224,7 +224,7 @@ impl Tool for StagingModelTool {
         // Grounded gating (fail-fast, no side effects):
         // - Cleanse/silver must only operate on raw datasets (configured source_schema).
         // - The only fact we trust for dataset existence is query.schema(<fqn>) success.
-        let cfg = crate::config::resolved_config_from_ctx(ctx).ok_or_else(|| {
+        let cfg = crate::data_engineer::resolved_config_from_ctx(ctx).ok_or_else(|| {
             "resolved_config missing (cannot enforce raw dataset constraints)".to_string()
         })?;
         let want_catalog = cfg.providers.warehouse.container.clone();
@@ -395,10 +395,10 @@ impl Tool for StagingModelTool {
             }
         }
 
-        let dialect = crate::config::resolved_config_from_ctx(ctx)
+        let dialect = crate::data_engineer::resolved_config_from_ctx(ctx)
             .map(active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
-        let provider_name = crate::config::resolved_config_from_ctx(ctx)
+        let provider_name = crate::data_engineer::resolved_config_from_ctx(ctx)
             .map(|cfg| cfg.providers.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let provider_prompt_rules = {
@@ -1107,28 +1107,28 @@ mod tests {
             workspace: "w".into(),
             project_id: "p".into(),
         };
-        let cfg = Arc::new(crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+        let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "test_raw".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: true,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved {
+                    naming: react_core::resolved_config::DbtNamingResolved {
                         target_schema: "test".to_string(),
                         silver_suffix: "silver".to_string(),
                         gold_suffix: "warehouse".to_string(),
@@ -1139,7 +1139,7 @@ mod tests {
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         });
 
@@ -1348,28 +1348,28 @@ mod tests {
             workspace: "w".into(),
             project_id: "p".into(),
         };
-        let cfg = Arc::new(crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+        let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "test_raw".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: true,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved {
+                    naming: react_core::resolved_config::DbtNamingResolved {
                         target_schema: "test".to_string(),
                         silver_suffix: "silver".to_string(),
                         gold_suffix: "warehouse".to_string(),
@@ -1380,7 +1380,7 @@ mod tests {
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         });
 

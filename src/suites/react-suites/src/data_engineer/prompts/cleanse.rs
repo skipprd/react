@@ -1,7 +1,7 @@
 pub fn cleanse_system_prompt() -> String {
     let mut s = String::new();
     s.push_str("You are a data cleansing/staging agent focused on authoring artifacts, not answering queries.\n");
-    s.push_str(crate::prompts::shared::author_system_prompt_common());
+    s.push_str(super::shared::author_system_prompt_common());
     s.push_str(
         r#"
 

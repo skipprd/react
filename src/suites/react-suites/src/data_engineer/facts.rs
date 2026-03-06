@@ -546,7 +546,7 @@ pub fn merge_relation_fqns(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config;
+    use react_core::resolved_config as config;
     use async_trait::async_trait;
     use react_core::agent::{AgentCtx, DefaultPolicy};
     use react_core::keyspace::{DefaultKeyspace, Keyspace};

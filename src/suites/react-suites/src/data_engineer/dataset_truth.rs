@@ -42,11 +42,11 @@ impl GroundedDatasetSet {
 }
 
 fn source_container_from_cfg(ctx: &AgentCtx) -> Option<String> {
-    crate::config::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.container.clone())
+    crate::data_engineer::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.container.clone())
 }
 
 fn source_namespace_from_cfg(ctx: &AgentCtx) -> Option<String> {
-    crate::config::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.namespace.clone())
+    crate::data_engineer::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.namespace.clone())
 }
 
 fn is_in_source_namespace(ctx: &AgentCtx, dataset_id: &str) -> bool {

@@ -5,8 +5,7 @@ use react_core::agent::{Agent, AgentCtx, DefaultPolicy, InterruptKind, RunOutcom
 use react_core::session::ThreadStore;
 use react_core::tools::ToolRegistry;
 
-use crate::flow_frame::FlowFrame;
-use crate::suite::{Suite, SuiteCtx};
+use react_core::suite::{FlowFrame, Suite, SuiteCtx};
 
 pub struct KbSuite;
 

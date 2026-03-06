@@ -214,11 +214,11 @@ impl Tool for DbtValidateTool {
         // Keep the tempdir alive for the duration of this call.
         let mut _tmp: Option<tempfile::TempDir> = None;
         if profiles_dir.is_none() {
-            if let Some(cfg) = crate::config::resolved_config_from_ctx(ctx) {
+            if let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) {
                 let threads = Some(react_core::providers::QueryProvider::max_concurrency(
                     ctx.warehouse.as_ref(),
                 ));
-                if let Ok(gen) = crate::dbt::profile::generate_profiles_yml(cfg, threads) {
+                if let Ok(gen) = crate::data_engineer::dbt::profile::generate_profiles_yml(cfg, threads) {
                     let td = tempfile::tempdir().map_err(|e| e.to_string())?;
                     let mut p = PathBuf::from(td.path());
                     p.push("profiles.yml");
@@ -242,7 +242,7 @@ impl Tool for DbtValidateTool {
                 .to_string()
         })?;
 
-        let dialect = crate::config::resolved_config_from_ctx(ctx)
+        let dialect = crate::data_engineer::resolved_config_from_ctx(ctx)
             .map(crate::data_engineer::dbt_repair::remediate::active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
 
@@ -618,33 +618,33 @@ mod tests {
         assert!(v.get("patch_text").and_then(|x| x.as_str()).is_some());
     }
 
-    fn minimal_cfg() -> Arc<crate::config::ReactResolvedConfig> {
-        Arc::new(crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+    fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
+        Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: RequestScope {
                 tenant: "t".to_string(),
                 workspace: "w".to_string(),
                 project_id: "p".to_string(),
             },
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "src".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: true,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved {
+                    naming: react_core::resolved_config::DbtNamingResolved {
                         target_schema: "src".to_string(),
                         silver_suffix: "silver".to_string(),
                         gold_suffix: "warehouse".to_string(),
@@ -655,7 +655,7 @@ mod tests {
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         })
     }

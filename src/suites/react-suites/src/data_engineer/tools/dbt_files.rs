@@ -763,7 +763,7 @@ impl Tool for FilesTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config;
+    use react_core::resolved_config as config;
     use crate::data_engineer::files_store as project_fs;
     use crate::data_engineer::progress_controller::ExecutionState;
     use crate::data_engineer::state_manager;

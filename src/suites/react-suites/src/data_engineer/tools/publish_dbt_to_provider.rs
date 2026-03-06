@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::config::ReactResolvedConfig;
+use react_core::resolved_config::ReactResolvedConfig;
 use crate::data_engineer::progress_controller::ExecutionState;
 use crate::data_engineer::state_manager;
 use react_core::agent::AgentCtx;
@@ -45,7 +45,7 @@ impl Tool for PublishDbtToProviderTool {
 
         // Enforce single active warehouse provider for publishing.
         let threads = ctx.query.as_ref().map(|q| q.max_concurrency());
-        let gen = crate::dbt::profile::generate_profiles_yml(cfg, threads)?;
+        let gen = crate::data_engineer::dbt::profile::generate_profiles_yml(cfg, threads)?;
         let provider_target = args
             .get("target")
             .and_then(|x| x.as_str())
@@ -287,7 +287,7 @@ impl Tool for PublishDbtToProviderTool {
 
 async fn check_existing_relations(
     query: Option<&std::sync::Arc<dyn react_core::providers::QueryProvider>>,
-    cfg: &crate::config::ReactResolvedConfig,
+    cfg: &react_core::resolved_config::ReactResolvedConfig,
     relations: &[PublishedRelation],
 ) -> BTreeMap<String, bool> {
     let mut out = BTreeMap::<String, bool>::new();
@@ -437,39 +437,39 @@ mod tests {
 
     #[tokio::test]
     async fn check_existing_relations_is_conservative_without_query_provider() {
-        let cfg = crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+        let cfg = react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: RequestScope {
                 tenant: "t".to_string(),
                 workspace: "w".to_string(),
                 project_id: "p".to_string(),
             },
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "src".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: false,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved::default(),
+                    naming: react_core::resolved_config::DbtNamingResolved::default(),
                     runner: "host".to_string(),
                     docker_image: None,
                     docker_platform: None,
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         };
         let rels = vec![PublishedRelation {
@@ -565,28 +565,28 @@ mod tests {
             keyspace: keyspace.clone(),
         });
 
-        let cfg = Arc::new(crate::config::ReactResolvedConfig {
-            server: crate::config::ServerResolved { port: 1 },
-            storage: crate::config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+        let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
-            llm: crate::config::LlmResolved::default(),
-            providers: crate::config::ProvidersResolved {
-                warehouse: crate::config::WarehouseResolved {
+            llm: react_core::resolved_config::LlmResolved::default(),
+            providers: react_core::resolved_config::ProvidersResolved {
+                warehouse: react_core::resolved_config::WarehouseResolved {
                     kind: react_core::resolved_config::WarehouseKind::Athena,
                     container: "AwsDataCatalog".to_string(),
                     namespace: "picnic".to_string(),
                     extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
                 },
-                catalog: crate::config::CatalogResolved {
+                catalog: react_core::resolved_config::CatalogResolved {
                     enabled: false,
                     refresh_secs: 60,
                     max_concurrency: 8,
                 },
-                dbt: crate::config::DbtResolved {
+                dbt: react_core::resolved_config::DbtResolved {
                     enabled: true,
                     profiles_dir: None,
                     target: "athena".to_string(),
-                    naming: crate::config::DbtNamingResolved {
+                    naming: react_core::resolved_config::DbtNamingResolved {
                         target_schema: "picnic".to_string(),
                         silver_suffix: "silver".to_string(),
                         gold_suffix: "warehouse".to_string(),
@@ -597,7 +597,7 @@ mod tests {
                     docker_network: None,
                     docker_mount_aws_dir: false,
                 },
-                vector: crate::config::VectorResolved { enabled: false },
+                vector: react_core::resolved_config::VectorResolved { enabled: false },
             },
         });
 

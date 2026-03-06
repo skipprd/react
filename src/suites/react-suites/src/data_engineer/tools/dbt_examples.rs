@@ -31,7 +31,7 @@ impl Tool for SearchDbtExamplesTool {
         }
         let k = args.get("k").and_then(|x| x.as_u64()).unwrap_or(8) as usize;
         // Ensure examples synced at least once (non-blocking if already done)
-        crate::dbt::examples::ensure_synced_once(
+        crate::data_engineer::dbt::examples::ensure_synced_once(
             ctx.storage.clone(),
             ctx.scope.clone(),
             ctx.llm.clone(),
@@ -39,7 +39,7 @@ impl Tool for SearchDbtExamplesTool {
         )
         .await;
         let embed_chars = query.len();
-        let results = crate::dbt::examples::search_examples(
+        let results = crate::data_engineer::dbt::examples::search_examples(
             ctx.scope.clone(),
             ctx.llm.clone(),
             ctx.vector.clone(),

@@ -1,7 +1,6 @@
 use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::data_engineer::{control_flow, tools, DataEngineerSuite, PhaseExecutorOutcome};
-use crate::flow_frame::FlowFrame;
-use crate::suite::SuiteCtx;
+use react_core::suite::{FlowFrame, SuiteCtx};
 use react_core::control_flow::PhaseReasonCode;
 use react_core::session::ThreadStore;
 

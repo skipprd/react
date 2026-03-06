@@ -1,5 +1,5 @@
 use crate::data_engineer::{control_flow, DataEngineerSuite, PhaseExecutorOutcome};
-use crate::suite::SuiteCtx;
+use react_core::suite::SuiteCtx;
 use react_core::control_flow::PhaseReasonCode;
 use react_core::session::ThreadStore;
 

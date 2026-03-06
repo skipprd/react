@@ -17,7 +17,7 @@ pub struct DiscoveryBundle {
 pub async fn run_discovery(
     question: &str,
     limits: &DiscoveryLimits,
-    sctx: &crate::suite::SuiteCtx,
+    sctx: &react_core::suite::SuiteCtx,
 ) -> DiscoveryBundle {
     let k = if limits.top_k_datasets == 0 {
         12
@@ -68,7 +68,7 @@ pub async fn run_discovery_cached(
     thread_id: &str,
     question: &str,
     limits: &DiscoveryLimits,
-    sctx: &crate::suite::SuiteCtx,
+    sctx: &react_core::suite::SuiteCtx,
 ) -> DiscoveryBundle {
     let k = if limits.top_k_datasets == 0 {
         12

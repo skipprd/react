@@ -412,7 +412,7 @@ if execution_state.needs_plan_bootstrap(phase) {
             })?;
         }
 }
-let sys = crate::util::time_context::with_time_context(if is_cleanse {
+let sys = crate::data_engineer::util::time_context::with_time_context(if is_cleanse {
     prompts::cleanse_plan_system_prompt()
 } else {
     prompts::model_plan_system_prompt()
