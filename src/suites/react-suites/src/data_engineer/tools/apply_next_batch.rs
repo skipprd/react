@@ -16,12 +16,7 @@ use crate::data_engineer::progress_controller::{
 };
 use crate::data_engineer::tools;
 
-fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(|x| x.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+use super::model_authoring_engine::extract_string_arg;
 
 fn mark_in_progress_cleanse(plan: &mut CleansePlan, dataset_ids: &[String]) {
     for ds in dataset_ids.iter() {
@@ -128,7 +123,7 @@ impl Tool for ApplyNextCleanseBatchTool {
         }
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
-        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(ctx, &mut plan).await?;
+        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan).await?;
         if !v.ok {
             return Ok(serde_json::json!({
                 "ok": false,
@@ -412,7 +407,6 @@ impl Tool for ApplyNextModelBatchTool {
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
         let stg = dataset_truth::discover_staging_models_from_storage(ctx).await;
         let v = plan::ensure_model_plan_semantically_valid_or_repaired(
-            ctx,
             &mut plan,
             &stg.allowed_models,
         )
@@ -762,7 +756,7 @@ mod tests {
             replies: Mutex::new(vec![]),
         });
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
-            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+            Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
@@ -826,7 +820,7 @@ mod tests {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 expected_model_path: Some("models/staging/stg_test_raw_raw_customers.sql".to_string()),
                 invariants: vec![],
-                implementation_spec: plan::CleanseImplementationSpec {
+                implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![plan::OutputFieldSpec {
@@ -839,7 +833,7 @@ mod tests {
                         description: None,
                     }],
                     prohibited_ops: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -853,7 +847,7 @@ mod tests {
 
     async fn seed_model_plan(ctx: &AgentCtx, sql_done: bool, schema_done: bool, locked: bool) {
         let stg_rel = "models/staging/stg_test_raw_raw_customers.sql";
-        let stg_key = crate::data_engineer::files_store::join_storage_key(ctx, stg_rel);
+        let stg_key = crate::data_engineer::project_fs::join_storage_key(ctx, stg_rel);
         ctx.storage
             .put_bytes(
                 &stg_key,
@@ -895,12 +889,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -916,7 +910,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],

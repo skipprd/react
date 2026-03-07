@@ -54,18 +54,14 @@ pub fn extract_source_calls(sql: &str) -> Vec<(String, String)> {
     while let Some(pos) = s[idx..].find("source(") {
         let mut j = idx + pos + "source(".len();
 
-        // Parse first string arg (schema)
-        j = skip_ws(&s, j);
-        let Some((schema, j2)) = parse_quoted_string(&s, j) else {
+        let Some((schema, j2)) = parse_quoted(&s, j) else {
             idx = j;
             continue;
         };
         j = skip_ws(&s, j2);
         j = skip_comma(&s, j);
-        j = skip_ws(&s, j);
 
-        // Parse second string arg (table)
-        let Some((table, j3)) = parse_quoted_string(&s, j) else {
+        let Some((table, j3)) = parse_quoted(&s, j) else {
             idx = j;
             continue;
         };
@@ -94,9 +90,8 @@ pub fn extract_ref_calls(sql: &str) -> Vec<String> {
     let mut idx = 0usize;
     let mut out: BTreeSet<String> = BTreeSet::new();
     while let Some(pos) = s[idx..].find("ref(") {
-        let mut j = idx + pos + "ref(".len();
-        j = skip_ws(&s, j);
-        let Some((name, j2)) = parse_quoted_string(&s, j) else {
+        let j = idx + pos + "ref(".len();
+        let Some((name, j2)) = parse_quoted(&s, j) else {
             idx = j;
             continue;
         };
@@ -145,24 +140,35 @@ fn skip_comma(s: &str, mut i: usize) -> usize {
     i
 }
 
-fn parse_quoted_string(s: &str, i: usize) -> Option<(String, usize)> {
+/// Parse a single- or double-quoted string starting at position `i`.
+/// Handles backslash escapes. Returns the inner string and the index past the closing quote.
+pub(crate) fn parse_quoted(s: &str, mut i: usize) -> Option<(String, usize)> {
     let bytes = s.as_bytes();
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
     if i >= bytes.len() {
         return None;
     }
-    let q = bytes[i];
-    if q != b'\'' && q != b'"' {
+    let q = bytes[i] as char;
+    if q != '\'' && q != '"' {
         return None;
     }
-    let mut j = i + 1;
-    while j < bytes.len() && bytes[j] != q {
-        j += 1;
+    i += 1;
+    let start = i;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c == q {
+            let out = s[start..i].to_string();
+            return Some((out, i + 1));
+        }
+        if c == '\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+        i += 1;
     }
-    if j >= bytes.len() {
-        return None;
-    }
-    let out = s[i + 1..j].to_string();
-    Some((out, j + 1))
+    None
 }
 
 #[cfg(test)]

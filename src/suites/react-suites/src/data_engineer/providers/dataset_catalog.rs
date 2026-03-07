@@ -3,6 +3,11 @@ use async_trait::async_trait;
 use super::catalog_types::DatasetStats;
 use super::stats::DatasetFieldStats;
 
+/// Provider-facing dataset identifier in `<catalog>.<database>.<table>` form.
+///
+/// This type lives on the provider trait boundary. The internal equivalent is
+/// [`crate::data_engineer::references::DatasetRef`], which uses `schema` for
+/// the middle segment. `From` impls exist in both directions.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DatasetId {
     pub catalog: String,
@@ -53,7 +58,7 @@ pub trait DatasetCatalogProvider: Send + Sync {
     ) -> Result<(DatasetFieldStats, DatasetStats), String>;
 
     fn max_concurrency(&self) -> usize {
-        super::limits::DEFAULT_MAX_CONCURRENCY
+        super::DEFAULT_MAX_CONCURRENCY
     }
 }
 

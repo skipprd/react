@@ -139,7 +139,7 @@ impl DataEngineerSuite {
         let reason_detail = crate::data_engineer::phase_reason_detail::review_decision_transition(
             phase.as_str(),
             serde_json::to_value(&meta).unwrap_or(serde_json::Value::Null),
-            answer.clone(),
+            meta.decision,
             false,
             false,
             review_retry_count,

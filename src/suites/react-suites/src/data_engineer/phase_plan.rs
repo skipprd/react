@@ -5,7 +5,7 @@ use crate::data_engineer::plan_progress::MAX_BATCH_SIZE;
 use crate::data_engineer::plan_types::TrackPlan;
 use react_core::keyspace::encode_key_component;
 
-fn auto_approved_plan_detail(source: &str) -> serde_json::Value {
+fn auto_approved_plan_detail(source: crate::data_engineer::phase_reason_detail::AutoApprovalSource) -> serde_json::Value {
     crate::data_engineer::phase_reason_detail::plan_auto_approved(source)
 }
 
@@ -40,7 +40,7 @@ async fn finalize_plan_and_approve(
         actx,
         thread_state_step_count,
         PhaseReasonCode::PlanAutoApproved,
-        auto_approved_plan_detail("new_draft_plan"),
+        auto_approved_plan_detail(crate::data_engineer::phase_reason_detail::AutoApprovalSource::NewDraftPlan),
     )
     .await?;
     if advanced {
@@ -105,6 +105,171 @@ fn stamp_design_review(
             }),
         );
     }
+}
+
+async fn run_plan_bootstrap(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: crate::data_engineer::control_flow::Phase,
+    sctx: &SuiteCtx,
+    actx: &AgentCtx,
+    execution_state: &crate::data_engineer::progress_controller::ExecutionState,
+) -> Result<Option<String>, String> {
+    if !execution_state.needs_plan_bootstrap(phase) {
+        return Ok(None);
+    }
+    let query = crate::data_engineer::ctx_ext::sctx_query(sctx)
+        .ok_or_else(|| "query provider missing".to_string())?;
+    let files_tool = tools::files_tool::FilesTool {
+        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+    };
+    let sql_schema_tool = tools::sql_schema::SqlSchemaTool {
+        query: query.clone(),
+        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+        catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
+    };
+    let sql_stats_tool = tools::sql_stats::SqlStatsTool {
+        catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
+        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+    };
+    let sql_sample_tool = tools::sql_sample::SqlSampleTool {
+        query: query.clone(),
+    };
+    let run_sql_tool = tools::sql_run::SqlRunTool {
+        query: query.clone(),
+    };
+
+    let tool_timeout = |name: &str| {
+        actx.policy
+            .timeout_for_tool(name)
+            .unwrap_or(actx.per_step_timeout_secs)
+    };
+    let files_tool_timeout = tool_timeout("file");
+    let sql_schema_timeout = tool_timeout("sql_schema");
+    let sql_stats_timeout = tool_timeout("sql_stats");
+    let sql_sample_timeout = tool_timeout("sql_sample");
+    let run_sql_timeout = tool_timeout("run_sql");
+
+    let models_list = control_flow::call_and_record_tool(
+        thread_store,
+        thread_id,
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
+        &files_tool,
+        serde_json::json!({"op":"list","prefix":"models/","limit":crate::data_engineer::env_util::FILE_LIST_LIMIT}),
+        actx,
+        files_tool_timeout,
+    )
+    .await;
+    let _dbt_project = control_flow::call_and_record_tool(
+        thread_store,
+        thread_id,
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
+        &files_tool,
+        serde_json::json!({"op":"get","path":"dbt_project.yml","max_chars":4000}),
+        actx,
+        files_tool_timeout,
+    )
+    .await;
+    let _packages = control_flow::call_and_record_tool(
+        thread_store,
+        thread_id,
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
+        &files_tool,
+        serde_json::json!({"op":"get","path":"packages.yml","max_chars":4000}),
+        actx,
+        files_tool_timeout,
+    )
+    .await;
+    let _schema_yml = control_flow::call_and_record_tool(
+        thread_store,
+        thread_id,
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
+        &files_tool,
+        serde_json::json!({"op":"get","path":"models/schema.yml","max_chars":6000}),
+        actx,
+        files_tool_timeout,
+    )
+    .await;
+
+    let tables_obs = control_flow::call_and_record_tool(
+        thread_store,
+        thread_id,
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
+        &sql_schema_tool,
+        serde_json::json!({}),
+        actx,
+        sql_schema_timeout,
+    )
+    .await;
+    let tables: Vec<String> = tables_obs
+        .get("tables")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut probed: Option<String> = None;
+    let mut probed_field: Option<String> = None;
+    let mut probe_ok = false;
+    if let Some(first) = tables.first() {
+        let (ok, field) = DataEngineerSuite::run_deterministic_probe_for_table(
+            thread_store,
+            thread_id,
+            actx,
+            &sql_schema_tool,
+            &sql_stats_tool,
+            &sql_sample_tool,
+            &run_sql_tool,
+            first,
+            sql_schema_timeout,
+            sql_stats_timeout,
+            sql_sample_timeout,
+            run_sql_timeout,
+        )
+        .await;
+        probed = Some(first.clone());
+        probed_field = field;
+        probe_ok = ok;
+    }
+
+    let model_count = models_list
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let models_list_ok = models_list
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let tables_ok = tables_obs
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut head_tables = tables.clone();
+    head_tables.truncate(10);
+    let bootstrap_sufficient = models_list_ok && tables_ok;
+    let summary = format!(
+        "Deterministic bootstrap (suite-provided):\n- models/ listed: {} item(s)\n- models_list_ok: {}\n- sql_schema_ok: {}\n- tables discovered (head): {:?}\n- probed table for evidence: {:?}\n- probed field: {:?}\n- probe_ok: {}\n- bootstrap_sufficient: {}\n\nIf models/ is empty, that's OK; proceed using sql_schema discovery.",
+        model_count,
+        models_list_ok,
+        tables_ok,
+        head_tables,
+        probed,
+        probed_field,
+        probe_ok,
+        bootstrap_sufficient
+    );
+    if bootstrap_sufficient {
+        let mut st = execution_state.clone();
+        st.mark_plan_bootstrap_done(phase);
+        st.save(thread_store, thread_id).await.map_err(|e| {
+            format!("failed to persist plan bootstrap state: {e}")
+        })?;
+    }
+    Ok(Some(summary))
 }
 
 impl DataEngineerSuite {
@@ -194,7 +359,7 @@ if let Some(mut existing_plan) =
                     Some(crate::data_engineer::phase_reason_detail::to_value(
                         &crate::data_engineer::phase_reason_detail::PlanInvalidEmptyDetail {
                             plan_key,
-                            status: format!("{:?}", existing_plan.status()),
+                            status: existing_plan.status(),
                             tasks_len: existing_plan.tasks_len(),
                             batches_len: existing_plan.batches_len(),
                         },
@@ -218,7 +383,7 @@ if let Some(mut existing_plan) =
             PhaseDecision::forward(
                 track.author_phase(),
                 Some(PhaseReasonCode::PlanAlreadyApproved),
-                Some(plan_status_reason_detail(&existing_plan.status())),
+                Some(plan_status_reason_detail(existing_plan.status())),
             ),
         )
         .await?;
@@ -253,7 +418,7 @@ if let Some(mut existing_plan) =
                 TrackPlanDoc::Model(_) => crate::data_engineer::phase_reason_detail::to_value(
                     &crate::data_engineer::phase_reason_detail::PlanInvalidEmptyDetail {
                         plan_key,
-                        status: format!("{:?}", existing_plan.status()),
+                        status: existing_plan.status(),
                         tasks_len: existing_plan.tasks_len(),
                         batches_len: existing_plan.batches_len(),
                     },
@@ -276,7 +441,7 @@ if let Some(mut existing_plan) =
             &actx,
             thread_state_step_count,
             PhaseReasonCode::PlanAutoApproved,
-            auto_approved_plan_detail("existing_draft_plan"),
+            auto_approved_plan_detail(crate::data_engineer::phase_reason_detail::AutoApprovalSource::ExistingDraftPlan),
         )
         .await?;
         if advanced {
@@ -295,163 +460,10 @@ Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
 //
 // Important: we do NOT decide the plan here; we just provide enough reality to
 // ground the LLM's plan authoring.
-let mut bootstrap_summary: Option<String> = None;
-if execution_state.needs_plan_bootstrap(phase) {
-        // Bootstrap calls are intentionally conservative: list models (may be empty),
-        // read core config files, list datasets, and run a minimal probe on one table.
-        let query = crate::data_engineer::ctx_ext::sctx_query(sctx)
-            .ok_or_else(|| "query provider missing".to_string())?;
-        let files_tool = tools::files_tool::FilesTool {
-            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
-        };
-        let sql_schema_tool = tools::sql_schema::SqlSchemaTool {
-            query: query.clone(),
-            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
-            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
-        };
-        let sql_stats_tool = tools::sql_stats::SqlStatsTool {
-            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
-            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
-        };
-        let sql_sample_tool = tools::sql_sample::SqlSampleTool {
-            query: query.clone(),
-        };
-        let run_sql_tool = tools::sql_run::SqlRunTool {
-            query: query.clone(),
-        };
-
-        let tool_timeout = |name: &str| {
-            actx.policy
-                .timeout_for_tool(name)
-                .unwrap_or(actx.per_step_timeout_secs)
-        };
-        let files_tool_timeout = tool_timeout("file");
-        let sql_schema_timeout = tool_timeout("sql_schema");
-        let sql_stats_timeout = tool_timeout("sql_stats");
-        let sql_sample_timeout = tool_timeout("sql_sample");
-        let run_sql_timeout = tool_timeout("run_sql");
-
-        let models_list = control_flow::call_and_record_tool(
-            &thread_store,
-            thread_id,
-            Some("agent".to_string()),
-            &files_tool,
-            serde_json::json!({"op":"list","prefix":"models/","limit":500}),
-            &actx,
-            files_tool_timeout,
-        )
-        .await;
-        let _dbt_project = control_flow::call_and_record_tool(
-            &thread_store,
-            thread_id,
-            Some("agent".to_string()),
-            &files_tool,
-            serde_json::json!({"op":"get","path":"dbt_project.yml","max_chars":4000}),
-            &actx,
-            files_tool_timeout,
-        )
-        .await;
-        let _packages = control_flow::call_and_record_tool(
-            &thread_store,
-            thread_id,
-            Some("agent".to_string()),
-            &files_tool,
-            serde_json::json!({"op":"get","path":"packages.yml","max_chars":4000}),
-            &actx,
-            files_tool_timeout,
-        )
-        .await;
-        let _schema_yml = control_flow::call_and_record_tool(
-            &thread_store,
-            thread_id,
-            Some("agent".to_string()),
-            &files_tool,
-            serde_json::json!({"op":"get","path":"models/schema.yml","max_chars":6000}),
-            &actx,
-            files_tool_timeout,
-        )
-        .await;
-
-        let tables_obs = control_flow::call_and_record_tool(
-            &thread_store,
-            thread_id,
-            Some("agent".to_string()),
-            &sql_schema_tool,
-            serde_json::json!({}),
-            &actx,
-            sql_schema_timeout,
-        )
-        .await;
-        let tables: Vec<String> = tables_obs
-            .get("tables")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let mut probed: Option<String> = None;
-        let mut probed_field: Option<String> = None;
-        let mut probe_ok = false;
-        if let Some(first) = tables.first() {
-            let (ok, field) = Self::run_deterministic_probe_for_table(
-                &thread_store,
-                thread_id,
-                &actx,
-                &sql_schema_tool,
-                &sql_stats_tool,
-                &sql_sample_tool,
-                &run_sql_tool,
-                first,
-                sql_schema_timeout,
-                sql_stats_timeout,
-                sql_sample_timeout,
-                run_sql_timeout,
-            )
-            .await;
-            probed = Some(first.clone());
-            probed_field = field;
-            probe_ok = ok;
-        }
-
-        let model_count = models_list
-            .get("items")
-            .and_then(|v| v.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
-        let models_list_ok = models_list
-            .get("ok")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let tables_ok = tables_obs
-            .get("ok")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let mut head_tables = tables.clone();
-        head_tables.truncate(10);
-        let bootstrap_sufficient = models_list_ok && tables_ok;
-        bootstrap_summary = Some(format!(
-            "Deterministic bootstrap (suite-provided):\n- models/ listed: {} item(s)\n- models_list_ok: {}\n- sql_schema_ok: {}\n- tables discovered (head): {:?}\n- probed table for evidence: {:?}\n- probed field: {:?}\n- probe_ok: {}\n- bootstrap_sufficient: {}\n\nIf models/ is empty, that's OK; proceed using sql_schema discovery.",
-            model_count,
-            models_list_ok,
-            tables_ok,
-            head_tables,
-            probed,
-            probed_field,
-            probe_ok,
-            bootstrap_sufficient
-        ));
-        if bootstrap_sufficient {
-            let mut st = execution_state.clone();
-            st.mark_plan_bootstrap_done(phase);
-            st.save(&thread_store, thread_id).await.map_err(|e| {
-                format!("failed to persist plan bootstrap state: {e}")
-            })?;
-        }
-}
-let sys = crate::data_engineer::util::time_context::with_time_context(if is_cleanse {
+let bootstrap_summary: Option<String> = run_plan_bootstrap(
+    thread_store, thread_id, phase, sctx, &actx, execution_state,
+).await?;
+let sys = crate::data_engineer::prompts::with_time_context(if is_cleanse {
     prompts::cleanse_plan_system_prompt()
 } else {
     prompts::model_plan_system_prompt()
@@ -748,7 +760,6 @@ match Agent::run_until_block_non_interactive(
 
             tracing::info!("data_engineer: [cleanse] validating plan semantics");
             let sem = crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
-                &actx,
                 &mut plan,
             )
             .await?;
@@ -772,7 +783,6 @@ match Agent::run_until_block_non_interactive(
                     )
                     .await?;
                     crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
-                        &actx,
                         &mut plan,
                     )
                     .await?
@@ -793,12 +803,6 @@ match Agent::run_until_block_non_interactive(
                         "failed to checkpoint normalized cleanse draft plan: {e}"
                     )
                 })?;
-            crate::data_engineer::plan::save_cleanse_plan_grounded(
-                &actx,
-                &plan,
-                Some(&grounded.allowed),
-            )
-            .await?;
             use crate::data_engineer::progress_controller::SubjectiveRetryKind;
             return finalize_plan_and_approve(
                 &thread_store,
@@ -954,7 +958,6 @@ match Agent::run_until_block_non_interactive(
 
             tracing::info!("data_engineer: [model] validating plan semantics");
             let sem = crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(
-                &actx,
                 &mut plan,
                 &staged.allowed_models,
             )
@@ -979,7 +982,6 @@ match Agent::run_until_block_non_interactive(
                     )
                     .await?;
                     crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(
-                        &actx,
                         &mut plan,
                         &staged.allowed_models,
                     )
@@ -1001,12 +1003,6 @@ match Agent::run_until_block_non_interactive(
                     "failed to checkpoint normalized model draft plan: {e}"
                 )
             })?;
-            crate::data_engineer::plan::save_model_plan_grounded(
-                &actx,
-                &plan,
-                Some(&staged.allowed_models),
-            )
-            .await?;
             use crate::data_engineer::progress_controller::SubjectiveRetryKind;
             return finalize_plan_and_approve(
                 &thread_store,

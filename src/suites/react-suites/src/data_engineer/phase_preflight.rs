@@ -12,10 +12,11 @@ impl DataEngineerSuite {
         if crate::data_engineer::ctx_ext::sctx_query(sctx).is_none() {
             return Err("data engineer agent requires a warehouse provider configured. configure providers.warehouse and restart.".to_string());
         }
-        if crate::data_engineer::ctx_ext::sctx_dbt(sctx).is_none() {
+        let Some(dbt) = crate::data_engineer::ctx_ext::sctx_dbt(sctx) else {
             return Err("data engineer agent requires a dbt provider configured. enable providers.dbt and restart.".to_string());
-        }
-        if let Some(dbt) = crate::data_engineer::ctx_ext::sctx_dbt(sctx) {
+        };
+        {
+            let dbt = dbt;
             if let Err(e) = dbt.ensure_minimal_project(&sctx.scope).await {
                 let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
                 return Err(format!(

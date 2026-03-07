@@ -1,30 +1,63 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct PlanAutoApprovedDetail {
-    pub auto_approved_in_agent_mode: bool,
-    pub source: String,
+use crate::data_engineer::track_spec::TrackKind;
+use crate::data_engineer::plan_types::PlanStatus;
+use crate::data_engineer::domain_types::ReviewDecision;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoApprovalSource {
+    NewDraftPlan,
+    ExistingDraftPlan,
 }
 
-#[derive(Clone, Debug, Serialize)]
+impl std::fmt::Display for AutoApprovalSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NewDraftPlan => f.write_str("new_draft_plan"),
+            Self::ExistingDraftPlan => f.write_str("existing_draft_plan"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidateToAuthoringSignal {
+    PendingChecklist,
+    IncompleteWork,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidateToAuthoringNextAction {
+    ResumeAuthoringForRemainingPlanWork,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlanAutoApprovedDetail {
+    pub auto_approved_in_agent_mode: bool,
+    pub source: AutoApprovalSource,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidatePassToAuthoringDetail {
     pub signal: String,
     pub plan_key: Option<String>,
     pub pending_count: usize,
     pub pending_refs: Value,
     pub dbt_validate_observation: Value,
-    pub next_action: String,
+    pub next_action: ValidateToAuthoringNextAction,
     pub audit_acceptance: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidatePassToReviewDetail {
     pub dbt_validate_observation: Value,
     pub dbt_validate_step_idx: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidateFailDetail {
     pub dbt_validate_observation: Value,
     pub dbt_validate_step_idx: usize,
@@ -32,60 +65,60 @@ pub struct ValidateFailDetail {
     pub facts_bundle: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanMissingDetail {
-    pub plan_kind: String,
+    pub plan_kind: TrackKind,
     pub note: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanNotApprovedDetail {
-    pub status: String,
+    pub status: PlanStatus,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanKeyDetail {
     pub plan_key: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanSemanticInvalidDetail {
     pub plan_key: String,
     pub reason: String,
     pub audit_acceptance: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanInvalidEmptyDetail {
     pub plan_key: String,
-    pub status: String,
+    pub status: PlanStatus,
     pub tasks_len: usize,
     pub batches_len: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CleanseDraftUngroundedDetail {
     pub plan_key: String,
     pub reason: String,
     pub removed_non_raw: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanPrunedEmptyDetail {
     pub plan_key: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanSemanticInvalidErrorsDetail {
     pub plan_key: String,
     pub errors: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReviewDecisionTransitionDetail {
     pub review_phase: String,
     pub meta: Value,
-    pub answer: String,
+    pub answer: ReviewDecision,
     pub forced_progress_guard: bool,
     pub forced_progress_by_subjective_retry: bool,
     pub review_subjective_retry_count: usize,
@@ -93,35 +126,35 @@ pub struct ReviewDecisionTransitionDetail {
     pub trigger_step: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublishApprovalStateDetail {
     pub approval_state: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublishObservationDetail {
     pub publish_observation: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublishAutoApprovedDetail {
     pub auto_approved_in_agent_mode: bool,
     pub publish_observation: Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublishFailureDetail {
     pub publish_observation: Value,
     pub publish_failure_retry_count: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthoringCompleteInvariantsDetail {
     pub has_dbt_project_yml: bool,
     pub has_any_models: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthoringCompleteGuardStateDetail {
     pub last_validate_failed: bool,
     pub mutated_since_fail: bool,
@@ -131,7 +164,7 @@ pub struct AuthoringCompleteGuardStateDetail {
     pub probe_satisfied: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthoringCompleteReasonDetail {
     pub invariants: AuthoringCompleteInvariantsDetail,
     pub guard_state: AuthoringCompleteGuardStateDetail,
@@ -141,17 +174,17 @@ pub fn to_value<T: Serialize>(detail: &T) -> Value {
     react_core::workflow::reason_detail_value(detail)
 }
 
-pub fn plan_auto_approved(source: impl Into<String>) -> Value {
+pub fn plan_auto_approved(source: AutoApprovalSource) -> Value {
     to_value(&PlanAutoApprovedDetail {
         auto_approved_in_agent_mode: true,
-        source: source.into(),
+        source,
     })
 }
 
 pub fn review_decision_transition(
     review_phase: impl Into<String>,
     meta: Value,
-    answer: impl Into<String>,
+    answer: ReviewDecision,
     forced_progress_guard: bool,
     forced_progress_by_subjective_retry: bool,
     review_subjective_retry_count: usize,
@@ -161,7 +194,7 @@ pub fn review_decision_transition(
     to_value(&ReviewDecisionTransitionDetail {
         review_phase: review_phase.into(),
         meta,
-        answer: answer.into(),
+        answer,
         forced_progress_guard,
         forced_progress_by_subjective_retry,
         review_subjective_retry_count,
@@ -197,16 +230,16 @@ pub fn publish_failure(
     })
 }
 
-pub fn plan_missing(plan_kind: impl Into<String>, note: impl Into<String>) -> Value {
+pub fn plan_missing(plan_kind: TrackKind, note: impl Into<String>) -> Value {
     to_value(&PlanMissingDetail {
-        plan_kind: plan_kind.into(),
+        plan_kind,
         note: note.into(),
     })
 }
 
-pub fn plan_not_approved(status: impl Into<String>) -> Value {
+pub fn plan_not_approved(status: PlanStatus) -> Value {
     to_value(&PlanNotApprovedDetail {
-        status: status.into(),
+        status,
     })
 }
 

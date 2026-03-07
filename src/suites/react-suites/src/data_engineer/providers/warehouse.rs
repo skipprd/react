@@ -6,7 +6,7 @@ use super::catalog_types::DatasetStats;
 use super::stats::DatasetFieldStats;
 
 pub trait WarehouseNaming: Send + Sync {
-    fn kind(&self) -> &'static str;
+    fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind;
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String>;
 
@@ -171,8 +171,8 @@ impl DatasetCatalogProvider for NullWarehouseProvider {
 }
 
 impl WarehouseNaming for NullWarehouseProvider {
-    fn kind(&self) -> &'static str {
-        "none"
+    fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind {
+        crate::data_engineer::de_config::WarehouseKind::default()
     }
 
     fn parse_dataset_fqn(&self, _dataset_fqn: &str) -> Result<DatasetId, String> {

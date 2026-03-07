@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data_engineer::plan_kind::PlanKind;
+use crate::data_engineer::control_flow::Phase;
+use crate::data_engineer::track_spec::PlanKind;
 use crate::data_engineer::progress_controller::RepairLadderStep;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,10 +61,10 @@ pub struct RepairPacket {
     pub patch_contract: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PromptEnvelope {
-    pub phase: String,
+    pub phase: Phase,
     pub goal: String,
     pub directive: TurnDirective,
     #[serde(default)]
@@ -75,9 +76,6 @@ pub struct PromptEnvelope {
 }
 
 pub fn validate_envelope(envelope: &PromptEnvelope) -> Result<(), String> {
-    if envelope.phase.trim().is_empty() {
-        return Err("prompt envelope phase is required".to_string());
-    }
     if envelope.goal.trim().is_empty() {
         return Err("prompt envelope goal is required".to_string());
     }
@@ -115,7 +113,7 @@ pub fn render_envelope(envelope: &PromptEnvelope) -> Result<String, String> {
     validate_envelope(envelope)?;
     let mut s = String::new();
     s.push_str(&format!("Goal: {}\n", envelope.goal.trim()));
-    s.push_str(&format!("Phase: {}\n\n", envelope.phase.trim()));
+    s.push_str(&format!("Phase: {}\n\n", envelope.phase.as_str()));
     s.push_str("Context packet (typed envelope):\n");
     s.push_str(&serde_json::to_string_pretty(envelope).unwrap_or_else(|_| "{}".to_string()));
     s.push('\n');
@@ -129,10 +127,12 @@ mod tests {
     #[test]
     fn render_envelope_rejects_missing_packets() {
         let envelope = PromptEnvelope {
-            phase: "model_author".to_string(),
+            phase: Phase::ModelAuthor,
             goal: "apply the next deterministic step".to_string(),
             directive: TurnDirective::Advance,
-            ..PromptEnvelope::default()
+            plan: None,
+            batch: None,
+            repair: None,
         };
         assert!(render_envelope(&envelope).is_err());
     }
@@ -140,15 +140,15 @@ mod tests {
     #[test]
     fn render_envelope_rejects_invalid_repair_shape() {
         let envelope = PromptEnvelope {
-            phase: "cleanse_author".to_string(),
+            phase: Phase::CleanseAuthor,
             goal: "repair the failing model".to_string(),
             directive: TurnDirective::Repair,
             plan: Some(PlanContextPacket::default()),
+            batch: None,
             repair: Some(RepairPacket {
                 target_path: "".to_string(),
                 ..RepairPacket::default()
             }),
-            ..PromptEnvelope::default()
         };
         assert!(render_envelope(&envelope).is_err());
     }

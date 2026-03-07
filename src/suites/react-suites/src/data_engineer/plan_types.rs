@@ -17,6 +17,15 @@ impl Default for PlanStatus {
 }
 
 impl PlanStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PlanStatus::Draft => "draft",
+            PlanStatus::Approved => "approved",
+            PlanStatus::Completed => "completed",
+            PlanStatus::Cancelled => "cancelled",
+        }
+    }
+
     pub fn is_terminal(&self) -> bool {
         matches!(self, PlanStatus::Completed | PlanStatus::Cancelled)
     }
@@ -60,6 +69,17 @@ impl Default for TaskStatus {
     }
 }
 
+/// Trait abstracting over cleanse/model task types so `Plan<T>` can be generic.
+pub trait PlanTask: Clone + std::fmt::Debug + Serialize + serde::de::DeserializeOwned + Send + Sync {
+    fn task_id(&self) -> &str;
+    fn expected_model_path(&self) -> Option<&str>;
+    fn status(&self) -> TaskStatus;
+    fn set_status(&mut self, status: TaskStatus);
+    fn checklist(&self) -> &[PlanChecklistItem];
+    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem>;
+    fn invariants(&self) -> &[String];
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanProgress {
     /// Thread step index cursor: when updating from the thread log, only consider steps after this
@@ -92,8 +112,7 @@ impl Default for PlanProgress {
 #[serde(deny_unknown_fields)]
 pub struct PlanMutation {
     pub ts: String,
-    /// Machine-readable reason code, e.g. "plan_repair_semantic".
-    pub reason_code: String,
+    pub reason_code: MutationReasonCode,
     /// Additional structured detail (best-effort; keep small).
     #[serde(default)]
     pub detail: Value,
@@ -174,11 +193,72 @@ pub struct PlanWorkGroup {
     pub depends_on_group_ids: Option<Vec<String>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MutationReasonCode(pub String);
+
 // -----------------------
 // Design-first plan spec
 // -----------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelFolder {
+    Marts,
+    Core,
+}
+
+impl Default for ModelFolder {
+    fn default() -> Self {
+        ModelFolder::Marts
+    }
+}
+
+impl ModelFolder {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModelFolder::Marts => "marts",
+            ModelFolder::Core => "core",
+        }
+    }
+}
+
+impl std::fmt::Display for ModelFolder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinType {
+    Inner,
+    Left,
+    Right,
+    Full,
+}
+
+impl std::fmt::Display for JoinType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JoinType::Inner => f.write_str("inner"),
+            JoinType::Left => f.write_str("left"),
+            JoinType::Right => f.write_str("right"),
+            JoinType::Full => f.write_str("full"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Cardinality {
+    ManyToOne,
+    OneToMany,
+    OneToOne,
+    ManyToMany,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldKind {
     Raw,
@@ -187,7 +267,7 @@ pub enum FieldKind {
     QualityFlag,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OutputFieldSpec {
     /// Output column name.
@@ -212,7 +292,7 @@ pub struct OutputFieldSpec {
     pub description: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CleanseImplementationSpec {
     /// Schema version for the spec itself (not the overall plan). Enables future evolution.
@@ -226,20 +306,17 @@ pub struct CleanseImplementationSpec {
     pub prohibited_ops: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JoinSpec {
     pub right_model: String,
-    /// join type: inner|left|right|full (design intent)
-    pub join_type: String,
-    /// Join keys contract. Example: ["customer_id = customer_id"] or ["order_id = order_id"].
+    pub join_type: JoinType,
     pub on: Vec<String>,
-    /// Optional cardinality expectation (e.g. "many_to_one", "one_to_many").
     #[serde(default)]
-    pub cardinality: Option<String>,
+    pub cardinality: Option<Cardinality>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MetricSpec {
     pub name: String,
@@ -250,7 +327,7 @@ pub struct MetricSpec {
     pub caveats: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ModelImplementationSpec {
     pub spec_version: i64,
@@ -286,34 +363,23 @@ pub struct CleanseTask {
     #[serde(default)]
     pub invariants: Vec<String>,
     /// Design-first implementation contract for this staging model.
-    pub implementation_spec: CleanseImplementationSpec,
+    /// `None` means the spec has not yet been enriched from the skeleton plan.
+    #[serde(default)]
+    pub implementation_spec: Option<CleanseImplementationSpec>,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]
     pub checklist: Vec<PlanChecklistItem>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CleansePlan {
-    /// Storage key where this plan is persisted.
-    #[serde(default)]
-    pub plan_key: String,
-    pub status: PlanStatus,
-    /// Optional snapshot of the DBT project state when this plan was created.
-    #[serde(default)]
-    pub project_snapshot: Value,
-    pub tasks: Vec<CleanseTask>,
-    /// Ordered batches of dataset_ids; each batch MUST have at most 5 items.
-    pub batches: Vec<Vec<String>>,
-    /// Ordered work groups (checklist-driven). This is the canonical execution plan for the UI.
-    #[serde(default)]
-    pub work_groups: Vec<PlanWorkGroup>,
-    /// Audit trail for deterministic + LLM-backed repairs.
-    #[serde(default)]
-    pub mutations: Vec<PlanMutation>,
-    #[serde(default)]
-    pub progress: PlanProgress,
+impl PlanTask for CleanseTask {
+    fn task_id(&self) -> &str { &self.dataset_id }
+    fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
+    fn status(&self) -> TaskStatus { self.status }
+    fn set_status(&mut self, status: TaskStatus) { self.status = status; }
+    fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
+    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
+    fn invariants(&self) -> &[String] { &self.invariants }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -321,7 +387,7 @@ pub struct CleansePlan {
 pub struct ModelTask {
     pub name: String,
     #[serde(default)]
-    pub folder: String, // "marts" | "core"
+    pub folder: ModelFolder,
     #[serde(default)]
     pub goal: String,
     #[serde(default)]
@@ -333,35 +399,53 @@ pub struct ModelTask {
     #[serde(default)]
     pub invariants: Vec<String>,
     /// Design-first implementation contract for this model.
-    pub implementation_spec: ModelImplementationSpec,
+    /// `None` means the spec has not yet been enriched from the skeleton plan.
+    #[serde(default)]
+    pub implementation_spec: Option<ModelImplementationSpec>,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]
     pub checklist: Vec<PlanChecklistItem>,
 }
 
+impl PlanTask for ModelTask {
+    fn task_id(&self) -> &str { &self.name }
+    fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
+    fn status(&self) -> TaskStatus { self.status }
+    fn set_status(&mut self, status: TaskStatus) { self.status = status; }
+    fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
+    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
+    fn invariants(&self) -> &[String] { &self.invariants }
+}
+
+// ---------- Generic Plan ----------
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ModelPlan {
-    /// Storage key where this plan is persisted.
+#[serde(bound(
+    serialize = "T: serde::Serialize",
+    deserialize = "T: serde::de::DeserializeOwned"
+))]
+pub struct Plan<T: PlanTask> {
     #[serde(default)]
     pub plan_key: String,
     pub status: PlanStatus,
-    /// Optional snapshot of the DBT project state when this plan was created.
     #[serde(default)]
     pub project_snapshot: Value,
-    pub tasks: Vec<ModelTask>,
-    /// Ordered batches of model names; each batch MUST have at most 5 items.
+    pub tasks: Vec<T>,
     pub batches: Vec<Vec<String>>,
-    /// Ordered work groups (checklist-driven). This is the canonical execution plan for the UI.
     #[serde(default)]
     pub work_groups: Vec<PlanWorkGroup>,
-    /// Audit trail for deterministic + LLM-backed repairs.
     #[serde(default)]
     pub mutations: Vec<PlanMutation>,
     #[serde(default)]
     pub progress: PlanProgress,
 }
+
+pub type CleansePlan = Plan<CleanseTask>;
+pub type ModelPlan = Plan<ModelTask>;
+
+// ---------- TrackPlan ----------
 
 pub trait TrackPlan {
     fn plan_key(&self) -> &str;
@@ -394,7 +478,7 @@ pub trait TrackPlan {
     }
 }
 
-impl TrackPlan for CleansePlan {
+impl<T: PlanTask> TrackPlan for Plan<T> {
     fn plan_key(&self) -> &str { &self.plan_key }
     fn status(&self) -> PlanStatus { self.status }
     fn set_status(&mut self, status: PlanStatus) { self.status = status; }
@@ -402,36 +486,38 @@ impl TrackPlan for CleansePlan {
     fn batches_len(&self) -> usize { self.batches.len() }
     fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
     fn executable_plan_issues(&self) -> Vec<String> {
-        crate::data_engineer::plan_progress::cleanse_executable_plan_issues(self)
+        crate::data_engineer::plan_progress::executable_plan_issues(self)
     }
 }
 
-impl TrackPlan for ModelPlan {
-    fn plan_key(&self) -> &str { &self.plan_key }
-    fn status(&self) -> PlanStatus { self.status }
-    fn set_status(&mut self, status: PlanStatus) { self.status = status; }
-    fn tasks_len(&self) -> usize { self.tasks.len() }
-    fn batches_len(&self) -> usize { self.batches.len() }
-    fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
-    fn executable_plan_issues(&self) -> Vec<String> {
-        crate::data_engineer::plan_progress::model_executable_plan_issues(self)
+// ---------- Grounded / Persistable newtypes ----------
+
+#[derive(Clone, Debug)]
+pub struct GroundedPlan<T: PlanTask>(pub(crate) Plan<T>);
+
+pub type GroundedCleansePlan = GroundedPlan<CleanseTask>;
+pub type GroundedModelPlan = GroundedPlan<ModelTask>;
+
+impl<T: PlanTask> GroundedPlan<T> {
+    pub fn into_inner(self) -> Plan<T> {
+        self.0
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct GroundedCleansePlan(pub(crate) CleansePlan);
-
-#[derive(Clone, Debug)]
-pub struct GroundedModelPlan(pub(crate) ModelPlan);
-
-#[derive(Clone, Debug)]
-pub enum PersistableCleansePlan {
-    Grounded(GroundedCleansePlan),
-    Terminal(CleansePlan),
+pub enum PersistablePlan<T: PlanTask> {
+    Grounded(GroundedPlan<T>),
+    Terminal(Plan<T>),
 }
 
-#[derive(Clone, Debug)]
-pub enum PersistableModelPlan {
-    Grounded(GroundedModelPlan),
-    Terminal(ModelPlan),
+pub type PersistableCleansePlan = PersistablePlan<CleanseTask>;
+pub type PersistableModelPlan = PersistablePlan<ModelTask>;
+
+impl<T: PlanTask> PersistablePlan<T> {
+    pub fn into_inner(self) -> Plan<T> {
+        match self {
+            Self::Grounded(v) => v.into_inner(),
+            Self::Terminal(v) => v,
+        }
+    }
 }

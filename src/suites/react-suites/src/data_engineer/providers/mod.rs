@@ -2,10 +2,12 @@ pub mod catalog;
 pub mod catalog_types;
 pub mod dataset_catalog;
 pub mod dbt;
-pub mod limits;
 pub mod query;
 pub mod stats;
 pub mod warehouse;
+
+/// Default max in-flight concurrency for warehouse/query providers.
+pub const DEFAULT_MAX_CONCURRENCY: usize = 15;
 
 pub use catalog::{CatalogEnrichmentReport, CatalogProvider};
 pub use catalog_types::{
@@ -16,9 +18,6 @@ pub use catalog_types::{
 };
 pub use dataset_catalog::{DatasetCatalogProvider, DatasetId};
 pub use dbt::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
-pub use limits::DEFAULT_MAX_CONCURRENCY;
 pub use query::{QueryProvider, QueryResult};
 pub use stats::DatasetFieldStats;
-pub use warehouse::{
-    has_obvious_same_select_alias_reuse, NullWarehouseProvider, WarehouseNaming, WarehouseProvider,
-};
+pub use warehouse::{has_obvious_same_select_alias_reuse, WarehouseNaming, WarehouseProvider};

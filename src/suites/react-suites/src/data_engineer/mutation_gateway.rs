@@ -3,7 +3,7 @@ use std::sync::Arc;
 use react_core::agent::AgentCtx;
 use crate::data_engineer::providers::DatasetCatalogProvider;
 
-use crate::data_engineer::files_store;
+use crate::data_engineer::project_fs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExpectedBase {
@@ -19,8 +19,8 @@ pub async fn replace_file_content(
     new_content: &str,
     expected: ExpectedBase,
     content_type: &str,
-) -> Result<files_store::PatchOutcome, String> {
-    let key = files_store::join_storage_key(ctx, rel_path);
+) -> Result<project_fs::PatchOutcome, String> {
+    let key = project_fs::join_storage_key(ctx, rel_path);
     let existing = ctx
         .storage
         .get_bytes(&key)
@@ -33,15 +33,15 @@ pub async fn replace_file_content(
         ExpectedBase::MustExist => Some(true),
         ExpectedBase::MustNotExist => Some(false),
     };
-    let patch_text = files_store::hunks_only_full_replace_patch(&existing, new_content);
-    let out = files_store::apply_patch(
+    let patch_text = project_fs::hunks_only_full_replace_patch(&existing, new_content);
+    let out = project_fs::apply_patch(
         ctx,
         datasets,
         rel_path,
         &patch_text,
         None,
         expected_existed,
-        files_store::PatchApplyKind::UnifiedDiff,
+        project_fs::PatchApplyKind::UnifiedDiff,
     )
     .await?;
     ctx.storage
@@ -56,9 +56,9 @@ pub async fn apply_hunks_patch(
     datasets: Option<&Arc<dyn DatasetCatalogProvider>>,
     rel_path: &str,
     patch_text: &str,
-) -> Result<files_store::PatchOutcome, String> {
-    let base_state = crate::data_engineer::files_patch_repair::read_patch_base_state(ctx, rel_path).await;
-    let out = crate::data_engineer::files_patch_repair::apply_single_file_patch_with_base(
+) -> Result<project_fs::PatchOutcome, String> {
+    let base_state = crate::data_engineer::patch_protocol::read_patch_base_state(ctx, rel_path).await;
+    let out = crate::data_engineer::patch_protocol::apply_single_file_patch_with_base(
         ctx,
         datasets,
         rel_path,

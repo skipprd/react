@@ -3,63 +3,10 @@ use serde_json::{json, Value};
 use react_core::suite::SuiteCtx;
 
 use super::plan as de_plan;
+use crate::data_engineer::track_spec::TrackKind;
 
-fn map_plan_status(s: de_plan::PlanStatus) -> &'static str {
-    match s {
-        de_plan::PlanStatus::Draft => "draft",
-        de_plan::PlanStatus::Approved => "approved",
-        de_plan::PlanStatus::Completed => "completed",
-        de_plan::PlanStatus::Cancelled => "cancelled",
-    }
-}
-
-fn map_task_status(s: de_plan::TaskStatus) -> &'static str {
-    match s {
-        de_plan::TaskStatus::Pending => "pending",
-        de_plan::TaskStatus::InProgress => "in_progress",
-        de_plan::TaskStatus::Done => "done",
-        de_plan::TaskStatus::Blocked => "blocked",
-        de_plan::TaskStatus::NeedsUpdate => "needs_update",
-    }
-}
-
-fn map_checklist_status(s: de_plan::ChecklistItemStatus) -> &'static str {
-    match s {
-        de_plan::ChecklistItemStatus::Pending => "pending",
-        de_plan::ChecklistItemStatus::InProgress => "in_progress",
-        de_plan::ChecklistItemStatus::Done => "done",
-        de_plan::ChecklistItemStatus::Blocked => "blocked",
-        de_plan::ChecklistItemStatus::NeedsUpdate => "needs_update",
-    }
-}
-
-fn map_checklist_origin(s: de_plan::ChecklistOrigin) -> &'static str {
-    match s {
-        de_plan::ChecklistOrigin::Initial => "initial",
-    }
-}
-
-fn map_work_group_kind(k: de_plan::WorkGroupKind) -> &'static str {
-    match k {
-        de_plan::WorkGroupKind::AuthorSql => "author_sql",
-        de_plan::WorkGroupKind::AuthorSchema => "author_schema",
-        de_plan::WorkGroupKind::Validate => "validate",
-    }
-}
-
-#[derive(Clone, Copy)]
-enum WsPlanKind {
-    Cleanse,
-    Model,
-}
-
-impl WsPlanKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            WsPlanKind::Cleanse => "cleanse",
-            WsPlanKind::Model => "model",
-        }
-    }
+fn serde_str<T: serde::Serialize>(v: T) -> Value {
+    serde_json::to_value(v).unwrap_or(Value::Null)
 }
 
 fn checklist_item_to_value(it: de_plan::PlanChecklistItem) -> Value {
@@ -85,8 +32,8 @@ fn checklist_item_to_value(it: de_plan::PlanChecklistItem) -> Value {
         "checklistItemId": it.checklist_item_id,
         "label": it.label,
         "details": it.details,
-        "status": map_checklist_status(it.status),
-        "origin": map_checklist_origin(it.origin),
+        "status": serde_str(it.status),
+        "origin": serde_str(it.origin),
         "evidence": evidence,
     })
 }
@@ -95,7 +42,7 @@ fn work_group_to_value(wg: de_plan::PlanWorkGroup) -> Value {
     json!({
         "groupId": wg.group_id,
         "label": wg.label,
-        "kind": map_work_group_kind(wg.kind),
+        "kind": serde_str(wg.kind),
         "items": wg.items.into_iter().map(|it| json!({
             "taskId": it.task_id,
             "checklistItemId": it.checklist_item_id,
@@ -104,8 +51,8 @@ fn work_group_to_value(wg: de_plan::PlanWorkGroup) -> Value {
     })
 }
 
-fn plan_parse_error_snapshot(plan_kind: WsPlanKind, plan_key: &str, err: &str) -> Value {
-    let task = if matches!(plan_kind, WsPlanKind::Cleanse) {
+fn plan_parse_error_snapshot(plan_kind: TrackKind, plan_key: &str, err: &str) -> Value {
+    let task = if plan_kind.is_cleanse() {
         json!({
             "taskKind": "cleanse",
             "taskId": "parse_error",
@@ -148,7 +95,7 @@ fn cleanse_plan_to_value(p: de_plan::CleansePlan) -> Value {
     json!({
         "planKind": "cleanse",
         "planKey": p.plan_key,
-        "status": map_plan_status(p.status),
+        "status": serde_str(p.status),
         "tasks": p.tasks.into_iter().map(|t| {
             json!({
                 "taskKind": "cleanse",
@@ -156,7 +103,7 @@ fn cleanse_plan_to_value(p: de_plan::CleansePlan) -> Value {
                 "dataset_id": t.dataset_id,
                 "expected_model_path": t.expected_model_path,
                 "invariants": if t.invariants.is_empty() { None } else { Some(t.invariants) },
-                "status": map_task_status(t.status),
+                "status": serde_str(t.status),
                 "checklist": t.checklist.into_iter().map(checklist_item_to_value).collect::<Vec<_>>()
             })
         }).collect::<Vec<_>>(),
@@ -169,18 +116,18 @@ fn model_plan_to_value(p: de_plan::ModelPlan) -> Value {
     json!({
         "planKind": "model",
         "planKey": p.plan_key,
-        "status": map_plan_status(p.status),
+        "status": serde_str(p.status),
         "tasks": p.tasks.into_iter().map(|t| {
             json!({
                 "taskKind": "model",
                 "taskId": t.name,
                 "name": t.name,
-                "folder": if t.folder.trim().is_empty() { None } else { Some(t.folder) },
+                "folder": t.folder.as_str(),
                 "goal": if t.goal.trim().is_empty() { None } else { Some(t.goal) },
                 "inputs": if t.inputs.is_empty() { None } else { Some(t.inputs) },
                 "expected_model_path": t.expected_model_path,
                 "invariants": if t.invariants.is_empty() { None } else { Some(t.invariants) },
-                "status": map_task_status(t.status),
+                "status": serde_str(t.status),
                 "checklist": t.checklist.into_iter().map(checklist_item_to_value).collect::<Vec<_>>()
             })
         }).collect::<Vec<_>>(),
@@ -221,7 +168,7 @@ pub async fn load_latest_plans_ws(
                 }
                 Err(e) => {
                     cleanse_active = Some(plan_parse_error_snapshot(
-                        WsPlanKind::Cleanse,
+                        TrackKind::Cleanse,
                         k,
                         &format!("failed to parse cleanse plan JSON at {}: {}", k, e),
                     ));
@@ -255,7 +202,7 @@ pub async fn load_latest_plans_ws(
                 }
                 Err(e) => {
                     model_active = Some(plan_parse_error_snapshot(
-                        WsPlanKind::Model,
+                        TrackKind::Model,
                         k,
                         &format!("failed to parse model plan JSON at {}: {}", k, e),
                     ));

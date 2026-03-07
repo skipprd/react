@@ -4,8 +4,13 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SqlDialect(pub String);
+
 /// How broad the auto-attached schema facts should be.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FactsScope {
     /// Plan mode: intentionally broad so planning has enough context to avoid guessing.
     PlanBroad,
@@ -85,8 +90,8 @@ pub struct TargetFacts {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FactsBundle {
-    pub scope: String,
-    pub dialect: String,
+    pub scope: FactsScope,
+    pub dialect: SqlDialect,
     #[serde(default)]
     pub targets: TargetFacts,
     #[serde(default)]
@@ -116,11 +121,14 @@ fn file_patch_contract_value() -> Value {
                     ],
                     "example": serde_json::from_str::<Value>(
                         crate::data_engineer::patch_contract::single_file_patch_good_example_json()
-                    ).unwrap_or_else(|_| serde_json::json!({
-                        "op": "patch",
-                        "path": "models/staging/stg_example.sql",
-                        "patch_text": "@@ ... @@\n- old\n+ new\n"
-                    }))
+                    ).unwrap_or_else(|e| {
+                        tracing::warn!(error = %e, "malformed embedded patch-contract JSON; using inline fallback");
+                        serde_json::json!({
+                            "op": "patch",
+                            "path": "models/staging/stg_example.sql",
+                            "patch_text": "@@ ... @@\n- old\n+ new\n"
+                        })
+                    })
                 },
                 "rm": {
                     "top_level_args": {
@@ -191,69 +199,7 @@ fn dbt_storage_key(ctx: &AgentCtx, rel_path: &str) -> String {
     format!("{}{}", base, rel_path.trim_start_matches('/'))
 }
 
-fn parse_quoted(s: &str, mut i: usize) -> Option<(String, usize)> {
-    let bytes = s.as_bytes();
-    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-        i += 1;
-    }
-    if i >= bytes.len() {
-        return None;
-    }
-    let q = bytes[i] as char;
-    if q != '\'' && q != '"' {
-        return None;
-    }
-    i += 1;
-    let start = i;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if c == q {
-            let out = s[start..i].to_string();
-            return Some((out, i + 1));
-        }
-        // minimal escape handling
-        if c == '\\' && i + 1 < bytes.len() {
-            i += 2;
-            continue;
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Extract dbt `source('src','table')` calls from SQL/Jinja.
-pub fn extract_source_calls(sql: &str) -> Vec<(String, String)> {
-    let s = sql.to_ascii_lowercase();
-    let mut idx = 0usize;
-    let mut out: BTreeSet<(String, String)> = BTreeSet::new();
-    while let Some(pos) = s[idx..].find("source(") {
-        let mut j = idx + pos + "source(".len();
-        // parse first string
-        let Some((a, j2)) = parse_quoted(&s, j) else {
-            idx = j;
-            continue;
-        };
-        j = j2;
-        // seek comma
-        if let Some(comma) = s[j..].find(',') {
-            j = j + comma + 1;
-        } else {
-            idx = j;
-            continue;
-        }
-        let Some((b, j3)) = parse_quoted(&s, j) else {
-            idx = j;
-            continue;
-        };
-        let a = a.trim().to_string();
-        let b = b.trim().to_string();
-        if !a.is_empty() && !b.is_empty() {
-            out.insert((a, b));
-        }
-        idx = j3;
-    }
-    out.into_iter().collect()
-}
+pub use crate::data_engineer::naming::extract_source_calls;
 
 async fn schema_columns_for_fqn(ctx: &AgentCtx, fqn: &str) -> Option<RelationFacts> {
     let q = crate::data_engineer::ctx_ext::actx_query(ctx)?;
@@ -416,7 +362,7 @@ async fn read_dbt_file_text(ctx: &AgentCtx, rel_path: &str, max_bytes: usize) ->
 /// authoring prompt so the LLM cannot guess relation schemas or columns.
 pub async fn build_validate_fail_facts(
     ctx: &AgentCtx,
-    dialect: String,
+    dialect: SqlDialect,
     validate_contract: &crate::data_engineer::controller_event::ValidateObservationContract,
     scope: FactsScope,
     limits: FactsLimits,
@@ -482,7 +428,7 @@ pub async fn build_validate_fail_facts(
 pub async fn build_facts_bundle_from_relations(
     ctx: &AgentCtx,
     scope: FactsScope,
-    dialect: String,
+    dialect: SqlDialect,
     targets: TargetFacts,
     relation_fqns: &[String],
     limits: FactsLimits,
@@ -499,7 +445,7 @@ pub async fn build_facts_bundle_from_relations(
         }
     }
     FactsBundle {
-        scope: scope.to_string(),
+        scope,
         dialect,
         targets,
         relations: rels,
@@ -685,7 +631,7 @@ mod tests {
             resolved_config: Some(minimal_cfg()),
         };
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query)));
-        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default()))));
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default()))));
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(Arc::new(NoopDbtProvider))));
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::ProvidersCfgCap(minimal_providers())));
         actx
@@ -765,7 +711,7 @@ mod tests {
         .expect("validate contract");
         let facts = build_validate_fail_facts(
             &ctx,
-            "Amazon Athena (engine v3 / Trino SQL)".to_string(),
+            SqlDialect("Amazon Athena (engine v3 / Trino SQL)".to_string()),
             &contract,
             FactsScope::ValidateFail,
             FactsLimits::for_scope(FactsScope::ValidateFail),

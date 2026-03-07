@@ -5,12 +5,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use crate::data_engineer::references::DatasetRef;
 
-pub type DatasetFqnParts = DatasetRef;
-
-pub fn parse_dataset_fqn_3(s: &str) -> Option<DatasetFqnParts> {
-    DatasetRef::parse(s)
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RejectedDataset {
     pub dataset_id: String,
@@ -50,7 +44,7 @@ fn source_namespace_from_cfg(ctx: &AgentCtx) -> Option<String> {
 }
 
 fn is_in_source_namespace(ctx: &AgentCtx, dataset_id: &str) -> bool {
-    let Some(parts) = parse_dataset_fqn_3(dataset_id) else {
+    let Some(parts) = DatasetRef::parse(dataset_id) else {
         return false;
     };
     // If namespace isn't configured (tests / minimal contexts), don't reject candidates on this axis.
@@ -61,7 +55,7 @@ fn is_in_source_namespace(ctx: &AgentCtx, dataset_id: &str) -> bool {
 }
 
 fn is_in_source_container(ctx: &AgentCtx, dataset_id: &str) -> bool {
-    let Some(parts) = parse_dataset_fqn_3(dataset_id) else {
+    let Some(parts) = DatasetRef::parse(dataset_id) else {
         return false;
     };
     // If container isn't configured (tests / minimal contexts), don't reject candidates on this axis.
@@ -106,7 +100,7 @@ pub async fn build_grounded_raw_dataset_set(
     );
 
     for ds in uniq.into_iter() {
-        if parse_dataset_fqn_3(&ds).is_none() {
+        if DatasetRef::parse(&ds).is_none() {
             out.rejected.push(RejectedDataset {
                 dataset_id: ds,
                 reason: "invalid dataset_id format (expected <catalog>.<schema>.<table>)"
@@ -115,7 +109,7 @@ pub async fn build_grounded_raw_dataset_set(
             continue;
         }
         if !is_in_source_container(ctx, &ds) {
-            let parts = parse_dataset_fqn_3(&ds);
+            let parts = DatasetRef::parse(&ds);
             out.rejected.push(RejectedDataset {
                 dataset_id: ds,
                 reason: format!(
@@ -127,7 +121,7 @@ pub async fn build_grounded_raw_dataset_set(
             continue;
         }
         if !is_in_source_namespace(ctx, &ds) {
-            let parts = parse_dataset_fqn_3(&ds);
+            let parts = DatasetRef::parse(&ds);
             out.rejected.push(RejectedDataset {
                 dataset_id: ds,
                 reason: format!(
@@ -278,7 +272,7 @@ pub fn group_by_catalog_schema(
 ) -> BTreeMap<(String, String), Vec<String>> {
     let mut out: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for id in dataset_ids.iter() {
-        let Some(p) = parse_dataset_fqn_3(id) else {
+        let Some(p) = DatasetRef::parse(id) else {
             continue;
         };
         out.entry((p.catalog, p.schema)).or_default().push(p.table);

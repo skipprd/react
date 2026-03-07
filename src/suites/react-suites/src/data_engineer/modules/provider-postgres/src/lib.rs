@@ -176,8 +176,8 @@ impl PostgresProvider {
 }
 
 impl WarehouseNaming for PostgresProvider {
-    fn kind(&self) -> &'static str {
-        "postgres"
+    fn kind(&self) -> react_suites::data_engineer::de_config::WarehouseKind {
+        react_suites::data_engineer::de_config::WarehouseKind::Postgres
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {

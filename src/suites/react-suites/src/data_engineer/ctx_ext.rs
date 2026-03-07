@@ -8,6 +8,12 @@ use super::providers::{
     CatalogProvider, DatasetCatalogProvider, DbtProvider, QueryProvider, WarehouseProvider,
 };
 
+// Adding a new provider requires changes in 5 places:
+//   1. Cap struct definition below
+//   2. cap_accessors! macro invocation (generates sctx_* and actx_* fns)
+//   3. wire_sctx_capabilities — set the capability on SuiteCtx
+//   4. copy_capabilities_to_actx — copy from SuiteCtx to AgentCtx
+//   5. Provider trait + re-export in providers/mod.rs
 pub struct WarehouseCap(pub Arc<dyn WarehouseProvider>);
 pub struct DbtCap(pub Arc<dyn DbtProvider>);
 pub struct QueryCap(pub Arc<dyn QueryProvider>);
@@ -15,53 +21,25 @@ pub struct DatasetsCap(pub Arc<dyn DatasetCatalogProvider>);
 pub struct CatalogCap(pub Arc<dyn CatalogProvider>);
 pub struct ProvidersCfgCap(pub ProvidersResolved);
 
-pub(crate) fn sctx_warehouse(ctx: &SuiteCtx) -> Option<Arc<dyn WarehouseProvider>> {
-    ctx.capability::<WarehouseCap>().map(|c| c.0.clone())
+macro_rules! cap_accessors {
+    ($cap:ident, $ret:ty, $sctx_fn:ident, $actx_fn:ident) => {
+        #[allow(dead_code)]
+        pub(crate) fn $sctx_fn(ctx: &SuiteCtx) -> Option<$ret> {
+            ctx.capability::<$cap>().map(|c| c.0.clone())
+        }
+        #[allow(dead_code)]
+        pub(crate) fn $actx_fn(ctx: &AgentCtx) -> Option<$ret> {
+            ctx.capability::<$cap>().map(|c| c.0.clone())
+        }
+    };
 }
 
-pub(crate) fn sctx_dbt(ctx: &SuiteCtx) -> Option<Arc<dyn DbtProvider>> {
-    ctx.capability::<DbtCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn sctx_query(ctx: &SuiteCtx) -> Option<Arc<dyn QueryProvider>> {
-    ctx.capability::<QueryCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn sctx_datasets(ctx: &SuiteCtx) -> Option<Arc<dyn DatasetCatalogProvider>> {
-    ctx.capability::<DatasetsCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn sctx_catalog(ctx: &SuiteCtx) -> Option<Arc<dyn CatalogProvider>> {
-    ctx.capability::<CatalogCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn sctx_providers_cfg(ctx: &SuiteCtx) -> Option<ProvidersResolved> {
-    ctx.capability::<ProvidersCfgCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_warehouse(ctx: &AgentCtx) -> Option<Arc<dyn WarehouseProvider>> {
-    ctx.capability::<WarehouseCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_dbt(ctx: &AgentCtx) -> Option<Arc<dyn DbtProvider>> {
-    ctx.capability::<DbtCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_query(ctx: &AgentCtx) -> Option<Arc<dyn QueryProvider>> {
-    ctx.capability::<QueryCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_datasets(ctx: &AgentCtx) -> Option<Arc<dyn DatasetCatalogProvider>> {
-    ctx.capability::<DatasetsCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_catalog(ctx: &AgentCtx) -> Option<Arc<dyn CatalogProvider>> {
-    ctx.capability::<CatalogCap>().map(|c| c.0.clone())
-}
-
-pub(crate) fn actx_providers_cfg(ctx: &AgentCtx) -> Option<ProvidersResolved> {
-    ctx.capability::<ProvidersCfgCap>().map(|c| c.0.clone())
-}
+cap_accessors!(WarehouseCap, Arc<dyn WarehouseProvider>, sctx_warehouse, actx_warehouse);
+cap_accessors!(DbtCap,       Arc<dyn DbtProvider>,       sctx_dbt,       actx_dbt);
+cap_accessors!(QueryCap,     Arc<dyn QueryProvider>,     sctx_query,     actx_query);
+cap_accessors!(DatasetsCap,  Arc<dyn DatasetCatalogProvider>, sctx_datasets, actx_datasets);
+cap_accessors!(CatalogCap,   Arc<dyn CatalogProvider>,  sctx_catalog,   actx_catalog);
+cap_accessors!(ProvidersCfgCap, ProvidersResolved,       sctx_providers_cfg, actx_providers_cfg);
 
 /// Wire data_engineer capabilities into a SuiteCtx from a ProvidersResolved.
 pub fn wire_sctx_capabilities(
@@ -89,8 +67,11 @@ pub fn wire_sctx_capabilities(
     sctx.set_capability(Arc::new(ProvidersCfgCap(providers_cfg)));
 }
 
-/// Copy capabilities from SuiteCtx to a new AgentCtx.
-pub(crate) fn copy_capabilities_to_actx(sctx: &SuiteCtx, actx: &mut AgentCtx) {
+/// Copy data_engineer capabilities from SuiteCtx to a new AgentCtx.
+///
+/// Public so sibling suites (e.g. `kb`) can reuse the same provider wiring
+/// without reaching into `data_engineer` internals.
+pub fn copy_capabilities_to_actx(sctx: &SuiteCtx, actx: &mut AgentCtx) {
     if let Some(w) = sctx.capability::<WarehouseCap>() {
         actx.set_capability(w);
     }

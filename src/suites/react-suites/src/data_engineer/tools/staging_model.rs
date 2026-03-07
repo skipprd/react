@@ -1,26 +1,22 @@
 use async_trait::async_trait;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
 
 use crate::data_engineer::dbt_repair::remediate::active_provider_dialect;
 use crate::data_engineer::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::data_engineer::plan;
-use crate::data_engineer::project_files;
-use crate::data_engineer::files_store;
+use crate::data_engineer::project_fs;
 use crate::data_engineer::references::DatasetRef;
 use crate::data_engineer::sql_first;
 use react_core::agent::AgentCtx;
 use crate::data_engineer::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
-fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(|x| x.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+use super::model_authoring_engine::{
+    self as engine, build_provider_prompt_rules, dedup_notes, emit_trace,
+    extract_string_arg,
+};
 
 fn resolve_dataset_ids(args: &Value) -> Result<Vec<DatasetRef>, String> {
     // Required shape: dataset_ids: [ ... ]
@@ -65,26 +61,6 @@ fn resolve_instructions(args: &Value) -> String {
 fn resolve_direct_sql(args: &Value) -> Option<String> {
     // Accept common keys used by agents/prompts.
     extract_string_arg(args, "sql").or_else(|| extract_string_arg(args, "expression"))
-}
-
-fn emit_trace(ctx: &AgentCtx, line: impl Into<String>) {
-    if let Some(tx) = ctx.trace_tx.as_ref() {
-        let _ = tx.send(line.into());
-    }
-}
-
-fn athena_alias_reuse_hint(msg: &str, model_rel_path: &str, dataset_id: &str) -> Option<Value> {
-    let m = msg.to_ascii_lowercase();
-    if !m.contains("select-list alias") {
-        return None;
-    }
-    Some(serde_json::json!({
-        "kind": "athena_select_alias_reuse",
-        "dataset_id": dataset_id,
-        "model_path": model_rel_path,
-        "issue": msg,
-        "fix": "Split into CTE + outer select: compute intermediate aliases in an inner CTE/subquery, then reference them only from the outer SELECT."
-    }))
 }
 
 #[derive(Clone)]
@@ -286,7 +262,7 @@ impl Tool for StagingModelTool {
             .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
-        let schema_rel = project_files::MODELS_SCHEMA_YML.to_string();
+        let schema_rel = project_fs::MODELS_SCHEMA_YML.to_string();
         let schema_key = format!("{}/{}", base, schema_rel);
         let existing_schema: Option<String> = match ctx.storage.get_bytes(&schema_key).await {
             Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
@@ -294,15 +270,15 @@ impl Tool for StagingModelTool {
         };
         if existing_schema.is_none() {
             let seed = "version: 2\n".to_string();
-            let patch_text = files_store::hunks_only_full_replace_patch("", &seed);
-            let outcome = match files_store::apply_patch(
+            let patch_text = project_fs::hunks_only_full_replace_patch("", &seed);
+            let outcome = match project_fs::apply_patch(
                 ctx,
                 self.datasets.as_ref(),
                 &schema_rel,
                 &patch_text,
                 None,
                 None,
-                files_store::PatchApplyKind::UnifiedDiff,
+                project_fs::PatchApplyKind::UnifiedDiff,
             )
             .await
             {
@@ -337,7 +313,7 @@ impl Tool for StagingModelTool {
         } else if let Some(existing) = existing_schema.as_deref() {
             // Canonicalize schema.yml deterministically and only apply/write if it actually changes.
             let canonical =
-                match files_store::canonicalize_schema_yml(ctx, self.datasets.as_ref(), existing)
+                match project_fs::canonicalize_schema_yml(ctx, self.datasets.as_ref(), existing)
                     .await
                 {
                     Ok(v) => v,
@@ -354,15 +330,15 @@ impl Tool for StagingModelTool {
                     }
                 };
             if canonical != existing {
-                let patch_text = files_store::hunks_only_full_replace_patch(existing, &canonical);
-                let outcome = match files_store::apply_patch(
+                let patch_text = project_fs::hunks_only_full_replace_patch(existing, &canonical);
+                let outcome = match project_fs::apply_patch(
                     ctx,
                     self.datasets.as_ref(),
                     &schema_rel,
                     &patch_text,
                     None,
                     None,
-                    files_store::PatchApplyKind::UnifiedDiff,
+                    project_fs::PatchApplyKind::UnifiedDiff,
                 )
                 .await
                 {
@@ -405,17 +381,8 @@ impl Tool for StagingModelTool {
             .map(|p| p.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let stg_wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
-        let provider_prompt_rules = {
-            let mut out = String::new();
-            if let Some(ref w) = stg_wh {
-                for rule in w.sql_prompt_rules().into_iter() {
-                    out.push_str("  - ");
-                    out.push_str(rule);
-                    out.push('\n');
-                }
-            }
-            out
-        };
+        let provider_prompt_rules =
+            build_provider_prompt_rules(stg_wh.as_ref().map(|w| w.as_ref()));
 
         // Discover existing staging model files so we can update by semantic identity (source()),
         // not by filename (prevents duplicate staging models for the same dataset).
@@ -546,15 +513,15 @@ impl Tool for StagingModelTool {
                 .ok()
                 .map(|b| String::from_utf8_lossy(&b).to_string());
             let old_text = existing_opt.unwrap_or_default();
-            let patch_text = files_store::hunks_only_full_replace_patch(&old_text, &sql_out);
-            let outcome = files_store::apply_patch(
+            let patch_text = project_fs::hunks_only_full_replace_patch(&old_text, &sql_out);
+            let outcome = project_fs::apply_patch(
                 ctx,
                 None,
                 &rel_path,
                 &patch_text,
                 None,
                 None,
-                files_store::PatchApplyKind::UnifiedDiff,
+                project_fs::PatchApplyKind::UnifiedDiff,
             )
             .await?;
             if let Err(e) = ctx
@@ -656,7 +623,7 @@ impl Tool for StagingModelTool {
                         t.invariants.clone(),
                         t.checklist.clone(),
                         t.expected_model_path.clone().unwrap_or_default(),
-                        Some(t.implementation_spec.clone()),
+                        t.implementation_spec.clone(),
                     )
                 })
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
@@ -705,172 +672,94 @@ impl Tool for StagingModelTool {
             };
             repl.insert("__SOURCE__".to_string(), stg_wh.as_ref().unwrap().quote_fqn(&dsid));
 
-            let mut last_err = String::new();
-            let mut prev_sql: Option<String> = None;
-            let mut draft: Option<sql_first::SqlFirstDraft> = None;
-            let mut ok = false;
-            for attempt in 1..=max_attempts {
-                let mut v = user_value.clone();
-                if attempt > 1 {
-                    if let Some(obj) = v.as_object_mut() {
-                        obj.insert("attempt".to_string(), serde_json::json!(attempt));
-                        obj.insert(
-                            "previous_sql".to_string(),
-                            serde_json::json!(prev_sql.clone().unwrap_or_default()),
-                        );
-                        obj.insert("error".to_string(), serde_json::json!(last_err.clone()));
-                        obj.insert("instruction".to_string(), serde_json::json!("Fix the SQL. Output JSON only: {\"sql\":\"...\",\"notes\":[...]}. Must use FROM __SOURCE__. Must be row-preserving (do not filter rows; avoid joins that can multiply rows). Must not reference columns outside schema_columns. Prefer explicit select list; avoid SELECT *."));
+            let loop_config = engine::AuthorLoopConfig {
+                max_tokens: max_tokens as usize,
+                max_attempts,
+                initial_prompt_id: "data_engineer.tools.staging_model.sql_first",
+                repair_prompt_id: "data_engineer.tools.staging_model.sql_first_repair",
+                initial_temp: 0.08,
+                repair_temp: 0.05,
+            };
+            let cols_for_sql_clone = cols_for_sql.clone();
+            let loop_result = engine::sql_first_author_loop(
+                ctx,
+                &loop_config,
+                || sys0.clone(),
+                &user_value,
+                &repl,
+                &ds,
+                &rel_path,
+                move |d| {
+                    if !d.sql.contains("__SOURCE__") {
+                        return Err("draft SQL must reference __SOURCE__ placeholder".to_string());
                     }
-                }
-
-                let sys_msg = if attempt == 1 {
-                    sys0.clone()
-                } else {
-                    build_staging_sys_prompt(
-                        &provider_name,
-                        &dialect,
-                        &expected_db,
-                        &expected_table,
-                        &provider_prompt_rules,
-                    )
-                };
-                let prompt_id = if attempt == 1 {
-                    "data_engineer.tools.staging_model.sql_first"
-                } else {
-                    "data_engineer.tools.staging_model.sql_first_repair"
-                };
-                let temp = if attempt == 1 { 0.08 } else { 0.05 };
-                let user_json = v.to_string();
-
-                let mut d = match sql_first::llm_draft_sql_json(
-                    ctx, sys_msg, user_json, prompt_id, max_tokens, temp,
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        last_err = e;
-                        if attempt >= max_attempts {
-                            errors.push(format!("{ds}: sql draft failed: {last_err}"));
-                        }
-                        continue;
+                    if let Some(s) = sql_first::expand_select_star_from_placeholder(
+                        &d.sql,
+                        "__SOURCE__",
+                        &cols_for_sql_clone,
+                    ) {
+                        d.sql = s;
                     }
-                };
-
-                if !d.sql.contains("__SOURCE__") {
-                    last_err = "draft SQL must reference __SOURCE__ placeholder".to_string();
-                    prev_sql = Some(d.sql.clone());
-                    if attempt >= max_attempts {
-                        errors.push(format!("{ds}: sql draft invalid: {last_err}"));
-                    }
+                    Ok(())
+                },
+            )
+            .await;
+            let outcome = match loop_result {
+                Ok(o) => o,
+                Err(errs) => {
+                    errors.extend(errs);
                     continue;
                 }
+            };
+            remediation_hints.extend(outcome.remediation_hints);
 
-                // Deterministic SELECT * expansion (simple passthrough only).
-                if let Some(s) = sql_first::expand_select_star_from_placeholder(
-                    &d.sql,
-                    "__SOURCE__",
-                    &cols_for_sql,
-                ) {
-                    d.sql = s;
-                }
-
-                match sql_first::validate_sql_quick(ctx, &d.sql, &repl).await {
-                    Ok(()) => {
-                        draft = Some(d);
-                        ok = true;
-                        break;
-                    }
-                    Err(err) => {
-                        last_err = err.clone();
-                        prev_sql = Some(d.sql.clone());
-                        if let Some(h) = athena_alias_reuse_hint(&err, &rel_path, &ds) {
-                            remediation_hints.push(h);
-                        }
-                        if attempt >= max_attempts {
-                            errors.push(format!("{ds}: sql validation failed: {err}"));
-                        }
-                        continue;
-                    }
-                }
-            }
-            if !ok {
-                continue;
-            }
-            let draft = draft.expect("ok implies draft");
-            let intent =
-                match crate::data_engineer::authoring_ir::compile_sql_first_draft(
-                    &draft.sql,
-                    &draft.notes,
-                    plan_implementation_spec
-                        .as_ref()
-                        .map(|s| s.output_fields.as_slice())
-                        .unwrap_or(&[]),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        errors.push(format!("{ds}: authoring_ir compile failed: {e}"));
-                        continue;
-                    }
-                };
-
-            // Materialize: replace __SOURCE__ with dbt source().
-            let dbt_sql = intent.sql.replace(
-                "__SOURCE__",
-                &format!(
+            let expected_db2 = expected_db.clone();
+            let expected_table2 = expected_table.clone();
+            let mut materialize_repl = std::collections::HashMap::new();
+            materialize_repl.insert(
+                "__SOURCE__".to_string(),
+                format!(
                     "{{{{ source(\"{}\", \"{}\") }}}}",
                     expected_db, expected_table
                 ),
             );
-            if !contains_expected_source_call(&dbt_sql, &expected_db, &expected_table) {
-                errors.push(format!(
-                    "{ds}: materialized sql missing expected source(\"{expected_db}\",\"{expected_table}\")"
-                ));
-                continue;
-            }
-            let base_sha256 = if existing_sql.is_empty() {
-                None
-            } else {
-                Some(react_core::llm_observability::sha256_hex_str(&existing_sql))
-            };
-            let patch_text = files_store::hunks_only_full_replace_patch(&existing_sql, &dbt_sql);
-            let outcome = match files_store::apply_patch(
+            let write_result = engine::compile_and_write_model(
                 ctx,
-                None,
+                &outcome.draft,
+                plan_implementation_spec
+                    .as_ref()
+                    .map(|s| s.output_fields.as_slice())
+                    .unwrap_or(&[]),
+                &materialize_repl,
+                |dbt_sql| {
+                    if !contains_expected_source_call(dbt_sql, &expected_db2, &expected_table2) {
+                        return Err(format!(
+                            "materialized sql missing expected source(\"{expected_db2}\",\"{expected_table2}\")"
+                        ));
+                    }
+                    Ok(())
+                },
+                &existing_sql,
                 &rel_path,
-                &patch_text,
-                base_sha256.as_deref(),
-                Some(!existing_sql.is_empty()),
-                files_store::PatchApplyKind::UnifiedDiff,
             )
-            .await
-            {
-                Ok(o) => o,
-                Err(e) => {
-                    errors.push(format!("{ds}: materialize apply_patch failed: {e}"));
-                    continue;
+            .await;
+            match write_result {
+                Ok(result) => {
+                    written.push(result.key);
+                    succeeded_dataset_ids.push(ds.clone());
+                    for n in result.notes {
+                        if !n.trim().is_empty() {
+                            notes.push(format!("{}: {}", ds, n));
+                        }
+                    }
                 }
-            };
-            if let Err(e) = ctx
-                .storage
-                .put_bytes(&key, outcome.content.as_bytes(), "text/sql")
-                .await
-            {
-                emit_trace(ctx, format!("failed to save {}: {}", rel_path, e));
-                errors.push(format!("{ds}: failed to write silver model: {e}"));
-                continue;
-            }
-            emit_trace(ctx, format!("saved {}", rel_path));
-            written.push(key);
-            succeeded_dataset_ids.push(ds.clone());
-            for n in intent.notes {
-                if !n.trim().is_empty() {
-                    notes.push(format!("{}: {}", ds, n));
+                Err(e) => {
+                    errors.push(format!("{ds}: {e}"));
+                    continue;
                 }
             }
         }
 
-        // Minimal, not chatty
         info!(
             target: "staging_model",
             datasets = dataset_ids.len(),
@@ -878,17 +767,7 @@ impl Tool for StagingModelTool {
             "staging_model finished"
         );
 
-        // Dedup notes to keep response bounded
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut out_notes: Vec<String> = Vec::new();
-        for n in notes {
-            if seen.insert(n.clone()) {
-                out_notes.push(n);
-            }
-            if out_notes.len() >= 50 {
-                break;
-            }
-        }
+        let out_notes = dedup_notes(notes, 50);
 
         let mut result = serde_json::json!({
             "ok": errors.is_empty(),
@@ -1127,7 +1006,7 @@ mod tests {
         });
 
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
-            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+            Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let query_prov: Arc<dyn crate::data_engineer::providers::QueryProvider> = Arc::new(MockQuery);
         let dbt_prov: Arc<dyn crate::data_engineer::providers::DbtProvider> = Arc::new(MockDbt);
         let mut ctx = AgentCtx {
@@ -1175,7 +1054,7 @@ mod tests {
         let schema_key = format!(
             "{}{}",
             ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]),
-            crate::data_engineer::project_files::MODELS_SCHEMA_YML
+            crate::data_engineer::project_fs::MODELS_SCHEMA_YML
         );
         assert!(storage.get_bytes(&schema_key).await.is_err());
     }
@@ -1275,8 +1154,8 @@ mod tests {
             }
         }
         impl crate::data_engineer::providers::WarehouseNaming for MockWarehouse {
-            fn kind(&self) -> &'static str {
-                "mock"
+            fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind {
+                crate::data_engineer::de_config::WarehouseKind::default()
             }
             fn parse_dataset_fqn(
                 &self,
@@ -1396,7 +1275,7 @@ mod tests {
                 dataset_id: ds.clone(),
                 expected_model_path: Some("models/staging/stg_test_raw_raw_orders.sql".to_string()),
                 invariants: vec!["Staging grain: exactly 1 row per order_pk.".to_string()],
-                implementation_spec: crate::data_engineer::plan::CleanseImplementationSpec {
+                implementation_spec: Some(crate::data_engineer::plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![crate::data_engineer::plan::OutputFieldSpec {
@@ -1413,7 +1292,7 @@ mod tests {
                         "deduplication".to_string(),
                         "grain_enforcement".to_string(),
                     ],
-                },
+                }),
                 status: crate::data_engineer::plan::TaskStatus::Pending,
                 checklist: vec![
                     crate::data_engineer::plan::PlanChecklistItem {

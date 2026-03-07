@@ -9,7 +9,7 @@ use crate::data_engineer::providers::DatasetCatalogProvider;
 use crate::data_engineer::patch_contract::{
     normalize_hunks_only_patch_text, LlmSingleFilePatchResponse,
 };
-use crate::data_engineer::files_store;
+use crate::data_engineer::project_fs;
 
 fn sha256_hex(s: &str) -> String {
     use sha2::Digest;
@@ -43,11 +43,11 @@ fn excerpt_for_error(s: &str, max_chars: usize) -> String {
 }
 
 pub fn default_patch_loop_max_output_tokens() -> u32 {
-    std::env::var("REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS")
-        .ok()
-        .and_then(|v| v.trim().parse::<u32>().ok())
-        .filter(|v| *v >= 512)
-        .unwrap_or(3200)
+    crate::data_engineer::env_util::env_u32(
+        crate::data_engineer::env_util::env_keys::REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS,
+    )
+    .filter(|v| *v >= 512)
+    .unwrap_or(3200)
 }
 
 #[derive(Clone, Debug)]
@@ -57,7 +57,7 @@ pub struct PatchBaseState {
 }
 
 pub async fn read_patch_base_state(ctx: &AgentCtx, rel_path: &str) -> PatchBaseState {
-    let key = files_store::join_storage_key(ctx, rel_path);
+    let key = project_fs::join_storage_key(ctx, rel_path);
     let existing_opt = ctx
         .storage
         .get_bytes(&key)
@@ -88,15 +88,15 @@ pub async fn apply_single_file_patch_with_base(
     rel_path: &str,
     patch_text: &str,
     base: &PatchBaseState,
-) -> Result<files_store::PatchOutcome, String> {
-    files_store::apply_patch(
+) -> Result<project_fs::PatchOutcome, String> {
+    project_fs::apply_patch(
         ctx,
         datasets,
         rel_path,
         patch_text,
         Some(base.base_sha256.as_str()),
         Some(base.base_exists),
-        files_store::PatchApplyKind::UnifiedDiff,
+        project_fs::PatchApplyKind::UnifiedDiff,
     )
     .await
     .map_err(normalize_patch_apply_error)
@@ -316,7 +316,7 @@ fn parse_llm_patch_response(
     let v = parse_patch_json_from_llm(text)?;
     let mut parsed: LlmSingleFilePatchResponse = serde_json::from_value(Value::Object(v))
         .map_err(|e| format!("failed to parse patch response JSON: {}", e))?;
-    let rel = files_store::normalize_rel_path(parsed.path.as_str())?;
+    let rel = project_fs::normalize_rel_path(parsed.path.as_str())?;
     if rel != expected_rel_path {
         return Err(format!(
             "path '{}' did not match expected_rel_path '{}'",
@@ -341,7 +341,7 @@ pub async fn llm_patch_loop_single_file(
     expected_rel_path: &str,
     max_iters: usize,
     llm_options: Option<LlmCallOptions>,
-) -> Result<(files_store::PatchOutcome, Vec<String>), String> {
+) -> Result<(project_fs::PatchOutcome, Vec<String>), String> {
     let max_iters = max_iters.max(1).min(10);
     let enforce_analyst_notes_contract = sys_prompt.contains("ANALYST_NOTES_CONTRACT_V1");
 
@@ -401,7 +401,7 @@ pub async fn llm_patch_loop_single_file(
     ];
 
     let mut call_opts = llm_options.unwrap_or_else(|| react_core::llm::LlmCallOptions {
-        prompt_id: "data_engineer.files_patch_repair.llm_patch_loop",
+        prompt_id: "data_engineer.patch_protocol.llm_patch_loop",
         thread_id: None,
         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
         max_output_tokens: None,
@@ -592,7 +592,7 @@ mod tests {
     use super::*;
     use crate::data_engineer::ctx_ext::{ProvidersCfgCap, WarehouseCap};
     use crate::data_engineer::de_config;
-    use crate::data_engineer::providers::NullWarehouseProvider;
+    use crate::data_engineer::providers::warehouse::NullWarehouseProvider;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::LargeLanguageModel;
     use react_core::scope::RequestScope;

@@ -232,7 +232,9 @@ impl Tool for DbtValidateTool {
         }
         // As a last resort, fall back to the host env var.
         if profiles_dir.is_none() {
-            profiles_dir = std::env::var("DBT_PROFILES_DIR").ok();
+            profiles_dir = crate::data_engineer::env_util::getenv_nonempty(
+                crate::data_engineer::env_util::env_keys::DBT_PROFILES_DIR,
+            );
         }
         let target = target.ok_or_else(|| {
             "dbt_validate requires a dbt target name (e.g. 'athena', 'postgres', 'snowflake', 'bigquery', 'sqlserver'). Configure providers.dbt.target or pass args.target explicitly."
@@ -243,12 +245,12 @@ impl Tool for DbtValidateTool {
             .map(crate::data_engineer::dbt_repair::remediate::active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
 
-        let max_iters: usize = std::env::var("DBT_REPAIR_MAX_ITERS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(8)
-            .max(1)
-            .min(25);
+        let max_iters: usize = crate::data_engineer::env_util::env_usize(
+            crate::data_engineer::env_util::env_keys::DBT_REPAIR_MAX_ITERS,
+        )
+        .unwrap_or(8)
+        .max(1)
+        .min(25);
 
         let select_terms = derive_select_terms(ctx, &args).await;
         let mut ladder: Vec<ValidationLadderPhase> = Vec::new();
@@ -675,7 +677,7 @@ mod tests {
         };
 
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
-            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+            Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let mut ctx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,

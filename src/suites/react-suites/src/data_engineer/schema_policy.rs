@@ -3,8 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use react_core::agent::AgentCtx;
 
-use crate::data_engineer::project_files;
-use crate::data_engineer::files_store;
+use crate::data_engineer::project_fs;
 
 #[derive(Clone, Debug, Default)]
 pub struct ModelAllowedColumns {
@@ -539,8 +538,8 @@ pub async fn normalize_schema_artifacts_for_validate(
     ctx: &AgentCtx,
 ) -> Result<Vec<String>, String> {
     let mut notes: Vec<String> = Vec::new();
-    let schema_rel = project_files::MODELS_SCHEMA_YML;
-    let schema_key = files_store::join_storage_key(ctx, schema_rel);
+    let schema_rel = project_fs::MODELS_SCHEMA_YML;
+    let schema_key = project_fs::join_storage_key(ctx, schema_rel);
     if let Ok(bytes) = ctx.storage.get_bytes(&schema_key).await {
         let text = String::from_utf8_lossy(&bytes).to_string();
         let (normalized, mut warn) = normalize_model_yaml_doc_for_dedupe(&text, schema_rel)?;
@@ -606,7 +605,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
         ));
     }
 
-    let key = files_store::join_storage_key(ctx, project_files::MODELS_SCHEMA_YML);
+    let key = project_fs::join_storage_key(ctx, project_fs::MODELS_SCHEMA_YML);
     let schema_map: Option<serde_yaml::Mapping> = match ctx.storage.get_bytes(&key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
@@ -718,7 +717,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
                 continue;
             }
             let sql_rel = format!("models/staging/{name}.sql");
-            let sql_key = files_store::join_storage_key(ctx, &sql_rel);
+            let sql_key = project_fs::join_storage_key(ctx, &sql_rel);
             let sql_bytes = ctx.storage.get_bytes(&sql_key).await.map_err(|_| {
                 format!("cannot validate {rel}: missing staging SQL {sql_rel} for model '{name}'")
             })?;
@@ -818,7 +817,7 @@ mod tests {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let ctx = make_ctx(storage.clone());
 
-        let schema_key = files_store::join_storage_key(&ctx, project_files::MODELS_SCHEMA_YML);
+        let schema_key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
         ctx.storage
             .put_bytes(
                 &schema_key,
@@ -829,7 +828,7 @@ mod tests {
             .unwrap();
 
         let stg_key =
-            files_store::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_customers.yml");
+            project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_customers.yml");
         ctx.storage
             .put_bytes(
                 &stg_key,
@@ -847,7 +846,7 @@ mod tests {
     async fn normalize_schema_artifacts_merges_duplicate_model_entries() {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let ctx = make_ctx(storage.clone());
-        let schema_key = files_store::join_storage_key(&ctx, project_files::MODELS_SCHEMA_YML);
+        let schema_key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
         ctx.storage
             .put_bytes(
                 &schema_key,
@@ -875,7 +874,7 @@ mod tests {
         let ctx = make_ctx(storage.clone());
 
         let sql_key =
-            files_store::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.sql");
+            project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.sql");
         ctx.storage
             .put_bytes(
                 &sql_key,
@@ -885,7 +884,7 @@ mod tests {
             .await
             .unwrap();
         let yml_key =
-            files_store::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.yml");
+            project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.yml");
         ctx.storage
             .put_bytes(
                 &yml_key,
@@ -905,12 +904,12 @@ mod tests {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let ctx = make_ctx(storage.clone());
 
-        let marts_key = files_store::join_storage_key(&ctx, "models/marts/fct_orders.sql");
+        let marts_key = project_fs::join_storage_key(&ctx, "models/marts/fct_orders.sql");
         ctx.storage
             .put_bytes(&marts_key, b"select 1 as id", "text/sql")
             .await
             .unwrap();
-        let core_key = files_store::join_storage_key(&ctx, "models/core/fct_orders.sql");
+        let core_key = project_fs::join_storage_key(&ctx, "models/core/fct_orders.sql");
         ctx.storage
             .put_bytes(&core_key, b"select 2 as id", "text/sql")
             .await

@@ -1,20 +1,11 @@
 use crate::data_engineer::naming;
-use crate::data_engineer::plan_progress::{CHECKLIST_SQL_MODEL, checklist_status};
+use crate::data_engineer::plan_progress::{CHECKLIST_SQL_MODEL, checklist_status, is_runnable_checklist_status};
 use crate::data_engineer::plan_types::*;
 use crate::data_engineer::plan_validation::{
     validate_cleanse_plan_semantics, validate_model_plan_semantics,
 };
 use crate::data_engineer::references::DatasetRef;
 use react_core::agent::AgentCtx;
-
-fn is_runnable_checklist_status(s: ChecklistItemStatus) -> bool {
-    matches!(
-        s,
-        ChecklistItemStatus::Pending
-            | ChecklistItemStatus::InProgress
-            | ChecklistItemStatus::NeedsUpdate
-    )
-}
 
 pub fn ensure_expected_model_paths_cleanse(ctx: Option<&AgentCtx>, plan: &mut CleansePlan) -> bool {
     let mut changed = false;
@@ -59,12 +50,7 @@ pub fn ensure_expected_model_paths_model(plan: &mut ModelPlan) {
         if !missing {
             continue;
         }
-        let folder = if t.folder.trim().is_empty() {
-            "marts"
-        } else {
-            t.folder.trim()
-        };
-        t.expected_model_path = Some(format!("models/{}/{}.sql", folder, t.name.trim()));
+        t.expected_model_path = Some(format!("models/{}/{}.sql", t.folder.as_str(), t.name.trim()));
     }
 }
 
@@ -245,23 +231,37 @@ fn ensure_silver_passthrough_present(output_fields: &mut Vec<OutputFieldSpec>) {
     }
 }
 
+fn default_cleanse_implementation_spec() -> CleanseImplementationSpec {
+    CleanseImplementationSpec {
+        spec_version: 1,
+        row_preserving: true,
+        output_fields: vec![default_silver_passthrough_field_spec()],
+        prohibited_ops: vec![
+            "no filtering".to_string(),
+            "no dedup".to_string(),
+            "no grain enforcement".to_string(),
+        ],
+    }
+}
+
 pub fn normalize_cleanse_plan_defaults(plan: &mut CleansePlan) {
     for t in plan.tasks.iter_mut() {
-        t.implementation_spec.row_preserving = true;
-        if t.implementation_spec.spec_version <= 0 {
-            t.implementation_spec.spec_version = 1;
+        let spec = t.implementation_spec.get_or_insert_with(default_cleanse_implementation_spec);
+        spec.row_preserving = true;
+        if spec.spec_version <= 0 {
+            spec.spec_version = 1;
         }
-        if t.implementation_spec.prohibited_ops.is_empty() {
-            t.implementation_spec.prohibited_ops = vec![
+        if spec.prohibited_ops.is_empty() {
+            spec.prohibited_ops = vec![
                 "no filtering".to_string(),
                 "no dedup".to_string(),
                 "no grain enforcement".to_string(),
             ];
         }
-        if t.implementation_spec.output_fields.is_empty() {
-            t.implementation_spec.output_fields = vec![default_silver_passthrough_field_spec()];
+        if spec.output_fields.is_empty() {
+            spec.output_fields = vec![default_silver_passthrough_field_spec()];
         } else {
-            ensure_silver_passthrough_present(&mut t.implementation_spec.output_fields);
+            ensure_silver_passthrough_present(&mut spec.output_fields);
         }
 
         let sql_status = checklist_status(&t.checklist, CHECKLIST_SQL_MODEL);
@@ -290,21 +290,37 @@ pub fn normalize_cleanse_plan_defaults(plan: &mut CleansePlan) {
     }
 }
 
-fn strict_cleanse_grounding_errors(plan: &CleansePlan) -> Vec<String> {
+/// Shared grounding errors for all plan types via `PlanTask`.
+fn strict_grounding_errors<T: PlanTask>(plan: &Plan<T>) -> Vec<String> {
     let mut errors = Vec::new();
     for t in &plan.tasks {
-        if t.dataset_id.trim().is_empty() {
-            errors.push("task.dataset_id is empty".to_string());
+        let tid = t.task_id();
+        if tid.trim().is_empty() {
+            errors.push("task id is empty".to_string());
+            continue;
         }
         let missing_path = t
-            .expected_model_path
-            .as_deref()
+            .expected_model_path()
             .map(|s| s.trim().is_empty())
             .unwrap_or(true);
         if missing_path {
-            errors.push(format!("{}: expected_model_path is required", t.dataset_id));
+            errors.push(format!("{}: expected_model_path is required", tid));
         }
-        if t.implementation_spec.output_fields.is_empty() {
+    }
+    errors
+}
+
+fn strict_cleanse_grounding_errors(plan: &CleansePlan) -> Vec<String> {
+    let mut errors = strict_grounding_errors(plan);
+    for t in &plan.tasks {
+        if t.dataset_id.trim().is_empty() {
+            continue;
+        }
+        if t.implementation_spec
+            .as_ref()
+            .map(|s| s.output_fields.is_empty())
+            .unwrap_or(true)
+        {
             errors.push(format!(
                 "{}: implementation_spec.output_fields is required",
                 t.dataset_id
@@ -318,19 +334,10 @@ fn strict_model_grounding_errors(
     plan: &ModelPlan,
     allowed_staging_models: Option<&std::collections::BTreeSet<String>>,
 ) -> Vec<String> {
-    let mut errors = Vec::new();
+    let mut errors = strict_grounding_errors(plan);
     for t in &plan.tasks {
         if t.name.trim().is_empty() {
-            errors.push("task.name is empty".to_string());
             continue;
-        }
-        let missing_path = t
-            .expected_model_path
-            .as_deref()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true);
-        if missing_path {
-            errors.push(format!("{}: expected_model_path is required", t.name));
         }
         if t.goal.trim().is_empty() {
             errors.push(format!("{}: goal is required", t.name));
@@ -346,11 +353,15 @@ fn strict_model_grounding_errors(
         }
         let impl_inputs: Vec<String> = t
             .implementation_spec
-            .inputs
-            .iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+            .as_ref()
+            .map(|spec| {
+                spec.inputs
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         if impl_inputs.is_empty() {
             errors.push(format!(
                 "{}: implementation_spec.inputs must be non-empty",
@@ -401,12 +412,6 @@ impl TryFrom<CleansePlan> for GroundedCleansePlan {
     }
 }
 
-impl GroundedCleansePlan {
-    pub fn into_inner(self) -> CleansePlan {
-        self.0
-    }
-}
-
 impl TryFrom<CleansePlan> for PersistableCleansePlan {
     type Error = String;
 
@@ -415,15 +420,6 @@ impl TryFrom<CleansePlan> for PersistableCleansePlan {
             return Ok(Self::Terminal(value));
         }
         Ok(Self::Grounded(GroundedCleansePlan::try_from(value)?))
-    }
-}
-
-impl PersistableCleansePlan {
-    pub fn into_inner(self) -> CleansePlan {
-        match self {
-            Self::Grounded(v) => v.into_inner(),
-            Self::Terminal(v) => v,
-        }
     }
 }
 
@@ -444,12 +440,6 @@ impl TryFrom<ModelPlan> for GroundedModelPlan {
     }
 }
 
-impl GroundedModelPlan {
-    pub fn into_inner(self) -> ModelPlan {
-        self.0
-    }
-}
-
 impl TryFrom<ModelPlan> for PersistableModelPlan {
     type Error = String;
 
@@ -458,14 +448,5 @@ impl TryFrom<ModelPlan> for PersistableModelPlan {
             return Ok(Self::Terminal(value));
         }
         Ok(Self::Grounded(GroundedModelPlan::try_from(value)?))
-    }
-}
-
-impl PersistableModelPlan {
-    pub fn into_inner(self) -> ModelPlan {
-        match self {
-            Self::Grounded(v) => v.into_inner(),
-            Self::Terminal(v) => v,
-        }
     }
 }

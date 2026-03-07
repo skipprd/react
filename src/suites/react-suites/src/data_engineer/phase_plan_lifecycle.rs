@@ -4,55 +4,34 @@ use crate::data_engineer::plan;
 use crate::data_engineer::plan_types::{CleansePlan, ModelPlan, PlanStatus, TrackPlan};
 use crate::data_engineer::track_spec::TrackKind;
 
+/// Enum wrapper allowing a single variable to hold either plan type while
+/// still exposing the `TrackPlan` trait. Pattern matching on the variants
+/// is used by callers that need access to the concrete plan (e.g. phase_plan,
+/// plan_review_helpers). This wrapper is the price of having two distinct
+/// task types; the macro below keeps the delegation boilerplate-free.
 #[derive(Clone)]
 pub(super) enum TrackPlanDoc {
     Cleanse(CleansePlan),
     Model(ModelPlan),
 }
 
+macro_rules! delegate_track_plan {
+    ($self:ident, $method:ident $(, $arg:ident : $ty:ty)*) => {
+        match $self {
+            Self::Cleanse(p) => p.$method($($arg),*),
+            Self::Model(p) => p.$method($($arg),*),
+        }
+    };
+}
+
 impl TrackPlan for TrackPlanDoc {
-    fn plan_key(&self) -> &str {
-        match self {
-            Self::Cleanse(p) => p.plan_key(),
-            Self::Model(p) => p.plan_key(),
-        }
-    }
-    fn status(&self) -> PlanStatus {
-        match self {
-            Self::Cleanse(p) => p.status(),
-            Self::Model(p) => p.status(),
-        }
-    }
-    fn set_status(&mut self, status: PlanStatus) {
-        match self {
-            Self::Cleanse(p) => p.set_status(status),
-            Self::Model(p) => p.set_status(status),
-        }
-    }
-    fn tasks_len(&self) -> usize {
-        match self {
-            Self::Cleanse(p) => p.tasks_len(),
-            Self::Model(p) => p.tasks_len(),
-        }
-    }
-    fn batches_len(&self) -> usize {
-        match self {
-            Self::Cleanse(p) => p.batches_len(),
-            Self::Model(p) => p.batches_len(),
-        }
-    }
-    fn progress_mut(&mut self) -> &mut crate::data_engineer::plan_types::PlanProgress {
-        match self {
-            Self::Cleanse(p) => p.progress_mut(),
-            Self::Model(p) => p.progress_mut(),
-        }
-    }
-    fn executable_plan_issues(&self) -> Vec<String> {
-        match self {
-            Self::Cleanse(p) => p.executable_plan_issues(),
-            Self::Model(p) => p.executable_plan_issues(),
-        }
-    }
+    fn plan_key(&self) -> &str { delegate_track_plan!(self, plan_key) }
+    fn status(&self) -> PlanStatus { delegate_track_plan!(self, status) }
+    fn set_status(&mut self, status: PlanStatus) { delegate_track_plan!(self, set_status, status: PlanStatus) }
+    fn tasks_len(&self) -> usize { delegate_track_plan!(self, tasks_len) }
+    fn batches_len(&self) -> usize { delegate_track_plan!(self, batches_len) }
+    fn progress_mut(&mut self) -> &mut crate::data_engineer::plan_types::PlanProgress { delegate_track_plan!(self, progress_mut) }
+    fn executable_plan_issues(&self) -> Vec<String> { delegate_track_plan!(self, executable_plan_issues) }
 }
 
 pub(super) async fn load_plan_for_track(

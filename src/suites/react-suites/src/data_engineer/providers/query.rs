@@ -15,6 +15,6 @@ pub trait QueryProvider: Send + Sync {
     async fn sample(&self, dataset_fqn: &str, limit: usize) -> Result<Vec<Vec<String>>, String>;
 
     fn max_concurrency(&self) -> usize {
-        super::limits::DEFAULT_MAX_CONCURRENCY
+        super::DEFAULT_MAX_CONCURRENCY
     }
 }

@@ -3,7 +3,6 @@ use async_trait::async_trait;
 #[derive(Clone)]
 pub struct PreflightBundle {
     pub discovery: super::discovery::DiscoveryBundle,
-    pub preflight: Option<super::catalog_preflight::PreflightOutcome>,
 }
 
 #[async_trait]
@@ -21,7 +20,6 @@ pub trait PreflightProvider: Send + Sync {
 #[derive(Default)]
 pub struct CatalogPreflightProvider {
     pub discovery_limits: super::discovery::DiscoveryLimits,
-    pub run_preflight_on_bundle: bool,
 }
 
 #[async_trait]
@@ -30,7 +28,7 @@ impl PreflightProvider for CatalogPreflightProvider {
         &self,
         thread_id: &str,
         question: &str,
-        agent_type: &str,
+        _agent_type: &str,
         sctx: &react_core::suite::SuiteCtx,
     ) -> PreflightBundle {
         let discovery = super::discovery::run_discovery_cached(
@@ -40,17 +38,8 @@ impl PreflightProvider for CatalogPreflightProvider {
             sctx,
         )
         .await;
-        let preflight = if self.run_preflight_on_bundle {
-            Some(
-                super::catalog_preflight::run_preflight_on_bundle(thread_id, agent_type)
-                    .await,
-            )
-        } else {
-            None
-        };
         PreflightBundle {
             discovery,
-            preflight,
         }
     }
 }

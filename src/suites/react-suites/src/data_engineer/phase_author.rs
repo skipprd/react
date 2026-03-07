@@ -55,7 +55,7 @@ async fn transition_plan_missing(
             track.plan_phase(),
             Some(PhaseReasonCode::PlanMissing),
             Some(crate::data_engineer::phase_reason_detail::plan_missing(
-                track.as_str(),
+                track,
                 format!(
                     "authoring entered without an active {} plan; routing back to planning",
                     track.as_str()
@@ -97,10 +97,12 @@ mod tests {
                         "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
                     )
                     .expect("valid sql model path"),
-                    attempt_count: 2,
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 2,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         let repair_ctx = crate::data_engineer::progress_controller::RepairPromptContext {
@@ -193,7 +195,7 @@ async fn transition_plan_not_approved(
     thread_id: &str,
     phase: Phase,
     track: TrackKind,
-    status: String,
+    status: crate::data_engineer::plan_types::PlanStatus,
 ) -> Result<(), String> {
     crate::data_engineer::phase_contract::commit_phase_decision(
         thread_store,
@@ -337,6 +339,97 @@ fn build_missing_target_repair_abort_reason(
     )
 }
 
+fn resolve_checklist_item_id(actx: &AgentCtx) -> String {
+    actx.exec_ctx
+        .as_ref()
+        .and_then(|c| c.checklist_item_id.as_deref())
+        .unwrap_or(crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT)
+        .trim()
+        .to_string()
+}
+
+fn build_schema_checklist_context(
+    track: TrackKind,
+    plan_key: &str,
+    checklist_item_id: &str,
+    ids: &[String],
+    expected_paths: &[String],
+) -> String {
+    let kind = track.as_str();
+    let batch_tool = if track.is_cleanse() {
+        "apply_next_cleanse_schema_batch"
+    } else {
+        "apply_next_model_schema_batch"
+    };
+    let mut ctx = format!(
+        "Approved {kind} plan (stored at: {plan_key}).\nPending schema checklist work (checklist_item_id={checklist_item_id} ; max 5):\n- {}\n\nNext action: call {batch_tool} (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
+        ids.join("\n- "),
+        expected_paths.join("\n- "),
+    );
+    ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
+    ctx
+}
+
+async fn check_batch_lock_and_loopback(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    track: TrackKind,
+    plan_key: &str,
+    consecutive_batch_failures: usize,
+    total_batch_failures: usize,
+    next_ids: &[String],
+    expected_paths: &[String],
+) -> Result<Option<PhaseExecutorOutcome>, String> {
+    if consecutive_batch_failures
+        < crate::data_engineer::controller_kernel::max_consecutive_batch_failures()
+    {
+        return Ok(None);
+    }
+    let reason = crate::data_engineer::controller_kernel::build_batch_lock_prompt(
+        track,
+        plan_key,
+        consecutive_batch_failures,
+        total_batch_failures,
+        next_ids,
+        expected_paths,
+    );
+    apply_guard_block(
+        thread_store,
+        thread_id,
+        phase,
+        GuardBlockKind::BatchLocked,
+        reason.clone(),
+    )
+    .await?;
+    let label = if track.is_cleanse() { "Cleanse" } else { "Model" };
+    let violation = crate::data_engineer::progress_controller::PlanViolation::new(
+        phase,
+        None,
+        format!("{label} batch lock: {reason}"),
+    );
+    crate::data_engineer::phase_contract::commit_plan_revision_loopback(
+        thread_store,
+        thread_id,
+        phase,
+        vec![violation],
+        crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
+    )
+    .await?;
+    Ok(Some(PhaseExecutorOutcome::TransitionCommitted))
+}
+
+fn extract_validate_fail_context(
+    project_snapshot: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    project_snapshot
+        .as_object()
+        .and_then(|obj| obj.get("validate_fail_facts"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.last())
+        .cloned()
+}
+
 impl DataEngineerSuite {
     pub(super) async fn execute_author_phase(
         thread_store: &ThreadStore,
@@ -376,7 +469,7 @@ let mut repair_type = execution_state.repair_type();
 if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
     repair_type = crate::data_engineer::progress_controller::RepairType::Schema;
 }
-let sys = crate::data_engineer::util::time_context::with_time_context(if is_cleanse {
+let sys = crate::data_engineer::prompts::with_time_context(if is_cleanse {
     prompts::cleanse_system_prompt()
 } else {
     prompts::model_system_prompt()
@@ -392,7 +485,7 @@ let mut actx = AgentCtx {
     progress_tx: None,
     pre_step_tx: None,
     trace_tx: sctx.trace_tx.clone(),
-    agent_name: Some("agent".to_string()),
+    agent_name: Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
     policy: std::sync::Arc::new(InterruptOnlyPolicy),
     llm: sctx.llm.clone(),
     storage: sctx.storage.clone(),
@@ -453,47 +546,26 @@ let (plan_context, plan_state): (String, PlanState) =
             plan.plan_key.clone(),
             next_item,
         );
-        // Hard stop: if plan-batched authoring is locked due to too many consecutive failures,
-        // return control to the user with a single actionable message (do not loop).
-        if plan.progress.consecutive_batch_failures
-        >= crate::data_engineer::controller_kernel::max_consecutive_batch_failures()
-    {
-        let next =
-            crate::data_engineer::plan::cleanse_next_authoring_action(&plan)
-                .author_sql_ids();
-        let expected_paths = crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
-            &plan.tasks,
-            &next,
-            |task| task.dataset_id.as_str(),
-            |task| task.expected_model_path.as_deref(),
-        );
-        let reason = lock_prompt_for_plan(
-            track,
-            &plan.plan_key,
-            plan.progress.consecutive_batch_failures,
-            plan.progress.total_batch_failures,
-            &next,
-            &expected_paths,
-        );
-        apply_guard_block(
-            &thread_store,
-            thread_id,
-            phase,
-            GuardBlockKind::BatchLocked,
-            reason.clone(),
-        )
-        .await?;
-        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
-            phase,
-            None,
-            format!("Cleanse batch lock: {reason}"),
-        );
-        crate::data_engineer::phase_contract::commit_plan_revision_loopback(
-            &thread_store, thread_id, phase, vec![violation],
-            crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
-        ).await?;
-        return Ok(PhaseExecutorOutcome::TransitionCommitted);
-    }
+        {
+            let next =
+                crate::data_engineer::plan::cleanse_next_authoring_action(&plan)
+                    .author_sql_ids();
+            let expected_paths = crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
+                &plan.tasks,
+                &next,
+                |task| task.dataset_id.as_str(),
+                |task| task.expected_model_path.as_deref(),
+            );
+            if let Some(outcome) = check_batch_lock_and_loopback(
+                &thread_store, thread_id, phase, track,
+                &plan.plan_key,
+                plan.progress.consecutive_batch_failures,
+                plan.progress.total_batch_failures,
+                &next, &expected_paths,
+            ).await? {
+                return Ok(outcome);
+            }
+        }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
         {
@@ -502,7 +574,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 thread_id,
                 phase,
                 track,
-                format!("{:?}", plan.status),
+                plan.status,
             )
             .await?;
             return Ok(PhaseExecutorOutcome::TransitionCommitted);
@@ -538,15 +610,7 @@ let (plan_context, plan_state): (String, PlanState) =
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
                 &next_action
             {
-                let checklist_item_id = actx
-                    .exec_ctx
-                    .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
-                    .unwrap_or(
-                        crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT,
-                    )
-                    .trim()
-                    .to_string();
+                let checklist_item_id = resolve_checklist_item_id(&actx);
                 let expected_paths =
                     crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
                         &plan.tasks,
@@ -554,14 +618,9 @@ let (plan_context, plan_state): (String, PlanState) =
                         |task| task.dataset_id.as_str(),
                         |task| task.expected_model_path.as_deref(),
                     );
-                let mut ctx = format!(
-                    "Approved cleanse plan (stored at: {}).\nPending schema checklist work (checklist_item_id={} ; max 5):\n- {}\n\nNext action: call apply_next_cleanse_schema_batch (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
-                    plan.plan_key,
-                    checklist_item_id,
-                    ids.join("\n- "),
-                    expected_paths.join("\n- "),
+                let ctx = build_schema_checklist_context(
+                    track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
                 );
-                ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (ctx, PlanState::CleanseSchemaDatasetIds(ids.clone()))
             } else {
                 let mut ctx = format!(
@@ -584,15 +643,7 @@ let (plan_context, plan_state): (String, PlanState) =
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
                 &next_action
             {
-                let checklist_item_id = actx
-                    .exec_ctx
-                    .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
-                    .unwrap_or(
-                        crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT,
-                    )
-                    .trim()
-                    .to_string();
+                let checklist_item_id = resolve_checklist_item_id(&actx);
                 let expected_paths =
                     crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
                         &plan.tasks,
@@ -600,14 +651,9 @@ let (plan_context, plan_state): (String, PlanState) =
                         |task| task.dataset_id.as_str(),
                         |task| task.expected_model_path.as_deref(),
                     );
-                let mut ctx = format!(
-                    "Approved cleanse plan (stored at: {}).\nPending schema checklist work (checklist_item_id={} ; max 5):\n- {}\n\nNext action: call apply_next_cleanse_schema_batch (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
-                    plan.plan_key,
-                    checklist_item_id,
-                    ids.join("\n- "),
-                    expected_paths.join("\n- "),
+                let ctx = build_schema_checklist_context(
+                    track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
                 );
-                ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (
                     ctx,
                     PlanState::CleanseSchemaDatasetIds(ids.clone()),
@@ -723,45 +769,26 @@ let (plan_context, plan_state): (String, PlanState) =
             plan.plan_key.clone(),
             next_item,
         );
-        if plan.progress.consecutive_batch_failures
-        >= crate::data_engineer::controller_kernel::max_consecutive_batch_failures()
-    {
-        let next =
-            crate::data_engineer::plan::model_next_authoring_action(&plan)
-                .author_sql_ids();
-        let expected_paths = crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
-            &plan.tasks,
-            &next,
-            |task| task.name.as_str(),
-            |task| task.expected_model_path.as_deref(),
-        );
-        let reason = lock_prompt_for_plan(
-            track,
-            &plan.plan_key,
-            plan.progress.consecutive_batch_failures,
-            plan.progress.total_batch_failures,
-            &next,
-            &expected_paths,
-        );
-        apply_guard_block(
-            &thread_store,
-            thread_id,
-            phase,
-            GuardBlockKind::BatchLocked,
-            reason.clone(),
-        )
-        .await?;
-        let violation = crate::data_engineer::progress_controller::PlanViolation::new(
-            phase,
-            None,
-            format!("Model batch lock: {reason}"),
-        );
-        crate::data_engineer::phase_contract::commit_plan_revision_loopback(
-            &thread_store, thread_id, phase, vec![violation],
-            crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
-        ).await?;
-        return Ok(PhaseExecutorOutcome::TransitionCommitted);
-    }
+        {
+            let next =
+                crate::data_engineer::plan::model_next_authoring_action(&plan)
+                    .author_sql_ids();
+            let expected_paths = crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
+                &plan.tasks,
+                &next,
+                |task| task.name.as_str(),
+                |task| task.expected_model_path.as_deref(),
+            );
+            if let Some(outcome) = check_batch_lock_and_loopback(
+                &thread_store, thread_id, phase, track,
+                &plan.plan_key,
+                plan.progress.consecutive_batch_failures,
+                plan.progress.total_batch_failures,
+                &next, &expected_paths,
+            ).await? {
+                return Ok(outcome);
+            }
+        }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
         {
@@ -770,7 +797,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 thread_id,
                 phase,
                 track,
-                format!("{:?}", plan.status),
+                plan.status,
             )
             .await?;
             return Ok(PhaseExecutorOutcome::TransitionCommitted);
@@ -805,15 +832,7 @@ let (plan_context, plan_state): (String, PlanState) =
             if let crate::data_engineer::plan::AuthoringNextAction::AuthorSchema(ids) =
                 &next_action
             {
-                let checklist_item_id = actx
-                    .exec_ctx
-                    .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
-                    .unwrap_or(
-                        crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT,
-                    )
-                    .trim()
-                    .to_string();
+                let checklist_item_id = resolve_checklist_item_id(&actx);
                 let expected_paths =
                     crate::data_engineer::phase_author_lifecycle::collect_expected_paths(
                         &plan.tasks,
@@ -821,14 +840,9 @@ let (plan_context, plan_state): (String, PlanState) =
                         |task| task.name.as_str(),
                         |task| task.expected_model_path.as_deref(),
                     );
-                let mut ctx = format!(
-                    "Approved model plan (stored at: {}).\nPending schema checklist work (checklist_item_id={} ; max 5):\n- {}\n\nNext action: call apply_next_model_schema_batch (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
-                    plan.plan_key,
-                    checklist_item_id,
-                    ids.join("\n- "),
-                    expected_paths.join("\n- "),
+                let ctx = build_schema_checklist_context(
+                    track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
                 );
-                ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (
                     ctx,
                     PlanState::ModelSchemaItemNames(ids.clone()),
@@ -855,9 +869,9 @@ let (plan_context, plan_state): (String, PlanState) =
                 // for these pending items, mark schema_contract done and re-run planning for the
                 // next action instead of thrashing the same file.
                 {
-                    let key = crate::data_engineer::files_store::join_storage_key(
+                    let key = crate::data_engineer::project_fs::join_storage_key(
                         &actx,
-                        crate::data_engineer::project_files::MODELS_SCHEMA_YML,
+                        crate::data_engineer::project_fs::MODELS_SCHEMA_YML,
                     );
                     if let Ok(bytes) = actx.storage.get_bytes(&key).await {
                         let content =
@@ -883,15 +897,7 @@ let (plan_context, plan_state): (String, PlanState) =
                                 }
                             }
                             let mut changed = false;
-                            let checklist_item_id = actx
-                                .exec_ctx
-                                .as_ref()
-                                .and_then(|c| c.checklist_item_id.as_deref())
-                                .unwrap_or(
-                                    crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT,
-                                )
-                                .trim()
-                                .to_string();
+                            let checklist_item_id = resolve_checklist_item_id(&actx);
                             for n in ids.iter() {
                                 if !names_in_schema.contains(n) {
                                     return Ok(PhaseExecutorOutcome::StayInPhase);
@@ -937,23 +943,10 @@ let (plan_context, plan_state): (String, PlanState) =
                         |task| task.name.as_str(),
                         |task| task.expected_model_path.as_deref(),
                     );
-                let checklist_item_id = actx
-                    .exec_ctx
-                    .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
-                    .unwrap_or(
-                        crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT,
-                    )
-                    .trim()
-                    .to_string();
-                let mut ctx = format!(
-                    "Approved model plan (stored at: {}).\nPending schema checklist work (checklist_item_id={} ; max 5):\n- {}\n\nNext action: call apply_next_model_schema_batch (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
-                    plan.plan_key,
-                    checklist_item_id,
-                    ids.join("\n- "),
-                    expected_paths.join("\n- "),
+                let checklist_item_id = resolve_checklist_item_id(&actx);
+                let ctx = build_schema_checklist_context(
+                    track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
                 );
-                ctx.push_str("\nIMPORTANT: Do NOT call the SQL batch-authoring tool while schema checklist work remains; continue schema checklist repairs first.\n");
                 (ctx, PlanState::Unconstrained)
             } else {
                 let completion_snapshot =
@@ -1104,10 +1097,12 @@ q.push_str(&plan_context);
 // - In authoring, include ALL relations in the current approved batch.
 // - Also include any recent validate-fail facts snapshot if present.
 {
-    let dialect = crate::data_engineer::resolved_config_from_ctx(&actx)
-        .as_ref()
-        .map(|cfg| crate::data_engineer::dbt_repair::remediate::active_provider_dialect(cfg))
-        .unwrap_or_else(|| "Unknown SQL dialect".to_string());
+    let dialect = crate::data_engineer::facts::SqlDialect(
+        crate::data_engineer::resolved_config_from_ctx(&actx)
+            .as_ref()
+            .map(|cfg| crate::data_engineer::dbt_repair::remediate::active_provider_dialect(cfg))
+            .unwrap_or_else(|| "Unknown SQL dialect".to_string()),
+    );
     let mut batch_relations: Vec<String> = Vec::new();
     let mut prior_validate_facts: Option<serde_json::Value> = None;
     if is_cleanse {
@@ -1120,16 +1115,7 @@ q.push_str(&plan_context);
                 batch_relations =
                     crate::data_engineer::facts::dataset_ids_to_fqns(ds);
             }
-            // Prefer the last persisted validate_fail_facts snapshot (if any).
-            if let Some(obj) = p.project_snapshot.as_object() {
-                if let Some(arr) =
-                    obj.get("validate_fail_facts").and_then(|v| v.as_array())
-                {
-                    if let Some(last) = arr.last() {
-                        prior_validate_facts = Some(last.clone());
-                    }
-                }
-            }
+            prior_validate_facts = extract_validate_fail_context(&p.project_snapshot);
         }
     } else {
         if let Some(p) =
@@ -1157,15 +1143,7 @@ q.push_str(&plan_context);
                         crate::data_engineer::facts::resolve_model_names_to_fqns(&actx, &want_names).await;
                 }
             }
-            if let Some(obj) = p.project_snapshot.as_object() {
-                if let Some(arr) =
-                    obj.get("validate_fail_facts").and_then(|v| v.as_array())
-                {
-                    if let Some(last) = arr.last() {
-                        prior_validate_facts = Some(last.clone());
-                    }
-                }
-            }
+            prior_validate_facts = extract_validate_fail_context(&p.project_snapshot);
         }
     }
 
@@ -1381,7 +1359,7 @@ if hard_mutation_repair_mode
     }
 
     let envelope = crate::data_engineer::prompt_packets::PromptEnvelope {
-        phase: phase.as_str().to_string(),
+        phase,
         goal: question.trim().to_string(),
         directive: crate::data_engineer::prompt_packets::TurnDirective::Repair,
         plan: None,
@@ -1446,12 +1424,12 @@ if hard_mutation_repair_mode
 }
 
 let llm_options = if is_cleanse {
-    let author_max_tokens: u32 = std::env::var("LLM_AUTHOR_MAX_TOKENS_CLEANSE")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(24_000)
-        .max(2_000)
-        .min(64_000);
+    let author_max_tokens: u32 = crate::data_engineer::env_util::env_u32(
+        crate::data_engineer::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_CLEANSE,
+    )
+    .unwrap_or(24_000)
+    .max(2_000)
+    .min(64_000);
     LlmCallOptions {
         prompt_id: "data_engineer.cleanse_author",
         thread_id: None,
@@ -1463,12 +1441,12 @@ let llm_options = if is_cleanse {
         timeout_secs: None,
     }
 } else {
-    let author_max_tokens: u32 = std::env::var("LLM_AUTHOR_MAX_TOKENS_MODEL")
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(32_000)
-        .max(2_000)
-        .min(64_000);
+    let author_max_tokens: u32 = crate::data_engineer::env_util::env_u32(
+        crate::data_engineer::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_MODEL,
+    )
+    .unwrap_or(32_000)
+    .max(2_000)
+    .min(64_000);
     LlmCallOptions {
         prompt_id: "data_engineer.model_author",
         thread_id: None,

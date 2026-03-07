@@ -6,7 +6,7 @@ use std::fmt;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct ProvidersFile {
+pub(crate) struct ProvidersFile {
     pub warehouse: Option<WarehouseFile>,
     pub catalog: Option<CatalogFile>,
     pub dbt: Option<DbtFile>,
@@ -18,7 +18,7 @@ pub struct ProvidersFile {
 /// Keep secrets in env; only non-secret wiring here.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum WarehouseFile {
+pub(crate) enum WarehouseFile {
     Athena {
         workgroup: Option<String>,
         region: Option<String>,
@@ -52,21 +52,21 @@ pub enum WarehouseFile {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct CatalogFile {
+pub(crate) struct CatalogFile {
     pub enabled: Option<bool>,
     pub refresh_secs: Option<u64>,
     pub max_concurrency: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct DbtNamingFile {
+pub(crate) struct DbtNamingFile {
     pub target_schema: Option<String>,
     pub silver_suffix: Option<String>,
     pub gold_suffix: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct DbtFile {
+pub(crate) struct DbtFile {
     pub enabled: Option<bool>,
     pub profiles_dir: Option<String>,
     pub target: Option<String>,
@@ -79,7 +79,7 @@ pub struct DbtFile {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct VectorFile {
+pub(crate) struct VectorFile {
     pub enabled: Option<bool>,
 }
 
@@ -87,14 +87,9 @@ pub struct VectorFile {
 // resolve_providers_from_yaml – builds the normalised suite_config JSON
 // ---------------------------------------------------------------------------
 
-fn getenv_nonempty(key: &str) -> Option<String> {
-    std::env::var(key).ok().and_then(|v| {
-        let t = v.trim();
-        if t.is_empty() { None } else { Some(t.to_string()) }
-    })
-}
+use super::env_util::{getenv_nonempty, env_keys};
 
-fn resolve_warehouse(w: WarehouseFile) -> serde_json::Value {
+fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
     match w {
         WarehouseFile::Athena {
             workgroup,
@@ -104,57 +99,57 @@ fn resolve_warehouse(w: WarehouseFile) -> serde_json::Value {
             catalog,
             schema,
             discovery_cache_ttl_secs,
-        } => serde_json::json!({
-            "kind": "Athena",
-            "container": catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
-            "namespace": schema.unwrap_or_default(),
-            "extras": {
+        } => WarehouseResolved {
+            kind: WarehouseKind::Athena,
+            container: catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
+            namespace: schema.unwrap_or_default(),
+            extras: serde_json::json!({
                 "workgroup": workgroup,
                 "region": region,
                 "result_s3": result_s3,
                 "max_concurrency": max_concurrency,
                 "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-            },
-        }),
-        WarehouseFile::Postgres { database, schema } => serde_json::json!({
-            "kind": "Postgres",
-            "container": database.unwrap_or_default(),
-            "namespace": schema.unwrap_or_default(),
-            "extras": {},
-        }),
-        WarehouseFile::Mssql { database, schema } => serde_json::json!({
-            "kind": "Mssql",
-            "container": database.unwrap_or_default(),
-            "namespace": schema.unwrap_or_default(),
-            "extras": {},
-        }),
+            }),
+        },
+        WarehouseFile::Postgres { database, schema } => WarehouseResolved {
+            kind: WarehouseKind::Postgres,
+            container: database.unwrap_or_default(),
+            namespace: schema.unwrap_or_default(),
+            extras: serde_json::json!({}),
+        },
+        WarehouseFile::Mssql { database, schema } => WarehouseResolved {
+            kind: WarehouseKind::Mssql,
+            container: database.unwrap_or_default(),
+            namespace: schema.unwrap_or_default(),
+            extras: serde_json::json!({}),
+        },
         WarehouseFile::Snowflake {
             database,
             schema,
             warehouse,
             role,
-        } => serde_json::json!({
-            "kind": "Snowflake",
-            "container": database.unwrap_or_default(),
-            "namespace": schema.unwrap_or_default(),
-            "extras": { "warehouse": warehouse, "role": role },
-        }),
+        } => WarehouseResolved {
+            kind: WarehouseKind::Snowflake,
+            container: database.unwrap_or_default(),
+            namespace: schema.unwrap_or_default(),
+            extras: serde_json::json!({ "warehouse": warehouse, "role": role }),
+        },
         WarehouseFile::Bigquery {
             project,
             dataset,
             location,
             max_concurrency,
             discovery_cache_ttl_secs,
-        } => serde_json::json!({
-            "kind": "Bigquery",
-            "container": project.unwrap_or_default(),
-            "namespace": dataset.unwrap_or_default(),
-            "extras": {
+        } => WarehouseResolved {
+            kind: WarehouseKind::Bigquery,
+            container: project.unwrap_or_default(),
+            namespace: dataset.unwrap_or_default(),
+            extras: serde_json::json!({
                 "location": location,
                 "max_concurrency": max_concurrency,
                 "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-            },
-        }),
+            }),
+        },
     }
 }
 
@@ -172,15 +167,15 @@ pub fn resolve_providers_from_yaml(providers_yaml: serde_json::Value) -> Result<
 
     let dbt_naming_f = dbt_f.naming.clone().unwrap_or_default();
     let naming_target_schema =
-        getenv_nonempty("DBT_TARGET_SCHEMA").or(dbt_naming_f.target_schema);
-    let naming_silver_suffix = getenv_nonempty("DBT_SILVER_SUFFIX")
+        getenv_nonempty(env_keys::DBT_TARGET_SCHEMA).or(dbt_naming_f.target_schema);
+    let naming_silver_suffix = getenv_nonempty(env_keys::DBT_SILVER_SUFFIX)
         .or(dbt_naming_f.silver_suffix)
         .or(Some("silver".to_string()));
-    let naming_gold_suffix = getenv_nonempty("DBT_GOLD_SUFFIX")
+    let naming_gold_suffix = getenv_nonempty(env_keys::DBT_GOLD_SUFFIX)
         .or(dbt_naming_f.gold_suffix)
         .or(Some("warehouse".to_string()));
 
-    let docker_mount_aws_dir = getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
+    let docker_mount_aws_dir = getenv_nonempty(env_keys::DBT_DOCKER_MOUNT_AWS_DIR)
         .map(|v| {
             let vv = v.trim().to_lowercase();
             vv == "1" || vv == "true" || vv == "yes"
@@ -188,8 +183,9 @@ pub fn resolve_providers_from_yaml(providers_yaml: serde_json::Value) -> Result<
         .or(dbt_f.docker_mount_aws_dir)
         .unwrap_or(false);
 
+    let warehouse_resolved = resolve_warehouse(wh_f);
     let providers = serde_json::json!({
-        "warehouse": resolve_warehouse(wh_f),
+        "warehouse": warehouse_resolved,
         "catalog": {
             "enabled": cat_f.enabled.unwrap_or(true),
             "refresh_secs": cat_f.refresh_secs.unwrap_or(60),
@@ -197,8 +193,8 @@ pub fn resolve_providers_from_yaml(providers_yaml: serde_json::Value) -> Result<
         },
         "dbt": {
             "enabled": dbt_f.enabled.unwrap_or(true),
-            "profiles_dir": getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
-            "target": getenv_nonempty("DBT_TARGET")
+            "profiles_dir": getenv_nonempty(env_keys::DBT_PROFILES_DIR).or(dbt_f.profiles_dir),
+            "target": getenv_nonempty(env_keys::DBT_TARGET)
                 .or(dbt_f.target)
                 .unwrap_or_default(),
             "naming": {
@@ -206,13 +202,13 @@ pub fn resolve_providers_from_yaml(providers_yaml: serde_json::Value) -> Result<
                 "silver_suffix": naming_silver_suffix.unwrap_or_default(),
                 "gold_suffix": naming_gold_suffix.unwrap_or_default(),
             },
-            "runner": getenv_nonempty("DBT_RUNNER")
+            "runner": getenv_nonempty(env_keys::DBT_RUNNER)
                 .or(dbt_f.runner)
                 .unwrap_or_else(|| "host".to_string()),
-            "docker_image": getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
-            "docker_platform": getenv_nonempty("DBT_DOCKER_PLATFORM")
+            "docker_image": getenv_nonempty(env_keys::DBT_DOCKER_IMAGE).or(dbt_f.docker_image),
+            "docker_platform": getenv_nonempty(env_keys::DBT_DOCKER_PLATFORM)
                 .or(dbt_f.docker_platform),
-            "docker_network": getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
+            "docker_network": getenv_nonempty(env_keys::DBT_DOCKER_NETWORK).or(dbt_f.docker_network),
             "docker_mount_aws_dir": docker_mount_aws_dir,
         },
         "vector": {
@@ -255,19 +251,27 @@ impl Default for WarehouseKind {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ProvidersResolved {
+    #[serde(default)]
     pub warehouse: WarehouseResolved,
+    #[serde(default)]
     pub catalog: CatalogResolved,
+    #[serde(default)]
     pub dbt: DbtResolved,
+    #[serde(default)]
     pub vector: VectorResolved,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WarehouseResolved {
+    #[serde(default)]
     pub kind: WarehouseKind,
+    #[serde(default)]
     pub container: String,
+    #[serde(default)]
     pub namespace: String,
+    #[serde(default)]
     pub extras: serde_json::Value,
 }
 
@@ -329,47 +333,5 @@ pub struct DbtResolved {
 
 /// Deserialize the data_engineer-specific config from the suite_config Value.
 pub fn de_config_from_resolved(cfg: &react_core::resolved_config::ReactResolvedConfig) -> Option<ProvidersResolved> {
-    serde_json::from_value::<ProvidersResolvedSerde>(cfg.suite_config.clone())
-        .ok()
-        .map(|s| s.into())
-}
-
-#[derive(Deserialize)]
-struct ProvidersResolvedSerde {
-    #[serde(default)]
-    warehouse: WarehouseResolvedSerde,
-    #[serde(default)]
-    catalog: CatalogResolved,
-    #[serde(default)]
-    dbt: DbtResolved,
-    #[serde(default)]
-    vector: VectorResolved,
-}
-
-#[derive(Deserialize, Default)]
-struct WarehouseResolvedSerde {
-    #[serde(default)]
-    kind: WarehouseKind,
-    #[serde(default)]
-    container: String,
-    #[serde(default)]
-    namespace: String,
-    #[serde(default)]
-    extras: serde_json::Value,
-}
-
-impl From<ProvidersResolvedSerde> for ProvidersResolved {
-    fn from(s: ProvidersResolvedSerde) -> Self {
-        Self {
-            warehouse: WarehouseResolved {
-                kind: s.warehouse.kind,
-                container: s.warehouse.container,
-                namespace: s.warehouse.namespace,
-                extras: s.warehouse.extras,
-            },
-            catalog: s.catalog,
-            dbt: s.dbt,
-            vector: s.vector,
-        }
-    }
+    serde_json::from_value::<ProvidersResolved>(cfg.suite_config.clone()).ok()
 }

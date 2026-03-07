@@ -75,7 +75,7 @@ pub async fn dispatch_phase_transition(
     });
     state_manager::replace_execution_state(store, thread_id, st).await?;
 
-    let agent = agent.unwrap_or_else(|| "unknown".to_string());
+    let agent = agent.unwrap_or_else(|| crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string());
     if let Err(e) = store
         .append_step(
             thread_id,
@@ -137,7 +137,7 @@ pub async fn apply_phase_directive(
                     reason: reason.clone(),
                     observation: Observation::fail(vec![reason]),
                     ts: chrono::Utc::now().to_rfc3339(),
-                    agent: agent.unwrap_or_else(|| "agent".to_string()),
+                    agent: agent.unwrap_or_else(|| crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
                 },
             )
             .await
@@ -435,10 +435,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::Stop,
-                    attempt_count: 3,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::Stop,
+                        attempt_count: 3,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         st.telemetry.last_validate =
@@ -482,6 +484,19 @@ mod tests {
             "expected guard block with failed-model fallback target in reason"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Architectural guardrail tests
+    //
+    // These tests use `include_str!` to statically inspect sibling source
+    // files and assert structural invariants (e.g. "phase_review must use
+    // typed reason_detail constructors, not inline struct literals").
+    //
+    // They are co-located here because they guard the transition dispatcher's
+    // callers and are run as part of the normal `cargo test` suite. Moving
+    // them to a separate crate-level integration module would lose the
+    // locality benefit without a meaningful architectural win.
+    // -----------------------------------------------------------------------
 
     #[test]
     fn control_reason_detail_review_and_publish_paths_use_typed_constructors() {

@@ -317,8 +317,8 @@ impl BigQueryProvider {
 }
 
 impl WarehouseNaming for BigQueryProvider {
-    fn kind(&self) -> &'static str {
-        "bigquery"
+    fn kind(&self) -> react_suites::data_engineer::de_config::WarehouseKind {
+        react_suites::data_engineer::de_config::WarehouseKind::Bigquery
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {

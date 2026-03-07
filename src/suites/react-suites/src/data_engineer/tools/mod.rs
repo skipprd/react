@@ -11,6 +11,7 @@ pub(crate) mod plan_prompt_helpers;
 pub(crate) mod batch_sql_runner;
 pub(crate) mod batch_schema_runner;
 pub mod catalog_note;
+pub(crate) mod model_authoring_engine;
 pub mod dbt_examples;
 #[path = "dbt_files.rs"]
 pub mod files_tool;

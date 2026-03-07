@@ -18,12 +18,12 @@ impl RetryBudget {
 }
 
 pub fn subjective_retry_limit() -> usize {
-    std::env::var("AGENT_MAX_SUBJECTIVE_RETRIES")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(2)
-        .max(1)
-        .min(6)
+    crate::data_engineer::env_util::env_usize(
+        crate::data_engineer::env_util::env_keys::AGENT_MAX_SUBJECTIVE_RETRIES,
+    )
+    .unwrap_or(2)
+    .max(1)
+    .min(6)
 }
 
 pub fn subjective_retry_state_cap() -> usize {

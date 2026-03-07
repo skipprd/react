@@ -4,31 +4,12 @@ use std::collections::HashMap;
 use react_core::agent::AgentCtx;
 use react_core::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 
-fn env_u32(key: &str) -> Option<u32> {
-    std::env::var(key)
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-}
-
-fn env_usize(key: &str) -> Option<usize> {
-    std::env::var(key)
-        .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-}
-
 pub fn sql_first_max_output_tokens(default: u32) -> u32 {
-    // Keep bounded; in OpenAI Responses, output_tokens includes reasoning tokens.
-    env_u32("REACT_SQL_FIRST_MAX_OUTPUT_TOKENS")
-        .unwrap_or(default)
-        .max(800)
-        .min(16_000)
+    super::env_util::sql_first_max_output_tokens(default)
 }
 
 pub fn sql_first_max_repair_attempts(default: usize) -> usize {
-    env_usize("REACT_SQL_FIRST_MAX_REPAIR_ATTEMPTS")
-        .unwrap_or(default)
-        .max(1)
-        .min(8)
+    super::env_util::sql_first_max_repair_attempts(default)
 }
 
 fn parse_json_object_lenient<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, String> {

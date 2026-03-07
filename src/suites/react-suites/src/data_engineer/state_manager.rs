@@ -1,4 +1,5 @@
 use react_core::session::{ThreadState, ThreadStore, THREAD_STATE_SCHEMA_VERSION};
+use tracing::warn;
 
 use crate::data_engineer::progress_controller::{
     DataEngineerEvent, ExecutionState, EXECUTION_STATE_SCHEMA_VERSION,
@@ -6,15 +7,25 @@ use crate::data_engineer::progress_controller::{
 
 const DATA_ENGINEER_SUITE_ID: &str = "data_engineer";
 
+fn validate_loaded_state(parsed: &ExecutionState) -> Result<(), String> {
+    if parsed.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
+        return Err(format!(
+            "execution_state schema_version mismatch: expected {}, got {}",
+            EXECUTION_STATE_SCHEMA_VERSION, parsed.schema_version
+        ));
+    }
+    parsed
+        .validate_invariants()
+        .map_err(|e| format!("execution_state invariant check failed on load: {e}"))
+}
+
 pub async fn load_execution_state(thread_store: &ThreadStore, thread_id: &str) -> Option<ExecutionState> {
     let parsed: ExecutionState = thread_store
         .load_typed_control_state::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID)
         .await
         .ok()??;
-    if parsed.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
-        return None;
-    }
-    if parsed.validate_invariants().is_err() {
+    if let Err(e) = validate_loaded_state(&parsed) {
+        warn!(thread_id, error = %e, "dropping execution_state due to schema mismatch or corruption");
         return None;
     }
     Some(parsed)
@@ -29,6 +40,8 @@ pub async fn load_execution_state_strict(
         .await
     {
         Ok(loaded) => loaded,
+        // String matching is required because the StorageAdapter trait returns
+        // opaque `Box<dyn Error>` without a typed "not found" variant.
         Err(e) if e.to_string().to_ascii_lowercase().contains("not found") => return Ok(None),
         Err(e) => {
             return Err(format!(
@@ -39,15 +52,7 @@ pub async fn load_execution_state_strict(
     let Some(parsed) = loaded else {
         return Ok(None);
     };
-    if parsed.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
-        return Err(format!(
-            "execution_state schema_version mismatch: expected {}, got {}",
-            EXECUTION_STATE_SCHEMA_VERSION, parsed.schema_version
-        ));
-    }
-    parsed
-        .validate_invariants()
-        .map_err(|e| format!("execution_state invariant check failed on load: {e}"))?;
+    validate_loaded_state(&parsed)?;
     Ok(Some(parsed))
 }
 
@@ -145,10 +150,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_x.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::Stop,
-                    attempt_count: 1,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::Stop,
+                        attempt_count: 1,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         let err = replace_execution_state(&store, tid, st)

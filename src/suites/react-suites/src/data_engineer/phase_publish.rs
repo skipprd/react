@@ -4,6 +4,25 @@ use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 use crate::data_engineer::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
 
+fn check_publish_retry_limit(
+    es: &mut crate::data_engineer::progress_controller::ExecutionState,
+    _thread_store: &ThreadStore,
+    _thread_id: &str,
+    kind: crate::data_engineer::progress_controller::PublishRetryKind,
+    error_prefix: &str,
+) -> (usize, Option<Result<PhaseExecutorOutcome, String>>) {
+    let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
+    let retry_count = es.bump_publish_retry(kind, retry_limit);
+    let err = if retry_count > retry_limit {
+        Some(Err(format!(
+            "{error_prefix}: retries={retry_count}"
+        )))
+    } else {
+        None
+    };
+    (retry_count, err)
+}
+
 impl DataEngineerSuite {
     pub(super) async fn execute_publish_await_approval_phase(
         thread_store: &ThreadStore,
@@ -20,19 +39,22 @@ impl DataEngineerSuite {
             &es,
             control_flow::Phase::PublishAwaitApproval,
         ) {
-            let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
-            let retry_count = es.bump_publish_retry(
+            let (_retry_count, err) = check_publish_retry_limit(
+                &mut es,
+                thread_store,
+                thread_id,
                 crate::data_engineer::progress_controller::PublishRetryKind::AwaitApprovalLoop,
-                retry_limit,
+                &format!("publish_await_approval_not_converged_after_retries; reason={reason}"),
             );
+            if let Some(err) = err {
+                es.save(thread_store, thread_id).await.map_err(|e| {
+                    format!("failed to persist publish await-approval retry state: {e}")
+                })?;
+                return err;
+            }
             es.save(thread_store, thread_id).await.map_err(|e| {
                 format!("failed to persist publish await-approval retry state: {e}")
             })?;
-            if retry_count > retry_limit {
-                return Err(format!(
-                    "publish_await_approval_not_converged_after_retries: retries={retry_count}; reason={reason}"
-                ));
-            }
             return Ok(PhaseExecutorOutcome::StayInPhase);
         }
 
@@ -87,7 +109,7 @@ impl DataEngineerSuite {
         let obs = control_flow::call_and_record_tool(
             thread_store,
             thread_id,
-            Some("agent".to_string()),
+            Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
             &tool,
             serde_json::json!({"confirm": true}),
             &actx,
@@ -118,20 +140,24 @@ impl DataEngineerSuite {
             return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         if ok && stage == "await_approval" {
-            let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
-            let retry_count = es.bump_publish_retry(
+            let (retry_count, err) = check_publish_retry_limit(
+                &mut es,
+                thread_store,
+                thread_id,
                 crate::data_engineer::progress_controller::PublishRetryKind::AwaitApprovalLoop,
-                retry_limit,
+                "publish_await_approval_not_converged_after_retries",
             );
+            if let Some(err) = err {
+                es.clear_publish_approval();
+                es.save(thread_store, thread_id).await.map_err(|e| {
+                    format!("failed to persist publish approval fallback state: {e}")
+                })?;
+                return err;
+            }
             es.clear_publish_approval();
             es.save(thread_store, thread_id).await.map_err(|e| {
                 format!("failed to persist publish approval fallback state: {e}")
             })?;
-            if retry_count > retry_limit {
-                return Err(format!(
-                    "publish_await_approval_not_converged_after_retries: retries={retry_count}"
-                ));
-            }
             commit_phase_decision(
                 thread_store,
                 thread_id,
@@ -148,20 +174,24 @@ impl DataEngineerSuite {
             .await?;
             return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
-        let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
-        let retry_count = es.bump_publish_retry(
+        let (retry_count, err) = check_publish_retry_limit(
+            &mut es,
+            thread_store,
+            thread_id,
             crate::data_engineer::progress_controller::PublishRetryKind::PublishFailureLoop,
-            retry_limit,
+            "publish_confirmed_failure_not_converged_after_retries",
         );
+        if let Some(err) = err {
+            es.clear_publish_approval();
+            es.save(thread_store, thread_id).await.map_err(|e| {
+                format!("failed to persist publish confirmed-failure state: {e}")
+            })?;
+            return err;
+        }
         es.clear_publish_approval();
         es.save(thread_store, thread_id).await.map_err(|e| {
             format!("failed to persist publish confirmed-failure state: {e}")
         })?;
-        if retry_count > retry_limit {
-            return Err(format!(
-                "publish_confirmed_failure_not_converged_after_retries: retries={retry_count}"
-            ));
-        }
         commit_phase_decision(
             thread_store,
             thread_id,

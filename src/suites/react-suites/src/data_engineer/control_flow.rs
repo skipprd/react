@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::warn;
@@ -36,6 +37,37 @@ mod state_first_tests {
     use super::*;
 
     #[test]
+    fn phase_as_str_from_str_round_trip() {
+        for phase in ALL_PHASES {
+            let s = phase.as_str();
+            let back = Phase::from_str(s).unwrap_or_else(|| panic!("from_str failed for {s}"));
+            assert_eq!(back, phase, "round-trip failed for {s}");
+        }
+    }
+
+    #[test]
+    fn phase_ordinal_is_sequential() {
+        for (i, phase) in ALL_PHASES.iter().enumerate() {
+            assert_eq!(phase.ordinal(), i, "ordinal mismatch for {:?}", phase);
+        }
+    }
+
+    #[test]
+    fn phase_serde_round_trip() {
+        for phase in ALL_PHASES {
+            let json = serde_json::to_string(&phase).unwrap();
+            let back: Phase = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, phase, "serde round-trip failed for {:?}", phase);
+            assert_eq!(
+                json.trim_matches('"'),
+                phase.as_str(),
+                "serde name does not match as_str for {:?}",
+                phase,
+            );
+        }
+    }
+
+    #[test]
     fn derive_guard_state_from_execution_state_marks_validate_failure() {
         let mut st = crate::data_engineer::progress_controller::ExecutionState::new();
         st.telemetry.last_validate = Some(crate::data_engineer::progress_controller::LastValidateState {
@@ -66,6 +98,22 @@ mod state_first_tests {
         assert!(guard.mutated_since_fail);
     }
 }
+
+pub const ALL_PHASES: [Phase; 13] = [
+    Phase::Preflight,
+    Phase::CleansePlan,
+    Phase::CleanseAuthor,
+    Phase::CleanseValidate,
+    Phase::CleanseReview,
+    Phase::ModelPlan,
+    Phase::ModelAuthor,
+    Phase::ModelValidate,
+    Phase::ModelReview,
+    Phase::PublishAwaitApproval,
+    Phase::Publish,
+    Phase::PostPublishReview,
+    Phase::Done,
+];
 
 impl Phase {
     pub fn as_str(&self) -> &'static str {
@@ -103,6 +151,10 @@ impl Phase {
             "done" => Some(Phase::Done),
             _ => None,
         }
+    }
+
+    pub fn ordinal(&self) -> usize {
+        ALL_PHASES.iter().position(|p| p == self).unwrap_or(0)
     }
 }
 
@@ -154,12 +206,7 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
 
 
 pub(crate) fn replan_backtrack_counter_cap() -> usize {
-    std::env::var("AGENT_MAX_REPLAN_BACKTRACKS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(3)
-        .max(2)
-        .min(20)
+    crate::data_engineer::env_util::max_replan_backtracks()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -266,13 +313,35 @@ pub fn gate_author_phase_execution(plan: &impl crate::data_engineer::plan_types:
     }
 }
 
-pub struct DeterministicDbtValidateOnce;
+/// Unified deterministic dbt validation. When `select` is `Some`, runs targeted
+/// validation for a specific set of models; otherwise validates the whole project.
+pub(crate) struct DeterministicDbtValidateOnce;
 
 impl DeterministicDbtValidateOnce {
     pub async fn run(
         ctx: &AgentCtx,
         build: bool,
         run: bool,
+        dataset_ids: Option<&[String]>,
+    ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
+        Self::run_inner(ctx, build, run, None, dataset_ids).await
+    }
+
+    #[allow(dead_code)]
+    pub async fn run_targeted(
+        ctx: &AgentCtx,
+        select_terms: &[String],
+        build: bool,
+        run: bool,
+    ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
+        Self::run_inner(ctx, build, run, Some(select_terms), None).await
+    }
+
+    async fn run_inner(
+        ctx: &AgentCtx,
+        build: bool,
+        run: bool,
+        select: Option<&[String]>,
         dataset_ids: Option<&[String]>,
     ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
         let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
@@ -294,12 +363,12 @@ impl DeterministicDbtValidateOnce {
             .validate_project(
                 &ctx.scope,
                 &DbtValidateArgs {
-                    project_name: "data_engineer".to_string(),
+                    project_name: crate::data_engineer::env_util::SUITE_PROJECT_NAME.to_string(),
                     profiles_dir: Some(profiles_dir),
                     target: gen.target,
                     run,
                     build,
-                    select: None,
+                    select: select.map(|s| s.to_vec()),
                     exclude: None,
                 },
             )
@@ -315,11 +384,13 @@ impl DeterministicDbtValidateOnce {
                     crate::data_engineer::dbt_repair::remediate::active_provider_dialect(cfg)
                 ),
             );
-            // Keep parity with dbt_validate tool output, but do NOT mutate/repair here.
             let rf = crate::data_engineer::dbt_error::extract_runtime_failures_from_logs(
                 &obj.get("logs").cloned().unwrap_or(Value::Null),
             );
             obj.insert("runtime_failures".to_string(), serde_json::json!(rf));
+            if let Some(sel) = select {
+                obj.insert("select".to_string(), serde_json::json!(sel));
+            }
             let ok = obj.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
             if !ok {
                 let errors: Vec<String> = obj
@@ -358,100 +429,20 @@ impl DeterministicDbtValidateOnce {
     }
 }
 
-/// Deterministic, fail-fast dbt validation for a targeted selection set (no repair loop).
-///
-/// Intended for quick pre-checks after patching a small set of dbt files/models.
-pub struct DeterministicDbtValidateTargetedOnce;
-
-impl DeterministicDbtValidateTargetedOnce {
-    pub async fn run(
-        ctx: &AgentCtx,
-        select_terms: &[String],
-        build: bool,
-        run: bool,
-    ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
-        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
-            .ok_or_else(|| "dbt provider missing".to_string())?;
-        let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) else {
-            return Err(
-                "resolved_config missing (needed to generate profiles.yml deterministically)"
-                    .to_string(),
-            );
-        };
-        let threads = crate::data_engineer::ctx_ext::actx_query(ctx).as_ref().map(|q| q.max_concurrency());
-        let gen = dbt::profile::generate_profiles_yml(cfg, threads)?;
-        let td = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let profiles_dir = td.path().to_string_lossy().to_string();
-        let profiles_path = td.path().join("profiles.yml");
-        std::fs::write(&profiles_path, gen.profiles_yml.as_bytes()).map_err(|e| e.to_string())?;
-
-        let res = dbt
-            .validate_project(
-                &ctx.scope,
-                &DbtValidateArgs {
-                    project_name: "data_engineer".to_string(),
-                    profiles_dir: Some(profiles_dir),
-                    target: gen.target,
-                    run,
-                    build,
-                    select: Some(select_terms.to_vec()),
-                    exclude: None,
-                },
-            )
-            .await?;
-
-        let mut v = serde_json::to_value(res).unwrap_or_else(
-            |_| serde_json::json!({"ok": false, "error": "failed to serialize result"}),
-        );
-        if let Some(obj) = v.as_object_mut() {
-            obj.insert(
-                "dialect".to_string(),
-                serde_json::json!(
-                    crate::data_engineer::dbt_repair::remediate::active_provider_dialect(cfg)
-                ),
-            );
-            // Keep parity with dbt_validate tool output, but do NOT mutate/repair here.
-            let rf = crate::data_engineer::dbt_error::extract_runtime_failures_from_logs(
-                &obj.get("logs").cloned().unwrap_or(Value::Null),
-            );
-            obj.insert("runtime_failures".to_string(), serde_json::json!(rf));
-            obj.insert("select".to_string(), serde_json::json!(select_terms));
-            let ok = obj.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-            if !ok {
-                let errors: Vec<String> = obj
-                    .get("errors")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-                if let Ok(sum) = crate::data_engineer::dbt_error::summarize_dbt_failure_llm(
-                    ctx,
-                    &errors,
-                    &logs,
-                    &rf,
-                    2000,
-                ).await {
-                    obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
-                    obj.insert(
-                        "failing_nodes".to_string(),
-                        serde_json::json!(sum.failing_nodes),
-                    );
-                    obj.insert(
-                        "suggested_next_files".to_string(),
-                        serde_json::json!(sum.suggested_next_files),
-                    );
-                }
-            }
-        }
-        crate::data_engineer::controller_event::validate_contract_from_observation(v)
-    }
+fn extract_string_vec_from_extra(extra: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
+    extra
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-pub fn de_clean_tool_name(name: &str, args: &Value) -> String {
+pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
     match name {
         "file" => {
             let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
@@ -507,7 +498,7 @@ pub async fn call_and_record_tool(
     ctx: &AgentCtx,
     timeout_secs: u64,
 ) -> Value {
-    let agent = agent.unwrap_or_else(|| "unknown".to_string());
+    let agent = agent.unwrap_or_else(|| crate::data_engineer::env_util::UNKNOWN_AGENT.to_string());
     let clean_name = de_clean_tool_name(tool.name(), &args);
     let tool_id = uuid::Uuid::new_v4().to_string();
     let ts_start = chrono::Utc::now().to_rfc3339();
@@ -582,62 +573,17 @@ pub async fn call_and_record_tool(
     }
     if let Some((op, affected_paths)) = (|| {
         let name = tool.name();
-        match name {
-            "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => {
-                let succeeded: Vec<String> = obs
-                    .extra
-                    .get("succeeded_dataset_ids")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
-                            .filter(|s| !s.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if succeeded.is_empty() {
-                    None
-                } else {
-                    Some((crate::data_engineer::progress_controller::MutationOp::Patch, succeeded))
-                }
-            }
-            "apply_next_model_batch" | "apply_next_model_schema_batch" => {
-                let succeeded: Vec<String> = obs
-                    .extra
-                    .get("succeeded_item_names")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
-                            .filter(|s| !s.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if succeeded.is_empty() {
-                    None
-                } else {
-                    Some((crate::data_engineer::progress_controller::MutationOp::Patch, succeeded))
-                }
-            }
-            "staging_model" | "gold_model" => {
-                let written: Vec<String> = obs
-                    .extra
-                    .get("written_keys")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
-                            .filter(|s| !s.is_empty())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if written.is_empty() {
-                    None
-                } else {
-                    Some((crate::data_engineer::progress_controller::MutationOp::Patch, written))
-                }
-            }
-            _ => None,
+        let key = match name {
+            "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => "succeeded_dataset_ids",
+            "apply_next_model_batch" | "apply_next_model_schema_batch" => "succeeded_item_names",
+            "staging_model" | "gold_model" => "written_keys",
+            _ => return None,
+        };
+        let items = extract_string_vec_from_extra(&obs.extra, key);
+        if items.is_empty() {
+            None
+        } else {
+            Some((crate::data_engineer::progress_controller::MutationOp::Patch, items))
         }
     })() {
         match crate::data_engineer::state_manager::load_execution_state_strict(store, thread_id)
@@ -699,7 +645,7 @@ pub async fn invariant_has_any_models(ctx: &AgentCtx) -> Result<bool, String> {
     let tool = FilesTool { datasets: None };
     let obs = tool
         .call(
-            serde_json::json!({"op":"list","prefix":"models/","limit":500}),
+            serde_json::json!({"op":"list","prefix":"models/","limit":crate::data_engineer::env_util::FILE_LIST_LIMIT}),
             ctx,
         )
         .await
@@ -730,7 +676,7 @@ pub async fn invariant_has_dbt_project(ctx: &AgentCtx) -> Result<bool, String> {
     let tool = FilesTool { datasets: None };
     let obs = tool
         .call(
-            serde_json::json!({"op":"get","path":"dbt_project.yml","max_chars":2000}),
+            serde_json::json!({"op":"get","path":"dbt_project.yml","max_chars":crate::data_engineer::env_util::FILE_GET_MAX_CHARS}),
             ctx,
         )
         .await

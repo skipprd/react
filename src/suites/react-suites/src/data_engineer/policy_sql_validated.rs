@@ -9,7 +9,11 @@ use react_core::session::{
 };
 use react_core::tools::ToolRegistry;
 
-use super::types::DatasetCandidate;
+#[derive(Clone)]
+pub struct DatasetCandidate {
+    pub dataset_id: String,
+    pub score: f32,
+}
 
 /// Policy for analytics-style suites: accept a model-emitted complete step only after validating that
 /// Ask-mode `complete.payload.sql` runs successfully (via the `run_sql` tool) and returns at least one row.
@@ -192,10 +196,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                         _ => (false, false, None, false, false),
                     };
                     let runtime_validate = build || run || run_ok.is_some();
-                    let allow_compile_only = std::env::var("DBT_ALLOW_COMPILE_ONLY_COMPLETE")
-                        .ok()
-                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                        .unwrap_or(false);
+                    let allow_compile_only = crate::data_engineer::env_util::dbt_allow_compile_only_complete();
 
                     if !(ok && compile_ok) {
                         transcript.push(

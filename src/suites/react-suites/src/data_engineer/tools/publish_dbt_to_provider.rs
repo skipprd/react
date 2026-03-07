@@ -20,11 +20,7 @@ pub struct PublishDbtToProviderTool {
     pub catalog: Option<Arc<dyn CatalogProvider>>,
 }
 
-fn emit_trace(ctx: &AgentCtx, line: impl Into<String>) {
-    if let Some(tx) = ctx.trace_tx.as_ref() {
-        let _ = tx.send(line.into());
-    }
-}
+use super::model_authoring_engine::emit_trace;
 
 #[async_trait]
 impl Tool for PublishDbtToProviderTool {
@@ -36,11 +32,11 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish started");
         let cfg = resolved_config(ctx)?;
 
-        let max_iters: usize = std::env::var("DBT_REPAIR_MAX_ITERS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(8)
-            .max(1)
+        let max_iters: usize = crate::data_engineer::env_util::env_usize(
+            crate::data_engineer::env_util::env_keys::DBT_REPAIR_MAX_ITERS,
+        )
+        .unwrap_or(8)
+        .max(1)
             .min(25);
 
         // Enforce single active warehouse provider for publishing.
@@ -82,7 +78,7 @@ impl Tool for PublishDbtToProviderTool {
                 ctx,
                 &dbt,
                 &crate::data_engineer::providers::DbtValidateArgs {
-                    project_name: "data_engineer".to_string(),
+                    project_name: crate::data_engineer::env_util::SUITE_PROJECT_NAME.to_string(),
                     profiles_dir: Some(td.path().to_string_lossy().to_string()),
                     target: provider_target.clone(),
                     run: false,
@@ -214,7 +210,7 @@ impl Tool for PublishDbtToProviderTool {
                 ctx,
                 &dbt,
                 &crate::data_engineer::providers::DbtValidateArgs {
-                    project_name: "data_engineer".to_string(),
+                    project_name: crate::data_engineer::env_util::SUITE_PROJECT_NAME.to_string(),
                     profiles_dir: Some(td.path().to_string_lossy().to_string()),
                     target: provider_target.clone(),
                     run: false,
@@ -563,7 +559,7 @@ mod tests {
         });
 
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
-            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+            Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let mut ctx = react_core::agent::AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,

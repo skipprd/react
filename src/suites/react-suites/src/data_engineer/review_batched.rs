@@ -6,33 +6,36 @@ use react_core::agent::AgentCtx;
 use crate::data_engineer::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
 use react_core::keyspace::encode_key_component;
 use react_core::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
-use react_core::session::{Observation, ThreadStep, ThreadStore};
+use react_core::session::ThreadStore;
 use react_core::tools::Tool;
 
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 use super::control_flow::Phase;
-use super::plan_kind::PlanKind;
+use super::track_spec::PlanKind;
 use super::plan as de_plan;
 use super::tools::files_tool::FilesTool;
 use super::tools::json_file::JsonFileTool;
 use super::tools::sql_schema::SqlSchemaTool;
 use crate::data_engineer::{facts, naming};
 
-const REVIEW_SNAPSHOT_VERSION: i64 = 1;
+use super::review_persistence::*;
+use super::review_prompts::*;
+
+pub(super) const REVIEW_SNAPSHOT_VERSION: i64 = 1;
 const DEFAULT_BATCH_SIZE: usize = 5;
-const MAX_BATCHES_SAVED: usize = 40;
+pub(super) const MAX_BATCHES_SAVED: usize = 40;
 const MAX_NOTES_PER_BATCH: usize = 20;
 const MAX_PROJECT_NOTES: usize = 40;
 const MAX_SCHEMA_COLS_PER_ITEM: usize = 250;
 
 #[derive(Clone, Debug)]
-struct ProjectFile {
-    path: String,
-    content: String,
+pub(super) struct ProjectFile {
+    pub(super) path: String,
+    pub(super) content: String,
 }
 
-fn utc_ts() -> String {
+pub(super) fn utc_ts() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
@@ -153,155 +156,6 @@ fn chunk_vec<T: Clone>(items: &[T], chunk_size: usize) -> Vec<Vec<T>> {
     out
 }
 
-async fn append_review_step(
-    store: &ThreadStore,
-    thread_id: &str,
-    phase: Phase,
-    agent: &str,
-    code: PhaseReasonCode,
-    detail: Value,
-) -> Result<(), String> {
-    store
-        .append_step(
-            thread_id,
-            ThreadStep::Phase {
-                phase: phase.as_str().to_string(),
-                from_phase: Some(phase.as_str().to_string()),
-                reason_code: Some(code.as_str().to_string()),
-                reason_detail: Some(detail),
-                observation: Observation::ok(),
-                ts: utc_ts(),
-                agent: agent.to_string(),
-            },
-        )
-        .await
-        .map_err(|e| format!("failed to append review step: {e}"))?;
-    Ok(())
-}
-
-fn system_prompt_for_summary(plan_kind: Option<PlanKind>) -> String {
-    let is_cleanse = plan_kind == Some(PlanKind::Cleanse);
-    let tier_focus = if is_cleanse {
-        "- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT penalize missing GOLD models.\n"
-    } else {
-        ""
-    };
-    let insightfulness = if is_cleanse {
-        "- Insightfulness check (CRITICAL):\n  \
-           - Call out whether the SILVER layer is usable as a stable, row-preserving cleanse foundation (explicit fields, safe casting, quality flags, stable naming).\n  \
-           - If you mention GOLD at all, frame it as an optional future improvement, not a blocker."
-    } else {
-        "- Insightfulness check (CRITICAL):\n  \
-           - Call out whether the current GOLD layer enables meaningful business decisions (not just technically-correct SQL).\n  \
-           - If GOLD is present but naive, list the top 2 missing \"business semantics\" gaps (definitions, time axis, entity meaning, join contracts) that block real analytics."
-    };
-    format!(
-        "You are a read-only reviewer for a DBT analytics project.\n\n\
-         You will be given:\n\
-         - The original goal and review context (brief)\n\
-         - A small, deterministic project snapshot (dbt_project.yml, sources list, model file index, and minimal manifest metadata)\n\n\
-         Output one JSON object with this schema:\n\
-         {{\n  \"project_notes\": [string, ...],\n  \"project_risks\": [string, ...]\n}}\n\n\
-         Rules:\n\
-         - Be pragmatic, not pedantic. Focus on business correctness and usability.\n\
-         - Do NOT suggest edits in-line; just describe risks/gaps.\n\
-         - Keep notes concise and high-signal.\n\
-         {tier_focus}{insightfulness}"
-    )
-}
-
-fn system_prompt_for_batch(plan_kind: Option<PlanKind>) -> String {
-    let tier_focus = if plan_kind == Some(PlanKind::Cleanse) {
-        "- Tier focus (CRITICAL): this is a SILVER (cleanse) review. Do NOT critique missing GOLD models.\n"
-    } else {
-        ""
-    };
-    format!(
-        r#"You are a read-only reviewer for a DBT analytics project.
-
-You will be given:
-- The original goal and review context
-- A batch of items (datasets or model names)
-- The expected model file paths and their contents (bounded)
-- Any invariants/notes from planning
-- The authoritative schema (columns/types) for each dataset in the batch (when available)
-
-Output one JSON object with this schema:
-{{
-  "notes": [string, ...],
-  "actionable_hints": [string, ...]
-}}
-
-Rules:
-- CRITICAL: The planning artifacts you receive (invariants/notes and any implementation_spec) are the authoritative design contract for this phase.
-  - Your primary job is CONFORMANCE REVIEW: does the SQL/YAML implement the provided implementation_spec and obey prohibited_ops?
-  - Do NOT propose changing the contract as part of review. If you believe the contract itself is wrong/ambiguous, record it as a "requires plan change" note (see below) but DO NOT propose an implementation change that deviates from the contract.
-- Conformance-first ordering:
-  1) Identify any plan/spec conformance violations (blockers). These are always high-signal.
-  2) Then (optionally) include at most one additional high-value business-risk observation that does NOT require changing the plan/spec.
-- If you think a finding requires changing the plan/spec, label it explicitly with prefix:
-  - "REQUIRES PLAN CHANGE: ..."
-  and do NOT include an implementation hint for it.
-- High-signal only: do NOT cover every batch item. Report only blocker/high business-risk findings or one small, clearly high-value quick win.
-- If no high-value findings exist for this batch, return:
-  - "notes": []
-  - "actionable_hints": []
-- Hard cap: at most 3 findings in "notes" total.
-- Keep "actionable_hints" tightly scoped to the findings: at most 1 hint per finding (max 3 total).
-- Prefer concrete feedback tied to specific models/columns when visible.
-- IMPORTANT: Do NOT suggest adding/selecting fields that are not present in the provided authoritative schema.
-  If a desired field is missing from the schema, call that out as a gap and suggest the nearest available alternative.
-{tier_focus}- Each finding must be decision-oriented and include:
-  - Impacted metric/decision.
-  - Concrete evidence from provided SQL/schema.
-  - Smallest next action to reduce risk.
-- No tool calls and no file edits."#
-    )
-}
-
-fn system_prompt_for_unify(plan_kind: Option<PlanKind>) -> String {
-    let is_cleanse = plan_kind == Some(PlanKind::Cleanse);
-    let tier_rule = if is_cleanse {
-        "Tier rules: this is a SILVER (cleanse) review. Set tier=\"silver\"."
-    } else {
-        "Tier rules: this is a GOLD/model review. Set tier=\"gold\"."
-    };
-    let insightfulness = if is_cleanse {
-        "- Include a short \"Insightfulness summary\" section:\n  \
-           - What operational/analytical use-cases the SILVER layer supports today.\n  \
-           - The top 2 missing semantics gaps (definitions, time axis meaning, entity meaning, join contracts, quality flags) blocking higher-value analysis even at SILVER."
-    } else {
-        "- Include a short \"Insightfulness summary\" section:\n  \
-           - What business decisions the current GOLD layer enables today.\n  \
-           - The top 2 missing business semantics gaps blocking higher-value analytics (definitions, time axis, entity meaning, join contracts)."
-    };
-    format!(
-        "You are a read-only reviewer for a DBT analytics project.\n\n\
-         You will be given:\n\
-         - The original goal and review context\n\
-         - Project-level notes/risks\n\
-         - Notes from ALL review batches\n\n\
-         You must output one JSON object with this schema:\n\
-         {{\n\
-         \x20 \"decision\": \"proceed\" | \"patch_impl\",\n\
-         \x20 \"tier\": \"silver\" | \"gold\" | \"unknown\",\n\
-         \x20 \"dataset_ids\": [string],\n\
-         \x20 \"final_review_text\": string\n\
-         }}\n\n\
-         Interpretation rules (CRITICAL):\n\
-         - decision=\"proceed\" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.\n\
-         - decision=\"patch_impl\" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.\n\n\
-         {tier_rule}\n\n\
-         Unify requirements (CRITICAL):\n\
-         - Produce a concise, business-focused review that prioritizes decision usefulness.\n\
-         - Delta-first output: include only net-new or still-unresolved high-value issues since prior review context. Suppress repeated advice that has no meaningful change in evidence or priority.\n\
-         - If no net-new/still-unresolved blocker/high items exist, set decision=\"proceed\" and keep the body brief.\n\
-         - Hard cap: list at most 5 issues total across the final review body.\n\
-         {insightfulness}\n\
-         - Include an \"Assumptions & evidence gaps\" section listing the most important semantic assumptions and the smallest probes to validate them."
-    )
-}
-
 async fn llm_json(
     _ctx: &SuiteCtx,
     actx: &AgentCtx,
@@ -326,26 +180,16 @@ async fn llm_json(
 
     // Default to MEDIUM for reviews: we do want some reasoning, but Responses output_tokens includes
     // reasoning tokens, so max_output_tokens must be high enough to still emit the JSON payload.
-    let review_reasoning_effort = parse_review_reasoning_effort("LLM_REVIEW_REASONING_EFFORT")
+    use crate::data_engineer::env_util::{env_u32 as parse_u32_env, env_keys};
+
+    let review_reasoning_effort = parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
         .unwrap_or(ReasoningEffort::Medium);
 
-    fn parse_u32_env(key: &str) -> Option<u32> {
-        std::env::var(key)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-    }
-
-    // Provide ample headroom by default. Review prompts are structured JSON and truncation is costly.
-    // Env knobs (optional):
-    // - LLM_REVIEW_MAX_TOKENS (global default for non-unify)
-    // - LLM_REVIEW_MAX_TOKENS_UNIFY (global default for unify)
-    // - LLM_REVIEW_MAX_TOKENS_CLEANSE / _MODEL / _POSTPUBLISH
-    // - LLM_REVIEW_MAX_TOKENS_CLEANSE_UNIFY / _MODEL_UNIFY / _POSTPUBLISH_UNIFY
-    let default_non_unify: u32 = parse_u32_env("LLM_REVIEW_MAX_TOKENS")
+    let default_non_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS)
         .unwrap_or(12_000)
         .max(2_000)
         .min(32_000);
-    let default_unify: u32 = parse_u32_env("LLM_REVIEW_MAX_TOKENS_UNIFY")
+    let default_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS_UNIFY)
         .unwrap_or(18_000)
         .max(2_000)
         .min(32_000);
@@ -353,9 +197,9 @@ async fn llm_json(
     let phase_budget: u32 = match phase {
         Phase::CleanseReview => {
             let k = if is_unify {
-                "LLM_REVIEW_MAX_TOKENS_CLEANSE_UNIFY"
+                env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE_UNIFY
             } else {
-                "LLM_REVIEW_MAX_TOKENS_CLEANSE"
+                env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE
             };
             parse_u32_env(k).unwrap_or(if is_unify {
                 default_unify
@@ -365,9 +209,9 @@ async fn llm_json(
         }
         Phase::ModelReview => {
             let k = if is_unify {
-                "LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY"
+                env_keys::LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY
             } else {
-                "LLM_REVIEW_MAX_TOKENS_MODEL"
+                env_keys::LLM_REVIEW_MAX_TOKENS_MODEL
             };
             parse_u32_env(k).unwrap_or(if is_unify {
                 default_unify
@@ -377,9 +221,9 @@ async fn llm_json(
         }
         Phase::PostPublishReview => {
             let k = if is_unify {
-                "LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY"
+                env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY
             } else {
-                "LLM_REVIEW_MAX_TOKENS_POSTPUBLISH"
+                env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH
             };
             parse_u32_env(k).unwrap_or(if is_unify {
                 default_unify
@@ -518,226 +362,6 @@ fn include_global_semantic_context(phase: Phase) -> bool {
     matches!(phase, Phase::ModelReview | Phase::PostPublishReview)
 }
 
-fn upsert_review_snapshot(obj: &mut serde_json::Map<String, Value>, patch: Value) {
-    // Store under project_snapshot.review (bounded).
-    let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-    if review.is_null() {
-        *review = serde_json::json!({});
-    }
-    let review_obj = review.as_object_mut().unwrap();
-    // Merge patch keys shallowly.
-    if let Some(patch_obj) = patch.as_object() {
-        for (k, v) in patch_obj.iter() {
-            review_obj.insert(k.clone(), v.clone());
-        }
-    }
-    review_obj.insert(
-        "review_version".to_string(),
-        serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-    );
-}
-
-fn push_batch_entry(review_obj: &mut serde_json::Map<String, Value>, entry: Value) {
-    let batches = review_obj
-        .entry("batches")
-        .or_insert_with(|| serde_json::Value::Array(vec![]));
-    let Some(arr) = batches.as_array_mut() else {
-        return;
-    };
-    arr.push(entry);
-    while arr.len() > MAX_BATCHES_SAVED {
-        arr.remove(0);
-    }
-}
-
-async fn persist_review_summary_to_plan(
-    actx: &AgentCtx,
-    phase: Phase,
-    plan_kind: PlanKind,
-    plan_key: &str,
-    project_notes: Vec<String>,
-    project_risks: Vec<String>,
-) -> Result<(), String> {
-    let ts = utc_ts();
-    if plan_kind == PlanKind::Cleanse {
-        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                upsert_review_snapshot(
-                    obj,
-                    serde_json::json!({
-                        "phase": phase.as_str(),
-                        "project_notes": project_notes,
-                        "project_risks": project_risks,
-                        "ts": ts,
-                    }),
-                );
-            }
-            de_plan::save_cleanse_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist cleanse review summary: {e}"))?;
-        }
-    } else if plan_kind == PlanKind::Model {
-        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                upsert_review_snapshot(
-                    obj,
-                    serde_json::json!({
-                        "phase": phase.as_str(),
-                        "project_notes": project_notes,
-                        "project_risks": project_risks,
-                        "ts": ts,
-                    }),
-                );
-            }
-            de_plan::save_model_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist model review summary: {e}"))?;
-        }
-    }
-    Ok(())
-}
-
-async fn persist_review_batch_to_plan(
-    actx: &AgentCtx,
-    plan_kind: PlanKind,
-    plan_key: &str,
-    batch_idx: usize,
-    batch_items: Vec<String>,
-    notes: Vec<String>,
-) -> Result<(), String> {
-    let ts = utc_ts();
-    let entry = serde_json::json!({
-        "batch_idx": batch_idx,
-        "batch_items": batch_items,
-        "notes": notes,
-        "ts": ts,
-    });
-    if plan_kind == PlanKind::Cleanse {
-        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-                if review.is_null() {
-                    *review = serde_json::json!({});
-                }
-                let review_obj = review.as_object_mut().unwrap();
-                review_obj.insert(
-                    "review_version".to_string(),
-                    serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-                );
-                push_batch_entry(review_obj, entry);
-            }
-            de_plan::save_cleanse_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist cleanse review batch: {e}"))?;
-        }
-    } else if plan_kind == PlanKind::Model {
-        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-                if review.is_null() {
-                    *review = serde_json::json!({});
-                }
-                let review_obj = review.as_object_mut().unwrap();
-                review_obj.insert(
-                    "review_version".to_string(),
-                    serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-                );
-                push_batch_entry(review_obj, entry);
-            }
-            de_plan::save_model_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist model review batch: {e}"))?;
-        }
-    }
-    Ok(())
-}
-
-async fn persist_review_final_to_plan(
-    actx: &AgentCtx,
-    plan_kind: PlanKind,
-    plan_key: &str,
-    decision: ReviewDecision,
-    tier: ReviewTier,
-    dataset_ids: Vec<String>,
-    text: String,
-) -> Result<(), String> {
-    let ts = utc_ts();
-    if plan_kind == PlanKind::Cleanse {
-        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-                if review.is_null() {
-                    *review = serde_json::json!({});
-                }
-                let review_obj = review.as_object_mut().unwrap();
-                review_obj.insert(
-                    "review_version".to_string(),
-                    serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-                );
-                review_obj.insert(
-                    "result".to_string(),
-                    serde_json::json!({
-                        "decision": decision,
-                        "tier": tier,
-                        "dataset_ids": dataset_ids,
-                        "text": text,
-                        "ts": ts
-                    }),
-                );
-            }
-            de_plan::save_cleanse_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist cleanse review result: {e}"))?;
-        }
-    } else if plan_kind == PlanKind::Model {
-        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-                if review.is_null() {
-                    *review = serde_json::json!({});
-                }
-                let review_obj = review.as_object_mut().unwrap();
-                review_obj.insert(
-                    "review_version".to_string(),
-                    serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-                );
-                review_obj.insert(
-                    "result".to_string(),
-                    serde_json::json!({
-                        "decision": decision,
-                        "tier": tier,
-                        "dataset_ids": dataset_ids,
-                        "text": text,
-                        "ts": ts
-                    }),
-                );
-            }
-            de_plan::save_model_plan(actx, &p)
-                .await
-                .map_err(|e| format!("failed to persist model review result: {e}"))?;
-        }
-    }
-    Ok(())
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReviewUnifyTextOutput {
@@ -810,7 +434,7 @@ fn resolve_cleanse_batch_paths(
                 p,
                 t.invariants.clone(),
                 t.checklist.clone(),
-                Some(t.implementation_spec.clone()),
+                t.implementation_spec.clone(),
             ));
         } else {
             out.push((ds.clone(), String::new(), vec![], vec![], None));
@@ -845,13 +469,57 @@ fn resolve_model_batch_paths(
                 p,
                 t.invariants.clone(),
                 t.checklist.clone(),
-                Some(t.implementation_spec.clone()),
+                t.implementation_spec.clone(),
             ));
         } else {
             out.push((name.clone(), String::new(), vec![], vec![], None));
         }
     }
     out
+}
+
+type PlanAndBatches = (Option<PlanKind>, Option<String>, Vec<Vec<String>>, Option<Value>);
+
+async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
+    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key).await {
+        let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
+        let mut map: Vec<Value> = Vec::new();
+        for b in batches.iter() {
+            for (ds, path, inv, checklist, implementation_spec) in resolve_cleanse_batch_paths(&p, b) {
+                map.push(serde_json::json!({
+                    "item": ds,
+                    "expected_model_path": path,
+                    "invariants": inv,
+                    "checklist": checklist,
+                    "implementation_spec": implementation_spec
+                }));
+            }
+        }
+        (Some(PlanKind::Cleanse), Some(key.to_string()), batches, Some(Value::Array(map)))
+    } else {
+        (None, None, vec![], None)
+    }
+}
+
+async fn load_model_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
+    if let Some(p) = de_plan::load_model_plan_by_key(actx, key).await {
+        let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
+        let mut map: Vec<Value> = Vec::new();
+        for b in batches.iter() {
+            for (name, path, inv, checklist, implementation_spec) in resolve_model_batch_paths(&p, b) {
+                map.push(serde_json::json!({
+                    "item": name,
+                    "expected_model_path": path,
+                    "invariants": inv,
+                    "checklist": checklist,
+                    "implementation_spec": implementation_spec
+                }));
+            }
+        }
+        (Some(PlanKind::Model), Some(key.to_string()), batches, Some(Value::Array(map)))
+    } else {
+        (None, None, vec![], None)
+    }
 }
 
 async fn build_project_context(actx: &AgentCtx) -> Vec<ProjectFile> {
@@ -970,116 +638,6 @@ async fn dependency_schemas_for_sql(sctx: &SuiteCtx, actx: &AgentCtx, sql: &str)
     Value::Array(out)
 }
 
-fn render_path_list(label: &str, paths: &[String], max_items: usize) -> String {
-    let mut p = paths.to_vec();
-    p.sort();
-    p.dedup();
-    let total = p.len();
-    let keep = total.min(max_items);
-    let shown = &p[..keep];
-    let mut s = String::new();
-    s.push_str(label);
-    s.push_str(&format!(" (total={}):\n", total));
-    for it in shown {
-        s.push_str("- ");
-        s.push_str(it);
-        s.push('\n');
-    }
-    if total > keep {
-        s.push_str(&format!(
-            "... omitted {} more (deterministic head)\n",
-            total - keep
-        ));
-    }
-    s
-}
-
-fn compact_review_context_for_summary(question_with_context: &str) -> String {
-    // Deterministic compaction: avoid embedding large JSON blobs from thread history (e.g. prior review batch notes)
-    // in the summary prompt. This is NOT random truncation; it turns the detail into hashes + small key excerpts.
-    let mut entry_reason_code: Option<String> = None;
-    let mut entry_reason_detail_raw: Option<String> = None;
-
-    for line in question_with_context.lines() {
-        let t = line.trim();
-        if let Some(rest) = t.strip_prefix("- entry_reason_code:") {
-            let v = rest.trim();
-            if !v.is_empty() {
-                entry_reason_code = Some(v.to_string());
-            }
-        }
-        if let Some(rest) = t.strip_prefix("- entry_reason_detail:") {
-            let v = rest.trim();
-            if !v.is_empty() {
-                entry_reason_detail_raw = Some(v.to_string());
-            }
-        }
-    }
-
-    let mut out = String::new();
-    if let Some(rc) = entry_reason_code.as_deref() {
-        out.push_str("entry_reason_code: ");
-        out.push_str(rc);
-        out.push('\n');
-    }
-
-    if let Some(raw) = entry_reason_detail_raw.as_deref() {
-        let hash = react_core::llm_observability::sha256_hex_str(raw);
-        out.push_str("entry_reason_detail_sha256: ");
-        out.push_str(&hash);
-        out.push('\n');
-
-        // Best-effort parse + extract small, stable fields.
-        if let Ok(v) = serde_json::from_str::<Value>(raw) {
-            if let Some(idx) = v.get("batch_idx").and_then(|x| x.as_u64()) {
-                out.push_str(&format!("entry_reason_detail.batch_idx: {}\n", idx));
-            }
-            if let Some(items) = v.get("batch_items").and_then(|x| x.as_array()) {
-                let mut names: Vec<String> = items
-                    .iter()
-                    .filter_map(|it| it.as_str().map(|s| s.to_string()))
-                    .collect();
-                names.sort();
-                names.dedup();
-                let keep = names.len().min(5);
-                out.push_str(&format!(
-                    "entry_reason_detail.batch_items_head (sorted, {} of {}): {}\n",
-                    keep,
-                    names.len(),
-                    names.into_iter().take(keep).collect::<Vec<_>>().join(", ")
-                ));
-            }
-            if let Some(keys) = v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()) {
-                let mut kk = keys;
-                kk.sort();
-                out.push_str(&format!(
-                    "entry_reason_detail.keys_sorted: {}\n",
-                    kk.into_iter().take(20).collect::<Vec<_>>().join(", ")
-                ));
-            }
-        }
-    }
-
-    if out.trim().is_empty() {
-        // Fall back to the original question context if we couldn't extract anything.
-        question_with_context.to_string()
-    } else {
-        out
-    }
-}
-
-fn render_files(files: &[ProjectFile]) -> String {
-    let mut s = String::new();
-    for f in files {
-        s.push_str("\n---\npath: ");
-        s.push_str(&f.path);
-        s.push_str("\n\n");
-        s.push_str(&f.content);
-        s.push_str("\n");
-    }
-    s
-}
-
 pub async fn run_batched_review(
     thread_id: &str,
     original_question_with_context: &str,
@@ -1122,71 +680,15 @@ pub async fn run_batched_review(
         Option<Value>,
     ) = match phase {
         Phase::CleanseReview => {
-            let key = de_plan::newest_plan_key_any(&actx, "_cleanse.json").await;
-            if let Some(k) = key.clone() {
-                if let Some(p) = de_plan::load_cleanse_plan_by_key(&actx, &k).await {
-                    let batches = if !p.batches.is_empty() {
-                        p.batches.clone()
-                    } else {
-                        vec![]
-                    };
-                    let mut map: Vec<Value> = Vec::new();
-                    for b in batches.iter() {
-                        let resolved = resolve_cleanse_batch_paths(&p, b);
-                        for (ds, path, inv, checklist, implementation_spec) in resolved {
-                            map.push(serde_json::json!({
-                                "item": ds,
-                                "expected_model_path": path,
-                                "invariants": inv,
-                                "checklist": checklist,
-                                "implementation_spec": implementation_spec
-                            }));
-                        }
-                    }
-                    (
-                        Some(PlanKind::Cleanse),
-                        Some(k),
-                        batches,
-                        Some(Value::Array(map)),
-                    )
-                } else {
-                    (None, None, vec![], None)
-                }
+            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_cleanse.json").await {
+                load_cleanse_plan_and_batches(&actx, &k).await
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::ModelReview => {
-            let key = de_plan::newest_plan_key_any(&actx, "_model.json").await;
-            if let Some(k) = key.clone() {
-                if let Some(p) = de_plan::load_model_plan_by_key(&actx, &k).await {
-                    let batches = if !p.batches.is_empty() {
-                        p.batches.clone()
-                    } else {
-                        vec![]
-                    };
-                    let mut map: Vec<Value> = Vec::new();
-                    for b in batches.iter() {
-                        let resolved = resolve_model_batch_paths(&p, b);
-                        for (name, path, inv, checklist, implementation_spec) in resolved {
-                            map.push(serde_json::json!({
-                                "item": name,
-                                "expected_model_path": path,
-                                "invariants": inv,
-                                "checklist": checklist,
-                                "implementation_spec": implementation_spec
-                            }));
-                        }
-                    }
-                    (
-                        Some(PlanKind::Model),
-                        Some(k),
-                        batches,
-                        Some(Value::Array(map)),
-                    )
-                } else {
-                    (None, None, vec![], None)
-                }
+            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_model.json").await {
+                load_model_plan_and_batches(&actx, &k).await
             } else {
                 (None, None, vec![], None)
             }
@@ -1209,66 +711,10 @@ pub async fn run_batched_review(
             };
             match choose {
                 Some(PlanKind::Cleanse) => {
-                    let k = kc.clone().unwrap();
-                    if let Some(p) = de_plan::load_cleanse_plan_by_key(&actx, &k).await {
-                        let batches = if !p.batches.is_empty() {
-                            p.batches.clone()
-                        } else {
-                            vec![]
-                        };
-                        let mut map: Vec<Value> = Vec::new();
-                        for b in batches.iter() {
-                            let resolved = resolve_cleanse_batch_paths(&p, b);
-                            for (ds, path, inv, checklist, implementation_spec) in resolved {
-                                map.push(serde_json::json!({
-                                    "item": ds,
-                                    "expected_model_path": path,
-                                    "invariants": inv,
-                                    "checklist": checklist,
-                                    "implementation_spec": implementation_spec
-                                }));
-                            }
-                        }
-                        (
-                            Some(PlanKind::Cleanse),
-                            Some(k),
-                            batches,
-                            Some(Value::Array(map)),
-                        )
-                    } else {
-                        (None, None, vec![], None)
-                    }
+                    load_cleanse_plan_and_batches(&actx, &kc.unwrap()).await
                 }
                 Some(PlanKind::Model) => {
-                    let k = km.clone().unwrap();
-                    if let Some(p) = de_plan::load_model_plan_by_key(&actx, &k).await {
-                        let batches = if !p.batches.is_empty() {
-                            p.batches.clone()
-                        } else {
-                            vec![]
-                        };
-                        let mut map: Vec<Value> = Vec::new();
-                        for b in batches.iter() {
-                            let resolved = resolve_model_batch_paths(&p, b);
-                            for (name, path, inv, checklist, implementation_spec) in resolved {
-                                map.push(serde_json::json!({
-                                    "item": name,
-                                    "expected_model_path": path,
-                                    "invariants": inv,
-                                    "checklist": checklist,
-                                    "implementation_spec": implementation_spec
-                                }));
-                            }
-                        }
-                        (
-                            Some(PlanKind::Model),
-                            Some(k),
-                            batches,
-                            Some(Value::Array(map)),
-                        )
-                    } else {
-                        (None, None, vec![], None)
-                    }
+                    load_model_plan_and_batches(&actx, &km.unwrap()).await
                 }
                 None => (None, None, vec![], None),
             }
@@ -1777,7 +1223,7 @@ mod tests {
                     dataset_id: "a.b.a".to_string(),
                     expected_model_path: Some("models/staging/stg_a.sql".to_string()),
                     invariants: vec!["inv".to_string()],
-                    implementation_spec: de_plan::CleanseImplementationSpec {
+                    implementation_spec: Some(de_plan::CleanseImplementationSpec {
                         spec_version: 1,
                         row_preserving: true,
                         output_fields: vec![de_plan::OutputFieldSpec {
@@ -1790,7 +1236,7 @@ mod tests {
                             description: None,
                         }],
                         prohibited_ops: vec![],
-                    },
+                    }),
                     status: de_plan::TaskStatus::Done,
                     checklist: vec![
                         de_plan::PlanChecklistItem {
@@ -1823,7 +1269,7 @@ mod tests {
                     dataset_id: "a.b.b".to_string(),
                     expected_model_path: Some("models/staging/stg_b.sql".to_string()),
                     invariants: vec![],
-                    implementation_spec: de_plan::CleanseImplementationSpec {
+                    implementation_spec: Some(de_plan::CleanseImplementationSpec {
                         spec_version: 1,
                         row_preserving: true,
                         output_fields: vec![de_plan::OutputFieldSpec {
@@ -1836,7 +1282,7 @@ mod tests {
                             description: None,
                         }],
                         prohibited_ops: vec![],
-                    },
+                    }),
                     status: de_plan::TaskStatus::Done,
                     checklist: vec![
                         de_plan::PlanChecklistItem {

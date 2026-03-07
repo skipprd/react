@@ -31,10 +31,3 @@ pub fn is_file_mutation_op(args: &Value) -> bool {
         FileOpKind::Patch | FileOpKind::Rm | FileOpKind::Mv
     )
 }
-
-pub fn is_file_repair_mutation_op(args: &Value) -> bool {
-    matches!(
-        classify_file_op(args),
-        FileOpKind::Patch | FileOpKind::Rm | FileOpKind::Mv
-    )
-}

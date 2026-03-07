@@ -116,12 +116,7 @@ pub fn subjective_retry_state_cap() -> usize {
 }
 
 pub fn publish_retry_limit() -> usize {
-    std::env::var("AGENT_MAX_PUBLISH_RETRIES")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(3)
-        .max(1)
-        .min(12)
+    crate::data_engineer::env_util::max_publish_retries()
 }
 
 pub fn batch_budget(progress: &plan::PlanProgress) -> RetryBudget {

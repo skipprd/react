@@ -411,8 +411,8 @@ impl AthenaQueryProvider {
 }
 
 impl WarehouseNaming for AthenaQueryProvider {
-    fn kind(&self) -> &'static str {
-        "athena"
+    fn kind(&self) -> react_suites::data_engineer::de_config::WarehouseKind {
+        react_suites::data_engineer::de_config::WarehouseKind::Athena
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {

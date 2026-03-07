@@ -69,7 +69,7 @@ impl KbSuite {
             resolved_config: None,
             capabilities: react_core::capability::CapabilityMap::default(),
         };
-        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
+        crate::data_engineer::copy_capabilities_to_actx(sctx, &mut actx);
 
         match Agent::run_until_block(&registry, &actx, sys, tools_card, question, {
             // OpenAI Responses output_tokens includes reasoning tokens; ensure we have enough

@@ -40,6 +40,13 @@ impl DataEngineerSuite {
             return Ok(false);
         }
 
+        // Pre-compute grounding once so we don't re-run discovery in the semantic check below.
+        let staging_grounding = if matches!(&doc, TrackPlanDoc::Model(_)) {
+            Some(crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await)
+        } else {
+            None
+        };
+
         // Defensive grounding at approval time (facts can change; never assume).
         match &mut doc {
             TrackPlanDoc::Cleanse(p) => {
@@ -66,7 +73,7 @@ impl DataEngineerSuite {
                 crate::data_engineer::plan::prune_cleanse_plan_to_grounded_raw_datasets(p, &grounded.allowed);
             }
             TrackPlanDoc::Model(p) => {
-                let stg = crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await;
+                let stg = staging_grounding.as_ref().expect("pre-computed for model track");
                 crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(p, &stg.allowed_models);
             }
         }
@@ -90,14 +97,14 @@ impl DataEngineerSuite {
             return Ok(true);
         }
 
-        // Auto-heal (semantic): ensure the approved plan is executable (or cancel so we can replan).
+        // Auto-heal (semantic): reuse the grounding computed above.
         let v = match &mut doc {
             TrackPlanDoc::Cleanse(p) => {
-                crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(actx, p).await?
+                crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(p).await?
             }
             TrackPlanDoc::Model(p) => {
-                let stg = crate::data_engineer::dataset_truth::discover_staging_models_from_storage(actx).await;
-                crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(actx, p, &stg.allowed_models).await?
+                let stg = staging_grounding.as_ref().expect("pre-computed for model track");
+                crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(p, &stg.allowed_models).await?
             }
         };
         if !v.ok {

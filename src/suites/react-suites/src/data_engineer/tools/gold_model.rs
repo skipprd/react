@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use tokio::task::JoinSet;
 use tracing::info;
 
@@ -10,13 +10,11 @@ use react_core::keyspace::encode_key_component;
 use react_core::tools::Tool;
 
 use crate::data_engineer::dbt_repair::remediate::active_provider_dialect;
-use crate::data_engineer::{files_store, naming, plan, sql_first};
+use crate::data_engineer::{naming, plan, sql_first};
 
-fn emit_trace(ctx: &AgentCtx, line: impl Into<String>) {
-    if let Some(tx) = ctx.trace_tx.as_ref() {
-        let _ = tx.send(line.into());
-    }
-}
+use super::model_authoring_engine::{
+    self as engine, athena_alias_reuse_hint, build_provider_prompt_rules, dedup_notes,
+};
 
 fn normalize_folder(folder: Option<&str>) -> String {
     match folder.unwrap_or("marts").trim().to_lowercase().as_str() {
@@ -27,20 +25,6 @@ fn normalize_folder(folder: Option<&str>) -> String {
 
 fn gold_model_rel_path(folder: &str, name: &str) -> String {
     format!("models/{}/{}.sql", folder, name)
-}
-
-fn athena_alias_reuse_hint(msg: &str, model_rel_path: &str, model_name: &str) -> Option<Value> {
-    let m = msg.to_ascii_lowercase();
-    if !m.contains("select-list alias") {
-        return None;
-    }
-    Some(serde_json::json!({
-        "kind": "athena_select_alias_reuse",
-        "model_name": model_name,
-        "model_path": model_rel_path,
-        "issue": msg,
-        "fix": "Split into CTE + outer select: compute intermediate aliases in an inner CTE/subquery, then reference them only from the outer SELECT."
-    }))
 }
 
 fn staging_rel_path_from_input(input: &str) -> String {
@@ -164,17 +148,8 @@ impl Tool for GoldModelTool {
             .map(|p| p.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
-        let provider_prompt_rules = {
-            let mut out = String::new();
-            if let Some(ref w) = wh {
-                for rule in w.sql_prompt_rules().into_iter() {
-                    out.push_str("  - ");
-                    out.push_str(rule);
-                    out.push('\n');
-                }
-            }
-            out
-        };
+        let provider_prompt_rules =
+            build_provider_prompt_rules(wh.as_ref().map(|w| w.as_ref()));
         let sys = build_gold_sys_prompt(&provider_name, &dialect, max_items, &provider_prompt_rules);
 
         // Plan-first authoring: if there is an active model plan, use task invariants/notes as the
@@ -384,7 +359,7 @@ impl Tool for GoldModelTool {
                         t.invariants.clone(),
                         t.checklist.clone(),
                         t.expected_model_path.clone().unwrap_or_default(),
-                        Some(t.implementation_spec.clone()),
+                        t.implementation_spec.clone(),
                     )
                 })
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
@@ -428,9 +403,6 @@ impl Tool for GoldModelTool {
 
             let max_tokens = sql_first::sql_first_max_output_tokens(6500);
             let max_attempts = sql_first::sql_first_max_repair_attempts(4);
-            let mut last_err = String::new();
-            let mut prev_sql: Option<String> = None;
-            let mut draft: Option<sql_first::SqlFirstDraft> = None;
 
             // Build placeholder replacement map for validation (placeholders -> quoted silver relations).
             let mut repl_validate: std::collections::HashMap<String, String> =
@@ -475,121 +447,39 @@ impl Tool for GoldModelTool {
                 continue;
             }
 
-            let mut ok = false;
-            for attempt in 1..=max_attempts {
-                let mut v = user_value.clone();
-                if attempt > 1 {
-                    if let Some(obj) = v.as_object_mut() {
-                        obj.insert("attempt".to_string(), serde_json::json!(attempt));
-                        obj.insert(
-                            "previous_sql".to_string(),
-                            serde_json::json!(prev_sql.clone().unwrap_or_default()),
-                        );
-                        obj.insert("error".to_string(), serde_json::json!(last_err.clone()));
-                        obj.insert("instruction".to_string(), serde_json::json!("Fix the SQL. Output JSON only: {\"sql\":\"...\",\"notes\":[...]}. Must only use __INPUT_n__ placeholders. Must not reference columns outside inputs[].schema_columns. Prefer CTEs + explicit select list. Do NOT use Jinja/macros (ref/source/doc) in the draft."));
-                    }
+            let loop_config = engine::AuthorLoopConfig {
+                max_tokens: max_tokens as usize,
+                max_attempts,
+                initial_prompt_id: "data_engineer.tools.gold_model.sql_first",
+                repair_prompt_id: "data_engineer.tools.gold_model.sql_first_repair",
+                initial_temp: 0.12,
+                repair_temp: 0.08,
+            };
+            let sys2 = sys.clone();
+            let loop_result = engine::sql_first_author_loop(
+                ctx,
+                &loop_config,
+                || sys2.clone(),
+                &user_value,
+                &repl_validate,
+                name,
+                &rel_path,
+                |_d| Ok(()),
+            )
+            .await;
+            let outcome = match loop_result {
+                Ok(o) => o,
+                Err(errs) => {
+                    errors.extend(errs);
+                    continue;
                 }
+            };
+            remediation_hints.extend(outcome.remediation_hints);
 
-                let prompt_id = if attempt == 1 {
-                    "data_engineer.tools.gold_model.sql_first"
-                } else {
-                    "data_engineer.tools.gold_model.sql_first_repair"
-                };
-                let temp = if attempt == 1 { 0.12 } else { 0.08 };
-                let sys_msg = if attempt == 1 {
-                    sys.clone()
-                } else {
-                    build_gold_sys_prompt(
-                        &provider_name,
-                        &dialect,
-                        max_items,
-                        &provider_prompt_rules,
-                    )
-                };
-
-                let d = match sql_first::llm_draft_sql_json(
-                    ctx,
-                    sys_msg,
-                    v.to_string(),
-                    prompt_id,
-                    max_tokens,
-                    temp,
-                )
-                .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        last_err = e;
-                        if attempt >= max_attempts {
-                            errors.push(format!("{name}: sql draft failed: {last_err}"));
-                        }
-                        continue;
-                    }
-                };
-
-                match sql_first::validate_sql_quick(ctx, &d.sql, &repl_validate).await {
-                    Ok(()) => {
-                        draft = Some(d);
-                        ok = true;
-                        break;
-                    }
-                    Err(err) => {
-                        last_err = err.clone();
-                        prev_sql = Some(d.sql.clone());
-                        if let Some(h) = athena_alias_reuse_hint(&err, &rel_path, name) {
-                            remediation_hints.push(h);
-                        }
-                        if attempt >= max_attempts {
-                            errors.push(format!("{name}: sql validation failed: {err}"));
-                        }
-                        continue;
-                    }
-                }
-            }
-            if !ok {
-                continue;
-            }
-            let draft = draft.expect("ok implies draft");
-            let intent =
-                match crate::data_engineer::authoring_ir::compile_sql_first_draft(
-                    &draft.sql,
-                    &draft.notes,
-                    plan_implementation_spec
-                        .as_ref()
-                        .map(|s| s.output_fields.as_slice())
-                        .unwrap_or(&[]),
-                ) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        errors.push(format!("{name}: authoring_ir compile failed: {e}"));
-                        continue;
-                    }
-                };
-
-            // Materialize: replace placeholders with ref().
-            let dbt_sql = sql_first::apply_placeholders(&intent.sql, &repl_materialize);
-            if naming::contains_source_call(&dbt_sql) {
-                errors.push(format!(
-                    "{name}: invalid gold SQL: contains source(). Gold must only read from silver via ref('stg_*')."
-                ));
-                continue;
-            }
-            if !naming::contains_ref_call(&dbt_sql) {
-                errors.push(format!(
-                    "{name}: invalid gold SQL: must reference at least one silver model via ref('stg_*')."
-                ));
-                continue;
-            }
-            if let Some(msg) = query.unsupported_sql_reason(&dbt_sql) {
-                errors.push(format!(
-                    "{name}: unsupported SQL for provider '{provider_name}': {msg}"
-                ));
-                if let Some(h) = athena_alias_reuse_hint(&msg, &rel_path, name) {
-                    remediation_hints.push(h);
-                }
-                continue;
-            }
-
+            let query_for_validate = query.clone();
+            let provider_name_for_validate = provider_name.clone();
+            let rel_path_for_hint = rel_path.clone();
+            let name_for_hint = name.to_string();
             let existing_sql = ctx
                 .storage
                 .get_bytes(&format!("{}/{}", base, rel_path))
@@ -597,61 +487,56 @@ impl Tool for GoldModelTool {
                 .ok()
                 .map(|b| String::from_utf8_lossy(&b).to_string())
                 .unwrap_or_default();
-            let base_sha256 = if existing_sql.is_empty() {
-                None
-            } else {
-                Some(react_core::llm_observability::sha256_hex_str(&existing_sql))
-            };
-            let patch_text = files_store::hunks_only_full_replace_patch(&existing_sql, &dbt_sql);
-            let outcome = match files_store::apply_patch(
+
+            let write_result = engine::compile_and_write_model(
                 ctx,
-                None,
+                &outcome.draft,
+                plan_implementation_spec
+                    .as_ref()
+                    .map(|s| s.output_fields.as_slice())
+                    .unwrap_or(&[]),
+                &repl_materialize,
+                |dbt_sql| {
+                    if naming::contains_source_call(dbt_sql) {
+                        return Err("invalid gold SQL: contains source(). Gold must only read from silver via ref('stg_*').".to_string());
+                    }
+                    if !naming::contains_ref_call(dbt_sql) {
+                        return Err("invalid gold SQL: must reference at least one silver model via ref('stg_*').".to_string());
+                    }
+                    if let Some(msg) = query_for_validate.unsupported_sql_reason(dbt_sql) {
+                        return Err(format!(
+                            "unsupported SQL for provider '{}': {msg}",
+                            provider_name_for_validate
+                        ));
+                    }
+                    Ok(())
+                },
+                &existing_sql,
                 &rel_path,
-                &patch_text,
-                base_sha256.as_deref(),
-                Some(!existing_sql.is_empty()),
-                files_store::PatchApplyKind::UnifiedDiff,
             )
-            .await
-            {
-                Ok(o) => o,
+            .await;
+            match write_result {
+                Ok(result) => {
+                    written.push(result.key);
+                    succeeded_item_names.push(name.to_string());
+                    for n in result.notes {
+                        let nt = n.trim();
+                        if !nt.is_empty() {
+                            notes.push(format!("{name}: {nt}"));
+                        }
+                    }
+                }
                 Err(e) => {
-                    errors.push(format!("{name}: materialize apply_patch failed: {e}"));
+                    if let Some(h) = athena_alias_reuse_hint(&e, &rel_path_for_hint, &name_for_hint) {
+                        remediation_hints.push(h);
+                    }
+                    errors.push(format!("{name}: {e}"));
                     continue;
                 }
-            };
-            if let Err(e) = ctx
-                .storage
-                .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
-                .await
-            {
-                emit_trace(ctx, format!("failed to save {}: {}", rel_path, e));
-                errors.push(format!("{name}: failed to write gold model: {e}"));
-                continue;
-            }
-            emit_trace(ctx, format!("saved {}", rel_path));
-            written.push(outcome.key);
-            succeeded_item_names.push(name.to_string());
-
-            for n in intent.notes {
-                let nt = n.trim();
-                if !nt.is_empty() {
-                    notes.push(format!("{name}: {nt}"));
-                }
             }
         }
 
-        // Dedup notes to keep response bounded.
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut out_notes: Vec<String> = Vec::new();
-        for n in notes {
-            if seen.insert(n.clone()) {
-                out_notes.push(n);
-            }
-            if out_notes.len() >= 50 {
-                break;
-            }
-        }
+        let out_notes = dedup_notes(notes, 50);
 
         info!(
             target: "gold_model",
@@ -740,8 +625,8 @@ mod tests {
     }
 
     impl crate::data_engineer::providers::WarehouseNaming for MockWarehouse {
-        fn kind(&self) -> &'static str {
-            "mock"
+        fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind {
+            crate::data_engineer::de_config::WarehouseKind::default()
         }
         fn parse_dataset_fqn(
             &self,
@@ -1091,12 +976,12 @@ mod tests {
             project_snapshot: serde_json::Value::Null,
             tasks: vec![crate::data_engineer::plan::ModelTask {
                 name: "fct_orders".to_string(),
-                folder: "marts".to_string(),
+                folder: crate::data_engineer::plan::ModelFolder::Marts,
                 goal: "Orders fact at order grain.".to_string(),
                 inputs: vec!["stg_test_raw_raw_orders".to_string()],
                 expected_model_path: Some("models/marts/fct_orders.sql".to_string()),
                 invariants: vec!["Grain: exactly 1 row per order_pk.".to_string()],
-                implementation_spec: crate::data_engineer::plan::ModelImplementationSpec {
+                implementation_spec: Some(crate::data_engineer::plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per order_id".to_string(),
                     inputs: vec!["stg_test_raw_raw_orders".to_string()],
@@ -1116,7 +1001,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: crate::data_engineer::plan::TaskStatus::Pending,
                 checklist: vec![
                     crate::data_engineer::plan::PlanChecklistItem {

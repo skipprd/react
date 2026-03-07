@@ -364,9 +364,8 @@ impl From<RepairTargetPath> for String {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct SchemaRepairMode {
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct RepairModeCore {
     #[serde(default)]
     pub ladder_step: RepairLadderStep,
     #[serde(default)]
@@ -375,43 +374,47 @@ pub struct SchemaRepairMode {
     pub repair_started_mutation_epoch: Option<u64>,
     #[serde(default)]
     pub consecutive_noop_patches: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SchemaRepairMode {
+    #[serde(flatten)]
+    pub core: RepairModeCore,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SqlTargetRepairMode {
     pub target_path: SqlModelPath,
-    #[serde(default)]
-    pub ladder_step: RepairLadderStep,
-    #[serde(default)]
-    pub attempt_count: usize,
-    #[serde(default)]
-    pub repair_started_mutation_epoch: Option<u64>,
-    #[serde(default)]
-    pub consecutive_noop_patches: usize,
+    #[serde(flatten)]
+    pub core: RepairModeCore,
 }
 
 impl Default for SchemaRepairMode {
     fn default() -> Self {
         Self {
-            ladder_step: RepairLadderStep::PatchTarget,
-            attempt_count: 0,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore::default(),
         }
     }
+}
+
+impl SchemaRepairMode {
+    pub fn ladder_step(&self) -> RepairLadderStep { self.core.ladder_step.clone() }
+    pub fn attempt_count(&self) -> usize { self.core.attempt_count }
+    pub fn consecutive_noop_patches(&self) -> usize { self.core.consecutive_noop_patches }
 }
 
 impl SqlTargetRepairMode {
     pub fn new(target_path: SqlModelPath) -> Self {
         Self {
             target_path,
-            ladder_step: RepairLadderStep::PatchTarget,
-            attempt_count: 0,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore::default(),
         }
     }
+    pub fn ladder_step(&self) -> RepairLadderStep { self.core.ladder_step.clone() }
+    pub fn attempt_count(&self) -> usize { self.core.attempt_count }
+    pub fn consecutive_noop_patches(&self) -> usize { self.core.consecutive_noop_patches }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -869,28 +872,32 @@ impl RepairState {
         }
     }
 
-    pub fn ladder_step(&self) -> RepairLadderStep {
+    fn core(&self) -> Option<&RepairModeCore> {
         match &self.repair_mode {
-            RepairModeState::Inactive => RepairLadderStep::PatchTarget,
-            RepairModeState::Schema(mode) => mode.ladder_step.clone(),
-            RepairModeState::SqlTarget(mode) => mode.ladder_step.clone(),
+            RepairModeState::Inactive => None,
+            RepairModeState::Schema(mode) => Some(&mode.core),
+            RepairModeState::SqlTarget(mode) => Some(&mode.core),
         }
+    }
+
+    fn core_mut(&mut self) -> Option<&mut RepairModeCore> {
+        match &mut self.repair_mode {
+            RepairModeState::Inactive => None,
+            RepairModeState::Schema(mode) => Some(&mut mode.core),
+            RepairModeState::SqlTarget(mode) => Some(&mut mode.core),
+        }
+    }
+
+    pub fn ladder_step(&self) -> RepairLadderStep {
+        self.core().map(|c| c.ladder_step.clone()).unwrap_or(RepairLadderStep::PatchTarget)
     }
 
     pub fn attempt_count(&self) -> usize {
-        match &self.repair_mode {
-            RepairModeState::Inactive => 0,
-            RepairModeState::Schema(mode) => mode.attempt_count,
-            RepairModeState::SqlTarget(mode) => mode.attempt_count,
-        }
+        self.core().map(|c| c.attempt_count).unwrap_or(0)
     }
 
     pub fn consecutive_noop_patches(&self) -> usize {
-        match &self.repair_mode {
-            RepairModeState::Inactive => 0,
-            RepairModeState::Schema(mode) => mode.consecutive_noop_patches,
-            RepairModeState::SqlTarget(mode) => mode.consecutive_noop_patches,
-        }
+        self.core().map(|c| c.consecutive_noop_patches).unwrap_or(0)
     }
 
     pub fn ensure_target_path(&mut self, path: SqlModelPath) {
@@ -1025,29 +1032,14 @@ impl ExecutionState {
             == Some(false)
     }
 
-    pub fn hard_mutation_repair_mode(&self) -> bool {
-        self.repair_state().hard_mutation_repair_mode()
-    }
-
-    pub fn repair_type(&self) -> RepairType {
-        self.repair_state().repair_type()
-    }
-
-    pub fn ladder_step(&self) -> RepairLadderStep {
-        self.repair_state().ladder_step()
-    }
-
-    pub fn attempt_count(&self) -> usize {
-        self.repair_state().attempt_count()
-    }
-
-    pub fn consecutive_noop_patches(&self) -> usize {
-        self.repair_state().consecutive_noop_patches()
-    }
-
-    pub fn single_target_repair_path(&self) -> Option<String> {
-        self.repair_state().single_target_repair_path().map(ToString::to_string)
-    }
+    /// Convenience delegation to `self.repair_state()`. These exist so callers
+    /// can query repair properties without knowing about the `RepairState` layer.
+    pub fn hard_mutation_repair_mode(&self) -> bool { self.repair_state().hard_mutation_repair_mode() }
+    pub fn repair_type(&self) -> RepairType { self.repair_state().repair_type() }
+    pub fn ladder_step(&self) -> RepairLadderStep { self.repair_state().ladder_step() }
+    pub fn attempt_count(&self) -> usize { self.repair_state().attempt_count() }
+    pub fn consecutive_noop_patches(&self) -> usize { self.repair_state().consecutive_noop_patches() }
+    pub fn single_target_repair_path(&self) -> Option<String> { self.repair_state().single_target_repair_path().map(ToString::to_string) }
 
     pub fn ensure_repair_target_path(&mut self, path: SqlModelPath) {
         self.with_repair_state_mut(|repair| {
@@ -1062,12 +1054,14 @@ impl ExecutionState {
     fn enable_repair_mode(repair: &mut RepairState, repair_intent: &RepairIntent) {
         repair.repair_mode = match repair_intent {
             RepairIntent::Schema { .. } => RepairModeState::Schema(SchemaRepairMode {
-                repair_started_mutation_epoch: Some(repair.mutation_epoch),
-                ..SchemaRepairMode::default()
+                core: RepairModeCore {
+                    repair_started_mutation_epoch: Some(repair.mutation_epoch),
+                    ..RepairModeCore::default()
+                },
             }),
             RepairIntent::SqlTarget { target, .. } => {
                 let mut mode = SqlTargetRepairMode::new(target.clone());
-                mode.repair_started_mutation_epoch = Some(repair.mutation_epoch);
+                mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
                 RepairModeState::SqlTarget(mode)
             }
             RepairIntent::None { .. } => RepairModeState::Inactive,
@@ -1338,26 +1332,13 @@ impl ExecutionState {
 
     pub fn note_patch_attempt(&mut self, ok: bool, mutated: bool) {
         self.with_workflow_control_state_mut(|state| {
-            match &mut state.repair.repair_mode {
-                RepairModeState::Schema(mode) => {
-                    mode.attempt_count = mode.attempt_count.saturating_add(1);
-                }
-                RepairModeState::SqlTarget(mode) => {
-                    mode.attempt_count = mode.attempt_count.saturating_add(1);
-                }
-                RepairModeState::Inactive => {}
+            if let Some(core) = state.repair.core_mut() {
+                core.attempt_count = core.attempt_count.saturating_add(1);
             }
             if ok && mutated {
-                match &mut state.repair.repair_mode {
-                    RepairModeState::Schema(mode) => {
-                        mode.consecutive_noop_patches = 0;
-                        mode.ladder_step = RepairLadderStep::PatchTarget;
-                    }
-                    RepairModeState::SqlTarget(mode) => {
-                        mode.consecutive_noop_patches = 0;
-                        mode.ladder_step = RepairLadderStep::PatchTarget;
-                    }
-                    RepairModeState::Inactive => {}
+                if let Some(core) = state.repair.core_mut() {
+                    core.consecutive_noop_patches = 0;
+                    core.ladder_step = RepairLadderStep::PatchTarget;
                 }
                 state.repair.stall_count = 0;
                 state.repair.last_progress_delta = Some(ProgressDelta {
@@ -1365,31 +1346,18 @@ impl ExecutionState {
                     progress_made: true,
                     ..ProgressDelta::default()
                 });
-                // A successful mutation closes the current probe requirement cycle.
                 state.probe.required = false;
                 state.probe.repeated_signature_streak = 0;
                 return;
             }
-            match &mut state.repair.repair_mode {
-                RepairModeState::Schema(mode) => {
-                    mode.consecutive_noop_patches = mode.consecutive_noop_patches.saturating_add(1);
-                    mode.ladder_step = match mode.ladder_step {
-                        RepairLadderStep::PatchTarget => RepairLadderStep::ReplaceContents,
-                        RepairLadderStep::ReplaceContents => RepairLadderStep::FsOp,
-                        RepairLadderStep::FsOp => RepairLadderStep::Stop,
-                        RepairLadderStep::Stop => RepairLadderStep::Stop,
-                    };
-                }
-                RepairModeState::SqlTarget(mode) => {
-                    mode.consecutive_noop_patches = mode.consecutive_noop_patches.saturating_add(1);
-                    mode.ladder_step = match mode.ladder_step {
-                        RepairLadderStep::PatchTarget => RepairLadderStep::ReplaceContents,
-                        RepairLadderStep::ReplaceContents => RepairLadderStep::FsOp,
-                        RepairLadderStep::FsOp => RepairLadderStep::Stop,
-                        RepairLadderStep::Stop => RepairLadderStep::Stop,
-                    };
-                }
-                RepairModeState::Inactive => {}
+            if let Some(core) = state.repair.core_mut() {
+                core.consecutive_noop_patches = core.consecutive_noop_patches.saturating_add(1);
+                core.ladder_step = match core.ladder_step {
+                    RepairLadderStep::PatchTarget => RepairLadderStep::ReplaceContents,
+                    RepairLadderStep::ReplaceContents => RepairLadderStep::FsOp,
+                    RepairLadderStep::FsOp => RepairLadderStep::Stop,
+                    RepairLadderStep::Stop => RepairLadderStep::Stop,
+                };
             }
             state.repair.stall_count = state.repair.stall_count.saturating_add(1);
             state.repair.last_progress_delta = Some(ProgressDelta {
@@ -1532,24 +1500,19 @@ impl ExecutionState {
 
     pub fn bump_publish_retry(&mut self, kind: PublishRetryKind, cap: usize) -> usize {
         let capped = cap.max(1);
-        let mut publish = self.publish.clone();
-        if let Some(existing) = publish.publish_retries.iter_mut().find(|r| r.kind == kind) {
+        if let Some(existing) = self.publish.publish_retries.iter_mut().find(|r| r.kind == kind) {
             existing.count = existing.count.saturating_add(1).min(capped);
             let count = existing.count;
-            self.publish = publish;
             self.debug_assert_invariants();
             return count;
         }
-        publish.publish_retries.push(PublishRetryState { kind, count: 1 });
-        self.publish = publish;
+        self.publish.publish_retries.push(PublishRetryState { kind, count: 1 });
         self.debug_assert_invariants();
         1
     }
 
     pub fn reset_publish_retry(&mut self, kind: PublishRetryKind) {
-        let mut publish = self.publish.clone();
-        publish.publish_retries.retain(|r| r.kind != kind);
-        self.publish = publish;
+        self.publish.publish_retries.retain(|r| r.kind != kind);
         self.debug_assert_invariants();
     }
 
@@ -1740,7 +1703,7 @@ impl ExecutionState {
     fn collect_repair_ladder_coherence_violations(&self, violations: &mut Vec<String>) {
         let repair = self.repair_state();
         if let RepairModeState::SqlTarget(mode) = &repair.repair_mode {
-            if mode.ladder_step == RepairLadderStep::Stop && mode.attempt_count < 3 {
+            if mode.core.ladder_step == RepairLadderStep::Stop && mode.core.attempt_count < 3 {
                 violations.push("repair ladder reached stop before three attempts".to_string());
             }
             if mode.target_path.as_str().trim().is_empty() {
@@ -2107,10 +2070,12 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
-            ladder_step: RepairLadderStep::PatchTarget,
-            attempt_count: 0,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         });
         st.subjective_retries.insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
         st.subjective_retries.insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
@@ -2258,10 +2223,12 @@ mod tests {
 
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
-            attempt_count: 1,
-            ladder_step: RepairLadderStep::PatchTarget,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore {
+                attempt_count: 1,
+                ladder_step: RepairLadderStep::PatchTarget,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         });
         st.repair.last_progress_delta = Some(ProgressDelta {
             target_hash_changed: true,
@@ -2497,10 +2464,12 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/staging/x.sql"),
-            ladder_step: RepairLadderStep::PatchTarget,
-            attempt_count: 0,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         });
         st.apply_event(DataEngineerEvent::BatchAuthoringRecovered);
         assert!(!st.hard_mutation_repair_mode());
@@ -2522,10 +2491,12 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/staging/stg_test.sql"),
-            ladder_step: RepairLadderStep::Stop,
-            attempt_count: 2,
-            repair_started_mutation_epoch: None,
-            consecutive_noop_patches: 0,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::Stop,
+                attempt_count: 2,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         });
         let err = st.validate_invariants().expect_err("invariants must fail");
         assert!(err.contains("repair ladder reached stop before three attempts"));

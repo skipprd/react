@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+use crate::data_engineer::providers::DatasetId;
+
 /// Canonical dataset reference in `<catalog>.<schema>.<table>` form.
+///
+/// This is the internal reference type used throughout the data_engineer suite.
+/// [`DatasetId`] is the corresponding type on the provider trait boundary.
+/// The middle segment is called `schema` here and `database` in `DatasetId`;
+/// both refer to the same catalog-level namespace.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DatasetRef {
     pub catalog: String,
@@ -29,6 +36,26 @@ impl DatasetRef {
 
     pub fn fqn(&self) -> String {
         format!("{}.{}.{}", self.catalog, self.schema, self.table)
+    }
+}
+
+impl From<DatasetId> for DatasetRef {
+    fn from(id: DatasetId) -> Self {
+        Self {
+            catalog: id.catalog,
+            schema: id.database,
+            table: id.table,
+        }
+    }
+}
+
+impl From<DatasetRef> for DatasetId {
+    fn from(r: DatasetRef) -> Self {
+        Self {
+            catalog: r.catalog,
+            database: r.schema,
+            table: r.table,
+        }
     }
 }
 

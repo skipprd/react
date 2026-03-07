@@ -4,13 +4,11 @@ use react_core::session::ThreadStore;
 use crate::data_engineer::control_flow::{Phase, TransitionIntent};
 
 #[derive(Clone, Debug)]
-pub enum PhaseDecision {
-    Transition {
-        to: Phase,
-        intent: TransitionIntent,
-        reason_code: Option<PhaseReasonCode>,
-        reason_detail: Option<serde_json::Value>,
-    },
+pub struct PhaseDecision {
+    pub to: Phase,
+    pub intent: TransitionIntent,
+    pub reason_code: Option<PhaseReasonCode>,
+    pub reason_detail: Option<serde_json::Value>,
 }
 
 impl PhaseDecision {
@@ -19,7 +17,7 @@ impl PhaseDecision {
         reason_code: Option<PhaseReasonCode>,
         reason_detail: Option<serde_json::Value>,
     ) -> Self {
-        Self::Transition {
+        Self {
             to,
             intent: TransitionIntent::Forward,
             reason_code,
@@ -32,7 +30,7 @@ impl PhaseDecision {
         reason_code: Option<PhaseReasonCode>,
         reason_detail: Option<serde_json::Value>,
     ) -> Self {
-        Self::Transition {
+        Self {
             to,
             intent: TransitionIntent::Loopback,
             reason_code,
@@ -45,7 +43,7 @@ impl PhaseDecision {
         reason_code: Option<PhaseReasonCode>,
         reason_detail: Option<serde_json::Value>,
     ) -> Self {
-        Self::Transition {
+        Self {
             to: phase,
             intent: TransitionIntent::Annotation,
             reason_code,
@@ -60,7 +58,7 @@ pub async fn commit_phase_decision(
     from_phase: Option<Phase>,
     decision: PhaseDecision,
 ) -> Result<(), String> {
-    let PhaseDecision::Transition {
+    let PhaseDecision {
         to,
         intent,
         reason_code,
@@ -69,7 +67,7 @@ pub async fn commit_phase_decision(
     crate::data_engineer::transition_dispatcher::apply_phase_directive(
         thread_store,
         thread_id,
-        Some("agent".to_string()),
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
         from_phase,
         crate::data_engineer::transition_dispatcher::PhaseDirective::Transition {
             to,
@@ -91,7 +89,7 @@ pub async fn commit_guard_block(
     crate::data_engineer::transition_dispatcher::apply_phase_directive(
         thread_store,
         thread_id,
-        Some("agent".to_string()),
+        Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
         Some(phase),
         crate::data_engineer::transition_dispatcher::PhaseDirective::Block {
             phase,
@@ -136,6 +134,6 @@ pub async fn commit_plan_revision_loopback(
     .await
 }
 
-pub fn plan_status_reason_detail<S: std::fmt::Debug>(status: S) -> serde_json::Value {
-    serde_json::json!({ "status": format!("{status:?}") })
+pub fn plan_status_reason_detail(status: crate::data_engineer::plan_types::PlanStatus) -> serde_json::Value {
+    serde_json::json!({ "status": status.as_str() })
 }

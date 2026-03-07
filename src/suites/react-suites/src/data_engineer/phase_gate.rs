@@ -8,6 +8,15 @@ use crate::data_engineer::progress_controller::{
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
+fn guard_reason(signal: &str, ctx: &[(&str, &str)]) -> String {
+    use std::fmt::Write;
+    let mut buf = format!("guard_block: {signal}");
+    for (k, v) in ctx {
+        write!(buf, " | {k}={v}").ok();
+    }
+    buf
+}
+
 pub fn evaluate_pre_turn_directive(
     execution_state: &ExecutionState,
     phase: Phase,
@@ -21,22 +30,23 @@ pub fn evaluate_pre_turn_directive(
     {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
-            reason: format!(
-                "failed to make progress for this thread: execution_state stall_count={} reached max_stall_count={} in mode=mutate",
-                repair_state.stall_count, DEFAULT_MAX_STALL_COUNT
-            ),
+            reason: guard_reason("stall_count_exceeded", &[
+                ("stall_count", &repair_state.stall_count.to_string()),
+                ("max_stall_count", &DEFAULT_MAX_STALL_COUNT.to_string()),
+                ("mode", "mutate"),
+            ]),
         };
     }
 
     if phase_state.replan_backtracks >= max_replan_backtracks {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::BatchLocked,
-            reason: format!(
-                "failed to make progress for this thread: observed {} validate/review loopback(s) to plan/author in active track '{}' since the last successful dbt_validate (limit {}). Stopping this thread. Please inspect the latest validate/review errors and apply a targeted fix before rerunning.",
-                phase_state.replan_backtracks,
-                phase.as_str(),
-                max_replan_backtracks
-            ),
+            reason: guard_reason("replan_backtrack_limit", &[
+                ("replan_backtracks", &phase_state.replan_backtracks.to_string()),
+                ("limit", &max_replan_backtracks.to_string()),
+                ("phase", phase.as_str()),
+                ("action", "inspect validate/review errors and apply a targeted fix"),
+            ]),
         };
     }
 
@@ -45,14 +55,14 @@ pub fn evaluate_pre_turn_directive(
         && single_target_repair_path.is_some()
         && repair_state.ladder_step() == RepairLadderStep::Stop
     {
-        let target = single_target_repair_path.as_deref().unwrap_or("(unknown target)");
+        let target = single_target_repair_path.as_deref().unwrap_or("(unknown)");
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
-            reason: format!(
-                "failed to make progress for this thread: deterministic repair ladder reached stop for '{}' after {} attempt(s). Apply a manual fix and rerun.",
-                target.trim(),
-                repair_state.attempt_count()
-            ),
+            reason: guard_reason("repair_ladder_stop", &[
+                ("target", target.trim()),
+                ("attempts", &repair_state.attempt_count().to_string()),
+                ("action", "apply a manual fix and rerun"),
+            ]),
         };
     }
 
@@ -101,7 +111,7 @@ mod tests {
         match d {
             PreTurnDirective::FailFast { kind, reason } => {
                 assert_eq!(kind, GuardBlockKind::BatchLocked);
-                assert!(reason.contains("loopback"));
+                assert!(reason.contains("replan_backtrack_limit"));
             }
             _ => panic!("expected failfast"),
         }
@@ -116,17 +126,19 @@ mod tests {
                     "models/staging/stg_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
-                ladder_step: RepairLadderStep::Stop,
-                attempt_count: 7,
-                repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
+                core: crate::data_engineer::progress_controller::RepairModeCore {
+                    ladder_step: RepairLadderStep::Stop,
+                    attempt_count: 7,
+                    repair_started_mutation_epoch: None,
+                    consecutive_noop_patches: 0,
+                },
             },
         );
         let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
         match d {
             PreTurnDirective::FailFast { kind, reason } => {
                 assert_eq!(kind, GuardBlockKind::AuthoringToValidate);
-                assert!(reason.contains("deterministic repair ladder reached stop"));
+                assert!(reason.contains("repair_ladder_stop"));
                 assert!(reason.contains("stg_orders.sql"));
             }
             _ => panic!("expected failfast"),
@@ -142,10 +154,12 @@ mod tests {
                     "models/staging/stg_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
-                ladder_step: RepairLadderStep::Stop,
-                attempt_count: 3,
-                repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
+                core: crate::data_engineer::progress_controller::RepairModeCore {
+                    ladder_step: RepairLadderStep::Stop,
+                    attempt_count: 3,
+                    repair_started_mutation_epoch: None,
+                    consecutive_noop_patches: 0,
+                },
             },
         );
         st.telemetry.last_validate = Some(crate::data_engineer::progress_controller::LastValidateState {

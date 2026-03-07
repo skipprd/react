@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use self::policy_sql_validated::SqlValidatedPolicy;
-use self::types::DatasetCandidate;
+use self::policy_sql_validated::DatasetCandidate;
 use self::preflight::PreflightProvider;
 use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
 use react_core::agent::{
@@ -20,10 +20,9 @@ use crate::data_engineer::phase_contract::{
 
 pub struct DataEngineerSuite;
 
-pub fn resolved_config_from_ctx(ctx: &AgentCtx) -> Option<&react_core::resolved_config::ReactResolvedConfig> {
+pub(crate) fn resolved_config_from_ctx(ctx: &AgentCtx) -> Option<&react_core::resolved_config::ReactResolvedConfig> {
     ctx.resolved_config.as_ref().map(|c| c.as_ref())
 }
-const PLAN_SPEC_PLACEHOLDER_SENTINEL: &str = "__REQUIRES_PLAN_ENRICHMENT__";
 
 impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
     type Phase = control_flow::Phase;
@@ -89,8 +88,8 @@ impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
 }
 
 pub mod providers;
+pub mod env_util;
 pub mod de_config;
-#[allow(dead_code)]
 pub mod ctx_ext;
 pub mod controller_event;
 pub mod controller_kernel;
@@ -105,8 +104,7 @@ pub mod facts;
 pub mod naming;
 pub mod mutation_gateway;
 pub mod patch_contract;
-#[path = "patch_protocol.rs"]
-pub mod files_patch_repair;
+pub mod patch_protocol;
 pub mod phase_contract;
 pub mod phase_gate;
 pub mod phase_reason_detail;
@@ -121,6 +119,7 @@ mod phase_validate;
 mod plan_review_helpers;
 mod plan_grounding;
 pub(crate) mod plan_progress;
+mod plan_storage;
 mod plan_types;
 mod plan_validation;
 pub mod plan;
@@ -129,9 +128,7 @@ pub mod plan_kind;
 pub mod plan_schema;
 pub mod probe_target;
 pub mod progress_controller;
-pub mod project_files;
-#[path = "project_fs/mod.rs"]
-pub mod files_store;
+pub mod project_fs;
 pub mod prompt_packets;
 pub mod prompts;
 pub mod authoring_ir;
@@ -139,38 +136,28 @@ pub mod authoring_driver;
 pub mod chunk_progress_contract;
 pub mod references;
 mod review_batched;
+mod review_prompts;
+mod review_persistence;
 pub mod retry_budget;
 pub mod schema_policy;
 pub mod sql_first;
 pub mod state_manager;
 pub mod tool_ops;
+mod tool_policies;
 mod tool_registry_builder;
 mod track_spec;
 pub mod transition_dispatcher;
 pub mod tools;
-pub mod types;
-pub mod util;
 pub mod policy_sql_validated;
 pub mod preflight;
+mod llm_profiles;
+mod enrichment;
+mod catalog_bootstrap;
+mod agent_modes;
 pub(crate) use track_spec::TrackKind;
-
-fn lock_prompt_for_plan(
-    track: crate::data_engineer::track_spec::TrackKind,
-    plan_key: &str,
-    consecutive: usize,
-    total: usize,
-    next_items: &[String],
-    expected_paths: &[String],
-) -> String {
-    crate::data_engineer::controller_kernel::build_batch_lock_prompt(
-        track,
-        plan_key,
-        consecutive,
-        total,
-        next_items,
-        expected_paths,
-    )
-}
+pub use ctx_ext::copy_capabilities_to_actx;
+use llm_profiles::PlanningLlmProfile;
+use agent_modes::{AgentMode, AgentToolCapability};
 
 pub(crate) enum PhaseExecutorOutcome {
     /// Phase still active, run another iteration.
@@ -220,51 +207,24 @@ impl AgentPolicy for InterruptOnlyPolicy {
     }
 
     fn timeout_for_tool(&self, action_name: &str) -> Option<u64> {
-        // Provide a timeout for *all* tools. Individual tools can override this baseline.
-        //
-        // Rationale:
-        // - In headless/terminal mode we want runs to progress without spurious timeouts.
-        // - Some tools wrap nested LLM calls + storage IO (schema/model batch tools).
-        // - dbt validate/build/publish can take minutes in real environments.
-        let baseline = 120;
+        use crate::data_engineer::env_util::{
+            TOOL_TIMEOUT_FAST_SECS, TOOL_TIMEOUT_MEDIUM_SECS,
+            TOOL_TIMEOUT_SLOW_SECS, TOOL_TIMEOUT_EXTRA_SLOW_SECS,
+        };
         let secs = match action_name {
-            // Can involve an inner LLM call + multiple writes.
-            "staging_model" => 600,
-            "apply_next_cleanse_batch" => 600,
-            "apply_next_cleanse_schema_batch" => 600,
+            "staging_model" | "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" =>
+                TOOL_TIMEOUT_SLOW_SECS,
 
-            // Can involve multiple storage reads + an inner LLM call + writes.
-            "gold_model" => 300,
-            "apply_next_model_batch" => 300,
-            "apply_next_model_schema_batch" => 300,
+            "gold_model" | "apply_next_model_batch" | "apply_next_model_schema_batch" =>
+                TOOL_TIMEOUT_MEDIUM_SECS,
 
-            // dbt can be slow (compile/build/test) depending on environment.
-            "dbt_validate" => 900,
-            "publish_dbt_to_provider" => 900,
+            "dbt_validate" | "publish_dbt_to_provider" =>
+                TOOL_TIMEOUT_EXTRA_SLOW_SECS,
 
-            // Warehouse queries can legitimately take >10s.
-            "run_sql" => 120,
+            "preflight_catalog_all" => TOOL_TIMEOUT_SLOW_SECS,
+            "preflight_catalog_dataset" | "preflight_catalog_schema" => TOOL_TIMEOUT_MEDIUM_SECS,
 
-            // Writes can be larger.
-            "approve_and_save_artifact_batch" => 120,
-            "approve_and_save_artifact" => 120,
-
-            // Storage reads/writes sometimes hit network latency.
-            "file" => 120,
-
-            // Discovery tools.
-            "sql_schema" => 120,
-            "sql_stats" => 120,
-            "sql_sample" => 120,
-            "vect_query" => 120,
-            "vect_upsert" => 120,
-
-            // Preflight can fan out and be slow depending on provider.
-            "preflight_catalog_all" => 600,
-            "preflight_catalog_dataset" => 300,
-            "preflight_catalog_schema" => 300,
-
-            _ => baseline,
+            _ => TOOL_TIMEOUT_FAST_SECS,
         };
         Some(secs)
     }
@@ -305,65 +265,6 @@ enum PlanState {
     Unconstrained,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CatalogBootstrapOutcome {
-    metadata_complete: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PlanningLlmProfile {
-    DiscoveryCleanse,
-    DiscoveryModel,
-    DesignMemo,
-    DesignCritique,
-    SkeletonOrCandidates,
-    EnrichmentCompile,
-    EnrichmentReason,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum AgentMode {
-    Ask,
-    Model,
-    Cleanse,
-    Review,
-    Agent,
-}
-
-impl AgentMode {
-    fn parse(raw: &str) -> Result<Self, String> {
-        match raw {
-            "ask" => Ok(Self::Ask),
-            "model" => Ok(Self::Model),
-            "cleanse" => Ok(Self::Cleanse),
-            "review" => Ok(Self::Review),
-            "agent" => Ok(Self::Agent),
-            _ => Err(format!(
-                "invalid agent_type '{}' for suite 'data_engineer' (expected 'ask' | 'model' | 'cleanse' | 'review' | 'agent')",
-                raw
-            )),
-        }
-    }
-
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum AgentToolCapability {
-    ReadOnlyFile,
-    MutableFile,
-    RunSql,
-    AskUser,
-    AskApproval,
-    SearchDbtExamples,
-    StagingModel,
-    GoldModel,
-    DbtValidate,
-    PublishDbt,
-    SqlRegister,
-    CatalogNote,
-    Artifacts,
-}
-
 #[derive(Clone, Debug)]
 struct NonEmptyCleanseDatasetIds {
     ids: Vec<String>,
@@ -391,267 +292,6 @@ impl NonEmptyCleanseDatasetIds {
 }
 
 impl DataEngineerSuite {
-    fn agent_capability_profile(
-        agent_mode: AgentMode,
-        allow_user_interrupt_tools: bool,
-    ) -> BTreeSet<AgentToolCapability> {
-        let mut caps = BTreeSet::new();
-        match agent_mode {
-            AgentMode::Review => {
-                caps.insert(AgentToolCapability::ReadOnlyFile);
-                caps.insert(AgentToolCapability::Artifacts);
-            }
-            AgentMode::Ask => {
-                caps.insert(AgentToolCapability::MutableFile);
-                caps.insert(AgentToolCapability::RunSql);
-                caps.insert(AgentToolCapability::AskApproval);
-                caps.insert(AgentToolCapability::Artifacts);
-            }
-            AgentMode::Cleanse => {
-                caps.insert(AgentToolCapability::MutableFile);
-                caps.insert(AgentToolCapability::RunSql);
-                caps.insert(AgentToolCapability::AskApproval);
-                caps.insert(AgentToolCapability::SearchDbtExamples);
-                caps.insert(AgentToolCapability::StagingModel);
-                caps.insert(AgentToolCapability::DbtValidate);
-                caps.insert(AgentToolCapability::PublishDbt);
-                caps.insert(AgentToolCapability::SqlRegister);
-                caps.insert(AgentToolCapability::CatalogNote);
-                caps.insert(AgentToolCapability::Artifacts);
-            }
-            AgentMode::Model | AgentMode::Agent => {
-                caps.insert(AgentToolCapability::MutableFile);
-                caps.insert(AgentToolCapability::RunSql);
-                caps.insert(AgentToolCapability::AskApproval);
-                caps.insert(AgentToolCapability::SearchDbtExamples);
-                caps.insert(AgentToolCapability::StagingModel);
-                caps.insert(AgentToolCapability::GoldModel);
-                caps.insert(AgentToolCapability::DbtValidate);
-                caps.insert(AgentToolCapability::PublishDbt);
-                caps.insert(AgentToolCapability::SqlRegister);
-                caps.insert(AgentToolCapability::CatalogNote);
-                caps.insert(AgentToolCapability::Artifacts);
-            }
-        }
-        if allow_user_interrupt_tools && agent_mode != AgentMode::Review {
-            caps.insert(AgentToolCapability::AskUser);
-        }
-        caps
-    }
-
-    fn headless_mode_enabled() -> bool {
-        std::env::var("REACT_HEADLESS")
-            .ok()
-            .map(|v| {
-                let t = v.trim().to_ascii_lowercase();
-                !(t.is_empty() || t == "0" || t == "false" || t == "no")
-            })
-            .unwrap_or(false)
-    }
-
-    fn enforce_non_interactive_contract(
-        agent_mode: AgentMode,
-        frames: Vec<FlowFrame>,
-    ) -> Result<Vec<FlowFrame>, String> {
-        let await_user_prompt = frames.iter().find_map(|f| match f {
-            FlowFrame::Interrupt { kind, prompt } if kind == "await_user" => Some(prompt.clone()),
-            _ => None,
-        });
-        if let Some(prompt) = await_user_prompt {
-            if agent_mode == AgentMode::Agent {
-                return Err(format!("agent_mode_await_user_forbidden: {}", prompt));
-            }
-            if Self::headless_mode_enabled() {
-                return Err(format!("await_user_forbidden_in_headless: {}", prompt));
-            }
-        }
-        Ok(frames)
-    }
-
-    fn build_tools_card(
-        header: &str,
-        tool_lines: Vec<String>,
-        notes: Vec<String>,
-        not_available: Option<String>,
-    ) -> String {
-        let mut lines: Vec<String> = Vec::new();
-        lines.push(header.to_string());
-        lines.extend(tool_lines);
-        if !notes.is_empty() {
-            lines.push(String::new());
-            lines.extend(notes);
-        }
-        if let Some(na) = not_available {
-            lines.push(String::new());
-            lines.push(na);
-        }
-        lines.join("\n")
-    }
-
-    async fn check_subjective_retry_budget(
-        thread_store: &ThreadStore,
-        thread_id: &str,
-        kind: crate::data_engineer::progress_controller::SubjectiveRetryKind,
-    ) -> Result<crate::data_engineer::retry_budget::SubjectiveRetryOutcome, String> {
-        crate::data_engineer::retry_budget::check_subjective_retry_budget(
-            thread_store, thread_id, kind,
-        ).await
-    }
-
-    async fn clear_subjective_retries_matching(
-        thread_store: &ThreadStore,
-        thread_id: &str,
-        f: impl Fn(&crate::data_engineer::progress_controller::SubjectiveRetryKind) -> bool,
-    ) -> Result<(), String> {
-        crate::data_engineer::retry_budget::clear_subjective_retries_matching(
-            thread_store, thread_id, f,
-        ).await
-    }
-
-
-    fn planning_llm_options(
-        profile: PlanningLlmProfile,
-        prompt_id: &'static str,
-        thread_id: Option<String>,
-    ) -> Result<LlmCallOptions, String> {
-        Ok(match profile {
-            PlanningLlmProfile::DiscoveryCleanse => {
-                let max_tokens = std::env::var("LLM_PLAN_MAX_TOKENS_CLEANSE")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(96_000)
-                    .max(4_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env("LLM_PLAN_REASONING_EFFORT_CLEANSE")
-                        .or_else(|| Self::parse_reasoning_effort_env("LLM_PLAN_REASONING_EFFORT"))
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.20),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::DiscoveryModel => {
-                let max_tokens = std::env::var("LLM_PLAN_MAX_TOKENS_MODEL")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(128_000)
-                    .max(8_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env("LLM_PLAN_REASONING_EFFORT_MODEL")
-                        .or_else(|| Self::parse_reasoning_effort_env("LLM_PLAN_REASONING_EFFORT"))
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.55),
-                    top_p: Some(0.95),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::DesignMemo => {
-                let max_tokens = std::env::var("LLM_PLAN_MEMO_MAX_TOKENS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(64_000)
-                    .max(8_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env("LLM_PLAN_REASONING_EFFORT")
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    temperature: Some(0.2),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::DesignCritique => {
-                let max_tokens = std::env::var("LLM_PLAN_CRITIQUE_MAX_TOKENS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(16_000)
-                    .max(4_000);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                        name: "suite.plan_design_critique.v1".to_string(),
-                        schema: crate::data_engineer::plan_schema::strict_schema_for::<
-                            crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-                        >()?,
-                    },
-                    temperature: Some(0.10),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::SkeletonOrCandidates => {
-                let max_tokens = std::env::var("LLM_PLAN_SKELETON_MAX_TOKENS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(24_000)
-                    .max(6_000);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.1),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::EnrichmentCompile => {
-                let max_tokens = std::env::var("LLM_PLAN_ENRICH_MAX_TOKENS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(32_000)
-                    .max(6_000);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.10),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
-                }
-            }
-            PlanningLlmProfile::EnrichmentReason => {
-                let max_tokens = std::env::var("LLM_PLAN_ENRICH_REASON_MAX_TOKENS")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(8_000)
-                    .max(2_000);
-                LlmCallOptions {
-                    prompt_id,
-                    thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    temperature: Some(0.20),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(max_tokens),
-                    reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
-                }
-            }
-        })
-    }
 
     fn first_column_name_from_sql_schema_observation(obs: &serde_json::Value) -> Option<String> {
         obs.get("columns")
@@ -696,12 +336,12 @@ impl DataEngineerSuite {
                 dataset_id: dataset_id.clone(),
                 expected_model_path: None,
                 invariants: vec![],
-                implementation_spec: crate::data_engineer::plan::CleanseImplementationSpec {
+                implementation_spec: Some(crate::data_engineer::plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![],
                     prohibited_ops: vec![],
-                },
+                }),
                 status: crate::data_engineer::plan::TaskStatus::Pending,
                 checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
@@ -808,7 +448,7 @@ impl DataEngineerSuite {
         let schema_obs = control_flow::call_and_record_tool(
             thread_store,
             thread_id,
-            Some("agent".to_string()),
+            Some(env_util::DEFAULT_AGENT_NAME.to_string()),
             sql_schema_tool,
             serde_json::json!({"table": table}),
             actx,
@@ -820,7 +460,7 @@ impl DataEngineerSuite {
             let stats_obs = control_flow::call_and_record_tool(
                 thread_store,
                 thread_id,
-                Some("agent".to_string()),
+                Some(env_util::DEFAULT_AGENT_NAME.to_string()),
                 sql_stats_tool,
                 serde_json::json!({"table": table, "field": field}),
                 actx,
@@ -837,7 +477,7 @@ impl DataEngineerSuite {
             let sample_obs = control_flow::call_and_record_tool(
                 thread_store,
                 thread_id,
-                Some("agent".to_string()),
+                Some(env_util::DEFAULT_AGENT_NAME.to_string()),
                 sql_sample_tool,
                 serde_json::json!({"table": table, "field": field, "k": 10}),
                 actx,
@@ -855,7 +495,7 @@ impl DataEngineerSuite {
         let run_obs = control_flow::call_and_record_tool(
             thread_store,
             thread_id,
-            Some("agent".to_string()),
+            Some(env_util::DEFAULT_AGENT_NAME.to_string()),
             run_sql_tool,
             serde_json::json!({"sql": format!("SELECT count(*) AS total FROM {}", table)}),
             actx,
@@ -876,98 +516,6 @@ impl DataEngineerSuite {
         })
     }
 
-    async fn ensure_catalog_bootstrap_semaphored(
-        thread_id: &str,
-        sctx: &SuiteCtx,
-    ) -> Result<(), String> {
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-        if let Ok(st) = thread_store.get_thread_state(thread_id).await {
-            if let Some(cat) = st.bootstrap.extensions.get("catalog") {
-                let status = cat.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                if status == "ready" || status == "best_effort" {
-                    tracing::info!(
-                        "data_engineer: catalog bootstrap semaphore hit status={} thread_id={}",
-                        status,
-                        thread_id
-                    );
-                    return Ok(());
-                }
-            }
-        }
-        let bootstrap_timeout_secs = std::env::var("DE_CATALOG_BOOTSTRAP_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(300)
-            .max(30)
-            .min(1800);
-        let out = match tokio::time::timeout(
-            std::time::Duration::from_secs(bootstrap_timeout_secs),
-            Self::ensure_catalog_bootstrap(sctx),
-        )
-        .await
-        {
-            Ok(v) => v?,
-            Err(_) => {
-                tracing::warn!(
-                    "data_engineer: catalog bootstrap timed out after {}s; continuing best-effort",
-                    bootstrap_timeout_secs
-                );
-                CatalogBootstrapOutcome {
-                    metadata_complete: false,
-                }
-            }
-        };
-        let status = if out.metadata_complete {
-            "ready".to_string()
-        } else {
-            "best_effort".to_string()
-        };
-        let ts = chrono::Utc::now().to_rfc3339();
-        let mut st = thread_store
-            .get_thread_state(thread_id)
-            .await
-            .unwrap_or_else(|_| react_core::session::ThreadState {
-                thread_state_schema_version: react_core::session::THREAD_STATE_SCHEMA_VERSION,
-                thread_id: thread_id.to_string(),
-                ..react_core::session::ThreadState::default()
-            });
-        st.bootstrap = ThreadBootstrapState {
-            extensions: serde_json::json!({
-                "catalog": {
-                    "status": status,
-                    "metadata_complete": out.metadata_complete,
-                    "ts": ts,
-                }
-            }),
-        };
-        if let Err(e) = thread_store.put_thread_state(thread_id, &st).await {
-            tracing::warn!(
-                "data_engineer: failed to persist catalog bootstrap state thread_id={} err={}",
-                thread_id,
-                e
-            );
-        }
-        Ok(())
-    }
-
-    fn parse_reasoning_effort_env(var: &str) -> Option<react_core::llm::ReasoningEffort> {
-        match std::env::var(var)
-            .ok()
-            .map(|s| s.trim().to_lowercase())
-            .as_deref()
-        {
-            Some("none") => Some(react_core::llm::ReasoningEffort::None),
-            Some("low") => Some(react_core::llm::ReasoningEffort::Low),
-            Some("medium") => Some(react_core::llm::ReasoningEffort::Medium),
-            Some("high") => Some(react_core::llm::ReasoningEffort::High),
-            _ => None,
-        }
-    }
-
     fn excerpt(s: &str, max_chars: usize) -> String {
         if s.chars().count() <= max_chars {
             return s.to_string();
@@ -977,13 +525,12 @@ impl DataEngineerSuite {
         out
     }
 
-    fn parse_json_object_lenient(raw: &str) -> Result<serde_json::Value, String> {
-        // Hard cutover: strict JSON object parsing only.
+    fn parse_json_object_strict(raw: &str) -> Result<serde_json::Value, String> {
         serde_json::from_str::<serde_json::Value>(raw).map_err(|e| e.to_string())
     }
 
-    fn parse_json_typed_lenient<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, String> {
-        let v = Self::parse_json_object_lenient(raw)?;
+    fn parse_json_typed_strict<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, String> {
+        let v = Self::parse_json_object_strict(raw)?;
         serde_json::from_value::<T>(v).map_err(|e| e.to_string())
     }
 
@@ -1092,1647 +639,6 @@ impl DataEngineerSuite {
         }
     }
 
-    fn plan_enrich_chunk_size() -> usize {
-        std::env::var("LLM_PLAN_ENRICH_CHUNK_SIZE")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(3)
-            .clamp(1, 3)
-    }
-
-    async fn generate_design_memo(
-        ctx: &AgentCtx,
-        track: TrackKind,
-        planning_context: &str,
-    ) -> Result<String, String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        let kind = if track.is_cleanse() {
-            "cleanse_plan"
-        } else {
-            "model_plan"
-        };
-        let sys = prompts::plan::plan_design_memo_system_prompt(kind);
-        let user = format!(
-            "Planning kind: {kind}\n\nContext:\n{}\n\nWrite the design memo.",
-            Self::excerpt(planning_context, 120_000)
-        );
-        let opts = Self::planning_llm_options(
-            PlanningLlmProfile::DesignMemo,
-            "data_engineer.plan_design_memo",
-            ctx.thread_id.clone(),
-        )?;
-        ctx.llm
-            .chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: sys,
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: user,
-                    },
-                ],
-                &opts,
-            )
-            .map_err(|e| e.to_string())
-    }
-
-    async fn critique_design_memo(
-        ctx: &AgentCtx,
-        track: TrackKind,
-        planning_context: &str,
-        memo: &str,
-    ) -> Result<crate::data_engineer::plan_schema::PlanDesignCritiqueV1, String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        let kind = if track.is_cleanse() {
-            "cleanse_plan"
-        } else {
-            "model_plan"
-        };
-        let opts = Self::planning_llm_options(
-            PlanningLlmProfile::DesignCritique,
-            "data_engineer.plan_design_critique",
-            ctx.thread_id.clone(),
-        )?;
-        let sys = prompts::plan::plan_design_critique_system_prompt(kind);
-        let user = format!(
-            "Planning kind: {kind}\n\nContext:\n{}\n\nDesign memo:\n{}\n\nReturn critique JSON.",
-            Self::excerpt(planning_context, 80_000),
-            Self::excerpt(memo, 40_000)
-        );
-        let raw = ctx.llm_chat(
-            &[
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: sys,
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: user,
-                },
-            ],
-            &opts,
-        )
-        .await?;
-        Self::parse_json_typed_lenient::<crate::data_engineer::plan_schema::PlanDesignCritiqueV1>(&raw)
-    }
-
-    async fn revise_design_memo(
-        ctx: &AgentCtx,
-        track: TrackKind,
-        planning_context: &str,
-        memo: &str,
-        critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-    ) -> Result<String, String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        let kind = if track.is_cleanse() {
-            "cleanse_plan"
-        } else {
-            "model_plan"
-        };
-        let sys = prompts::plan::plan_design_memo_system_prompt(kind);
-        let user = format!(
-            "Planning kind: {kind}\n\nContext:\n{}\n\nCurrent design memo:\n{}\n\nCritique JSON:\n{}\n\nRewrite the design memo in free text so the critique blockers/fixes are addressed.\nDo not return JSON.",
-            Self::excerpt(planning_context, 90_000),
-            Self::excerpt(memo, 40_000),
-            serde_json::to_string_pretty(critique).unwrap_or_else(|_| "{}".to_string()),
-        );
-        let opts = Self::planning_llm_options(
-            PlanningLlmProfile::DesignMemo,
-            "data_engineer.plan_design_memo_revise",
-            ctx.thread_id.clone(),
-        )?;
-        ctx.llm_chat(
-            &[
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: sys,
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: user,
-                },
-            ],
-            &opts,
-        )
-        .await
-        .map_err(|e| e.to_string())
-    }
-
-    async fn produce_critiqued_design_memo(
-        ctx: &AgentCtx,
-        track: TrackKind,
-        planning_context: &str,
-    ) -> Result<
-        (
-            String,
-            crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-        ),
-        String,
-    > {
-        let mut memo = Self::generate_design_memo(ctx, track, planning_context).await?;
-        let mut critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
-            .await?;
-        // Bounded revision loop: critique feedback must update memo reasoning before extraction.
-        for _ in 0..1 {
-            if critique.ok {
-                break;
-            }
-            memo =
-                Self::revise_design_memo(ctx, track, planning_context, &memo, &critique)
-                    .await?;
-            critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
-                .await?;
-        }
-        Ok((memo, critique))
-    }
-
-    fn critique_guidance(critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1) -> String {
-        if critique.blockers.is_empty() && critique.fixes.is_empty() {
-            return "Design critique: no blockers identified.".to_string();
-        }
-        let blockers = if critique.blockers.is_empty() {
-            "- (none)".to_string()
-        } else {
-            critique
-                .blockers
-                .iter()
-                .take(6)
-                .map(|b| {
-                    let target = b
-                        .target_id
-                        .as_deref()
-                        .map(|s| format!(" target={}", s))
-                        .unwrap_or_default();
-                    let detail = b
-                        .detail
-                        .as_deref()
-                        .map(|s| format!(" detail={}", s.trim()))
-                        .unwrap_or_default();
-                    format!("- {:?}{}{}", b.code, target, detail)
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        let fixes = if critique.fixes.is_empty() {
-            "- (none)".to_string()
-        } else {
-            critique
-                .fixes
-                .iter()
-                .take(6)
-                .map(|f| {
-                    let blocker = f
-                        .blocker_code
-                        .map(|c| format!(" blocker={:?}", c))
-                        .unwrap_or_default();
-                    let target = f
-                        .target_id
-                        .as_deref()
-                        .map(|s| format!(" target={}", s))
-                        .unwrap_or_default();
-                    let detail = f
-                        .detail
-                        .as_deref()
-                        .map(|s| format!(" detail={}", s.trim()))
-                        .unwrap_or_default();
-                    format!("- {:?}{}{}{}", f.action, blocker, target, detail)
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        format!(
-            "Design critique (bounded one-pass):\n\
-ok={}\n\
-blockers:\n{}\n\
-fixes:\n{}\n\
-Apply these fixes in the output.",
-            critique.ok, blockers, fixes
-        )
-    }
-
-    async fn generate_model_candidates(
-        ctx: &AgentCtx,
-        planning_context: &str,
-        memo: &str,
-        critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-    ) -> Result<crate::data_engineer::plan_schema::ModelPlanCandidatesV1, String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        let mut opts = Self::planning_llm_options(
-            PlanningLlmProfile::SkeletonOrCandidates,
-            "data_engineer.model_plan_candidates",
-            ctx.thread_id.clone(),
-        )?;
-        opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-            name: "suite.model_plan_candidates.v1".to_string(),
-            schema: crate::data_engineer::plan_schema::strict_schema_for::<
-                crate::data_engineer::plan_schema::ModelPlanCandidatesV1,
-            >()?,
-        };
-        let sys = prompts::plan::model_plan_candidates_system_prompt();
-        let user = format!(
-            "Context:\n{}\n\nDesign memo:\n{}\n\n{}\n\nReturn candidate-selection JSON.",
-            Self::excerpt(planning_context, 60_000),
-            Self::excerpt(memo, 30_000),
-            Self::critique_guidance(critique)
-        );
-        let raw = ctx.llm_chat(
-            &[
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: sys.to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: user,
-                },
-            ],
-            &opts,
-        )
-        .await?;
-        Self::parse_json_typed_lenient::<crate::data_engineer::plan_schema::ModelPlanCandidatesV1>(&raw)
-    }
-
-    fn placeholder_output_field(name: &str) -> crate::data_engineer::plan::OutputFieldSpec {
-        crate::data_engineer::plan::OutputFieldSpec {
-            name: name.to_string(),
-            kind: crate::data_engineer::plan::FieldKind::Raw,
-            source_columns: vec![],
-            expression: PLAN_SPEC_PLACEHOLDER_SENTINEL.to_string(),
-            data_type: None,
-            nullable: false,
-            description: Some("Deterministic placeholder; must be replaced by plan enrichment.".to_string()),
-        }
-    }
-
-    fn placeholder_cleanse_impl_spec() -> crate::data_engineer::plan::CleanseImplementationSpec {
-        crate::data_engineer::plan::CleanseImplementationSpec {
-            spec_version: 1,
-            row_preserving: true,
-            output_fields: vec![Self::placeholder_output_field("__replace_me__")],
-            prohibited_ops: vec![PLAN_SPEC_PLACEHOLDER_SENTINEL.to_string()],
-        }
-    }
-
-    fn placeholder_model_impl_spec() -> crate::data_engineer::plan::ModelImplementationSpec {
-        crate::data_engineer::plan::ModelImplementationSpec {
-            spec_version: 1,
-            grain: PLAN_SPEC_PLACEHOLDER_SENTINEL.to_string(),
-            inputs: vec![],
-            joins: vec![],
-            metrics: vec![],
-            output_fields: vec![Self::placeholder_output_field("__replace_me__")],
-            assumptions: vec![PLAN_SPEC_PLACEHOLDER_SENTINEL.to_string()],
-        }
-    }
-
-    fn is_placeholder_cleanse_spec(spec: &crate::data_engineer::plan::CleanseImplementationSpec) -> bool {
-        spec.prohibited_ops
-            .iter()
-            .any(|v| v == PLAN_SPEC_PLACEHOLDER_SENTINEL)
-            || spec
-                .output_fields
-                .iter()
-                .any(|f| f.expression == PLAN_SPEC_PLACEHOLDER_SENTINEL)
-    }
-
-    fn is_placeholder_model_spec(spec: &crate::data_engineer::plan::ModelImplementationSpec) -> bool {
-        spec.grain == PLAN_SPEC_PLACEHOLDER_SENTINEL
-            || spec
-                .assumptions
-                .iter()
-                .any(|v| v == PLAN_SPEC_PLACEHOLDER_SENTINEL)
-            || spec
-                .output_fields
-                .iter()
-                .any(|f| f.expression == PLAN_SPEC_PLACEHOLDER_SENTINEL)
-    }
-
-    fn compile_cleanse_skeleton_plan(
-        skeleton: &crate::data_engineer::plan_schema::CleansePlanSkeletonV1,
-    ) -> crate::data_engineer::plan::CleansePlan {
-        let task_ids: Vec<String> = skeleton
-            .tasks
-            .iter()
-            .map(|t| t.dataset_id.trim().to_string())
-            .filter(|id| !id.is_empty())
-            .collect();
-        let tasks: Vec<crate::data_engineer::plan::CleanseTask> = task_ids
-            .iter()
-            .map(|dataset_id| {
-                crate::data_engineer::plan::CleanseTask {
-                    dataset_id: dataset_id.to_string(),
-                    expected_model_path: None,
-                    invariants: vec![],
-                    implementation_spec: Self::placeholder_cleanse_impl_spec(),
-                    status: Default::default(),
-                    checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Cleanse),
-                }
-            })
-            .collect();
-        let batches: Vec<Vec<String>> = if skeleton.batches.is_empty() {
-            task_ids.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect()
-        } else {
-            skeleton.batches.clone()
-        };
-        let work_groups =
-            crate::data_engineer::plan::canonical_work_groups_from_batches(&batches, "cleanse");
-        crate::data_engineer::plan::CleansePlan {
-            plan_key: String::new(),
-            status: crate::data_engineer::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
-            tasks,
-            batches,
-            work_groups,
-            mutations: vec![],
-            progress: Default::default(),
-        }
-    }
-
-    fn model_plan_min_score() -> i32 {
-        std::env::var("LLM_MODEL_PLAN_MIN_SCORE")
-            .ok()
-            .and_then(|s| s.parse::<i32>().ok())
-            .map(|p| p.clamp(0, 100))
-            .unwrap_or(70)
-    }
-
-    fn select_high_value_model_candidates(
-        candidates: &[crate::data_engineer::plan_schema::ModelPlanCandidateV1],
-    ) -> Vec<crate::data_engineer::plan_schema::ModelPlanCandidateV1> {
-        if candidates.is_empty() {
-            return vec![];
-        }
-        let min_score = Self::model_plan_min_score();
-        let mut ranked = candidates.to_vec();
-        ranked.sort_by(|a, b| {
-            b.value_score
-                .cmp(&a.value_score)
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        ranked
-            .into_iter()
-            .filter(|c| c.value_score >= min_score)
-            .collect()
-    }
-
-    fn compile_model_candidates_plan(
-        candidates: &crate::data_engineer::plan_schema::ModelPlanCandidatesV1,
-    ) -> crate::data_engineer::plan::ModelPlan {
-        let selected = Self::select_high_value_model_candidates(&candidates.candidates);
-        let task_names: Vec<String> = selected.into_iter().map(|c| c.name).collect();
-        let batches: Vec<Vec<String>> = task_names.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect();
-        let tasks: Vec<crate::data_engineer::plan::ModelTask> = task_names
-            .into_iter()
-            .map(|name| {
-                crate::data_engineer::plan::ModelTask {
-                    name,
-                    folder: String::new(),
-                    goal: String::new(),
-                    inputs: vec![],
-                    expected_model_path: None,
-                    invariants: vec![],
-                    implementation_spec: Self::placeholder_model_impl_spec(),
-                    status: Default::default(),
-                    checklist: crate::data_engineer::plan::canonical_task_checklist(TrackKind::Model),
-                }
-            })
-            .collect();
-        let work_groups =
-            crate::data_engineer::plan::canonical_work_groups_from_batches(&batches, "model");
-        crate::data_engineer::plan::ModelPlan {
-            plan_key: String::new(),
-            status: crate::data_engineer::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
-            tasks,
-            batches,
-            work_groups,
-            mutations: vec![],
-            progress: Default::default(),
-        }
-    }
-
-    fn apply_cleanse_enrichment_items(
-        plan: &mut crate::data_engineer::plan::CleansePlan,
-        allowed_task_ids: &[String],
-        items: Vec<crate::data_engineer::plan_schema::CleansePlanEnrichmentItemV1>,
-    ) -> (Vec<String>, Vec<String>) {
-        let mut failed: Vec<String> = Vec::new();
-        let mut failure_errors: Vec<String> = Vec::new();
-        for it in items {
-            if !allowed_task_ids.iter().any(|t| t == &it.task_id) {
-                continue;
-            }
-            let spec_value = match serde_json::to_value(&it.implementation_spec) {
-                Ok(v) => v,
-                Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e.to_string());
-                    continue;
-                }
-            };
-            match Self::parse_impl_spec_value_with_sanitize::<
-                crate::data_engineer::plan::CleanseImplementationSpec,
-            >(spec_value, TrackKind::Cleanse)
-            {
-                Ok((spec, stripped)) => {
-                    if !stripped.is_empty() {
-                        Self::push_snapshot_array_event(
-                            &mut plan.project_snapshot,
-                            "spec_sanitizer_events",
-                            serde_json::json!({
-                                "phase": "cleanse_enrich",
-                                "task_id": it.task_id,
-                                "stripped_keys": stripped
-                            }),
-                            200,
-                        );
-                    }
-                    if let Some(t) = plan.tasks.iter_mut().find(|t| t.dataset_id == it.task_id) {
-                        t.implementation_spec = spec;
-                    }
-                }
-                Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e);
-                }
-            }
-        }
-        (failed, failure_errors)
-    }
-
-    fn apply_model_enrichment_items(
-        plan: &mut crate::data_engineer::plan::ModelPlan,
-        allowed_task_ids: &[String],
-        items: Vec<crate::data_engineer::plan_schema::ModelPlanEnrichmentItemV1>,
-    ) -> (Vec<String>, Vec<String>) {
-        let mut failed: Vec<String> = Vec::new();
-        let mut failure_errors: Vec<String> = Vec::new();
-        for it in items {
-            if !allowed_task_ids.iter().any(|t| t == &it.task_id) {
-                continue;
-            }
-            let spec_value = match serde_json::to_value(&it.implementation_spec) {
-                Ok(v) => v,
-                Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e.to_string());
-                    continue;
-                }
-            };
-            match Self::parse_impl_spec_value_with_sanitize::<
-                crate::data_engineer::plan::ModelImplementationSpec,
-            >(spec_value, TrackKind::Model)
-            {
-                Ok((spec, stripped)) => {
-                    if !stripped.is_empty() {
-                        Self::push_snapshot_array_event(
-                            &mut plan.project_snapshot,
-                            "spec_sanitizer_events",
-                            serde_json::json!({
-                                "phase": "model_enrich",
-                                "task_id": it.task_id,
-                                "stripped_keys": stripped
-                            }),
-                            200,
-                        );
-                    }
-                    if let Some(t) = plan.tasks.iter_mut().find(|t| t.name == it.task_id) {
-                        let spec_inputs = spec.inputs.clone();
-                        t.implementation_spec = spec;
-                        if !spec_inputs.is_empty() {
-                            t.inputs = spec_inputs;
-                        }
-                        if t.goal.trim().is_empty() {
-                            t.goal =
-                                format!("Build {} from grounded staging inputs.", t.name.trim());
-                        }
-                    }
-                }
-                Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e);
-                }
-            }
-        }
-        (failed, failure_errors)
-    }
-
-    fn build_enrichment_prompt_envelope(
-        phase: control_flow::Phase,
-        directive: crate::data_engineer::prompt_packets::TurnDirective,
-        plan_kind: crate::data_engineer::plan_kind::PlanKind,
-        plan_key: &str,
-        planning_context: &str,
-        memo: &str,
-        critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-        plan_summary: &str,
-        task_ids: &[String],
-        new_evidence_refs: &[String],
-    ) -> String {
-        let context_text = format!(
-            "Context:\n{}\n\nDesign memo:\n{}\n\n{}\n\nCurrent plan summary:\n{}",
-            Self::excerpt(planning_context, 20_000),
-            Self::excerpt(memo, 12_000),
-            Self::critique_guidance(critique),
-            plan_summary
-        );
-        let envelope = crate::data_engineer::prompt_packets::PromptEnvelope {
-            phase: phase.as_str().to_string(),
-            goal: "Produce implementation_spec content for target tasks".to_string(),
-            directive,
-            plan: Some(crate::data_engineer::prompt_packets::PlanContextPacket {
-                plan_kind: Some(plan_kind),
-                plan_key: Some(plan_key.to_string()),
-                context_text: Some(context_text),
-                unresolved_ids: task_ids.to_vec(),
-                new_evidence_refs: new_evidence_refs.to_vec(),
-            }),
-            ..crate::data_engineer::prompt_packets::PromptEnvelope::default()
-        };
-        crate::data_engineer::prompt_packets::render_envelope(&envelope)
-            .unwrap_or_else(|_| "{}".to_string())
-    }
-
-    fn compile_prompt_from_reason(reason_memo: &str, base_user: &str) -> String {
-        format!(
-            "Reason memo:\n{}\n\n{}",
-            Self::excerpt(reason_memo, 8_000),
-            base_user
-        )
-    }
-
-    async fn enrich_cleanse_tasks(
-        ctx: &AgentCtx,
-        planning_context: &str,
-        memo: &str,
-        critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-        plan: &mut crate::data_engineer::plan::CleansePlan,
-        task_ids: &[String],
-    ) -> Result<(), String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
-            let chunk_vec = chunk.to_vec();
-            let summary = crate::data_engineer::plan::summarize_cleanse_plan(plan, 50);
-            let base_user = format!(
-                "{}\n\nTarget task_ids:\n{}\n\nReturn schema-valid enrichment JSON.",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::CleansePlan,
-                    crate::data_engineer::prompt_packets::TurnDirective::Compile,
-                    crate::data_engineer::plan_kind::PlanKind::Cleanse,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                ),
-                serde_json::to_string_pretty(&chunk_vec).unwrap_or_else(|_| "[]".to_string())
-            );
-            let reason_user = format!(
-                "Think through the enrichment strategy for these task_ids. Return plain text only, no JSON.\n\n{}",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::CleansePlan,
-                    crate::data_engineer::prompt_packets::TurnDirective::Reason,
-                    crate::data_engineer::plan_kind::PlanKind::Cleanse,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                )
-            );
-            let reason_memo = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: reason_user,
-                    },
-                ],
-                &Self::planning_llm_options(
-                    PlanningLlmProfile::EnrichmentReason,
-                    "data_engineer.cleanse_plan_enrich_reason",
-                    ctx.thread_id.clone(),
-                )?,
-            )
-            .await?;
-            let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
-            let mut opts = Self::planning_llm_options(
-                PlanningLlmProfile::EnrichmentCompile,
-                "data_engineer.cleanse_plan_enrich",
-                ctx.thread_id.clone(),
-            )?;
-            opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                name: "suite.cleanse_plan_enrichment.v1".to_string(),
-                schema: crate::data_engineer::plan_schema::strict_schema_for::<
-                    crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
-                >()?,
-            };
-            let raw = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: compile_user,
-                    },
-                ],
-                &opts,
-            )
-            .await?;
-            let enrich = Self::parse_json_typed_lenient::<
-                crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
-            >(&raw)?;
-            let (failed, failure_errors) =
-                Self::apply_cleanse_enrichment_items(plan, &chunk_vec, enrich.items);
-            if !failed.is_empty() {
-                let retry_hint = format!(
-                    "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,row_preserving,output_fields,prohibited_ops.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
-                    failure_errors.join("\n")
-                );
-                let retry_user = format!(
-                    "{}\n\nTarget task_ids:\n{}\n\nSTRICT RETRY REQUIREMENTS:\n{}\n\nReturn schema-valid enrichment JSON.",
-                    Self::build_enrichment_prompt_envelope(
-                        control_flow::Phase::CleansePlan,
-                        crate::data_engineer::prompt_packets::TurnDirective::Verify,
-                        crate::data_engineer::plan_kind::PlanKind::Cleanse,
-                        &plan.plan_key,
-                        planning_context,
-                        memo,
-                        critique,
-                        &crate::data_engineer::plan::summarize_cleanse_plan(plan, 50),
-                        &failed,
-                        &failure_errors,
-                    ),
-                    serde_json::to_string_pretty(&failed).unwrap_or_else(|_| "[]".to_string()),
-                    retry_hint
-                );
-                let retry_opts = LlmCallOptions {
-                    prompt_id: "data_engineer.cleanse_plan_enrich_retry",
-                    ..opts
-                };
-                let retry_raw = ctx.llm_chat(
-                    &[
-                        ChatMessage {
-                            role: ChatRole::System,
-                            content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
-                        },
-                        ChatMessage {
-                            role: ChatRole::User,
-                            content: retry_user,
-                        },
-                    ],
-                    &retry_opts,
-                )
-                .await?;
-                let retry_enrich = Self::parse_json_typed_lenient::<
-                    crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
-                >(&retry_raw)?;
-                let (retry_failed, retry_errors) =
-                    Self::apply_cleanse_enrichment_items(plan, &failed, retry_enrich.items);
-                if !retry_failed.is_empty() {
-                    return Err(format!(
-                        "cleanse enrichment invalid after bounded retry for task_ids={}: {}",
-                        retry_failed.join(","),
-                        retry_errors.join(" | ")
-                    ));
-                }
-            }
-        }
-        let unresolved: Vec<String> = task_ids
-            .iter()
-            .filter(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.dataset_id.as_str() == task_id.as_str())
-                    .map(|t| Self::is_placeholder_cleanse_spec(&t.implementation_spec))
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        if !unresolved.is_empty() {
-            return Err(format!(
-                "cleanse enrichment did not produce implementation_spec for task_ids={}",
-                unresolved.join(",")
-            ));
-        }
-        Ok(())
-    }
-
-    async fn enrich_model_tasks(
-        ctx: &AgentCtx,
-        planning_context: &str,
-        memo: &str,
-        critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-        plan: &mut crate::data_engineer::plan::ModelPlan,
-        task_ids: &[String],
-    ) -> Result<(), String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
-            let chunk_vec = chunk.to_vec();
-            let summary = crate::data_engineer::plan::summarize_model_plan(plan, 50);
-            let base_user = format!(
-                "{}\n\nTarget task_ids:\n{}\n\nReturn schema-valid enrichment JSON.",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::ModelPlan,
-                    crate::data_engineer::prompt_packets::TurnDirective::Compile,
-                    crate::data_engineer::plan_kind::PlanKind::Model,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                ),
-                serde_json::to_string_pretty(&chunk_vec).unwrap_or_else(|_| "[]".to_string())
-            );
-            let reason_user = format!(
-                "Think through the enrichment strategy for these task_ids. Return plain text only, no JSON.\n\n{}",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::ModelPlan,
-                    crate::data_engineer::prompt_packets::TurnDirective::Reason,
-                    crate::data_engineer::plan_kind::PlanKind::Model,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                )
-            );
-            let reason_memo = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: reason_user,
-                    },
-                ],
-                &Self::planning_llm_options(
-                    PlanningLlmProfile::EnrichmentReason,
-                    "data_engineer.model_plan_enrich_reason",
-                    ctx.thread_id.clone(),
-                )?,
-            )
-            .await?;
-            let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
-            let mut opts = Self::planning_llm_options(
-                PlanningLlmProfile::EnrichmentCompile,
-                "data_engineer.model_plan_enrich",
-                ctx.thread_id.clone(),
-            )?;
-            opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                name: "suite.model_plan_enrichment.v1".to_string(),
-                schema: crate::data_engineer::plan_schema::strict_schema_for::<
-                    crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
-                >()?,
-            };
-            let raw = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::model_plan_enrichment_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: compile_user,
-                    },
-                ],
-                &opts,
-            )
-            .await?;
-            let enrich = Self::parse_json_typed_lenient::<
-                crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
-            >(&raw)?;
-            let (failed, failure_errors) =
-                Self::apply_model_enrichment_items(plan, &chunk_vec, enrich.items);
-            if !failed.is_empty() {
-                let retry_hint = format!(
-                    "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,grain,inputs,joins,metrics,output_fields,assumptions.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
-                    failure_errors.join("\n")
-                );
-                let retry_user = format!(
-                    "{}\n\nTarget task_ids:\n{}\n\nSTRICT RETRY REQUIREMENTS:\n{}\n\nReturn schema-valid enrichment JSON.",
-                    Self::build_enrichment_prompt_envelope(
-                        control_flow::Phase::ModelPlan,
-                        crate::data_engineer::prompt_packets::TurnDirective::Verify,
-                        crate::data_engineer::plan_kind::PlanKind::Model,
-                        &plan.plan_key,
-                        planning_context,
-                        memo,
-                        critique,
-                        &crate::data_engineer::plan::summarize_model_plan(plan, 50),
-                        &failed,
-                        &failure_errors,
-                    ),
-                    serde_json::to_string_pretty(&failed).unwrap_or_else(|_| "[]".to_string()),
-                    retry_hint
-                );
-                let retry_opts = LlmCallOptions {
-                    prompt_id: "data_engineer.model_plan_enrich_retry",
-                    ..opts
-                };
-                let retry_raw = ctx.llm_chat(
-                    &[
-                        ChatMessage {
-                            role: ChatRole::System,
-                            content: prompts::plan::model_plan_enrichment_system_prompt(),
-                        },
-                        ChatMessage {
-                            role: ChatRole::User,
-                            content: retry_user,
-                        },
-                    ],
-                    &retry_opts,
-                )
-                .await?;
-                let retry_enrich = Self::parse_json_typed_lenient::<
-                    crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
-                >(&retry_raw)?;
-                let (retry_failed, retry_errors) =
-                    Self::apply_model_enrichment_items(plan, &failed, retry_enrich.items);
-                if !retry_failed.is_empty() {
-                    return Err(format!(
-                        "model enrichment invalid after bounded retry for task_ids={}: {}",
-                        retry_failed.join(","),
-                        retry_errors.join(" | ")
-                    ));
-                }
-            }
-        }
-        let unresolved: Vec<String> = task_ids
-            .iter()
-            .filter(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.name.as_str() == task_id.as_str())
-                    .map(|t| Self::is_placeholder_model_spec(&t.implementation_spec))
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        if !unresolved.is_empty() {
-            return Err(format!(
-                "model enrichment did not produce implementation_spec for task_ids={}",
-                unresolved.join(",")
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_agent_type(agent_type: &str) -> Result<AgentMode, String> {
-        AgentMode::parse(agent_type)
-    }
-
-    fn inject_review_question(question: &str) -> String {
-        prompts::shared::user_goal_line("Review request:", question)
-    }
-
-    fn inject_model_question(question: &str) -> String {
-        prompts::shared::user_goal_line("Modeling goal:", question)
-    }
-
-    fn inject_cleanse_question(question: &str) -> String {
-        prompts::shared::user_goal_line("Cleansing goal:", question)
-    }
-
-    /// Hard cutover: refresh canonical catalog state on every run.
-    ///
-    /// This builds/refreshes warehouse-backed catalog artifacts and then enforces that required
-    /// metadata exists so planning can treat catalog as canonical.
-    async fn ensure_catalog_bootstrap(sctx: &SuiteCtx) -> Result<CatalogBootstrapOutcome, String> {
-        let (Some(cat), Some(datasets)) = (crate::data_engineer::ctx_ext::sctx_catalog(sctx), crate::data_engineer::ctx_ext::sctx_datasets(sctx)) else {
-            return Ok(CatalogBootstrapOutcome {
-                metadata_complete: true,
-            });
-        };
-        let dss = datasets
-            .list_datasets()
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    error = %e,
-                    "data_engineer: catalog bootstrap dataset discovery failed"
-                );
-                format!("catalog bootstrap failed: dataset discovery error: {e}")
-            })?;
-        if dss.is_empty() {
-            return Err("catalog bootstrap failed: dataset discovery returned zero datasets (check AWS credentials/region and warehouse schema config)".to_string());
-        }
-
-        // Also detect whether the global semantic context exists.
-        let global_key = sctx.keyspace.scoped_key(
-            &sctx.scope,
-            &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
-        );
-        tracing::info!(
-            "data_engineer: refreshing canonical catalogs/stats for {} dataset(s)",
-            dss.len()
-        );
-        let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
-        cat.build_all_with_progress(&sctx.scope, datasets.as_ref(), &empty, None)
-            .await
-            .map_err(|e| format!("catalog bootstrap failed while building catalogs: {e}"))?;
-
-        // Mandatory metadata completion pass.
-        let all: std::collections::HashSet<String> = dss.iter().map(|ds| ds.fqn()).collect();
-        let enrich_report = cat
-            .run_llm_enrichment_all(&sctx.scope, &all)
-            .await
-            .map_err(|e| format!("catalog bootstrap failed while enriching metadata: {e}"))?;
-        tracing::info!(
-            "data_engineer: catalog enrichment summary datasets={} ok={} failed={} global_written={}",
-            enrich_report.dataset_total,
-            enrich_report.dataset_enriched_ok,
-            enrich_report.dataset_enriched_failed,
-            enrich_report.global_context_written
-        );
-
-        // Single metadata gate + single deterministic repair attempt.
-        // If metadata still doesn't fully converge, continue to planning with warnings.
-        let collect_meta_errors = || async {
-            let mut errs: Vec<String> = Vec::new();
-            for ds in dss.iter() {
-                let id = ds.fqn();
-                let Some(c) = cat.read_catalog(&sctx.scope, &id).await.map_err(|e| {
-                    format!("catalog bootstrap failed while reading catalog for {id}: {e}")
-                })?
-                else {
-                    errs.push(format!("{id}: catalog missing after refresh"));
-                    continue;
-                };
-                if c.description
-                    .as_deref()
-                    .map(|s| s.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    errs.push(format!("{id}: missing dataset description"));
-                }
-                let missing_fields = c
-                    .fields
-                    .iter()
-                    .filter(|f| {
-                        f.description
-                            .as_deref()
-                            .map(|s| s.trim().is_empty())
-                            .unwrap_or(true)
-                    })
-                    .count();
-                if missing_fields > 0 {
-                    errs.push(format!(
-                        "{id}: {} field(s) missing field descriptions",
-                        missing_fields
-                    ));
-                }
-            }
-            let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
-                serde_json::from_value::<
-                    crate::data_engineer::providers::GlobalSemanticContext,
-                >(v)
-                .ok()
-            });
-            match gctx {
-                Some(g) => {
-                    if g.audiences.is_empty() {
-                        errs.push("global_semantic_context: audiences is empty".to_string());
-                    }
-                    if g.context_bullets.is_empty() {
-                        errs.push("global_semantic_context: context_bullets is empty".to_string());
-                    }
-                }
-                None => errs.push("global_semantic_context: missing".to_string()),
-            }
-            Ok::<Vec<String>, String>(errs)
-        };
-
-        let mut meta_errors = collect_meta_errors().await?;
-        if !meta_errors.is_empty() {
-            tracing::warn!(
-                "data_engineer: catalog metadata gate failed; applying single deterministic repair attempt:\n- {}",
-                meta_errors.join("\n- ")
-            );
-            // Deterministic catalog description repair.
-            for ds in dss.iter() {
-                let id = ds.fqn();
-                let Some(mut c) = cat.read_catalog(&sctx.scope, &id).await.map_err(|e| {
-                    format!("catalog bootstrap failed while reading catalog for {id}: {e}")
-                })?
-                else {
-                    continue;
-                };
-                let mut changed = false;
-                if c.description
-                    .as_deref()
-                    .map(|s| s.trim().is_empty())
-                    .unwrap_or(true)
-                {
-                    let field_preview = c
-                        .fields
-                        .iter()
-                        .map(|f| f.name.clone())
-                        .take(5)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    c.description = Some(if field_preview.is_empty() {
-                        format!(
-                            "Dataset {} contains source records used for analytics modeling.",
-                            id
-                        )
-                    } else {
-                        format!(
-                            "Dataset {} contains source records with fields {} for analytics modeling.",
-                            id, field_preview
-                        )
-                    });
-                    changed = true;
-                }
-                for f in c.fields.iter_mut() {
-                    if f.description
-                        .as_deref()
-                        .map(|s| s.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        f.description =
-                            Some(format!("Field {} in dataset {}.", f.name, c.dataset_id));
-                        changed = true;
-                    }
-                }
-                if changed {
-                    cat.write_catalog(&sctx.scope, &id, &c)
-                        .await
-                        .map_err(|e| format!("catalog bootstrap failed while writing {id}: {e}"))?;
-                }
-            }
-            // Deterministic global semantic context repair.
-            let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
-                serde_json::from_value::<
-                    crate::data_engineer::providers::GlobalSemanticContext,
-                >(v)
-                .ok()
-            });
-            let needs_global_defaults = match gctx {
-                Some(ref g) => g.audiences.is_empty() || g.context_bullets.is_empty(),
-                None => true,
-            };
-            if needs_global_defaults {
-                let dataset_ids = dss.iter().map(|d| d.fqn()).collect::<Vec<_>>();
-                let default_global = crate::data_engineer::providers::GlobalSemanticContext {
-                    version: 1,
-                    built_at_epoch_secs: Some((chrono::Utc::now().timestamp()).max(0) as u64),
-                    audiences: vec![crate::data_engineer::providers::GlobalAudience {
-                        audience: "Analytics engineering and data consumers".to_string(),
-                        confidence: 0.90,
-                        evidence: dataset_ids
-                            .iter()
-                            .take(5)
-                            .map(|d| format!("dataset_id={}", d))
-                            .collect(),
-                    }],
-                    context_bullets: vec![
-                        crate::data_engineer::providers::GlobalContextBullet {
-                            text: "Project models warehouse datasets for analytics use-cases."
-                                .to_string(),
-                            confidence: 0.90,
-                            evidence: dataset_ids
-                                .iter()
-                                .take(5)
-                                .map(|d| format!("dataset_id={}", d))
-                                .collect(),
-                        },
-                    ],
-                    dataset_groups: vec![],
-                    assumptions_and_gaps: vec![],
-                };
-                let value = serde_json::to_value(default_global)
-                    .map_err(|e| format!("catalog bootstrap failed while encoding global semantic context defaults: {e}"))?;
-                sctx.storage
-                    .put_json(&global_key, &value)
-                    .await
-                    .map_err(|e| format!("catalog bootstrap failed while writing global semantic context defaults: {e}"))?;
-            }
-            meta_errors = collect_meta_errors().await?;
-            if !meta_errors.is_empty() {
-                tracing::warn!(
-                    "data_engineer: catalog metadata still incomplete after single repair attempt; proceeding to planning with defaults best-effort:\n- {}",
-                    meta_errors.join("\n- ")
-                );
-            }
-        }
-        Ok(CatalogBootstrapOutcome {
-            metadata_complete: meta_errors.is_empty(),
-        })
-    }
-
-    async fn run_ask(
-        thread_id: &str,
-        question: &str,
-        sctx: &SuiteCtx,
-    ) -> Result<Vec<FlowFrame>, String> {
-        let sys = util::time_context::with_time_context(prompts::ask_system_prompt());
-        let tools_card = Self::build_tools_card_for_agent_type(AgentMode::Ask);
-
-        let pf = preflight::CatalogPreflightProvider {
-            discovery_limits: preflight::discovery::DiscoveryLimits::default(),
-            run_preflight_on_bundle: false,
-        };
-        let bundle = pf.run(thread_id, question, "ask", sctx).await.discovery;
-
-        let registry = Self::build_tools(AgentMode::Ask, sctx)?;
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-
-        let mut actx = AgentCtx {
-            top_k: 30,
-            per_step_timeout_secs: 10,
-            max_steps: 50,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some("ask".to_string()),
-            policy: std::sync::Arc::new(SqlValidatedPolicy {
-                dataset_candidates: bundle
-                    .datasets
-                    .iter()
-                    .take(8)
-                    .map(|(ds, sc)| DatasetCandidate {
-                        dataset_id: ds.clone(),
-                        score: *sc,
-                    })
-                    .collect(),
-                ..SqlValidatedPolicy::default()
-            }),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: sctx.resolved_config.clone(),
-        };
-        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
-
-        match Agent::run_until_block(
-            &registry,
-            &actx,
-            &sys,
-            &tools_card,
-            question,
-            LlmCallOptions {
-                prompt_id: "data_engineer.ask_user_parse",
-                thread_id: None,
-                expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                max_output_tokens: None,
-                temperature: None,
-                top_p: None,
-                reasoning_effort: None,
-                timeout_secs: None,
-            },
-        )
-        .await
-        {
-            Ok(RunOutcome::Complete {
-                thread_id: _tid,
-                result,
-            }) => Ok(vec![FlowFrame::Complete {
-                kind: FlowKind::new(result.kind.clone()),
-                payload: result.payload,
-                display: result.display,
-            }]),
-            Ok(RunOutcome::Interrupt {
-                thread_id: _tid,
-                kind,
-                prompt,
-            }) => {
-                let kind_str = match kind {
-                    react_core::agent::InterruptKind::AwaitUser => "await_user",
-                    react_core::agent::InterruptKind::AwaitApproval => "await_approval",
-                };
-                Ok(vec![FlowFrame::Interrupt { kind: FlowKind::new(kind_str), prompt }])
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn run_review(
-        thread_id: &str,
-        question: &str,
-        sctx: &SuiteCtx,
-    ) -> Result<Vec<FlowFrame>, String> {
-        Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
-        let sys = util::time_context::with_time_context(prompts::review_system_prompt());
-        let tools_card = Self::build_tools_card_for_agent_type(AgentMode::Review);
-
-        let registry = Self::build_tools(AgentMode::Review, sctx)?;
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-
-        let mut actx = AgentCtx {
-            top_k: 30,
-            per_step_timeout_secs: 10,
-            max_steps: 40,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some("review".to_string()),
-            policy: std::sync::Arc::new(react_core::agent::DefaultPolicy),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: sctx.resolved_config.clone(),
-        };
-        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
-
-        let prompt = Self::inject_review_question(question);
-        match Agent::run_until_block(
-            &registry,
-            &actx,
-            &sys,
-            &tools_card,
-            &prompt,
-            LlmCallOptions {
-                prompt_id: "data_engineer.ask_approval_parse",
-                thread_id: None,
-                expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                max_output_tokens: None,
-                temperature: None,
-                top_p: None,
-                reasoning_effort: None,
-                timeout_secs: None,
-            },
-        )
-        .await
-        {
-            Ok(RunOutcome::Complete {
-                thread_id: _tid,
-                result,
-            }) => Ok(vec![FlowFrame::Complete {
-                kind: FlowKind::new(result.kind.clone()),
-                payload: result.payload,
-                display: result.display,
-            }]),
-            Ok(RunOutcome::Interrupt {
-                thread_id: _tid,
-                kind,
-                prompt,
-            }) => {
-                let kind_str = match kind {
-                    react_core::agent::InterruptKind::AwaitUser => "await_user",
-                    react_core::agent::InterruptKind::AwaitApproval => "await_approval",
-                };
-                Ok(vec![FlowFrame::Interrupt { kind: FlowKind::new(kind_str), prompt }])
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    fn agent_tool_ctx(thread_id: &str, sctx: &SuiteCtx) -> AgentCtx {
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-        let mut actx = AgentCtx {
-            top_k: 30,
-            per_step_timeout_secs: 10,
-            max_steps: 6,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some("agent".to_string()),
-            policy: std::sync::Arc::new(react_core::agent::DefaultPolicy),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: sctx.resolved_config.clone(),
-        };
-        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
-        actx
-    }
-
-    fn plan_agent_ctx(thread_id: &str, sctx: &SuiteCtx) -> AgentCtx {
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-        let mut actx = AgentCtx {
-            top_k: 30,
-            per_step_timeout_secs: 20,
-            max_steps: 40,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some("agent".to_string()),
-            policy: std::sync::Arc::new(InterruptOnlyPolicy),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: sctx.resolved_config.clone(),
-        };
-        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
-        actx
-    }
-
-    async fn run_agent(
-        thread_id: &str,
-        question: &str,
-        sctx: &SuiteCtx,
-    ) -> Result<Vec<FlowFrame>, String> {
-        use control_flow::{DerivedGuardState, Phase};
-        if let Err(e) = Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await {
-            let thread_store = ThreadStore::new(
-                sctx.storage.clone(),
-                sctx.scope.clone(),
-                sctx.keyspace.clone(),
-            );
-            let reason = format!(
-                "catalog bootstrap metadata gate failed before planning:\n{}",
-                e.trim()
-            );
-            tracing::error!(
-                thread_id = %thread_id,
-                error = %e,
-                "data_engineer: refusing to continue after preflight catalog metadata gate failure"
-            );
-            let _ = apply_guard_block(
-                &thread_store,
-                thread_id,
-                Phase::Preflight,
-                GuardBlockKind::PrecheckFailed,
-                reason.clone(),
-            )
-            .await;
-            return Err(format!("agent_mode_await_user_forbidden: {}", reason));
-        }
-
-        // Phase-step budget is reset when we make clear forward progress (phase advances).
-        // This prevents aborting a healthy thread that is steadily moving through phases,
-        // while still bounding degenerate loops.
-        let max_phase_steps: usize = std::env::var("AGENT_MAX_PHASE_STEPS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(40)
-            .max(8)
-            .min(400);
-        let max_replan_backtracks: usize = std::env::var("AGENT_MAX_REPLAN_BACKTRACKS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(3)
-            .max(2)
-            .min(20);
-        let phase_index = |p: Phase| -> usize {
-            match p {
-                Phase::Preflight => 0,
-                Phase::CleansePlan => 1,
-                Phase::CleanseAuthor => 2,
-                Phase::CleanseValidate => 3,
-                Phase::CleanseReview => 4,
-                Phase::ModelPlan => 5,
-                Phase::ModelAuthor => 6,
-                Phase::ModelValidate => 7,
-                Phase::ModelReview => 8,
-                Phase::PublishAwaitApproval => 9,
-                Phase::Publish => 10,
-                Phase::PostPublishReview => 11,
-                Phase::Done => 12,
-            }
-        };
-
-        let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
-        );
-
-        let mut out_frames: Vec<FlowFrame> = Vec::new();
-
-        let mut remaining_steps = max_phase_steps;
-        let mut total_steps: usize = 0;
-        let mut max_phase_idx_seen: usize = 0;
-
-        while remaining_steps > 0 {
-            total_steps += 1;
-            remaining_steps = remaining_steps.saturating_sub(1);
-
-            let execution_state = crate::data_engineer::progress_controller::ExecutionState::load_strict(
-                &thread_store,
-                thread_id,
-            )
-            .await?
-            .unwrap_or_else(crate::data_engineer::progress_controller::ExecutionState::new);
-            let phase = execution_state.phase.current_phase.unwrap_or(control_flow::Phase::Preflight);
-            let thread_state_step_count = thread_store
-                .get_thread_state(thread_id)
-                .await
-                .ok()
-                .map(|st| st.last_materialized_step_count)
-                .unwrap_or(0);
-            let idx = phase_index(phase);
-            if idx > max_phase_idx_seen {
-                max_phase_idx_seen = idx;
-                // Reset the budget when we advance phases (i.e. not looping).
-                remaining_steps = max_phase_steps;
-            }
-            let guard: DerivedGuardState =
-                control_flow::derive_guard_state_from_execution_state(&execution_state);
-            match crate::data_engineer::phase_gate::evaluate_pre_turn_directive(
-                &execution_state,
-                phase,
-                max_replan_backtracks,
-            ) {
-                crate::data_engineer::phase_gate::PreTurnDirective::Proceed => {}
-                crate::data_engineer::phase_gate::PreTurnDirective::FailFast { kind, reason } => {
-                    crate::data_engineer::transition_dispatcher::apply_phase_directive(
-                        &thread_store,
-                        thread_id,
-                        Some("agent".to_string()),
-                        Some(phase),
-                        crate::data_engineer::transition_dispatcher::PhaseDirective::Block {
-                            phase,
-                            kind,
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await?;
-                    let mut es = execution_state.clone();
-                    es.mark_failed(reason.clone());
-                    es.save(&thread_store, thread_id).await.map_err(|e| {
-                        format!("failed to persist fail-fast mark_failed: {e}")
-                    })?;
-                    return Err(reason);
-                }
-            }
-
-            let repair_ctx = execution_state.repair_prompt_context();
-            let outcome = Self::execute_phase(
-                &thread_store,
-                thread_id,
-                phase,
-                question,
-                sctx,
-                &execution_state,
-                &guard,
-                thread_state_step_count,
-                &repair_ctx,
-                &mut out_frames,
-            )
-            .await?;
-            match outcome {
-                PhaseExecutorOutcome::StayInPhase | PhaseExecutorOutcome::TransitionCommitted => continue,
-                PhaseExecutorOutcome::Return(frames) => return Ok(frames),
-            }
-        }
-
-        let mut budget_msg = format!(
-            "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n\nBudget:\n- max_steps_per_progress={max_phase_steps}\n- total_steps={total_steps}\n\nThis indicates a loop (re-entering phases without durable progress)."
-        );
-        if let Some(mut es) =
-            crate::data_engineer::progress_controller::ExecutionState::load(&thread_store, thread_id)
-                .await
-        {
-            budget_msg.push_str(&format!(
-                "\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
-                es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
-                format!("{:?}", es.phase.mode),
-                es.phase.phase_reason_code.map(|c| c.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
-                es.phase.replan_backtracks,
-                es.repair.stall_count,
-                crate::data_engineer::progress_controller::DEFAULT_MAX_STALL_COUNT,
-                es.hard_mutation_repair_mode(),
-            ));
-            es.mark_failed(budget_msg.clone());
-            if let Err(e) = es.save(&thread_store, thread_id).await {
-                tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
-            }
-        }
-        Err(budget_msg)
-    }
-
-    async fn execute_phase(
-        thread_store: &ThreadStore,
-        thread_id: &str,
-        phase: crate::data_engineer::control_flow::Phase,
-        question: &str,
-        sctx: &SuiteCtx,
-        execution_state: &crate::data_engineer::progress_controller::ExecutionState,
-        guard: &control_flow::DerivedGuardState,
-        thread_state_step_count: usize,
-        repair_ctx: &crate::data_engineer::progress_controller::RepairPromptContext,
-        out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, String> {
-        use crate::data_engineer::control_flow::Phase;
-        match phase {
-            Phase::Preflight => {
-                Self::execute_preflight_phase(thread_store, thread_id, sctx).await
-            }
-            Phase::CleansePlan | Phase::ModelPlan => {
-                Self::execute_plan_phase(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    question,
-                    sctx,
-                    execution_state,
-                    guard,
-                    thread_state_step_count,
-                    repair_ctx,
-                )
-                .await
-            }
-            Phase::CleanseAuthor | Phase::ModelAuthor => {
-                Self::execute_author_phase(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    question,
-                    sctx,
-                    execution_state,
-                    guard,
-                    thread_state_step_count,
-                    repair_ctx,
-                )
-                .await
-            }
-            Phase::CleanseValidate | Phase::ModelValidate => {
-                Self::execute_validate_phase(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    question,
-                    sctx,
-                    execution_state,
-                    guard,
-                    thread_state_step_count,
-                )
-                .await
-            }
-            Phase::CleanseReview | Phase::ModelReview | Phase::PostPublishReview => {
-                Self::execute_review_phase(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    question,
-                    sctx,
-                    execution_state,
-                    thread_state_step_count,
-                    out_frames,
-                )
-                .await
-            }
-            Phase::PublishAwaitApproval => {
-                Self::execute_publish_await_approval_phase(thread_store, thread_id, sctx).await
-            }
-            Phase::Publish => {
-                Self::execute_publish_phase(thread_store, thread_id, sctx).await
-            }
-            Phase::Done => {
-                Self::execute_done_phase(out_frames)
-            }
-        }
-    }
-
 }
 
 #[async_trait]
@@ -2798,16 +704,7 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let agent_mode = Self::validate_agent_type(agent_type)?;
-        let frames = match agent_mode {
-            AgentMode::Agent => Self::run_agent(thread_id, question, ctx).await,
-            AgentMode::Model | AgentMode::Cleanse => {
-                Self::run_agent(thread_id, question, ctx).await
-            }
-            AgentMode::Review => Self::run_review(thread_id, question, ctx).await,
-            AgentMode::Ask => Self::run_ask(thread_id, question, ctx).await,
-        }?;
-        Self::enforce_non_interactive_contract(agent_mode, frames)
+        self.dispatch_agent(thread_id, question, agent_type, ctx).await
     }
 
     async fn handle_open(
@@ -2817,16 +714,7 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let agent_mode = Self::validate_agent_type(agent_type)?;
-        let frames = match agent_mode {
-            AgentMode::Agent => Self::run_agent(thread_id, question, ctx).await,
-            AgentMode::Model | AgentMode::Cleanse => {
-                Self::run_agent(thread_id, question, ctx).await
-            }
-            AgentMode::Review => Self::run_review(thread_id, question, ctx).await,
-            AgentMode::Ask => Self::run_ask(thread_id, question, ctx).await,
-        }?;
-        Self::enforce_non_interactive_contract(agent_mode, frames)
+        self.dispatch_agent(thread_id, question, agent_type, ctx).await
     }
 
     async fn handle_user(
@@ -2836,16 +724,7 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let agent_mode = Self::validate_agent_type(agent_type)?;
-        let frames = match agent_mode {
-            AgentMode::Agent => Self::run_agent(thread_id, text, ctx).await,
-            AgentMode::Model | AgentMode::Cleanse => {
-                Self::run_agent(thread_id, text, ctx).await
-            }
-            AgentMode::Review => Self::run_review(thread_id, text, ctx).await,
-            AgentMode::Ask => Self::run_ask(thread_id, text, ctx).await,
-        }?;
-        Self::enforce_non_interactive_contract(agent_mode, frames)
+        self.dispatch_agent(thread_id, text, agent_type, ctx).await
     }
 }
 
@@ -2917,8 +796,8 @@ mod tests {
     }
 
     impl crate::data_engineer::providers::WarehouseNaming for MockWarehouseOk {
-        fn kind(&self) -> &'static str {
-            "mock"
+        fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind {
+            crate::data_engineer::de_config::WarehouseKind::default()
         }
 
         fn parse_dataset_fqn(
@@ -3178,10 +1057,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_probe.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         st.telemetry.probe.required = true;
@@ -3241,10 +1122,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_probe.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         st.telemetry.probe.required = true;
@@ -3402,10 +1285,12 @@ mod tests {
             seeded.repair.repair_mode = crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
             seeded
@@ -3466,10 +1351,12 @@ mod tests {
             seeded.repair.repair_mode = crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
             seeded
@@ -3526,10 +1413,12 @@ mod tests {
             seeded.repair.repair_mode = crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::ReplaceContents,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::ReplaceContents,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
             seeded
@@ -3599,10 +1488,12 @@ mod tests {
             seeded.repair.repair_mode = crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::FsOp,
-                    attempt_count: 2,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::FsOp,
+                        attempt_count: 2,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
             seeded
@@ -3932,10 +1823,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         let _failed = vec![FailedModelRef {
@@ -3999,10 +1892,12 @@ mod tests {
             crate::data_engineer::progress_controller::RepairModeState::SqlTarget(
                 crate::data_engineer::progress_controller::SqlTargetRepairMode {
                     target_path: crate::data_engineer::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                    ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0
+                    core: crate::data_engineer::progress_controller::RepairModeCore {
+                        ladder_step: crate::data_engineer::progress_controller::RepairLadderStep::PatchTarget,
+                        attempt_count: 0,
+                        repair_started_mutation_epoch: None,
+                        consecutive_noop_patches: 0,
+                    },
                 },
             );
         state.set_last_mutation_summary(

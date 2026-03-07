@@ -108,7 +108,7 @@ impl DataEngineerSuite {
                         .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
                         .unwrap_or(serde_json::Value::Array(vec![])),
                     dbt_validate_observation,
-                    next_action: "resume_authoring_for_remaining_plan_work".to_string(),
+                    next_action: crate::data_engineer::phase_reason_detail::ValidateToAuthoringNextAction::ResumeAuthoringForRemainingPlanWork,
                     audit_acceptance: Self::churn_audit_acceptance_criteria(),
                 },
             );
@@ -184,12 +184,6 @@ let actx = Self::agent_tool_ctx(thread_id, sctx);
         )
     })?;
 }
-let emit_trace = |ctx: &react_core::agent::AgentCtx, line: &str| {
-    if let Some(tx) = ctx.trace_tx.as_ref() {
-        let _ = tx.send(line.to_string());
-    }
-};
-
 // Pre-validate normalization: dedupe/merge repeated model+test definitions to
 // avoid deterministic compile loops before dbt_validate.
 if let Err(e) =
@@ -272,227 +266,54 @@ if let Err(e) =
     .await;
 }
 
-// Targeted pre-check (compile selected, then build selected) based on most recent patch.
-// If it fails, we skip full validation and proceed with the standard failure handling.
+// Deterministic full validate (NO repair loop / no mutation).
 let obs: crate::data_engineer::controller_event::ValidateObservationContract;
-// Hard cutover: do not derive control-state selectors from thread logs.
-// Targeted validate remains disabled until selectors are sourced from typed state artifacts.
-let select_terms: Vec<String> = Vec::new();
-if !select_terms.is_empty() {
-    emit_trace(&actx, "targeted compile started");
-    let args_compile = serde_json::json!({"build": false, "run": false, "select": select_terms.clone(), "targeted": true, "targeted_step": "compile"});
-    let tool_id_compile = uuid::Uuid::new_v4().to_string();
-    let _ = thread_store
-        .append_step(
-            thread_id,
-            react_core::session::ThreadStep::ToolStart {
-                tool_id: tool_id_compile.clone(),
-                name: "dbt_validate".to_string(),
-                clean_name: "Validate DBT (compile)".to_string(),
-                args: args_compile.clone(),
-                status: ToolStepStatus::Running,
-                payload: None,
-                ctx: None,
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent: "agent".to_string(),
-            },
-        )
-        .await;
-    let obs_compile = control_flow::DeterministicDbtValidateTargetedOnce::run(
-        &actx,
-        &select_terms,
-        false,
-        false,
+let args_full = serde_json::json!({"build": true});
+let tool_id_full = uuid::Uuid::new_v4().to_string();
+let _ = thread_store
+    .append_step(
+        thread_id,
+        react_core::session::ThreadStep::ToolStart {
+            tool_id: tool_id_full.clone(),
+            name: "dbt_validate".to_string(),
+            clean_name: "Validate DBT".to_string(),
+            args: args_full.clone(),
+            status: ToolStepStatus::Running,
+            payload: None,
+            ctx: None,
+            ts: chrono::Utc::now().to_rfc3339(),
+            agent: "agent".to_string(),
+        },
     )
-    .await?;
-    let obs_compile_norm = react_core::session::ToolObservation::normalize(
-        obs_compile.observation.clone(),
-    );
-    let _ = thread_store
-        .append_step(
-            thread_id,
-            react_core::session::ThreadStep::ToolEnd {
-                tool_id: tool_id_compile,
-                name: "dbt_validate".to_string(),
-                clean_name: "Validate DBT (compile)".to_string(),
-                args: args_compile,
-                status: if obs_compile_norm.ok {
-                    ToolStepStatus::Ok
-                } else {
-                    ToolStepStatus::Failed
-                },
-                payload: None,
-                ctx: None,
-                observation: obs_compile_norm,
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent: "agent".to_string(),
+    .await;
+obs = control_flow::DeterministicDbtValidateOnce::run(
+    &actx, true, false, None,
+)
+.await?;
+let obs_norm = react_core::session::ToolObservation::normalize(
+    obs.observation.clone(),
+);
+let _ = thread_store
+    .append_step(
+        thread_id,
+        react_core::session::ThreadStep::ToolEnd {
+            tool_id: tool_id_full,
+            name: "dbt_validate".to_string(),
+            clean_name: "Validate DBT".to_string(),
+            args: args_full,
+            status: if obs_norm.ok {
+                ToolStepStatus::Ok
+            } else {
+                ToolStepStatus::Failed
             },
-        )
-        .await;
-    let ok = obs_compile.outcome_v2.ok;
-    let compile_ok = obs_compile.outcome_v2.compile_ok;
-    if !(ok && compile_ok) {
-        emit_trace(&actx, "targeted compile failed");
-        obs = obs_compile;
-    } else {
-        emit_trace(&actx, "targeted compile ok");
-        emit_trace(&actx, "targeted build started");
-        let args_build = serde_json::json!({"build": true, "run": false, "select": select_terms.clone(), "targeted": true, "targeted_step": "build"});
-        let tool_id_build = uuid::Uuid::new_v4().to_string();
-        let _ = thread_store
-            .append_step(
-                thread_id,
-                react_core::session::ThreadStep::ToolStart {
-                    tool_id: tool_id_build.clone(),
-                    name: "dbt_validate".to_string(),
-                    clean_name: "Validate DBT (build)".to_string(),
-                    args: args_build.clone(),
-                    status: ToolStepStatus::Running,
-                    payload: None,
-                    ctx: None,
-                    ts: chrono::Utc::now().to_rfc3339(),
-                    agent: "agent".to_string(),
-                },
-            )
-            .await;
-        let obs_build =
-            control_flow::DeterministicDbtValidateTargetedOnce::run(
-                &actx,
-                &select_terms,
-                true,
-                false,
-            )
-            .await?;
-        let obs_build_norm = react_core::session::ToolObservation::normalize(
-            obs_build.observation.clone(),
-        );
-        let _ = thread_store
-            .append_step(
-                thread_id,
-                react_core::session::ThreadStep::ToolEnd {
-                    tool_id: tool_id_build,
-                    name: "dbt_validate".to_string(),
-                    clean_name: "Validate DBT (build)".to_string(),
-                    args: args_build,
-                    status: if obs_build_norm.ok {
-                        ToolStepStatus::Ok
-                    } else {
-                        ToolStepStatus::Failed
-                    },
-                    payload: None,
-                    ctx: None,
-                    observation: obs_build_norm,
-                    ts: chrono::Utc::now().to_rfc3339(),
-                    agent: "agent".to_string(),
-                },
-            )
-            .await;
-        let ok = obs_build.outcome_v2.ok;
-        let compile_ok = obs_build.outcome_v2.compile_ok;
-        let run_ok = obs_build.outcome_v2.run_ok;
-        if !(ok && compile_ok && run_ok) {
-            emit_trace(&actx, "targeted build failed");
-            obs = obs_build;
-        } else {
-            emit_trace(&actx, "targeted build ok");
-            // Deterministic full validate (NO repair loop / no mutation).
-            let args_full = serde_json::json!({"build": true});
-            let tool_id_full = uuid::Uuid::new_v4().to_string();
-            let _ = thread_store
-                .append_step(
-                    thread_id,
-                    react_core::session::ThreadStep::ToolStart {
-                        tool_id: tool_id_full.clone(),
-                        name: "dbt_validate".to_string(),
-                        clean_name: "Validate DBT".to_string(),
-                        args: args_full.clone(),
-                        status: ToolStepStatus::Running,
-                        payload: None,
-                        ctx: None,
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent: "agent".to_string(),
-                    },
-                )
-                .await;
-            obs = control_flow::DeterministicDbtValidateOnce::run(
-                &actx, true, false, None,
-            )
-            .await?;
-            let obs_norm = react_core::session::ToolObservation::normalize(
-                obs.observation.clone(),
-            );
-            let _ = thread_store
-                .append_step(
-                    thread_id,
-                    react_core::session::ThreadStep::ToolEnd {
-                        tool_id: tool_id_full,
-                        name: "dbt_validate".to_string(),
-                        clean_name: "Validate DBT".to_string(),
-                        args: args_full,
-                        status: if obs_norm.ok {
-                            ToolStepStatus::Ok
-                        } else {
-                            ToolStepStatus::Failed
-                        },
-                        payload: None,
-                        ctx: None,
-                        observation: obs_norm,
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent: "agent".to_string(),
-                    },
-                )
-                .await;
-        }
-    }
-} else {
-    // Deterministic full validate (NO repair loop / no mutation).
-    let args_full = serde_json::json!({"build": true});
-    let tool_id_full = uuid::Uuid::new_v4().to_string();
-    let _ = thread_store
-        .append_step(
-            thread_id,
-            react_core::session::ThreadStep::ToolStart {
-                tool_id: tool_id_full.clone(),
-                name: "dbt_validate".to_string(),
-                clean_name: "Validate DBT".to_string(),
-                args: args_full.clone(),
-                status: ToolStepStatus::Running,
-                payload: None,
-                ctx: None,
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent: "agent".to_string(),
-            },
-        )
-        .await;
-    obs = control_flow::DeterministicDbtValidateOnce::run(
-        &actx, true, false, None,
+            payload: None,
+            ctx: None,
+            observation: obs_norm,
+            ts: chrono::Utc::now().to_rfc3339(),
+            agent: "agent".to_string(),
+        },
     )
-    .await?;
-    let obs_norm = react_core::session::ToolObservation::normalize(
-        obs.observation.clone(),
-    );
-    let _ = thread_store
-        .append_step(
-            thread_id,
-            react_core::session::ThreadStep::ToolEnd {
-                tool_id: tool_id_full,
-                name: "dbt_validate".to_string(),
-                clean_name: "Validate DBT".to_string(),
-                args: args_full,
-                status: if obs_norm.ok {
-                    ToolStepStatus::Ok
-                } else {
-                    ToolStepStatus::Failed
-                },
-                payload: None,
-                ctx: None,
-                observation: obs_norm,
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent: "agent".to_string(),
-            },
-        )
-        .await;
-}
+    .await;
 
 let validate_event =
     crate::data_engineer::controller_event::validate_event_from_contract(&obs);
@@ -683,12 +504,13 @@ let to_phase = if phase == Phase::CleanseValidate {
 };
 // Attach authoritative schema facts for the next authoring turn. This ensures the LLM
 // never needs to guess relation columns after a deterministic validate failure.
-let dialect = obs
-    .observation
-    .get("dialect")
-    .and_then(|v| v.as_str())
-    .unwrap_or("Unknown SQL dialect")
-    .to_string();
+let dialect = crate::data_engineer::facts::SqlDialect(
+    obs.observation
+        .get("dialect")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown SQL dialect")
+        .to_string(),
+);
 let facts_bundle = crate::data_engineer::facts::build_validate_fail_facts(
     &actx,
     dialect,

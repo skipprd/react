@@ -1,72 +1,9 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub type ValidateTargetPath = crate::data_engineer::progress_controller::RepairTargetPath;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ValidateFailureClass {
-    WarehouseConfig,
-    SqlOrRuntime,
-    Unknown,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ControllerEvent {
-    ValidatePassed,
-    ValidateFailed {
-        class: ValidateFailureClass,
-        signature: FailureSignature,
-        brief: String,
-        failing_targets: Vec<ValidateFailingTarget>,
-        compile_ok: bool,
-        run_ok: bool,
-    },
-    ValidateContractError {
-        reason: String,
-        brief: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ValidateFailingTarget {
-    pub node_id: String,
-    #[serde(rename = "canonical_path")]
-    pub target_path: ValidateTargetPath,
-    pub error_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FailureSignature {
-    pub class: ValidateFailureClass,
-    pub node_id: String,
-    #[serde(rename = "canonical_path")]
-    pub target_path: ValidateTargetPath,
-    pub error_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ValidateOutcomeV2 {
-    pub ok: bool,
-    pub compile_ok: bool,
-    pub run_ok: bool,
-    #[serde(default)]
-    pub failing_targets: Vec<ValidateFailingTarget>,
-    #[serde(default)]
-    pub failure_signature: Option<FailureSignature>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ValidateObservationContract {
-    pub observation: Value,
-    pub outcome_v2: ValidateOutcomeV2,
-}
-
-impl ValidateObservationContract {
-    pub fn into_observation(self) -> Value {
-        self.observation
-    }
-}
+pub use crate::data_engineer::domain_types::{
+    ControllerEvent, FailureSignature, ValidateFailingTarget, ValidateFailureClass,
+    ValidateObservationContract, ValidateOutcomeV2, ValidateTargetPath,
+};
 
 fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> ValidateFailureClass {
     let class = obj

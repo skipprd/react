@@ -11,8 +11,7 @@ use crate::data_engineer::chunk_progress_contract;
 use crate::data_engineer::naming;
 use crate::data_engineer::plan;
 use crate::data_engineer::controller_kernel;
-use crate::data_engineer::project_files;
-use crate::data_engineer::files_store;
+use crate::data_engineer::project_fs;
 use crate::data_engineer::references::DatasetRef;
 use crate::data_engineer::schema_policy;
 use crate::data_engineer::tools::files_tool;
@@ -141,12 +140,7 @@ fn rewrite_final_select_wildcard(sql_text: &str, allowed_columns: &[String]) -> 
     Some(out)
 }
 
-fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
-    args.get(key)
-        .and_then(|x| x.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
+use super::model_authoring_engine::extract_string_arg;
 
 fn schema_yml_sys_prompt_staging() -> String {
     vec![
@@ -220,7 +214,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         }
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
-        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(ctx, &mut plan).await?;
+        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan).await?;
         if !v.ok {
             return crate::data_engineer::tools::batch_contracts::to_json_value(
                 crate::data_engineer::tools::batch_contracts::CleanseSchemaBatchContract {
@@ -347,7 +341,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             let sql_rel = naming::canonical_staging_rel_path(&schema, &table);
             let yml_rel = format!("models/staging/{}.yml", model_name);
 
-            let sql_key = files_store::join_storage_key(ctx, &sql_rel);
+            let sql_key = project_fs::join_storage_key(ctx, &sql_rel);
             let sql_text = match ctx.storage.get_bytes(&sql_key).await {
                 Ok(b) => String::from_utf8_lossy(&b).to_string(),
                 Err(_) => {
@@ -363,13 +357,16 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         .tasks
                         .iter()
                         .find(|t| t.dataset_id == *ds)
-                        .map(|t| {
+                        .and_then(|t| {
                             t.implementation_spec
-                                .output_fields
-                                .iter()
-                                .map(|f| f.name.trim().to_string())
-                                .filter(|n| !n.is_empty())
-                                .collect::<Vec<String>>()
+                                .as_ref()
+                                .map(|spec| {
+                                    spec.output_fields
+                                        .iter()
+                                        .map(|f| f.name.trim().to_string())
+                                        .filter(|n| !n.is_empty())
+                                        .collect::<Vec<String>>()
+                                })
                         })
                         .unwrap_or_default();
                     if !from_plan.is_empty() {
@@ -428,7 +425,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             })
             .to_string();
 
-            let (outcome, _notes) = match crate::data_engineer::files_patch_repair::llm_patch_loop_single_file(
+            let (outcome, _notes) = match crate::data_engineer::patch_protocol::llm_patch_loop_single_file(
                 ctx,
                 self.datasets.as_ref(),
                 schema_yml_sys_prompt_staging(),
@@ -442,7 +439,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     temperature: Some(0.05),
                     top_p: Some(1.0),
                     max_output_tokens: Some(
-                        crate::data_engineer::files_patch_repair::default_patch_loop_max_output_tokens(),
+                        crate::data_engineer::patch_protocol::default_patch_loop_max_output_tokens(),
                     ),
                     reasoning_effort: None,
                     timeout_secs: None,
@@ -484,7 +481,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 continue;
             }
 
-            let yml_key = files_store::join_storage_key(ctx, &yml_rel);
+            let yml_key = project_fs::join_storage_key(ctx, &yml_rel);
             if let Err(e) = ctx
                 .storage
                 .put_bytes(&yml_key, outcome.content.as_bytes(), "text/yaml")
@@ -596,7 +593,6 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         let stg =
             crate::data_engineer::dataset_truth::discover_staging_models_from_storage(ctx).await;
         let v = plan::ensure_model_plan_semantically_valid_or_repaired(
-            ctx,
             &mut plan,
             &stg.allowed_models,
         )
@@ -705,7 +701,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
             .map_err(|e| format!("failed to persist model schema batch start state: {e}"))?;
 
         let attempted_names = names.clone();
-        let expected_rel = project_files::MODELS_SCHEMA_YML;
+        let expected_rel = project_fs::MODELS_SCHEMA_YML;
 
         // Provide just the model names + expected SQL rel paths to keep the patch focused.
         let mut models: Vec<Value> = Vec::new();
@@ -720,7 +716,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 // Derive allowed columns from the model SQL output projection (best-effort).
                 let mut allowed = schema_policy::ModelAllowedColumns::default();
                 if let Some(ref rel) = t.expected_model_path {
-                    let key_sql = files_store::join_storage_key(ctx, rel);
+                    let key_sql = project_fs::join_storage_key(ctx, rel);
                     match ctx.storage.get_bytes(&key_sql).await {
                         Ok(b) => {
                             let sql_text = String::from_utf8_lossy(&b).to_string();
@@ -764,7 +760,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         .to_string();
 
         let (outcome, _notes) =
-            match crate::data_engineer::files_patch_repair::llm_patch_loop_single_file(
+            match crate::data_engineer::patch_protocol::llm_patch_loop_single_file(
                 ctx,
                 self.datasets.as_ref(),
                 schema_yml_sys_prompt_models_schema_yml(),
@@ -778,7 +774,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     temperature: Some(0.05),
                     top_p: Some(1.0),
                     max_output_tokens: Some(
-                        crate::data_engineer::files_patch_repair::default_patch_loop_max_output_tokens(
+                        crate::data_engineer::patch_protocol::default_patch_loop_max_output_tokens(
                         ),
                     ),
                     reasoning_effort: None,
@@ -819,7 +815,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
             }
         };
 
-        let key = files_store::join_storage_key(ctx, expected_rel);
+        let key = project_fs::join_storage_key(ctx, expected_rel);
         if let Err(e) = ctx
             .storage
             .put_bytes(&key, sanitized_text.as_bytes(), "text/yaml")
@@ -899,7 +895,7 @@ mod tests {
     use super::*;
     use crate::data_engineer::ctx_ext::{ProvidersCfgCap, WarehouseCap};
     use crate::data_engineer::de_config;
-    use crate::data_engineer::providers::NullWarehouseProvider;
+    use crate::data_engineer::providers::warehouse::NullWarehouseProvider;
     use crate::data_engineer::track_spec::TrackKind;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
@@ -946,7 +942,7 @@ mod tests {
             messages: &[ChatMessage],
             _options: &react_core::llm::LlmCallOptions,
         ) -> Result<String, String> {
-            // Find the last user message (files_patch_repair sends JSON payload as user content).
+            // Find the last user message (patch_protocol sends JSON payload as user content).
             let user = messages
                 .iter()
                 .rev()
@@ -1089,7 +1085,7 @@ mod tests {
                     "models/staging/stg_test_raw_raw_customers.sql".to_string(),
                 ),
                 invariants: vec![],
-                implementation_spec: plan::CleanseImplementationSpec {
+                implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![plan::OutputFieldSpec {
@@ -1110,7 +1106,7 @@ mod tests {
                         description: None,
                     }],
                     prohibited_ops: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1124,7 +1120,7 @@ mod tests {
         // Seed staging SQL with wildcard final projection so the tool exercises deterministic
         // wildcard auto-heal before writing schema YAML.
         let sql_rel = "models/staging/stg_test_raw_raw_customers.sql";
-        let sql_key = files_store::join_storage_key(&ctx, sql_rel);
+        let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with source as (\n  select * from {{ source('test_raw','raw_customers') }}\n)\nselect * from source\n";
         ctx.storage
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
@@ -1140,7 +1136,7 @@ mod tests {
         );
 
         let yml_rel = "models/staging/stg_test_raw_raw_customers.yml";
-        let yml_key = files_store::join_storage_key(&ctx, yml_rel);
+        let yml_key = project_fs::join_storage_key(&ctx, yml_rel);
         let got = ctx.storage.get_bytes(&yml_key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(got.contains("stg_test_raw_raw_customers"));
@@ -1223,7 +1219,7 @@ mod tests {
                     "models/staging/stg_test_raw_raw_customers.sql".to_string(),
                 ),
                 invariants: vec![],
-                implementation_spec: plan::CleanseImplementationSpec {
+                implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![plan::OutputFieldSpec {
@@ -1236,7 +1232,7 @@ mod tests {
                         description: None,
                     }],
                     prohibited_ops: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1328,7 +1324,7 @@ mod tests {
                     "models/staging/stg_test_raw_raw_customers.sql".to_string(),
                 ),
                 invariants: vec![],
-                implementation_spec: plan::CleanseImplementationSpec {
+                implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
                     output_fields: vec![plan::OutputFieldSpec {
@@ -1341,7 +1337,7 @@ mod tests {
                         description: None,
                     }],
                     prohibited_ops: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1354,7 +1350,7 @@ mod tests {
 
         // Seed canonical staging SQL with explicit final SELECT list (no '*').
         let sql_rel = "models/staging/stg_test_raw_raw_customers.sql";
-        let sql_key = files_store::join_storage_key(&ctx, sql_rel);
+        let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with source as (\n  select * from {{ source('test_raw','raw_customers') }}\n)\nselect\n  customer_id_raw,\n  email_raw\nfrom source\n";
         ctx.storage
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
@@ -1443,12 +1439,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -1464,7 +1460,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1483,7 +1479,7 @@ mod tests {
             res
         );
 
-        let key = files_store::join_storage_key(&ctx, project_files::MODELS_SCHEMA_YML);
+        let key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
         let got = ctx.storage.get_bytes(&key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(got.contains("dim_customers"));
@@ -1544,12 +1540,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -1565,7 +1561,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1641,7 +1637,7 @@ mod tests {
 
         // Seed model SQL so allowed_columns can be derived (best-effort).
         let sql_rel = "models/marts/dim_customers.sql";
-        let sql_key = files_store::join_storage_key(&ctx, sql_rel);
+        let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with t as (\n  select 1 as customer_id, 'a@b.com' as email\n)\nselect\n  customer_id,\n  email\nfrom t\n";
         ctx.storage
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
@@ -1662,12 +1658,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some(sql_rel.to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -1683,7 +1679,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1763,7 +1759,7 @@ mod tests {
 
         // Seed model SQL so allowed_columns can be derived.
         let sql_rel = "models/marts/dim_customers.sql";
-        let sql_key = files_store::join_storage_key(&ctx, sql_rel);
+        let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with t as (\n  select 1 as customer_id, 'a@b.com' as email\n)\nselect\n  customer_id,\n  email\nfrom t\n";
         ctx.storage
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
@@ -1785,12 +1781,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some(sql_rel.to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -1806,7 +1802,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1890,12 +1886,12 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
-                folder: "marts".to_string(),
+                folder: plan::ModelFolder::Marts,
                 goal: "g".to_string(),
                 inputs: vec!["stg_test_raw_raw_customers".to_string()],
                 expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
                 invariants: vec![],
-                implementation_spec: plan::ModelImplementationSpec {
+                implementation_spec: Some(plan::ModelImplementationSpec {
                     spec_version: 1,
                     grain: "1 row per customer".to_string(),
                     inputs: vec!["stg_test_raw_raw_customers".to_string()],
@@ -1911,7 +1907,7 @@ mod tests {
                         description: None,
                     }],
                     assumptions: vec![],
-                },
+                }),
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],
@@ -1930,7 +1926,7 @@ mod tests {
             res
         );
 
-        let key = files_store::join_storage_key(&ctx, project_files::MODELS_SCHEMA_YML);
+        let key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
         let got = ctx.storage.get_bytes(&key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(!got.contains("stg_test_raw_raw_customers"));

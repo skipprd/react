@@ -463,7 +463,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
             .to_string();
 
             let (outcome, _notes) =
-                crate::data_engineer::files_patch_repair::llm_patch_loop_single_file(
+                crate::data_engineer::patch_protocol::llm_patch_loop_single_file(
                     ctx,
                     None,
                     sys_prompt,
@@ -731,7 +731,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     });
 
     // Add core project context files if present (editable, but must be justified by the error).
-    for rel in crate::data_engineer::project_files::CORE_PROJECT_CONTEXT_FILES.iter() {
+    for rel in crate::data_engineer::project_fs::CORE_PROJECT_CONTEXT_FILES.iter() {
         let k = format!("{}/{}", base, rel);
         if !keys.iter().any(|x| x == &k) {
             if ctx.storage.get_bytes(&k).await.is_ok() {
@@ -969,7 +969,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
         })
         .to_string();
 
-        let (outcome, _notes) = crate::data_engineer::files_patch_repair::llm_patch_loop_single_file(
+        let (outcome, _notes) = crate::data_engineer::patch_protocol::llm_patch_loop_single_file(
             ctx,
             None,
             sys_prompt,
@@ -1362,7 +1362,7 @@ pub async fn remediate_unresolved_columns_with_llm(
         })
         .to_string();
 
-        let (outcome, _notes) = crate::data_engineer::files_patch_repair::llm_patch_loop_single_file(
+        let (outcome, _notes) = crate::data_engineer::patch_protocol::llm_patch_loop_single_file(
             ctx,
             None,
             sys_prompt,
@@ -1474,7 +1474,7 @@ mod tests {
         };
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
-            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+            Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,

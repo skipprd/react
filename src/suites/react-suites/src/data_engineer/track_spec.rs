@@ -1,11 +1,15 @@
+use serde::{Deserialize, Serialize};
 use crate::data_engineer::control_flow::Phase;
-use crate::data_engineer::plan_kind::PlanKind;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TrackKind {
     Cleanse,
     Model,
 }
+
+/// Backward-compatible alias — prefer `TrackKind` in new code.
+pub type PlanKind = TrackKind;
 
 impl TrackKind {
     pub fn try_from_plan_phase(phase: Phase) -> Result<Self, String> {
@@ -39,10 +43,7 @@ impl TrackKind {
     }
 
     pub fn plan_kind(self) -> PlanKind {
-        match self {
-            Self::Cleanse => PlanKind::Cleanse,
-            Self::Model => PlanKind::Model,
-        }
+        self
     }
 
     pub fn execution_plan_kind(self) -> react_core::session::ExecutionPlanKind {
