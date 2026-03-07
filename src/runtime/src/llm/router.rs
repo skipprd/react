@@ -13,26 +13,19 @@ use tracing::debug;
 use super::adapter::Adapter;
 use super::registry::pick_openai_adapter_for_model;
 use super::types::{
-    ChatRequest, ChatResponse, ChatResponseFormat, EmbedRequest, EmbedResponse,
+    pretty_json, ChatRequest, ChatResponse, ChatResponseFormat, EmbedRequest, EmbedResponse,
     ProviderHttpRequest, ProviderHttpResponse,
 };
 use crate::llm::LargeLanguageModel;
 use react_core::llm::ChatMessage as CoreChatMessage;
 use react_core::llm_observability::{self, PartInput};
 
-fn pretty_json(text: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(text) {
-        Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| text.to_string()),
-        Err(_) => text.to_string(),
-    }
-}
-
 fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<PartInput>) {
     let mut core_msgs: Vec<CoreChatMessage> = Vec::new();
     let mut parts: Vec<PartInput> = Vec::new();
     for (i, m) in req.messages.iter().enumerate() {
         core_msgs.push(CoreChatMessage {
-            role: m.role.clone(),
+            role: react_core::llm::ChatRole::from(m.role.as_str()),
             content: m.content.clone(),
         });
         parts.push(PartInput {
@@ -228,7 +221,7 @@ impl LlmRouter {
                 .messages
                 .iter()
                 .map(|m| crate::llm::ChatMessage {
-                    role: m.role.clone(),
+                    role: react_core::llm::ChatRole::from(m.role.as_str()),
                     content: m.content.clone(),
                 })
                 .collect();

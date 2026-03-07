@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::capability::CapabilityMap;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::llm::{DynLlm, NullModel};
 use crate::providers::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
@@ -14,12 +14,37 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+pub struct FlowKind(pub String);
+
+impl FlowKind {
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self(kind.into())
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl PartialEq<str> for FlowKind {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<&str> for FlowKind {
+    fn eq(&self, other: &&str) -> bool {
+        self.0 == *other
+    }
+}
+
 /// Standardized suite output type.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum FlowFrame {
     Complete {
-        kind: String,
+        kind: FlowKind,
         payload: Value,
         #[serde(skip_serializing_if = "Option::is_none")]
         display: Option<String>,
@@ -29,12 +54,16 @@ pub enum FlowFrame {
         #[serde(skip_serializing_if = "Option::is_none")]
         meta: Option<Value>,
     },
+    /// Non-terminal checkpoint: the agent has produced intermediate results
+    /// and the suite should continue with deterministic processing.
     Checkpoint {
-        kind: String,
+        kind: FlowKind,
         payload: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<String>,
     },
     Interrupt {
-        kind: String,
+        kind: FlowKind,
         prompt: String,
     },
 }
@@ -51,7 +80,13 @@ pub struct SuiteCtx {
     pub trace_tx: Option<UnboundedSender<String>>,
     pub vector: Option<Arc<dyn VectorStore>>,
     pub state: Option<Arc<dyn StateStore>>,
-    capabilities: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub capabilities: CapabilityMap,
+}
+
+impl std::fmt::Debug for SuiteCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SuiteCtx { .. }")
+    }
 }
 
 impl SuiteCtx {
@@ -72,7 +107,7 @@ impl SuiteCtx {
             trace_tx: None,
             vector: None,
             state: None,
-            capabilities: HashMap::new(),
+            capabilities: CapabilityMap::default(),
         }
     }
 
@@ -82,14 +117,12 @@ impl SuiteCtx {
 
     /// Retrieve a suite-specific capability by concrete type.
     pub fn capability<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.capabilities
-            .get(&TypeId::of::<T>())
-            .and_then(|a| a.clone().downcast::<T>().ok())
+        self.capabilities.get::<T>()
     }
 
     /// Store a suite-specific capability by concrete type.
     pub fn set_capability<T: Send + Sync + 'static>(&mut self, val: Arc<T>) {
-        self.capabilities.insert(TypeId::of::<T>(), val);
+        self.capabilities.set(val);
     }
 }
 
@@ -109,7 +142,7 @@ impl Default for SuiteCtx {
             trace_tx: None,
             vector: None,
             state: None,
-            capabilities: HashMap::new(),
+            capabilities: CapabilityMap::default(),
         }
     }
 }

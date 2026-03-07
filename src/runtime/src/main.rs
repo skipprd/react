@@ -508,7 +508,7 @@ async fn main() {
             let file_cfg = match react::config::ReactConfigFile::load_yaml(Path::new(&config)) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("ERROR: {}", e);
+                    tracing::error!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -526,7 +526,7 @@ async fn main() {
             ) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("ERROR: {}", e);
+                    tracing::error!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -538,8 +538,6 @@ async fn main() {
             let _guards = init_tracing(&log_dir, enable_console, None);
 
             if cli.terminal {
-                // Terminal mode is intended to be fully headless: auto-answer any `await_user` prompts.
-                // Allow override by explicitly setting env var beforehand.
                 if std::env::var("REACT_HEADLESS")
                     .ok()
                     .filter(|v| !v.trim().is_empty())
@@ -548,15 +546,21 @@ async fn main() {
                     std::env::set_var("REACT_HEADLESS", "1");
                 }
                 if let Err(e) = react::ws::terminal::init() {
-                    eprintln!("WARN: terminal mode not enabled: {}", e);
+                    tracing::warn!("terminal mode not enabled: {}", e);
                 }
             }
 
-            let suite_ctx = react::bootstrap::build_suite_ctx(&cfg).await;
+            let suite_ctx = match react::bootstrap::build_suite_ctx(&cfg).await {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    tracing::error!("{}", e);
+                    std::process::exit(1);
+                }
+            };
 
             let registry = react_suites::default_registry();
             if let Err(e) = react::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
-                eprintln!("ERROR: {}", e);
+                tracing::error!("{}", e);
                 std::process::exit(1);
             }
         }
@@ -575,11 +579,11 @@ async fn main() {
         } => {
             if config.len() > 1 {
                 if cli.terminal {
-                    eprintln!("ERROR: --terminal is not supported with parallel multi-config runs");
+                    tracing::error!("--terminal is not supported with parallel multi-config runs");
                     std::process::exit(2);
                 }
                 if !parallel {
-                    eprintln!("ERROR: multiple --config values require --parallel");
+                    tracing::error!("multiple --config values require --parallel");
                     std::process::exit(2);
                 }
                 let exit_code = match run_parallel_configs(
@@ -599,19 +603,19 @@ async fn main() {
                 {
                     Ok(code) => code,
                     Err(e) => {
-                        eprintln!("ERROR: {}", e);
+                        tracing::error!("{}", e);
                         1
                     }
                 };
                 std::process::exit(exit_code);
             }
             if parallel {
-                eprintln!("WARN: --parallel ignored with a single --config");
+                tracing::warn!("--parallel ignored with a single --config");
             }
             let config = match config.into_iter().next() {
                 Some(v) => v,
                 None => {
-                    eprintln!("ERROR: missing --config");
+                    tracing::error!("missing --config");
                     std::process::exit(2);
                 }
             };
@@ -621,7 +625,7 @@ async fn main() {
             let file_cfg = match react::config::ReactConfigFile::load_yaml(Path::new(&config)) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("ERROR: {}", e);
+                    tracing::error!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -639,7 +643,7 @@ async fn main() {
             ) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("ERROR: {}", e);
+                    tracing::error!("{}", e);
                     std::process::exit(1);
                 }
             };
@@ -706,11 +710,17 @@ async fn main() {
             // Terminal UI is the default for `run`; `--log` disables it.
             if terminal_enabled {
                 if let Err(e) = react::ws::terminal::init() {
-                    eprintln!("WARN: terminal mode not enabled: {}", e);
+                    tracing::warn!("terminal mode not enabled: {}", e);
                 }
             }
 
-            let suite_ctx = react::bootstrap::build_suite_ctx(&cfg).await;
+            let suite_ctx = match react::bootstrap::build_suite_ctx(&cfg).await {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    tracing::error!("{}", e);
+                    std::process::exit(1);
+                }
+            };
             let keyspace = suite_ctx.keyspace.clone();
 
             let requested_thread_id = thread_id.clone();
@@ -768,7 +778,7 @@ async fn main() {
                             code
                         }
                         Err(e) => {
-                            eprintln!("ERROR: {}", e);
+                            tracing::error!("{}", e);
                             1
                         }
                     }

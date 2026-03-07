@@ -20,6 +20,27 @@ impl PlanStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(self, PlanStatus::Completed | PlanStatus::Cancelled)
     }
+
+    pub fn try_approve(self) -> Result<PlanStatus, String> {
+        match self {
+            PlanStatus::Draft => Ok(PlanStatus::Approved),
+            other => Err(format!("cannot approve plan in {:?} state", other)),
+        }
+    }
+
+    pub fn try_complete(self) -> Result<PlanStatus, String> {
+        match self {
+            PlanStatus::Approved => Ok(PlanStatus::Completed),
+            other => Err(format!("cannot complete plan in {:?} state", other)),
+        }
+    }
+
+    pub fn try_cancel(self) -> Result<PlanStatus, String> {
+        if self.is_terminal() {
+            return Err(format!("cannot cancel plan in terminal {:?} state", self));
+        }
+        Ok(PlanStatus::Cancelled)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -352,6 +373,24 @@ pub trait TrackPlan {
     fn executable_plan_issues(&self) -> Vec<String>;
     fn is_empty(&self) -> bool {
         self.tasks_len() == 0 || self.batches_len() == 0
+    }
+
+    fn approve(&mut self) -> Result<(), String> {
+        let next = self.status().try_approve()?;
+        self.set_status(next);
+        Ok(())
+    }
+
+    fn complete(&mut self) -> Result<(), String> {
+        let next = self.status().try_complete()?;
+        self.set_status(next);
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), String> {
+        let next = self.status().try_cancel()?;
+        self.set_status(next);
+        Ok(())
     }
 }
 

@@ -950,7 +950,7 @@ mod tests {
             let user = messages
                 .iter()
                 .rev()
-                .find(|m| m.role == "user")
+                .find(|m| m.role == react_core::llm::ChatRole::User)
                 .map(|m| m.content.clone())
                 .unwrap_or_default();
             let v: serde_json::Value = serde_json::from_str(&user)
@@ -1057,7 +1057,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1190,7 +1190,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1288,7 +1288,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1415,7 +1415,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1515,7 +1515,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1617,7 +1617,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1749,7 +1749,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1862,7 +1862,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

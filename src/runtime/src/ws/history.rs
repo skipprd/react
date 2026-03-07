@@ -34,7 +34,7 @@ pub(super) async fn build_history(
     limit_opt: Option<i32>,
 ) -> Result<(Vec<api::HistoryResponseMessagesInner>, Option<i32>), String> {
     let limit = limit_opt.unwrap_or(50).max(1);
-    let log = store.get(thread_id).await?;
+    let log = store.get(thread_id).await.map_err(|e| e.to_string())?;
     let mut tseq: i32 = 0;
     let mut all_msgs: Vec<api::HistoryResponseMessagesInner> = Vec::new();
     for step in log.steps.iter() {

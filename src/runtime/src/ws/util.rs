@@ -1,6 +1,9 @@
 use serde_json::Value;
 use chrono::Utc;
 
+pub(super) const DEFAULT_INITIAL_PHASE: &str = "preflight";
+pub(super) const DEFAULT_AGENT_TYPE: &str = "ask";
+
 pub(super) fn env_bool(key: &str, default: bool) -> bool {
     let dv = if default { "1" } else { "0" };
     match std::env::var(key).unwrap_or_else(|_| dv.to_string()).trim() {

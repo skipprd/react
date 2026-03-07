@@ -112,7 +112,8 @@ async fn ensure_dbt_utils_package(ctx: &AgentCtx) -> Result<Option<RemediationDi
     .await?;
     ctx.storage
         .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/yaml")
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
     if outcome.base_sha256 == outcome.new_sha256 {
         return Ok(None);
     }
@@ -481,7 +482,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -586,7 +587,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -716,7 +717,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -872,7 +873,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -987,7 +988,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1090,7 +1091,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

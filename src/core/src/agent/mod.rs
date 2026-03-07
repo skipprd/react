@@ -1,8 +1,7 @@
 use serde_json::Value;
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::capability::CapabilityMap;
 use crate::keyspace::Keyspace;
 use crate::providers::VectorStore;
 use crate::schema_registry::{AgentStepTypeV1, AgentStepV1, SchemaId};
@@ -47,20 +46,24 @@ pub struct AgentCtx {
     pub thread_store: Option<ThreadStore>,
     pub exec_ctx: Option<ExecutionContext>,
     pub resolved_config: Option<Arc<crate::resolved_config::ReactResolvedConfig>>,
-    pub capabilities: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+    pub capabilities: CapabilityMap,
+}
+
+impl std::fmt::Debug for AgentCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AgentCtx { .. }")
+    }
 }
 
 impl AgentCtx {
     /// Retrieve a suite-specific capability by concrete type.
     pub fn capability<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.capabilities
-            .get(&TypeId::of::<T>())
-            .and_then(|a| a.clone().downcast::<T>().ok())
+        self.capabilities.get::<T>()
     }
 
     /// Store a suite-specific capability by concrete type.
     pub fn set_capability<T: Send + Sync + 'static>(&mut self, val: Arc<T>) {
-        self.capabilities.insert(TypeId::of::<T>(), val);
+        self.capabilities.set(val);
     }
 }
 
@@ -132,7 +135,7 @@ pub trait AgentPolicy: Send + Sync {
     /// Optional per-tool timeout override (in seconds).
     ///
     /// By default, tool calls are bounded by `AgentCtx.per_step_timeout_secs`. Suites can raise the
-    /// timeout for known-slow tools (e.g. warehouse queries or LLM-backed generators) without
+    /// timeout for known-slow tools (e.g. external data sources or LLM-backed generators) without
     /// globally increasing the timeout for every tool.
     fn timeout_for_tool(&self, _action_name: &str) -> Option<u64> {
         None
@@ -251,6 +254,10 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
 
     fn timeout_for_tool(&self, action_name: &str) -> Option<u64> {
         self.inner.timeout_for_tool(action_name)
+    }
+
+    fn clean_tool_name(&self, name: &str, args: &Value) -> String {
+        self.inner.clean_tool_name(name, args)
     }
 
     async fn handle_complete(
@@ -424,7 +431,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -493,7 +500,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -548,7 +555,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -664,7 +671,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -734,7 +741,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -857,7 +864,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             // Critical: only wrap patch-protocol objects when exec_ctx exists.
@@ -970,7 +977,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1037,7 +1044,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

@@ -91,9 +91,8 @@ pub async fn dispatch_phase_transition(
         )
         .await
     {
-        // Best-effort rollback to avoid control-state/log divergence.
         let _ = state_manager::replace_execution_state(store, thread_id, prev_state).await;
-        return Err(e);
+        return Err(e.to_string());
     }
 
     Ok(())

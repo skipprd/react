@@ -29,7 +29,7 @@ pub async fn load_execution_state_strict(
         .await
     {
         Ok(loaded) => loaded,
-        Err(e) if e.to_ascii_lowercase().contains("not found") => return Ok(None),
+        Err(e) if e.to_string().to_ascii_lowercase().contains("not found") => return Ok(None),
         Err(e) => {
             return Err(format!(
                 "failed to load thread_state for execution_state: {e}"
@@ -67,8 +67,8 @@ async fn persist_execution_state(
         .map_err(|e| format!("execution_state invariant check failed on save: {e}"))?;
     thread_store
         .save_typed_control_state(thread_id, DATA_ENGINEER_SUITE_ID, state)
-        .await?;
-    // Keep existing mirrored phase summary behavior.
+        .await
+        .map_err(|e| e.to_string())?;
     let mut st = ThreadState {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: thread_id.to_string(),
@@ -79,7 +79,7 @@ async fn persist_execution_state(
         .current_phase
         .as_ref()
         .map(|p| p.as_str().to_string());
-    thread_store.put_thread_state(thread_id, &st).await
+    thread_store.put_thread_state(thread_id, &st).await.map_err(|e| e.to_string())
 }
 
 pub async fn mutate_execution_state(

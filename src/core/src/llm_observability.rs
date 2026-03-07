@@ -141,6 +141,9 @@ pub struct BuiltParts {
     pub part_hashes: BTreeMap<String, String>,
 }
 
+const MAX_PART_SEEN_ENTRIES: usize = 10_000;
+const MAX_CALL_ID_ENTRIES: usize = 10_000;
+
 static PART_SEEN_CACHE: OnceCell<DashSet<String>> = OnceCell::new();
 fn part_seen_cache() -> &'static DashSet<String> {
     PART_SEEN_CACHE.get_or_init(|| DashSet::new())
@@ -151,6 +154,20 @@ fn call_id_cache() -> &'static DashMap<String, u64> {
     CALL_ID_CACHE.get_or_init(|| DashMap::new())
 }
 
+fn evict_part_seen_cache_if_full() {
+    let cache = part_seen_cache();
+    if cache.len() > MAX_PART_SEEN_ENTRIES {
+        cache.clear();
+    }
+}
+
+fn evict_call_id_cache_if_full() {
+    let cache = call_id_cache();
+    if cache.len() > MAX_CALL_ID_ENTRIES {
+        cache.clear();
+    }
+}
+
 pub fn next_call_id(thread_id: &str) -> u64 {
     let mut entry = call_id_cache()
         .get(thread_id)
@@ -158,6 +175,7 @@ pub fn next_call_id(thread_id: &str) -> u64 {
         .unwrap_or(0);
     entry += 1;
     call_id_cache().insert(thread_id.to_string(), entry);
+    evict_call_id_cache_if_full();
     entry
 }
 
@@ -186,6 +204,7 @@ pub fn build_parts_for_thread(thread_id: &str, parts: &[PartInput]) -> BuiltPart
             let chunk_hash = sha256_hex_str(&chunk_raw);
             let chunk_seen_key = format!("{}::{}::{}", thread_id, name, chunk_hash);
             let is_seen = !part_seen_cache().insert(chunk_seen_key);
+            evict_part_seen_cache_if_full();
             if is_seen {
                 rendered_chunks.push(format!("unchanged: {}", chunk_hash));
             } else {
@@ -220,11 +239,11 @@ mod tests {
     fn prompt_hash_is_stable_for_same_messages() {
         let msgs = vec![
             ChatMessage {
-                role: "system".to_string(),
+                role: crate::llm::ChatRole::System,
                 content: "s".to_string(),
             },
             ChatMessage {
-                role: "user".to_string(),
+                role: crate::llm::ChatRole::User,
                 content: "u".to_string(),
             },
         ];

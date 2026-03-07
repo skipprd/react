@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use once_cell::sync::OnceCell;
 use serde_json::Value;
 
+use super::util::DEFAULT_INITIAL_PHASE;
 use crate::ws::api_gen::src::models as api;
 
 use crossterm::cursor::{Hide, MoveTo, MoveToColumn, Show};
@@ -590,7 +591,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
             // DBT validate spans should be replaceable within the same phase:
             // - A new "compile" validate attempt should clear any stale prior DBT validate lines.
             // - A new "build"/"full" validate should replace only that specific kind.
-            if ev.name == "dbt_validate" {
+            if ev.name == DBT_VALIDATE_TOOL_NAME {
                 let label = ev.clean_name.clone().unwrap_or_else(|| ev.name.clone());
                 if let (Some(ref ph), Some(kind)) = (
                     effective_phase.as_ref(),
@@ -658,7 +659,7 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
             };
             let effective_phase: Option<String> =
                 ev.phase.clone().or_else(|| tv.current_phase.clone());
-            let (detail, description) = if ev.name == "dbt_validate" && st == SpanStatus::Failed {
+            let (detail, description) = if ev.name == DBT_VALIDATE_TOOL_NAME && st == SpanStatus::Failed {
                 // Prefer condensed, accurate error summary when available in payload.
                 let from_payload = ev
                     .payload
@@ -880,37 +881,10 @@ fn fmt_ms(ms: i64) -> String {
     }
 }
 
-fn normalize_validate_dbt_label(label: &str) -> String {
-    // Prefer a compact label: "Validate DBT Build" instead of "Validate DBT (build)".
-    let s = label.trim();
-    s.replace(" (build)", " Build")
-        .replace(" (compile)", " Compile")
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DbtValidateKind {
-    Compile,
-    Build,
-    Full,
-}
-
-fn dbt_validate_kind_from_label(label: &str) -> Option<DbtValidateKind> {
-    let s = label.trim().to_ascii_lowercase();
-    if !s.contains("validate dbt") {
-        return None;
-    }
-    if s.contains("compile") {
-        return Some(DbtValidateKind::Compile);
-    }
-    if s.contains("build") {
-        return Some(DbtValidateKind::Build);
-    }
-    Some(DbtValidateKind::Full)
-}
-
-fn is_dbt_validate_label(label: &str) -> bool {
-    label.trim().to_ascii_lowercase().contains("validate dbt")
-}
+use super::terminal_dbt::{
+    DBT_VALIDATE_TOOL_NAME, DbtValidateKind, dbt_validate_kind_from_label,
+    is_dbt_validate_label, normalize_validate_dbt_label, validate_dbt_sort_rank,
+};
 
 fn condense_one_line(s: &str, max_len: usize) -> String {
     let mut out = s
@@ -968,24 +942,6 @@ fn first_nonempty_line(s: &str) -> Option<&str> {
         }
     }
     None
-}
-
-fn validate_dbt_sort_rank(label: &str) -> Option<u8> {
-    // Force stable ordering among Validate DBT items, even if tool_end arrives late/missing tool_start.
-    // Keep this conservative: only rank labels that clearly start with the DBT validate prefix.
-    let s = normalize_validate_dbt_label(label)
-        .trim()
-        .to_ascii_lowercase();
-    if !s.starts_with("validate dbt") {
-        return None;
-    }
-    if s.starts_with("validate dbt compile") {
-        return Some(0);
-    }
-    if s.starts_with("validate dbt build") {
-        return Some(1);
-    }
-    Some(2)
 }
 
 fn span_display_label(s: &SpanState) -> String {
@@ -1199,6 +1155,22 @@ fn summarize_plan_workgroups(
     ))
 }
 
+/// Data-driven mapping from phase stage names to the workgroup kinds they cover.
+/// Adding a new stage→workgroup mapping is just adding a line to this constant.
+const PHASE_STAGE_WORKGROUP_MAP: &[(&str, &[api::PlanWorkGroupKind])] = &[
+    ("author", &[api::PlanWorkGroupKind::AuthorSql, api::PlanWorkGroupKind::AuthorSchema]),
+    ("validate", &[api::PlanWorkGroupKind::Validate]),
+];
+
+fn workgroup_kinds_for_stage(stage: &str) -> &'static [api::PlanWorkGroupKind] {
+    for &(s, kinds) in PHASE_STAGE_WORKGROUP_MAP {
+        if s == stage {
+            return kinds;
+        }
+    }
+    &[]
+}
+
 fn phase_plan_binding<'a>(ph: &'a str) -> Option<(&'a str, &'a str)> {
     let (kind, stage) = ph.rsplit_once('_')?;
     if kind.is_empty() || stage.is_empty() {
@@ -1213,25 +1185,19 @@ fn phase_detail_summary(t: &ThreadView, ph: &str) -> Option<String> {
     }
     let (kind, stage) = phase_plan_binding(ph)?;
     let p = t.plans_by_kind.get(kind)?;
-    match stage {
-        "plan" => Some({
-            let st = format!("{:?}", p.status).to_lowercase();
-            format!(
-                "{kind} plan {}  {}",
-                short_plan_key(p.plan_key.as_str()),
-                st
-            )
-        }),
-        "author" => summarize_plan_workgroups(
-            p,
-            &[
-                api::PlanWorkGroupKind::AuthorSql,
-                api::PlanWorkGroupKind::AuthorSchema,
-            ],
-        ),
-        "validate" => summarize_plan_workgroups(p, &[api::PlanWorkGroupKind::Validate]),
-        _ => None,
+    if stage == "plan" {
+        let st = format!("{:?}", p.status).to_lowercase();
+        return Some(format!(
+            "{kind} plan {}  {}",
+            short_plan_key(p.plan_key.as_str()),
+            st
+        ));
     }
+    let wg_kinds = workgroup_kinds_for_stage(stage);
+    if wg_kinds.is_empty() {
+        return None;
+    }
+    summarize_plan_workgroups(p, wg_kinds)
 }
 fn phase_reason_summary(t: &ThreadView, ph: &str) -> Option<String> {
     let rc = t
@@ -1588,7 +1554,7 @@ fn render_thread_detail(t: &ThreadView, spinner_idx: usize) -> Vec<String> {
     let cur = t
         .current_phase
         .clone()
-        .unwrap_or_else(|| "preflight".to_string());
+        .unwrap_or_else(|| DEFAULT_INITIAL_PHASE.to_string());
     let done: std::collections::HashSet<String> = t.completed_phases.iter().cloned().collect();
     // Phases can be re-entered (e.g. actionable review -> <kind>_plan -> <kind>_author).
     // Additionally, phases "after" the current one should not render as completed, even if
@@ -1771,14 +1737,7 @@ fn render_thread_detail(t: &ThreadView, spinner_idx: usize) -> Vec<String> {
         // Workgroups render under logical plan phases (<kind>_author, <kind>_validate).
         if let Some((kind, stage)) = phase_plan_binding(ph.as_str()) {
             if let Some(p) = t.plans_by_kind.get(kind) {
-                let allowed_kinds: &[api::PlanWorkGroupKind] = match stage {
-                    "author" => &[
-                        api::PlanWorkGroupKind::AuthorSql,
-                        api::PlanWorkGroupKind::AuthorSchema,
-                    ],
-                    "validate" => &[api::PlanWorkGroupKind::Validate],
-                    _ => &[],
-                };
+                let allowed_kinds = workgroup_kinds_for_stage(stage);
                 if !allowed_kinds.is_empty() {
                     render_plan_workgroups_compact(
                         &mut lines,
@@ -1837,7 +1796,7 @@ mod tests {
         let mut tv = ThreadView::default();
         tv._thread_id = "t".to_string();
         tv.phases = vec![
-            "preflight".to_string(),
+            DEFAULT_INITIAL_PHASE.to_string(),
             "cleanse_plan".to_string(),
             "cleanse_author".to_string(),
             "cleanse_validate".to_string(),
@@ -1847,7 +1806,7 @@ mod tests {
 
         // Simulate historical completion of later phases.
         tv.completed_phases = vec![
-            "preflight".to_string(),
+            DEFAULT_INITIAL_PHASE.to_string(),
             "cleanse_plan".to_string(),
             "cleanse_author".to_string(),
             "cleanse_validate".to_string(),
@@ -1890,14 +1849,14 @@ mod tests {
             api::PlanTaskStatus::InProgress,
             vec![ci.clone()],
         );
-        task1.task_kind = Some("cleanse".to_string());
+        task1.task_kind = Some("test_kind".to_string());
         task1.label = Some("ds1".to_string());
         let mut task2 = api::PlanTask::new(
             "t2".to_string(),
             api::PlanTaskStatus::InProgress,
             vec![ci.clone()],
         );
-        task2.task_kind = Some("cleanse".to_string());
+        task2.task_kind = Some("test_kind".to_string());
         task2.label = Some("ds2".to_string());
         let wg = api::PlanWorkGroup::new(
             "wg1".to_string(),
@@ -1909,7 +1868,7 @@ mod tests {
             ],
         );
         let plan = api::PlanSnapshot::new(
-            "cleanse".to_string(),
+            "test_plan".to_string(),
             "plan_k".to_string(),
             api::PlanStatus::Approved,
             vec![task1, task2],
@@ -1918,7 +1877,7 @@ mod tests {
 
         // Focus moved to t2, but t1 is sticky-expanded.
         let preferred = WorkItemKey {
-            plan_kind: Some("cleanse".to_string()),
+            plan_kind: Some("test_plan".to_string()),
             plan_key: Some("plan_k".to_string()),
             workgroup_id: Some("wg1".to_string()),
             task_id: Some("t2".to_string()),
@@ -1926,7 +1885,7 @@ mod tests {
         };
         let mut expanded: std::collections::HashSet<WorkItemKey> = std::collections::HashSet::new();
         expanded.insert(WorkItemKey {
-            plan_kind: Some("cleanse".to_string()),
+            plan_kind: Some("test_plan".to_string()),
             plan_key: Some("plan_k".to_string()),
             workgroup_id: Some("wg1".to_string()),
             task_id: Some("t1".to_string()),
@@ -1937,7 +1896,7 @@ mod tests {
         let mut lines: Vec<String> = Vec::new();
         render_plan_workgroups_compact(
             &mut lines,
-            "cleanse",
+            "test_plan",
             &plan,
             &span_buckets,
             &expanded,
@@ -1964,14 +1923,14 @@ mod tests {
             api::PlanTaskStatus::InProgress,
             vec![ci.clone()],
         );
-        task1.task_kind = Some("cleanse".to_string());
+        task1.task_kind = Some("test_kind".to_string());
         task1.label = Some("ds1".to_string());
         let mut task2 = api::PlanTask::new(
             "t2".to_string(),
             api::PlanTaskStatus::InProgress,
             vec![ci.clone()],
         );
-        task2.task_kind = Some("cleanse".to_string());
+        task2.task_kind = Some("test_kind".to_string());
         task2.label = Some("ds2".to_string());
         let wg = api::PlanWorkGroup::new(
             "wg1".to_string(),
@@ -1983,7 +1942,7 @@ mod tests {
             ],
         );
         let plan = api::PlanSnapshot::new(
-            "cleanse".to_string(),
+            "test_plan".to_string(),
             "plan_k".to_string(),
             api::PlanStatus::Approved,
             vec![task1, task2],
@@ -1991,7 +1950,7 @@ mod tests {
         );
 
         let preferred = WorkItemKey {
-            plan_kind: Some("cleanse".to_string()),
+            plan_kind: Some("test_plan".to_string()),
             plan_key: Some("plan_k".to_string()),
             workgroup_id: Some("wg1".to_string()),
             task_id: Some("t2".to_string()),
@@ -2001,7 +1960,7 @@ mod tests {
         let mut span_buckets: HashMap<WorkItemKey, Vec<SpanAgg>> = HashMap::new();
         span_buckets.insert(
             WorkItemKey {
-                plan_kind: Some("cleanse".to_string()),
+                plan_kind: Some("test_plan".to_string()),
                 plan_key: Some("plan_k".to_string()),
                 workgroup_id: Some("wg1".to_string()),
                 task_id: Some("t1".to_string()),
@@ -2021,7 +1980,7 @@ mod tests {
         let mut lines: Vec<String> = Vec::new();
         render_plan_workgroups_compact(
             &mut lines,
-            "cleanse",
+            "test_plan",
             &plan,
             &span_buckets,
             &expanded,

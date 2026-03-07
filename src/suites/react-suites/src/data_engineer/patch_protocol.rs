@@ -2,7 +2,7 @@ use serde_json::{Map, Value};
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::llm::ChatMessage;
+use react_core::llm::{ChatMessage, ChatRole};
 use react_core::llm::LlmCallOptions;
 use crate::data_engineer::providers::DatasetCatalogProvider;
 
@@ -391,11 +391,11 @@ pub async fn llm_patch_loop_single_file(
 
     let mut messages: Vec<ChatMessage> = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: sys_prompt,
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: initial_user.clone(),
         },
     ];
@@ -480,7 +480,7 @@ pub async fn llm_patch_loop_single_file(
             })
             .to_string();
             messages.push(ChatMessage {
-                role: "user".to_string(),
+                role: ChatRole::User,
                 content: repair,
             });
             continue;
@@ -511,7 +511,7 @@ pub async fn llm_patch_loop_single_file(
             })
             .to_string();
             messages.push(ChatMessage {
-                role: "user".to_string(),
+                role: ChatRole::User,
                 content: repair,
             });
             continue;
@@ -575,7 +575,7 @@ pub async fn llm_patch_loop_single_file(
         })
         .to_string();
         messages.push(ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: repair,
         });
     }
@@ -766,7 +766,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

@@ -694,7 +694,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));

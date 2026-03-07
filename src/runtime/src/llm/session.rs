@@ -120,7 +120,7 @@ impl LargeLanguageModel for RouterModel {
             messages: messages
                 .iter()
                 .map(|m| crate::llm::types::ChatMessage {
-                    role: m.role.clone(),
+                    role: m.role.to_string(),
                     content: m.content.clone(),
                 })
                 .collect(),

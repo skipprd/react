@@ -1,6 +1,6 @@
 use crate::llm::adapter::Adapter;
 use crate::llm::types::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 pub struct OpenAIResponsesAdapter;
 impl OpenAIResponsesAdapter {
@@ -64,28 +64,6 @@ struct RespText {
     /// - `{ "type": "json_schema", "name": "...", "schema": {...}, "strict": true }`
     format: serde_json::Value,
 }
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct RespResp {
-    #[serde(default)]
-    output_text: Option<String>,
-    #[serde(default)]
-    output: Vec<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-struct OaiEmbReq {
-    model: String,
-    input: Vec<String>,
-}
-#[derive(Deserialize)]
-struct OaiEmbData {
-    embedding: Vec<f32>,
-}
-#[derive(Deserialize)]
-struct OaiEmbResp {
-    data: Vec<OaiEmbData>,
-}
 
 impl Adapter for OpenAIResponsesAdapter {
     fn capabilities(&self, _model: &str) -> Capabilities {
@@ -100,19 +78,12 @@ impl Adapter for OpenAIResponsesAdapter {
     fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, String> {
         let mut msgs: Vec<RespMsg> = Vec::new();
         for m in req.messages.iter() {
-            let role = if m.role.eq_ignore_ascii_case("system") {
-                "system"
-            } else if m.role.eq_ignore_ascii_case("assistant") {
-                "assistant"
-            } else {
-                "user"
-            };
             let part = RespPart {
                 r#type: "input_text".to_string(),
                 text: m.content.clone(),
             };
             msgs.push(RespMsg {
-                role: role.to_string(),
+                role: m.role.to_string(),
                 content: vec![part],
             });
         }
@@ -180,85 +151,10 @@ impl Adapter for OpenAIResponsesAdapter {
     }
 
     fn parse_chat_http(&self, resp: &ProviderHttpResponse) -> Result<ChatResponse, String> {
-        fn text_from_part(p: &serde_json::Value) -> Option<String> {
-            // Standard: { "type":"output_text", "text":"..." }
-            if let Some(s) = p.get("text").and_then(|x| x.as_str()) {
-                if !s.trim().is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-            // Alternate: { "type":"output_text", "text": { "value":"..." } }
-            if let Some(s) = p
-                .get("text")
-                .and_then(|x| x.get("value"))
-                .and_then(|x| x.as_str())
-            {
-                if !s.trim().is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-            // Refusal: { "type":"refusal", "refusal":"..." }
-            if let Some(s) = p.get("refusal").and_then(|x| x.as_str()) {
-                if !s.trim().is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-            None
-        }
-
-        fn extract_text(v: &serde_json::Value) -> Option<String> {
-            // Best-case: Responses convenience field.
-            if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
-                if !s.trim().is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-            // Some payloads include {"error":{...}} even when proxied weirdly; surface it.
-            if let Some(msg) = v
-                .get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(|x| x.as_str())
-            {
-                if !msg.trim().is_empty() {
-                    return Some(format!("LLM_ERROR: {msg}"));
-                }
-            }
-            // General: walk output items and collect any content text/refusal.
-            let mut chunks: Vec<String> = Vec::new();
-            if let Some(out) = v.get("output").and_then(|x| x.as_array()) {
-                for item in out {
-                    // Top-level output_text/refusal variants
-                    if let Some(s) = item.get("text").and_then(|x| x.as_str()) {
-                        if !s.trim().is_empty() {
-                            chunks.push(s.to_string());
-                        }
-                    }
-                    if let Some(s) = item.get("refusal").and_then(|x| x.as_str()) {
-                        if !s.trim().is_empty() {
-                            chunks.push(s.to_string());
-                        }
-                    }
-                    if let Some(content) = item.get("content").and_then(|x| x.as_array()) {
-                        for part in content {
-                            if let Some(s) = text_from_part(part) {
-                                chunks.push(s);
-                            }
-                        }
-                    }
-                }
-            }
-            let joined = chunks.join("");
-            if joined.trim().is_empty() {
-                None
-            } else {
-                Some(joined)
-            }
-        }
-
         let v: serde_json::Value =
             serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
         let raw = Some(v.clone());
-        if let Some(t) = extract_text(&v) {
+        if let Some(t) = extract_response_text(&v) {
             return Ok(ChatResponse { text: t, raw });
         }
         let snippet = if resp.body_text.len() > 1200 {

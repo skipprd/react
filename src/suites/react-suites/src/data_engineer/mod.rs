@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use self::policy_sql_validated::SqlValidatedPolicy;
 use self::types::DatasetCandidate;
 use self::preflight::PreflightProvider;
-use react_core::suite::{FlowFrame, Suite, SuiteCtx};
+use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
@@ -173,7 +173,11 @@ fn lock_prompt_for_plan(
 }
 
 pub(crate) enum PhaseExecutorOutcome {
-    Continue,
+    /// Phase still active, run another iteration.
+    StayInPhase,
+    /// Transition was committed; reload state and continue.
+    TransitionCommitted,
+    /// Phase complete; return these frames to the caller.
     Return(Vec<FlowFrame>),
 }
 
@@ -509,8 +513,8 @@ impl DataEngineerSuite {
         profile: PlanningLlmProfile,
         prompt_id: &'static str,
         thread_id: Option<String>,
-    ) -> LlmCallOptions {
-        match profile {
+    ) -> Result<LlmCallOptions, String> {
+        Ok(match profile {
             PlanningLlmProfile::DiscoveryCleanse => {
                 let max_tokens = std::env::var("LLM_PLAN_MAX_TOKENS_CLEANSE")
                     .ok()
@@ -586,7 +590,7 @@ impl DataEngineerSuite {
                         name: "suite.plan_design_critique.v1".to_string(),
                         schema: crate::data_engineer::plan_schema::strict_schema_for::<
                             crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
-                        >(),
+                        >()?,
                     },
                     temperature: Some(0.10),
                     top_p: Some(1.0),
@@ -646,7 +650,7 @@ impl DataEngineerSuite {
                     timeout_secs: None,
                 }
             }
-        }
+        })
     }
 
     fn first_column_name_from_sql_schema_observation(obs: &serde_json::Value) -> Option<String> {
@@ -1101,7 +1105,7 @@ impl DataEngineerSuite {
         track: TrackKind,
         planning_context: &str,
     ) -> Result<String, String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
@@ -1116,16 +1120,16 @@ impl DataEngineerSuite {
             PlanningLlmProfile::DesignMemo,
             "data_engineer.plan_design_memo",
             ctx.thread_id.clone(),
-        );
+        )?;
         ctx.llm
             .chat(
                 &[
                     ChatMessage {
-                        role: "system".to_string(),
+                        role: ChatRole::System,
                         content: sys,
                     },
                     ChatMessage {
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: user,
                     },
                 ],
@@ -1140,7 +1144,7 @@ impl DataEngineerSuite {
         planning_context: &str,
         memo: &str,
     ) -> Result<crate::data_engineer::plan_schema::PlanDesignCritiqueV1, String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
@@ -1150,7 +1154,7 @@ impl DataEngineerSuite {
             PlanningLlmProfile::DesignCritique,
             "data_engineer.plan_design_critique",
             ctx.thread_id.clone(),
-        );
+        )?;
         let sys = prompts::plan::plan_design_critique_system_prompt(kind);
         let user = format!(
             "Planning kind: {kind}\n\nContext:\n{}\n\nDesign memo:\n{}\n\nReturn critique JSON.",
@@ -1160,11 +1164,11 @@ impl DataEngineerSuite {
         let raw = ctx.llm_chat(
             &[
                 ChatMessage {
-                    role: "system".to_string(),
+                    role: ChatRole::System,
                     content: sys,
                 },
                 ChatMessage {
-                    role: "user".to_string(),
+                    role: ChatRole::User,
                     content: user,
                 },
             ],
@@ -1181,7 +1185,7 @@ impl DataEngineerSuite {
         memo: &str,
         critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
     ) -> Result<String, String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         let kind = if track.is_cleanse() {
             "cleanse_plan"
         } else {
@@ -1198,15 +1202,15 @@ impl DataEngineerSuite {
             PlanningLlmProfile::DesignMemo,
             "data_engineer.plan_design_memo_revise",
             ctx.thread_id.clone(),
-        );
+        )?;
         ctx.llm_chat(
             &[
                 ChatMessage {
-                    role: "system".to_string(),
+                    role: ChatRole::System,
                     content: sys,
                 },
                 ChatMessage {
-                    role: "user".to_string(),
+                    role: ChatRole::User,
                     content: user,
                 },
             ],
@@ -1314,17 +1318,17 @@ Apply these fixes in the output.",
         memo: &str,
         critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
     ) -> Result<crate::data_engineer::plan_schema::ModelPlanCandidatesV1, String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         let mut opts = Self::planning_llm_options(
             PlanningLlmProfile::SkeletonOrCandidates,
             "data_engineer.model_plan_candidates",
             ctx.thread_id.clone(),
-        );
+        )?;
         opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
             name: "suite.model_plan_candidates.v1".to_string(),
             schema: crate::data_engineer::plan_schema::strict_schema_for::<
                 crate::data_engineer::plan_schema::ModelPlanCandidatesV1,
-            >(),
+            >()?,
         };
         let sys = prompts::plan::model_plan_candidates_system_prompt();
         let user = format!(
@@ -1336,11 +1340,11 @@ Apply these fixes in the output.",
         let raw = ctx.llm_chat(
             &[
                 ChatMessage {
-                    role: "system".to_string(),
+                    role: ChatRole::System,
                     content: sys.to_string(),
                 },
                 ChatMessage {
-                    role: "user".to_string(),
+                    role: ChatRole::User,
                     content: user,
                 },
             ],
@@ -1667,7 +1671,7 @@ Apply these fixes in the output.",
         plan: &mut crate::data_engineer::plan::CleansePlan,
         task_ids: &[String],
     ) -> Result<(), String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
             let chunk_vec = chunk.to_vec();
             let summary = crate::data_engineer::plan::summarize_cleanse_plan(plan, 50);
@@ -1705,11 +1709,11 @@ Apply these fixes in the output.",
             let reason_memo = ctx.llm_chat(
                 &[
                     ChatMessage {
-                        role: "system".to_string(),
+                        role: ChatRole::System,
                         content: prompts::plan::plan_enrichment_reason_system_prompt(),
                     },
                     ChatMessage {
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: reason_user,
                     },
                 ],
@@ -1717,7 +1721,7 @@ Apply these fixes in the output.",
                     PlanningLlmProfile::EnrichmentReason,
                     "data_engineer.cleanse_plan_enrich_reason",
                     ctx.thread_id.clone(),
-                ),
+                )?,
             )
             .await?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
@@ -1725,21 +1729,21 @@ Apply these fixes in the output.",
                 PlanningLlmProfile::EnrichmentCompile,
                 "data_engineer.cleanse_plan_enrich",
                 ctx.thread_id.clone(),
-            );
+            )?;
             opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
                 name: "suite.cleanse_plan_enrichment.v1".to_string(),
                 schema: crate::data_engineer::plan_schema::strict_schema_for::<
                     crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
-                >(),
+                >()?,
             };
             let raw = ctx.llm_chat(
                 &[
                     ChatMessage {
-                        role: "system".to_string(),
+                        role: ChatRole::System,
                         content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
                     },
                     ChatMessage {
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: compile_user,
                     },
                 ],
@@ -1780,11 +1784,11 @@ Apply these fixes in the output.",
                 let retry_raw = ctx.llm_chat(
                     &[
                         ChatMessage {
-                            role: "system".to_string(),
+                            role: ChatRole::System,
                             content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
                         },
                         ChatMessage {
-                            role: "user".to_string(),
+                            role: ChatRole::User,
                             content: retry_user,
                         },
                     ],
@@ -1833,7 +1837,7 @@ Apply these fixes in the output.",
         plan: &mut crate::data_engineer::plan::ModelPlan,
         task_ids: &[String],
     ) -> Result<(), String> {
-        use react_core::llm::ChatMessage;
+        use react_core::llm::{ChatMessage, ChatRole};
         for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
             let chunk_vec = chunk.to_vec();
             let summary = crate::data_engineer::plan::summarize_model_plan(plan, 50);
@@ -1871,11 +1875,11 @@ Apply these fixes in the output.",
             let reason_memo = ctx.llm_chat(
                 &[
                     ChatMessage {
-                        role: "system".to_string(),
+                        role: ChatRole::System,
                         content: prompts::plan::plan_enrichment_reason_system_prompt(),
                     },
                     ChatMessage {
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: reason_user,
                     },
                 ],
@@ -1883,7 +1887,7 @@ Apply these fixes in the output.",
                     PlanningLlmProfile::EnrichmentReason,
                     "data_engineer.model_plan_enrich_reason",
                     ctx.thread_id.clone(),
-                ),
+                )?,
             )
             .await?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
@@ -1891,21 +1895,21 @@ Apply these fixes in the output.",
                 PlanningLlmProfile::EnrichmentCompile,
                 "data_engineer.model_plan_enrich",
                 ctx.thread_id.clone(),
-            );
+            )?;
             opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
                 name: "suite.model_plan_enrichment.v1".to_string(),
                 schema: crate::data_engineer::plan_schema::strict_schema_for::<
                     crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
-                >(),
+                >()?,
             };
             let raw = ctx.llm_chat(
                 &[
                     ChatMessage {
-                        role: "system".to_string(),
+                        role: ChatRole::System,
                         content: prompts::plan::model_plan_enrichment_system_prompt(),
                     },
                     ChatMessage {
-                        role: "user".to_string(),
+                        role: ChatRole::User,
                         content: compile_user,
                     },
                 ],
@@ -1946,11 +1950,11 @@ Apply these fixes in the output.",
                 let retry_raw = ctx.llm_chat(
                     &[
                         ChatMessage {
-                            role: "system".to_string(),
+                            role: ChatRole::System,
                             content: prompts::plan::model_plan_enrichment_system_prompt(),
                         },
                         ChatMessage {
-                            role: "user".to_string(),
+                            role: ChatRole::User,
                             content: retry_user,
                         },
                     ],
@@ -2281,7 +2285,7 @@ Apply these fixes in the output.",
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
             vector: sctx.vector.clone(),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
@@ -2311,7 +2315,7 @@ Apply these fixes in the output.",
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.clone(),
+                kind: FlowKind::new(result.kind.clone()),
                 payload: result.payload,
                 display: result.display,
             }]),
@@ -2324,7 +2328,7 @@ Apply these fixes in the output.",
                     react_core::agent::InterruptKind::AwaitUser => "await_user",
                     react_core::agent::InterruptKind::AwaitApproval => "await_approval",
                 };
-                Ok(vec![FlowFrame::Interrupt { kind: kind_str.to_string(), prompt }])
+                Ok(vec![FlowFrame::Interrupt { kind: FlowKind::new(kind_str), prompt }])
             }
             Err(e) => Err(e),
         }
@@ -2361,7 +2365,7 @@ Apply these fixes in the output.",
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
             vector: sctx.vector.clone(),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
@@ -2392,7 +2396,7 @@ Apply these fixes in the output.",
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.clone(),
+                kind: FlowKind::new(result.kind.clone()),
                 payload: result.payload,
                 display: result.display,
             }]),
@@ -2405,7 +2409,7 @@ Apply these fixes in the output.",
                     react_core::agent::InterruptKind::AwaitUser => "await_user",
                     react_core::agent::InterruptKind::AwaitApproval => "await_approval",
                 };
-                Ok(vec![FlowFrame::Interrupt { kind: kind_str.to_string(), prompt }])
+                Ok(vec![FlowFrame::Interrupt { kind: FlowKind::new(kind_str), prompt }])
             }
             Err(e) => Err(e),
         }
@@ -2432,7 +2436,7 @@ Apply these fixes in the output.",
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
             vector: sctx.vector.clone(),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
@@ -2462,7 +2466,7 @@ Apply these fixes in the output.",
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
             vector: sctx.vector.clone(),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
@@ -2616,7 +2620,7 @@ Apply these fixes in the output.",
             )
             .await?;
             match outcome {
-                PhaseExecutorOutcome::Continue => continue,
+                PhaseExecutorOutcome::StayInPhase | PhaseExecutorOutcome::TransitionCommitted => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
             }
         }
@@ -3673,7 +3677,7 @@ mod tests {
     #[test]
     fn non_interactive_contract_rejects_await_user_for_agent_type() {
         let frames = vec![FlowFrame::Interrupt {
-            kind: "await_user".to_string(),
+            kind: FlowKind::new("await_user"),
             prompt: "x".to_string(),
         }];
         let err = DataEngineerSuite::enforce_non_interactive_contract(AgentMode::Agent, frames)
@@ -3684,7 +3688,7 @@ mod tests {
     #[test]
     fn non_interactive_contract_allows_await_user_for_non_agent_when_not_headless() {
         let frames = vec![FlowFrame::Interrupt {
-            kind: "await_user".to_string(),
+            kind: FlowKind::new("await_user"),
             prompt: "x".to_string(),
         }];
         let out = DataEngineerSuite::enforce_non_interactive_contract(AgentMode::Review, frames)

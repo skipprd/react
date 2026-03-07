@@ -536,7 +536,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: Some(store.clone()),
             exec_ctx: None,

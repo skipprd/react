@@ -1,7 +1,8 @@
+use crate::error::CoreError;
 use crate::scope::{ensure_safe_scope_segment, RequestScope};
 
 /// Percent-encode non-alphanumeric characters (except `-`, `_`, `.`) so that
-/// arbitrary identifiers (e.g. `catalog.db.table`) can be used as path segments.
+/// arbitrary identifiers (e.g. `entity.group.item`) can be used as path segments.
 pub fn encode_key_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.as_bytes() {
@@ -25,12 +26,14 @@ pub trait Keyspace: Send + Sync {
     fn threads_prefix(&self, scope: &RequestScope) -> String {
         self.scoped_prefix(scope, &["threads"])
     }
-    fn thread_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, String> {
-        ensure_safe_scope_segment("thread_id", thread_id)?;
+    fn thread_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id)
+            .map_err(|e| CoreError::Keyspace(e))?;
         Ok(self.scoped_key(scope, &["threads", &format!("{}.json", thread_id)]))
     }
-    fn thread_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, String> {
-        ensure_safe_scope_segment("thread_id", thread_id)?;
+    fn thread_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id)
+            .map_err(|e| CoreError::Keyspace(e))?;
         Ok(self.scoped_key(scope, &["state", thread_id, "state.json"]))
     }
     fn thread_artifact_key(
@@ -38,9 +41,11 @@ pub trait Keyspace: Send + Sync {
         scope: &RequestScope,
         thread_id: &str,
         artifact_id: &str,
-    ) -> Result<String, String> {
-        ensure_safe_scope_segment("thread_id", thread_id)?;
-        ensure_safe_scope_segment("artifact_id", artifact_id)?;
+    ) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id)
+            .map_err(|e| CoreError::Keyspace(e))?;
+        ensure_safe_scope_segment("artifact_id", artifact_id)
+            .map_err(|e| CoreError::Keyspace(e))?;
         Ok(self.scoped_key(
             scope,
             &["threads", &format!("{}.{}.json", thread_id, artifact_id)],
@@ -49,8 +54,9 @@ pub trait Keyspace: Send + Sync {
     fn logs_prefix(&self, scope: &RequestScope) -> String {
         self.scoped_prefix(scope, &["logs"])
     }
-    fn thread_log_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, String> {
-        ensure_safe_scope_segment("thread_id", thread_id)?;
+    fn thread_log_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id)
+            .map_err(|e| CoreError::Keyspace(e))?;
         Ok(self.scoped_key(scope, &["logs", &format!("{}.log", thread_id)]))
     }
 }
@@ -91,7 +97,7 @@ impl Keyspace for DefaultKeyspace {
 /// Local filesystem keyspace.
 ///
 /// Same key layout as DefaultKeyspace. Consumers that need file:// URIs
-/// (e.g. LanceDB) should build them from `root_dir` directly.
+/// (e.g. an embedded DB) should build them from `root_dir` directly.
 #[derive(Clone, Debug)]
 pub struct LocalKeyspace {
     pub root_dir: String,
@@ -190,12 +196,12 @@ mod tests {
             project_id: "p".into(),
         };
         assert_eq!(
-            ks.scoped_key(&scope, &["catalog", "mydb.yaml"]),
-            "t/w/p/catalog/mydb.yaml"
+            ks.scoped_key(&scope, &["section_a", "mydb.yaml"]),
+            "t/w/p/section_a/mydb.yaml"
         );
         assert_eq!(
-            ks.scoped_prefix(&scope, &["dbt"]),
-            "t/w/p/dbt/"
+            ks.scoped_prefix(&scope, &["section_b"]),
+            "t/w/p/section_b/"
         );
     }
 }

@@ -108,11 +108,11 @@ impl Tool for CatalogNoteTool {
         let chat_in_chars: usize = sys.len() + prompt.len();
         let messages = vec![
             react_core::llm::ChatMessage {
-                role: "system".to_string(),
+                role: react_core::llm::ChatRole::System,
                 content: sys.to_string(),
             },
             react_core::llm::ChatMessage {
-                role: "user".to_string(),
+                role: react_core::llm::ChatRole::User,
                 content: prompt.clone(),
             },
         ];

@@ -112,7 +112,7 @@ pub(crate) async fn clear_subjective_retries_matching(
 }
 
 /// Apply a guard-block, commit a loopback decision to the corresponding author phase,
-/// and return `PhaseExecutorOutcome::Continue`.
+/// and return `PhaseExecutorOutcome::StayInPhase`.
 pub(crate) async fn guard_block_loopback_to_author(
     thread_store: &ThreadStore,
     thread_id: &str,
@@ -142,7 +142,7 @@ pub(crate) async fn guard_block_loopback_to_author(
         crate::data_engineer::phase_contract::PhaseDecision::loopback(to_phase, Some(reason_code), detail),
     )
     .await?;
-    Ok(super::PhaseExecutorOutcome::Continue)
+    Ok(super::PhaseExecutorOutcome::StayInPhase)
 }
 
 #[cfg(test)]

@@ -216,7 +216,7 @@ if let Err(e) =
                 thread_store, thread_id, phase, vec![violation],
                 crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
             ).await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
@@ -256,7 +256,7 @@ if let Err(e) =
                 thread_store, thread_id, phase, vec![violation],
                 crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
             ).await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         SubjectiveRetryOutcome::WithinBudget(_) => {}
     }
@@ -534,7 +534,7 @@ if matches!(
         "ValidatePassPlanIncomplete",
     )
     .await?;
-    return Ok(PhaseExecutorOutcome::Continue);
+    return Ok(PhaseExecutorOutcome::TransitionCommitted);
 }
 
 // Warehouse config failures require user action.
@@ -670,7 +670,7 @@ let errs: Vec<String> = obs
             thread_store, thread_id, phase, vec![violation],
             crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
         ).await?;
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::TransitionCommitted);
     }
 }
 
@@ -779,7 +779,7 @@ crate::data_engineer::phase_contract::commit_phase_decision(
     ),
 )
 .await?;
-return Ok(PhaseExecutorOutcome::Continue);
+return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 
     }
 }

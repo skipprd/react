@@ -6,7 +6,7 @@ Goal:
 - Do NOT author the plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
 
 Hard rules:
-- At each step, call ONE tool or finish with complete.kind="plan_discovery_ready".
+- At each step, call ONE tool or finish with checkpoint.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/tables.
 - Keep outputs concise and factual.
 
@@ -21,8 +21,8 @@ Discovery requirements:
 - Prefer bounded reads and targeted probes.
 
 When finished:
-- complete.kind MUST be "plan_discovery_ready".
-- complete.payload MUST be a small JSON object:
+- checkpoint.kind MUST be "plan_discovery_ready".
+- checkpoint.payload MUST be a small JSON object:
   {"kind":"cleanse_plan","status":"ready","notes":"<short>"}.
 "#
     .to_string()
@@ -36,7 +36,7 @@ Goal:
 - Do NOT author the plan JSON in this phase; downstream deterministic stages will build skeleton and enrichment.
 
 Hard rules:
-- At each step, call ONE tool or finish with complete.kind="plan_discovery_ready".
+- At each step, call ONE tool or finish with checkpoint.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/models.
 - Keep outputs concise and factual.
 
@@ -58,8 +58,8 @@ Discovery requirements:
 - Never use metadata pseudo-SQL in run_sql (e.g. SHOW SCHEMAS / SHOW TABLES / DESCRIBE / EXPLAIN / USE).
 
 When finished:
-- complete.kind MUST be "plan_discovery_ready".
-- complete.payload MUST be a small JSON object:
+- checkpoint.kind MUST be "plan_discovery_ready".
+- checkpoint.payload MUST be a small JSON object:
   {"kind":"model_plan","status":"ready","notes":"<short>"}.
 "#
     .to_string()

@@ -1,5 +1,7 @@
-use super::util::truncate_title;
+use super::util::{truncate_title, DEFAULT_AGENT_TYPE};
 use crate::run::event_hub::EventHub;
+
+const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalSink};
 use react_core::session::{ThreadLog, ThreadStep, ThreadStore};
@@ -62,7 +64,7 @@ impl ConnState {
         if let Ok(v) = serde_json::from_str::<Value>(json) {
             if let Some(seq) = v.get("seq").and_then(|x| x.as_i64()) {
                 self.sent.push_back((seq as i32, json.to_string()));
-                while self.sent.len() > 500 {
+                while self.sent.len() > SENT_BUFFER_CAPACITY {
                     self.sent.pop_front();
                 }
             }
@@ -72,7 +74,7 @@ impl ConnState {
 
 pub(super) fn derive_thread_context(log: &ThreadLog) -> (String, String) {
     let mut suite_id = String::new();
-    let mut agent_type = "ask".to_string();
+    let mut agent_type = DEFAULT_AGENT_TYPE.to_string();
     for step in log.steps.iter() {
         match step {
             ThreadStep::SwitchSuite { to, .. } => {
@@ -141,7 +143,7 @@ pub(super) async fn synthesize_title(llm: &react_core::llm::DynLlm, question: &s
         move || {
             llm2.chat(
                 &[crate::llm::ChatMessage {
-                    role: "user".into(),
+                    role: crate::llm::ChatRole::User,
                     content: p,
                 }],
                 &react_core::llm::LlmCallOptions {

@@ -1,5 +1,5 @@
 use super::mapping::{map_exec_ctx, map_thread_event_kind, map_tool_event_status};
-use super::util::{env_truthy, truncate_str};
+use super::util::{env_truthy, truncate_str, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 use crate::ws::api_gen::src::models as api;
 use react_core::session::{
     Observation, ThreadItemError as CoreThreadItemError, ThreadItemKind as CoreThreadItemKind,
@@ -68,7 +68,7 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     }
 
     let suite_id = st.suite_id.as_deref().unwrap_or("");
-    let agent_type = st.agent_type.as_deref().unwrap_or("ask");
+    let agent_type = st.agent_type.as_deref().unwrap_or(DEFAULT_AGENT_TYPE);
     let phases: Vec<String> = reg
         .get(suite_id)
         .map(|s| s.phase_order(agent_type))
@@ -76,7 +76,7 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     let current_phase = st
         .current_phase
         .clone()
-        .unwrap_or_else(|| "preflight".to_string());
+        .unwrap_or_else(|| DEFAULT_INITIAL_PHASE.to_string());
     let completed_phases = derive_completed_phases(&phases, &current_phase, &st.items);
 
     let events: Vec<api::ThreadEvent> = timeline_events
@@ -306,7 +306,7 @@ pub(super) async fn ensure_preflight_phase_step(
     agent: &str,
     suite_id: Option<&str>,
 ) -> Result<Option<(usize, String)>, String> {
-    let log = store.get(thread_id).await?;
+    let log = store.get(thread_id).await.map_err(|e| e.to_string())?;
     let already_has_phase = log
         .steps
         .iter()
@@ -317,7 +317,7 @@ pub(super) async fn ensure_preflight_phase_step(
     let step_idx = log.steps.len();
     let ts = chrono::Utc::now().to_rfc3339();
     let mut detail = serde_json::Map::new();
-    detail.insert("phase".to_string(), serde_json::json!("preflight"));
+    detail.insert("phase".to_string(), serde_json::json!(DEFAULT_INITIAL_PHASE));
     if let Some(s) = suite_id {
         if !s.trim().is_empty() {
             detail.insert("suite_id".to_string(), serde_json::json!(s));
@@ -330,7 +330,7 @@ pub(super) async fn ensure_preflight_phase_step(
         .append_step(
             thread_id,
             ThreadStep::Phase {
-                phase: "preflight".to_string(),
+                phase: DEFAULT_INITIAL_PHASE.to_string(),
                 from_phase: None,
                 reason_code: Some("preflight_start".to_string()),
                 reason_detail: Some(serde_json::Value::Object(detail)),
@@ -411,7 +411,7 @@ pub(super) fn derive_current_phase_from_steps(steps: &[ThreadStep]) -> String {
             }
         }
     }
-    "preflight".to_string()
+    DEFAULT_INITIAL_PHASE.to_string()
 }
 
 pub(super) fn phase_at_step_idx(steps: &[ThreadStep], idx: usize) -> Option<String> {

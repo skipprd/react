@@ -1,3 +1,5 @@
+use crate::error::{CoreError, CoreResult};
+
 use super::{
     ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadState, ThreadStep,
     ThreadStore, THREAD_STATE_SCHEMA_VERSION,
@@ -17,17 +19,17 @@ impl ThreadStore {
         thread_id: &str,
         want_step_count: usize,
         step: &ThreadStep,
-    ) -> Result<(), String> {
+    ) -> CoreResult<()> {
         let mut state = self
             .get_thread_state(thread_id)
             .await
             .unwrap_or_else(|_| Self::new_thread_state(thread_id));
         let mut reset_snapshot = false;
         if state.last_materialized_step_count > want_step_count.saturating_sub(1) {
-            return Err(format!(
+            return Err(CoreError::Session(format!(
                 "thread_state materialization mismatch: state_count={} want_step_count={}",
                 state.last_materialized_step_count, want_step_count
-            ));
+            )));
         }
         if state.last_materialized_step_count < want_step_count.saturating_sub(1) {
             // Hard cutover: do not replay thread logs for state reconstruction.
@@ -141,8 +143,18 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
                 }
             }
         }
-        ThreadStep::Checkpoint { .. } => {
-            // Checkpoints are durable milestones but do NOT close the current phase.
+        ThreadStep::Checkpoint { display, ts, .. } => {
+            if let Some(ref ph) = st.current_phase {
+                let key = format!("phase:{}", ph);
+                let ent = st.items.entry(key).or_insert_with(|| ThreadItemState::phase_running(ts));
+                if let Some(d) = display {
+                    ent.last_error = Some(ThreadItemError {
+                        summary: d.clone(),
+                        tool_step_idx: None,
+                        step_ts: Some(ts.clone()),
+                    });
+                }
+            }
         }
         ThreadStep::Interrupt { prompt, ts, .. } => {
             block_current_phase(st, prompt, ts);

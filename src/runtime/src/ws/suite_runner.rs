@@ -5,7 +5,7 @@ use super::thread_state::{
     log_thread_steps_if_enabled, phase_at_step_idx, phase_runs_from_steps,
     total_completed_runtime_ms, upsert_thread_state_from_plans, ws_thread_state_snapshot_from_core,
 };
-use super::util::{env_bool, now_iso, truncate_str, ws_log_out};
+use super::util::{env_bool, now_iso, truncate_str, ws_log_out, DEFAULT_INITIAL_PHASE};
 use crate::models as m;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::TerminalEvent;
@@ -15,6 +15,8 @@ use std::collections::HashMap;
 use tokio_tungstenite::tungstenite::Message;
 
 pub(super) enum AgentFrame {
+    /// Terminal agent output. Maps to core's `FlowFrame::Complete` / `ThreadStep::Complete`.
+    /// The WS API serialises this as `FinalResponse` — the two names are synonymous.
     Final {
         kind: String,
         payload: serde_json::Value,
@@ -122,14 +124,15 @@ async fn run_agent_with_processing_suite(
                 state.next_seq(),
                 thread_id.to_string(),
                 step_idx as i32,
-                "preflight".to_string(),
+                DEFAULT_INITIAL_PHASE.to_string(),
                 ts,
                 runs,
                 0,
             );
             ev.for_cid = Some(cid.to_string());
             ev.reason_code = Some("preflight_start".to_string());
-            let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
+            let s = serde_json::to_string(&api::ServerMessage::Phase(ev))
+                .map_err(|e| format!("JSON serialization failed: {e}"))?;
             state.buffer_last(&s);
             ws_log_out(&s);
             let _ = write.send(Message::Text(s)).await;
@@ -477,25 +480,9 @@ async fn run_agent_with_processing_suite(
                             ev.phase = phase_at_step_idx(&log.steps, i);
                             let mut pm: std::collections::HashMap<String, serde_json::Value> =
                                 payload_map(payload).unwrap_or_default();
-                            if name == "dbt_validate" {
-                                for k in [
-                                    "error_summary",
-                                    "failing_nodes",
-                                    "suggested_next_files",
-                                    "runtime_failures",
-                                    "uploaded_target_files",
-                                    "deps_ok",
-                                    "parse_ok",
-                                    "compile_ok",
-                                    "run_ok",
-                                    "dialect",
-                                ] {
-                                    if pm.contains_key(k) {
-                                        continue;
-                                    }
-                                    if let Some(v) = observation.extra.get(k) {
-                                        pm.insert(k.to_string(), v.clone());
-                                    }
+                            for (k, v) in &observation.extra {
+                                if !pm.contains_key(k) {
+                                    pm.insert(k.clone(), v.clone());
                                 }
                             }
                             if !pm.is_empty() {
@@ -598,9 +585,9 @@ async fn run_agent_with_processing_suite(
                 };
                 let convert = |ff: react_core::suite::FlowFrame| -> AgentFrame {
                     match ff {
-                        react_core::suite::FlowFrame::Complete { kind, payload, display } => AgentFrame::Final { kind, payload, display },
+                        react_core::suite::FlowFrame::Complete { kind, payload, display } => AgentFrame::Final { kind: kind.0, payload, display },
                         react_core::suite::FlowFrame::Review { text, meta } => AgentFrame::Review { text, meta },
-                        react_core::suite::FlowFrame::Checkpoint { kind, payload } => AgentFrame::Review { text: kind, meta: Some(payload) },
+                        react_core::suite::FlowFrame::Checkpoint { kind, payload, display } => AgentFrame::Review { text: display.unwrap_or(kind.0), meta: Some(payload) },
                         react_core::suite::FlowFrame::Interrupt { kind, prompt } => {
                             if kind == "await_approval" {
                                 AgentFrame::AwaitApproval { prompt }
@@ -863,12 +850,12 @@ pub(super) async fn run_suite_and_frames(
                 payload,
                 display,
             } => AgentFrame::Final {
-                kind,
+                kind: kind.0,
                 payload,
                 display,
             },
             react_core::suite::FlowFrame::Review { text, meta } => AgentFrame::Review { text, meta },
-            react_core::suite::FlowFrame::Checkpoint { kind, payload } => AgentFrame::Review { text: kind, meta: Some(payload) },
+            react_core::suite::FlowFrame::Checkpoint { kind, payload, display } => AgentFrame::Review { text: display.unwrap_or(kind.0), meta: Some(payload) },
             react_core::suite::FlowFrame::Interrupt { kind, prompt } => {
                 if kind == "await_approval" {
                     AgentFrame::AwaitApproval { prompt }

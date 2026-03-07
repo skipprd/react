@@ -694,7 +694,8 @@ impl Tool for FilesTool {
 
                 ctx.storage
                     .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/plain")
-                    .await?;
+                    .await
+                    .map_err(|e| e.to_string())?;
 
                 // Best-effort cleanup: if the patch targeted an alias path like models/silver/,
                 // delete the alias object after writing the canonical object.
@@ -810,7 +811,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

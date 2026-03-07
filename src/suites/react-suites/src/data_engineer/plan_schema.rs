@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub fn strict_schema_for<T: JsonSchema>() -> Value {
+pub fn strict_schema_for<T: JsonSchema>() -> Result<Value, String> {
     react_core::schema_registry::strict_json_schema_for::<T>()
 }
 

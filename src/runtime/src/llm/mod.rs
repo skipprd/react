@@ -1,4 +1,4 @@
-pub use react_core::llm::{ChatMessage, LargeLanguageModel};
+pub use react_core::llm::{ChatMessage, ChatRole, LargeLanguageModel};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

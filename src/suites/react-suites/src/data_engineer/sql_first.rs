@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use react_core::agent::AgentCtx;
-use react_core::llm::{ChatMessage, LlmCallOptions, LlmExpectedFormat};
+use react_core::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 
 fn env_u32(key: &str) -> Option<u32> {
     std::env::var(key)
@@ -182,11 +182,11 @@ pub async fn llm_draft_sql_json(
 ) -> Result<SqlFirstDraft, String> {
     let messages = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: system,
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: user_json,
         },
     ];

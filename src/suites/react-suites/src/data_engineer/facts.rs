@@ -679,7 +679,7 @@ mod tests {
             scope,
             keyspace,
             vector: None,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),

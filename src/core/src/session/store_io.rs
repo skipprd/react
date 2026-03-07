@@ -3,8 +3,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::error::{CoreError, CoreResult};
+
+const CACHE_TTL_SECS: u64 = 5;
+
 use super::{
-    cache, CacheEntry, ControlStateEnvelope, ThreadLog, ThreadState, ThreadStep, ThreadStore,
+    CacheEntry, ControlStateEnvelope, ThreadLog, ThreadState, ThreadStep, ThreadStore,
     CONTROL_STATE_ENVELOPE_SCHEMA_VERSION, THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
 };
 
@@ -24,19 +28,20 @@ impl ThreadStore {
             storage,
             scope,
             keyspace,
+            cache: Arc::new(dashmap::DashMap::new()),
         }
     }
 
-    pub(crate) fn key(&self, thread_id: &str) -> Result<String, String> {
+    pub(crate) fn key(&self, thread_id: &str) -> CoreResult<String> {
         self.keyspace
             .thread_key(&self.scope, thread_id)
-            .map_err(|e| format!("failed to build thread key for '{thread_id}': {e}"))
+            .map_err(|e| CoreError::Session(format!("failed to build thread key for '{thread_id}': {e}")))
     }
 
-    pub(crate) fn state_key(&self, thread_id: &str) -> Result<String, String> {
+    pub(crate) fn state_key(&self, thread_id: &str) -> CoreResult<String> {
         self.keyspace
             .thread_state_key(&self.scope, thread_id)
-            .map_err(|e| format!("failed to build thread state key for '{thread_id}': {e}"))
+            .map_err(|e| CoreError::Session(format!("failed to build thread state key for '{thread_id}': {e}")))
     }
 
     fn list_prefix(&self) -> String {
@@ -49,28 +54,26 @@ impl ThreadStore {
     }
 
     fn cache_key_for(&self, key: &str) -> String {
-        // Cache is process-global; include storage identity to avoid collisions in tests
-        // (and in any multi-tenant multi-store deployments).
-        format!("{:p}|{}", Arc::as_ptr(&self.storage), key)
+        key.to_string()
     }
 
-    fn ensure_thread_log_schema(log: &ThreadLog) -> Result<(), String> {
+    fn ensure_thread_log_schema(log: &ThreadLog) -> CoreResult<()> {
         if log.schema_version != THREAD_SCHEMA_VERSION {
-            return Err(format!(
+            return Err(CoreError::Schema(format!(
                 "thread schema_version mismatch: expected {}, got {}",
                 THREAD_SCHEMA_VERSION, log.schema_version
-            ));
+            )));
         }
         Ok(())
     }
 
-    async fn load_thread_log_for_write(&self, key: &str) -> Result<ThreadLog, String> {
+    async fn load_thread_log_for_write(&self, key: &str) -> CoreResult<ThreadLog> {
         let cache_key = self.cache_key_for(key);
-        let log = if let Some(entry) = cache().get(&cache_key) {
+        let log = if let Some(entry) = self.cache.get(&cache_key) {
             entry.log.clone()
         } else if let Ok(v) = self.storage.get_json(key).await {
             serde_json::from_value::<ThreadLog>(v)
-                .map_err(|e| format!("failed to parse thread log: {e}"))?
+                .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
         } else {
             ThreadLog::default()
         };
@@ -78,15 +81,16 @@ impl ThreadStore {
         Ok(log)
     }
 
-    pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> Result<(), String> {
+    pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         log.steps.push(step.clone());
         let step_count = log.steps.len();
-        let val = serde_json::to_value(&log).map_err(|e| e.to_string())?;
+        let val = serde_json::to_value(&log)
+            .map_err(|e| CoreError::Session(format!("append_step('{}'): failed to serialize thread log: {}", thread_id, e)))?;
         self.storage.put_json(&key, &val).await?;
-        cache().insert(
+        self.cache.insert(
             cache_key,
             CacheEntry {
                 log,
@@ -94,34 +98,33 @@ impl ThreadStore {
             },
         );
 
-        // Hard cutover: step append must fail closed if thread_state materialization fails.
         if let Err(e) = self
             .materialize_thread_state_incremental(thread_id, step_count, &step)
             .await
         {
-            return Err(format!(
+            return Err(CoreError::Session(format!(
                 "thread_state_materialize_failed thread_id={} step_count={} error={}",
                 thread_id, step_count, e
-            ));
+            )));
         }
         Ok(())
     }
 
-    pub async fn get_thread_state(&self, thread_id: &str) -> Result<ThreadState, String> {
+    pub async fn get_thread_state(&self, thread_id: &str) -> CoreResult<ThreadState> {
         let key = self.state_key(thread_id)?;
         let v = self.storage.get_json(&key).await?;
         let s = serde_json::from_value::<ThreadState>(v)
-            .map_err(|e| format!("failed to parse thread state: {e}"))?;
+            .map_err(|e| CoreError::Session(format!("failed to parse thread state: {e}")))?;
         if s.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
-            return Err(format!(
+            return Err(CoreError::Schema(format!(
                 "thread_state schema_version mismatch: expected {}, got {}",
                 THREAD_STATE_SCHEMA_VERSION, s.thread_state_schema_version
-            ));
+            )));
         }
         Ok(s)
     }
 
-    pub async fn put_thread_state(&self, thread_id: &str, state: &ThreadState) -> Result<(), String> {
+    pub async fn put_thread_state(&self, thread_id: &str, state: &ThreadState) -> CoreResult<()> {
         self.write_thread_state(thread_id, state, ThreadStateWriteMode::Merge)
             .await
     }
@@ -131,23 +134,22 @@ impl ThreadStore {
         thread_id: &str,
         state: &ThreadState,
         mode: ThreadStateWriteMode,
-    ) -> Result<(), String> {
+    ) -> CoreResult<()> {
         if state.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
-            return Err(format!(
+            return Err(CoreError::Schema(format!(
                 "thread_state schema_version mismatch: expected {}, got {}",
                 THREAD_STATE_SCHEMA_VERSION, state.thread_state_schema_version
-            ));
+            )));
         }
         if state.thread_id != thread_id {
-            return Err(format!(
+            return Err(CoreError::Session(format!(
                 "thread_state thread_id mismatch: expected {}, got {}",
                 thread_id, state.thread_id
-            ));
+            )));
         }
         let next_state = match mode {
             ThreadStateWriteMode::Replace => state.clone(),
             ThreadStateWriteMode::Merge => {
-                // Non-destructive write: merge incoming patch with existing persisted state.
                 let mut merged = self
                     .get_thread_state(thread_id)
                     .await
@@ -193,7 +195,8 @@ impl ThreadStore {
         merged_state.thread_state_schema_version = THREAD_STATE_SCHEMA_VERSION;
         merged_state.thread_id = thread_id.to_string();
         let key = self.state_key(thread_id)?;
-        let v = serde_json::to_value(&merged_state).map_err(|e| e.to_string())?;
+        let v = serde_json::to_value(&merged_state)
+            .map_err(|e| CoreError::Session(format!("write_thread_state('{}'): failed to serialize: {}", thread_id, e)))?;
         self.storage.put_json(&key, &v).await
     }
 
@@ -201,7 +204,7 @@ impl ThreadStore {
         &self,
         thread_id: &str,
         state: &ThreadState,
-    ) -> Result<(), String> {
+    ) -> CoreResult<()> {
         self.write_thread_state(thread_id, state, ThreadStateWriteMode::Replace)
             .await
     }
@@ -218,20 +221,20 @@ impl ThreadStore {
         None
     }
 
-    fn encode_control_state_payload(suite_id: &str, payload: Value) -> Result<Value, String> {
+    fn encode_control_state_payload(suite_id: &str, payload: Value) -> CoreResult<Value> {
         serde_json::to_value(ControlStateEnvelope {
             schema_version: CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
             suite_id: suite_id.trim().to_string(),
             payload,
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| CoreError::Session(format!("encode_control_state_payload(suite_id='{}'): {}", suite_id, e)))
     }
 
     pub(crate) async fn load_control_state_payload(
         &self,
         thread_id: &str,
         suite_id: &str,
-    ) -> Result<Option<Value>, String> {
+    ) -> CoreResult<Option<Value>> {
         let state = self.get_thread_state(thread_id).await?;
         let Some(raw) = state.control_state else {
             return Ok(None);
@@ -244,7 +247,7 @@ impl ThreadStore {
         thread_id: &str,
         suite_id: &str,
         payload: Value,
-    ) -> Result<(), String> {
+    ) -> CoreResult<()> {
         let mut state = self
             .get_thread_state(thread_id)
             .await
@@ -258,7 +261,7 @@ impl ThreadStore {
         thread_id: &str,
         suite_id: &str,
         mutate: impl FnOnce(Option<Value>) -> Result<Value, String>,
-    ) -> Result<Value, String> {
+    ) -> CoreResult<Value> {
         let current = self.load_control_state_payload(thread_id, suite_id).await?;
         let next = mutate(current)?;
         self.save_control_state_payload(thread_id, suite_id, next.clone())
@@ -270,12 +273,12 @@ impl ThreadStore {
         &self,
         thread_id: &str,
         suite_id: &str,
-    ) -> Result<Option<T>, String> {
+    ) -> CoreResult<Option<T>> {
         let Some(payload) = self.load_control_state_payload(thread_id, suite_id).await? else {
             return Ok(None);
         };
         let parsed = serde_json::from_value::<T>(payload)
-            .map_err(|e| format!("failed to parse typed control state payload: {e}"))?;
+            .map_err(|e| CoreError::Session(format!("failed to parse typed control state payload: {e}")))?;
         Ok(Some(parsed))
     }
 
@@ -284,9 +287,9 @@ impl ThreadStore {
         thread_id: &str,
         suite_id: &str,
         state: &T,
-    ) -> Result<(), String> {
+    ) -> CoreResult<()> {
         let payload = serde_json::to_value(state)
-            .map_err(|e| format!("failed to serialize typed control state payload: {e}"))?;
+            .map_err(|e| CoreError::Session(format!("failed to serialize typed control state payload: {e}")))?;
         self.save_control_state_payload(thread_id, suite_id, payload).await
     }
 
@@ -295,7 +298,7 @@ impl ThreadStore {
         thread_id: &str,
         suite_id: &str,
         mutate: impl FnOnce(Option<T>) -> Result<T, String>,
-    ) -> Result<T, String> {
+    ) -> CoreResult<T> {
         let mut typed_next: Option<T> = None;
         self.mutate_control_state_payload(thread_id, suite_id, |current_raw| {
             let current = match current_raw {
@@ -311,20 +314,19 @@ impl ThreadStore {
                 .map_err(|e| format!("failed to serialize typed control state payload: {e}"))
         })
         .await?;
-        typed_next.ok_or_else(|| "typed control-state mutation produced no value".to_string())
+        typed_next.ok_or_else(|| CoreError::Session("typed control-state mutation produced no value".to_string()))
     }
 
-    pub async fn get_thread_events_from_log(&self, thread_id: &str) -> Result<Vec<super::ThreadEvent>, String> {
+    pub async fn get_thread_events_from_log(&self, thread_id: &str) -> CoreResult<Vec<super::ThreadEvent>> {
         let log = self.get(thread_id).await?;
         Ok(super::build_thread_events_from_log(&log, 200))
     }
 
-    pub async fn get(&self, thread_id: &str) -> Result<ThreadLog, String> {
+    pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
-        // Serve from cache if fresh (5 seconds)
-        if let Some(entry) = cache().get(&cache_key) {
-            if entry.ts.elapsed().as_secs() < 5 {
+        if let Some(entry) = self.cache.get(&cache_key) {
+            if entry.ts.elapsed().as_secs() < CACHE_TTL_SECS {
                 return Ok(entry.log.clone());
             }
         }
@@ -332,11 +334,11 @@ impl ThreadStore {
             .storage
             .get_json(&key)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| CoreError::Session(format!("get('{}'): {}", thread_id, e)))?;
         let log = serde_json::from_value::<ThreadLog>(v)
-            .map_err(|e| format!("failed to parse thread log: {e}"))?;
+            .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?;
         Self::ensure_thread_log_schema(&log)?;
-        cache().insert(
+        self.cache.insert(
             cache_key,
             CacheEntry {
                 log: log.clone(),
@@ -363,7 +365,7 @@ impl ThreadStore {
         out
     }
 
-    pub async fn delete(&self, thread_id: &str) -> Result<(), String> {
+    pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
         let state_key = self.state_key(thread_id)?;
@@ -379,19 +381,20 @@ impl ThreadStore {
                 let _ = self.storage.delete_object(&k).await;
             }
         }
-        cache().remove(&cache_key);
+        self.cache.remove(&cache_key);
         Ok(())
     }
 
-    pub async fn set_title_if_absent(&self, thread_id: &str, title: &str) -> Result<(), String> {
+    pub async fn set_title_if_absent(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         if log.title.is_none() || log.title.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             log.title = Some(title.to_string());
-            let val = serde_json::to_value(&log).map_err(|e| e.to_string())?;
+            let val = serde_json::to_value(&log)
+                .map_err(|e| CoreError::Session(format!("set_title_if_absent('{}'): failed to serialize: {}", thread_id, e)))?;
             self.storage.put_json(&key, &val).await?;
-            cache().insert(
+            self.cache.insert(
                 cache_key,
                 CacheEntry {
                     log,
@@ -402,16 +405,17 @@ impl ThreadStore {
         Ok(())
     }
 
-    pub async fn lock_title(&self, thread_id: &str, title: &str) -> Result<(), String> {
+    pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         if !log.title_locked {
             log.title = Some(title.to_string());
             log.title_locked = true;
-            let val = serde_json::to_value(&log).map_err(|e| e.to_string())?;
+            let val = serde_json::to_value(&log)
+                .map_err(|e| CoreError::Session(format!("lock_title('{}'): failed to serialize: {}", thread_id, e)))?;
             self.storage.put_json(&key, &val).await?;
-            cache().insert(
+            self.cache.insert(
                 cache_key,
                 CacheEntry {
                     log,

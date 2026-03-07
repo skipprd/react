@@ -5,7 +5,7 @@ use react_core::agent::{Agent, AgentCtx, DefaultPolicy, InterruptKind, RunOutcom
 use react_core::session::ThreadStore;
 use react_core::tools::ToolRegistry;
 
-use react_core::suite::{FlowFrame, Suite, SuiteCtx};
+use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
 
 pub struct KbSuite;
 
@@ -67,7 +67,7 @@ impl KbSuite {
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: None,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
@@ -108,7 +108,7 @@ impl KbSuite {
                 thread_id: _tid,
                 result,
             }) => Ok(vec![FlowFrame::Complete {
-                kind: result.kind.clone(),
+                kind: FlowKind::new(result.kind.clone()),
                 payload: result.payload,
                 display: result.display,
             }]),
@@ -117,10 +117,10 @@ impl KbSuite {
                 kind,
                 prompt,
             }) => Ok(vec![FlowFrame::Interrupt {
-                kind: match kind {
-                    InterruptKind::AwaitUser => "await_user".to_string(),
-                    InterruptKind::AwaitApproval => "await_approval".to_string(),
-                },
+                kind: FlowKind::new(match kind {
+                    InterruptKind::AwaitUser => "await_user",
+                    InterruptKind::AwaitApproval => "await_approval",
+                }),
                 prompt,
             }]),
             Err(e) => Err(e),

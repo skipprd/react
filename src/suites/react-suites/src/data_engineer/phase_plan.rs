@@ -9,6 +9,47 @@ fn auto_approved_plan_detail(source: &str) -> serde_json::Value {
     crate::data_engineer::phase_reason_detail::plan_auto_approved(source)
 }
 
+async fn finalize_plan_and_approve(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: control_flow::Phase,
+    track: TrackKind,
+    actx: &AgentCtx,
+    thread_state_step_count: usize,
+    design_critique: &crate::data_engineer::plan_schema::PlanDesignCritiqueV1,
+    sem: &crate::data_engineer::plan::PlanSemanticValidation,
+    snapshot: &mut serde_json::Value,
+    retry_kinds: Vec<crate::data_engineer::progress_controller::SubjectiveRetryKind>,
+) -> Result<PhaseExecutorOutcome, String> {
+    if !sem.ok {
+        return handle_plan_semantic_failure(sem, thread_store, thread_id, phase).await;
+    }
+
+    stamp_design_review(snapshot, track, design_critique);
+
+    DataEngineerSuite::clear_subjective_retries_matching(thread_store, thread_id, move |k| {
+        retry_kinds.contains(k)
+    })
+    .await?;
+
+    let advanced = DataEngineerSuite::approve_plan_draft_and_advance(
+        thread_store,
+        thread_id,
+        phase,
+        track,
+        actx,
+        thread_state_step_count,
+        PhaseReasonCode::PlanAutoApproved,
+        auto_approved_plan_detail("new_draft_plan"),
+    )
+    .await?;
+    if advanced {
+        Ok(PhaseExecutorOutcome::TransitionCommitted)
+    } else {
+        Ok(PhaseExecutorOutcome::StayInPhase)
+    }
+}
+
 async fn load_active_plan_for_track_spec(
     actx: &AgentCtx,
     track: TrackKind,
@@ -39,7 +80,7 @@ async fn handle_plan_semantic_failure(
             "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
             tries, sem.messages().join(" | ")
         )),
-        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::Continue),
+        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::StayInPhase),
     }
 }
 
@@ -161,7 +202,7 @@ if let Some(mut existing_plan) =
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         crate::data_engineer::state_manager::mutate_execution_state(
             &thread_store,
@@ -181,7 +222,7 @@ if let Some(mut existing_plan) =
             ),
         )
         .await?;
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::TransitionCommitted);
     }
     if existing_plan.status() == crate::data_engineer::plan::PlanStatus::Draft {
         let mut removed_non_raw = 0usize;
@@ -225,7 +266,7 @@ if let Some(mut existing_plan) =
                 PhaseDecision::annotation(phase, Some(PhaseReasonCode::PlanInvalidEmpty), Some(detail)),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         let advanced = Self::approve_plan_draft_and_advance(
             &thread_store,
@@ -239,9 +280,9 @@ if let Some(mut existing_plan) =
         )
         .await?;
         if advanced {
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::StayInPhase);
     }
 }
 } // end if !is_plan_revision
@@ -522,13 +563,13 @@ let llm_options = if is_cleanse {
         PlanningLlmProfile::DiscoveryCleanse,
         "data_engineer.cleanse_plan",
         None,
-    )
+    )?
 } else {
     Self::planning_llm_options(
         PlanningLlmProfile::DiscoveryModel,
         "data_engineer.model_plan",
         None,
-    )
+    )?
 };
 match Agent::run_until_block_non_interactive(
     &registry,
@@ -544,8 +585,7 @@ match Agent::run_until_block_non_interactive(
         thread_id: _tid,
         result: _result,
     }) => {
-        // Hard cutover: planning control flow does not re-read thread logs.
-        // Bootstrap + deterministic catalog grounding are the stateful guarantees.
+        tracing::info!("data_engineer: plan discovery complete for {}, beginning deterministic plan compilation", track.as_str());
 
         let (design_memo, design_critique) =
             Self::produce_critiqued_design_memo(&actx, track, &q).await?;
@@ -555,6 +595,7 @@ match Agent::run_until_block_non_interactive(
                 datasets_for_catalog.as_ref(),
             )
             .await;
+            tracing::info!("data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets");
             let skeleton =
                 Self::deterministic_cleanse_skeleton_from_discovered_raw(
                     &discovered_raw,
@@ -613,6 +654,7 @@ match Agent::run_until_block_non_interactive(
             // Hard cutover: schema facts for planning come from deterministic catalog artifacts,
             // not from replaying thread-log tool history.
             // Ground the plan against reality: only keep datasets we can prove exist via schema().
+            tracing::info!("data_engineer: [cleanse] grounding plan against warehouse schema");
             let candidates =
                 Self::collect_cleanse_grounding_candidates(&plan, &discovered_raw);
             if plan.tasks.is_empty() && !discovered_raw.is_empty() {
@@ -704,8 +746,7 @@ match Agent::run_until_block_non_interactive(
                     )
                 })?;
 
-            // Quality gate 1: semantic validity (includes implementation_spec requirements).
-            // Hard cutover: normalize conservative defaults before validating (no LLM repair).
+            tracing::info!("data_engineer: [cleanse] validating plan semantics");
             let sem = crate::data_engineer::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
                 &actx,
                 &mut plan,
@@ -752,39 +793,26 @@ match Agent::run_until_block_non_interactive(
                         "failed to checkpoint normalized cleanse draft plan: {e}"
                     )
                 })?;
-            if !sem.ok {
-                return handle_plan_semantic_failure(&sem, &thread_store, thread_id, phase).await;
-            }
-
-            stamp_design_review(&mut plan.project_snapshot, track, &design_critique);
-
             crate::data_engineer::plan::save_cleanse_plan_grounded(
                 &actx,
                 &plan,
                 Some(&grounded.allowed),
             )
             .await?;
-            {
-                use crate::data_engineer::progress_controller::SubjectiveRetryKind;
-                Self::clear_subjective_retries_matching(&thread_store, thread_id, |k| {
-                    matches!(k, SubjectiveRetryKind::PlanSemanticInvalid)
-                }).await?;
-            }
-            let advanced = Self::approve_plan_draft_and_advance(
+            use crate::data_engineer::progress_controller::SubjectiveRetryKind;
+            return finalize_plan_and_approve(
                 &thread_store,
                 thread_id,
                 phase,
                 track,
                 &actx,
                 thread_state_step_count,
-                PhaseReasonCode::PlanAutoApproved,
-                auto_approved_plan_detail("new_draft_plan"),
+                &design_critique,
+                &sem,
+                &mut plan.project_snapshot,
+                vec![SubjectiveRetryKind::PlanSemanticInvalid],
             )
-            .await?;
-            if advanced {
-                return Ok(PhaseExecutorOutcome::Continue);
-            }
-            return Ok(PhaseExecutorOutcome::Continue);
+            .await;
         } else {
             let staged =
                 crate::data_engineer::dataset_truth::discover_staging_models_from_storage(&actx)
@@ -806,7 +834,7 @@ match Agent::run_until_block_non_interactive(
                         ));
                     }
                     SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::Continue);
+                        return Ok(PhaseExecutorOutcome::StayInPhase);
                     }
                 }
             }
@@ -817,6 +845,7 @@ match Agent::run_until_block_non_interactive(
                     q.push_str(&format!("- {name}\n"));
                 }
             }
+            tracing::info!("data_engineer: [model] compiling plan from candidate models");
             let candidates = Self::generate_model_candidates(
                 &actx,
                 &q,
@@ -883,7 +912,7 @@ match Agent::run_until_block_non_interactive(
                 &enrich_ids,
             )
             .await?;
-            // Ground gold planning: gold must be based ONLY on existing staging (silver) models.
+            tracing::info!("data_engineer: [model] grounding plan against existing staging models");
             crate::data_engineer::plan::prune_model_plan_to_grounded_staging_models(
                 &mut plan,
                 &staged.allowed_models,
@@ -905,7 +934,7 @@ match Agent::run_until_block_non_interactive(
                         ));
                     }
                     SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::Continue);
+                        return Ok(PhaseExecutorOutcome::StayInPhase);
                     }
                 }
             }
@@ -923,8 +952,7 @@ match Agent::run_until_block_non_interactive(
                 )
             })?;
 
-            // Quality gate 1: semantic validity (includes implementation_spec requirements).
-            // Hard cutover: normalize conservative defaults before validating (no LLM repair).
+            tracing::info!("data_engineer: [model] validating plan semantics");
             let sem = crate::data_engineer::plan::ensure_model_plan_semantically_valid_or_repaired(
                 &actx,
                 &mut plan,
@@ -973,49 +1001,35 @@ match Agent::run_until_block_non_interactive(
                     "failed to checkpoint normalized model draft plan: {e}"
                 )
             })?;
-            if !sem.ok {
-                return handle_plan_semantic_failure(&sem, &thread_store, thread_id, phase).await;
-            }
-
-            stamp_design_review(&mut plan.project_snapshot, track, &design_critique);
-
             crate::data_engineer::plan::save_model_plan_grounded(
                 &actx,
                 &plan,
                 Some(&staged.allowed_models),
             )
             .await?;
-            {
-                use crate::data_engineer::progress_controller::SubjectiveRetryKind;
-                Self::clear_subjective_retries_matching(&thread_store, thread_id, |k| {
-                    matches!(
-                        k,
-                        SubjectiveRetryKind::PlanSemanticInvalid
-                            | SubjectiveRetryKind::PlanGroundingEmptyAfterPrune
-                            | SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty
-                    )
-                }).await?;
-            }
-            let advanced = Self::approve_plan_draft_and_advance(
+            use crate::data_engineer::progress_controller::SubjectiveRetryKind;
+            return finalize_plan_and_approve(
                 &thread_store,
                 thread_id,
                 phase,
                 track,
                 &actx,
                 thread_state_step_count,
-                PhaseReasonCode::PlanAutoApproved,
-                auto_approved_plan_detail("new_draft_plan"),
+                &design_critique,
+                &sem,
+                &mut plan.project_snapshot,
+                vec![
+                    SubjectiveRetryKind::PlanSemanticInvalid,
+                    SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
+                    SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
+                ],
             )
-            .await?;
-            if advanced {
-                return Ok(PhaseExecutorOutcome::Continue);
-            }
-            return Ok(PhaseExecutorOutcome::Continue);
+            .await;
         }
     }
     Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
         // Deterministic single-step handoff: return to outer controller loop.
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::StayInPhase);
     }
     Err(e) => return Err(e),
 }

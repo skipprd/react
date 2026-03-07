@@ -1,6 +1,5 @@
 use crate::llm::adapter::Adapter;
 use crate::llm::types::*;
-use serde::{Deserialize, Serialize};
 
 pub struct OpenAIChatAdapter;
 
@@ -8,55 +7,6 @@ impl OpenAIChatAdapter {
     pub fn new() -> Self {
         Self {}
     }
-}
-
-#[derive(Serialize, Deserialize)]
-struct OaiChatMessage {
-    role: String,
-    content: String,
-}
-#[derive(Serialize)]
-struct OaiChatReq {
-    model: String,
-    messages: Vec<OaiChatMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    top_p: Option<f32>,
-    /// OpenAI Chat Completions `response_format` (json_object / json_schema).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    response_format: Option<serde_json::Value>,
-}
-#[derive(Deserialize)]
-struct OaiChatRespChoiceDelta {
-    content: Option<String>,
-}
-#[derive(Deserialize)]
-struct OaiChatRespChoice {
-    message: Option<OaiChatMessage>,
-    delta: Option<OaiChatRespChoiceDelta>,
-}
-#[derive(Deserialize)]
-struct OaiChatResp {
-    choices: Vec<OaiChatRespChoice>,
-}
-
-#[derive(Serialize)]
-struct OaiEmbReq {
-    model: String,
-    input: Vec<String>,
-}
-#[derive(Deserialize)]
-struct OaiEmbData {
-    embedding: Vec<f32>,
-}
-#[derive(Deserialize)]
-struct OaiEmbResp {
-    data: Vec<OaiEmbData>,
 }
 
 impl Adapter for OpenAIChatAdapter {

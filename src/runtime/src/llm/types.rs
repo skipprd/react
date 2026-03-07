@@ -1,5 +1,134 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) fn pretty_json(text: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| text.to_string()),
+        Err(_) => text.to_string(),
+    }
+}
+
+pub(crate) fn text_from_part(p: &serde_json::Value) -> Option<String> {
+    if let Some(s) = p.get("text").and_then(|x| x.as_str()) {
+        if !s.trim().is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(s) = p
+        .get("text")
+        .and_then(|x| x.get("value"))
+        .and_then(|x| x.as_str())
+    {
+        if !s.trim().is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(s) = p.get("refusal").and_then(|x| x.as_str()) {
+        if !s.trim().is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+pub(crate) fn extract_response_text(v: &serde_json::Value) -> Option<String> {
+    if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
+        if !s.trim().is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(msg) = v
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|x| x.as_str())
+    {
+        if !msg.trim().is_empty() {
+            return Some(format!("LLM_ERROR: {msg}"));
+        }
+    }
+    let mut chunks: Vec<String> = Vec::new();
+    if let Some(out) = v.get("output").and_then(|x| x.as_array()) {
+        for item in out {
+            if let Some(s) = item.get("text").and_then(|x| x.as_str()) {
+                if !s.trim().is_empty() {
+                    chunks.push(s.to_string());
+                }
+            }
+            if let Some(s) = item.get("refusal").and_then(|x| x.as_str()) {
+                if !s.trim().is_empty() {
+                    chunks.push(s.to_string());
+                }
+            }
+            if let Some(content) = item.get("content").and_then(|x| x.as_array()) {
+                for part in content {
+                    if let Some(s) = text_from_part(part) {
+                        chunks.push(s);
+                    }
+                }
+            }
+        }
+    }
+    let joined = chunks.join("");
+    if joined.trim().is_empty() {
+        None
+    } else {
+        Some(joined)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct OaiChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct OaiChatReq {
+    pub model: String,
+    pub messages: Vec<OaiChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OaiChatRespChoiceDelta {
+    pub content: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OaiChatRespChoice {
+    pub message: Option<OaiChatMessage>,
+    pub delta: Option<OaiChatRespChoiceDelta>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OaiChatResp {
+    pub choices: Vec<OaiChatRespChoice>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct OaiEmbReq {
+    pub model: String,
+    pub input: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OaiEmbData {
+    pub embedding: Vec<f32>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OaiEmbResp {
+    pub data: Vec<OaiEmbData>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,

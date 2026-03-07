@@ -399,7 +399,7 @@ let mut actx = AgentCtx {
     scope: sctx.scope.clone(),
     keyspace: sctx.keyspace.clone(),
     vector: sctx.vector.clone(),
-    capabilities: std::collections::HashMap::new(),
+    capabilities: react_core::capability::CapabilityMap::default(),
     thread_store: Some(thread_store.clone()),
     exec_ctx: None,
     resolved_config: sctx.resolved_config.clone(),
@@ -420,7 +420,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 // Recovery: authoring was entered, but no plan exists (e.g. restart/resume drift).
                 // Bounce back to planning so the thread can rehydrate deterministically.
                 transition_plan_missing(&thread_store, thread_id, phase, track).await?;
-                return Ok(PhaseExecutorOutcome::Continue);
+                return Ok(PhaseExecutorOutcome::TransitionCommitted);
             }
         };
         if let control_flow::AuthoringGate::Block { reason } =
@@ -435,7 +435,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 &thread_store, thread_id, phase, vec![violation],
                 crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
             ).await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -492,7 +492,7 @@ let (plan_context, plan_state): (String, PlanState) =
             &thread_store, thread_id, phase, vec![violation],
             crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
         ).await?;
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::TransitionCommitted);
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -505,7 +505,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 format!("{:?}", plan.status),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         // Work-group driven selection only (hard cutover).
         let next_action =
@@ -637,7 +637,7 @@ let (plan_context, plan_state): (String, PlanState) =
                         plan.plan_key.clone(),
                     )
                     .await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
 
                 // If validation previously failed, do NOT bounce straight back to validate.
@@ -666,7 +666,7 @@ let (plan_context, plan_state): (String, PlanState) =
                         &thread_store, thread_id, phase, vec![violation],
                         crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
                     ).await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
             }
         } else {
@@ -690,7 +690,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 // Recovery: authoring was entered, but no plan exists (e.g. restart/resume drift).
                 // Bounce back to planning so the thread can rehydrate deterministically.
                 transition_plan_missing(&thread_store, thread_id, phase, track).await?;
-                return Ok(PhaseExecutorOutcome::Continue);
+                return Ok(PhaseExecutorOutcome::TransitionCommitted);
             }
         };
         if let control_flow::AuthoringGate::Block { reason } =
@@ -705,7 +705,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 &thread_store, thread_id, phase, vec![violation],
                 crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
             ).await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         // In deterministic repair mode, the plan is frozen (reference-only).
         // Normal progress is updated at tool-write time; do not reconstruct from thread logs.
@@ -760,7 +760,7 @@ let (plan_context, plan_state): (String, PlanState) =
             &thread_store, thread_id, phase, vec![violation],
             crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
         ).await?;
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::TransitionCommitted);
     }
         if plan.status != crate::data_engineer::plan::PlanStatus::Approved
             && plan.status != crate::data_engineer::plan::PlanStatus::Completed
@@ -773,7 +773,7 @@ let (plan_context, plan_state): (String, PlanState) =
                 format!("{:?}", plan.status),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         // Work-group driven selection only (hard cutover).
         let next_action =
@@ -894,7 +894,7 @@ let (plan_context, plan_state): (String, PlanState) =
                                 .to_string();
                             for n in ids.iter() {
                                 if !names_in_schema.contains(n) {
-                                    return Ok(PhaseExecutorOutcome::Continue);
+                                    return Ok(PhaseExecutorOutcome::StayInPhase);
                                 }
                                 if let Some(t) =
                                     plan.tasks.iter().find(|t| t.name == *n)
@@ -924,7 +924,7 @@ let (plan_context, plan_state): (String, PlanState) =
                                     &actx, &plan,
                                 )
                                 .await?;
-                                return Ok(PhaseExecutorOutcome::Continue);
+                                return Ok(PhaseExecutorOutcome::StayInPhase);
                             }
                         }
                     }
@@ -980,7 +980,7 @@ let (plan_context, plan_state): (String, PlanState) =
                         plan.plan_key.clone(),
                     )
                     .await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
 
                 if guard.last_validate_failed {
@@ -1004,7 +1004,7 @@ let (plan_context, plan_state): (String, PlanState) =
                         &thread_store, thread_id, phase, vec![violation],
                         crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
                     ).await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
             }
         } else {
@@ -1502,8 +1502,7 @@ match Agent::run_until_block_non_interactive(
             .await
             .unwrap_or(false);
         if !has_proj || !has_models {
-            // Stay in the same authoring phase; the next pass will be prompted with invariant context.
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         // Hard cutover: single progress gate controls authoring->validate advancement.
         // Refresh control-state after tool run; tool-side writes in this turn
@@ -1526,7 +1525,7 @@ match Agent::run_until_block_non_interactive(
                 reason.clone(),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         if crate::data_engineer::phase_gate::patch_impl_intent_unsatisfied(
             &gate_state,
@@ -1544,7 +1543,7 @@ match Agent::run_until_block_non_interactive(
                 reason.clone(),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         if matches!(
             gate_state.repair.pending_patch_impl.as_ref(),
@@ -1575,14 +1574,12 @@ match Agent::run_until_block_non_interactive(
                     reason.to_string(),
                 )
                 .await?;
-                // Hard cutover: same-phase blocks are represented as GuardBlock only.
-                return Ok(PhaseExecutorOutcome::Continue);
+                return Ok(PhaseExecutorOutcome::StayInPhase);
             }
         }
 
-        // Plan-driven authoring: do NOT advance to validate until the approved plan's tasks are done.
         if !track_completion_snapshot_all_done(&actx, track).await {
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
 
         let to_phase = if is_cleanse {
@@ -1608,7 +1605,7 @@ match Agent::run_until_block_non_interactive(
             ),
         )
         .await?;
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::TransitionCommitted);
     }
     Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
         if hard_mutation_repair_mode && phase_guard.last_validate_failed {
@@ -1641,13 +1638,12 @@ match Agent::run_until_block_non_interactive(
                         &thread_store, thread_id, phase, vec![violation],
                         crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
                     ).await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
                 crate::data_engineer::authoring_driver::AuthoringTurnResult::Continue => {}
             }
         }
-        // Deterministic single-step handoff: return to outer controller loop.
-        return Ok(PhaseExecutorOutcome::Continue);
+        return Ok(PhaseExecutorOutcome::StayInPhase);
     }
     Err(e) => return Err(e),
 }

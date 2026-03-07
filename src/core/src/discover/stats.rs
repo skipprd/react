@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+const RESERVOIR_CAPACITY: usize = 2048;
+const HISTOGRAM_BIN_COUNT: usize = 20;
+const MAX_EXAMPLE_VALUES: usize = 8;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FieldStats {
     pub total: u64,
@@ -43,7 +47,7 @@ impl FieldStats {
                         &mut self.numeric_samples,
                         self.total - self.nulls,
                         f,
-                        2048,
+                        RESERVOIR_CAPACITY,
                     );
                 }
                 self.observe_hll(&value);
@@ -109,7 +113,7 @@ impl FieldStats {
                         .cloned()
                         .fold(f64::NEG_INFINITY, f64::max)
                 });
-                let bins = 20usize;
+                let bins = HISTOGRAM_BIN_COUNT;
                 let mut counts = vec![0u64; bins];
                 if min_v == max_v {
                     counts[0] = non_null;
@@ -150,7 +154,7 @@ impl FieldStats {
 
     fn push_example(&mut self, val: String) {
         // Keep a small, unique set of short examples in-memory only
-        if self.examples.len() >= 8 {
+        if self.examples.len() >= MAX_EXAMPLE_VALUES {
             return;
         }
         let mut v = val;
@@ -281,12 +285,17 @@ mod tests {
 
     #[test]
     fn numeric_histogram_is_generated() {
+        let prev = std::env::var("STATS_HISTOGRAM_ENABLED").ok();
         std::env::set_var("STATS_HISTOGRAM_ENABLED", "true");
         let mut f = FieldStats::default();
         for i in 0..1000 {
             f.update_value(&json!(i as f64));
         }
         f.finalize();
+        match prev {
+            Some(v) => std::env::set_var("STATS_HISTOGRAM_ENABLED", v),
+            None => std::env::remove_var("STATS_HISTOGRAM_ENABLED"),
+        }
         assert!(f.histogram_bins.is_some());
         let bins = f.histogram_bins.unwrap();
         assert_eq!(bins.len(), 20);

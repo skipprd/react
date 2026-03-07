@@ -1,6 +1,6 @@
 use react_core::resolved_config::ReactResolvedConfig;
 use react_core::agent::AgentCtx;
-use react_core::llm::ChatMessage;
+use react_core::llm::{ChatMessage, ChatRole};
 use react_core::llm::LlmCallOptions;
 use crate::data_engineer::providers::{DatasetCatalogProvider, DatasetId};
 use serde::{Deserialize, Serialize};
@@ -231,11 +231,11 @@ pub async fn llm_should_remediate_sql(
 
     let messages = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: sys.clone(),
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: user.clone(),
         },
     ];
@@ -386,11 +386,11 @@ pub async fn remediate_dbt_sql_keys_with_llm(
 
         let messages = vec![
             ChatMessage {
-                role: "system".to_string(),
+                role: ChatRole::System,
                 content: sys.clone(),
             },
             ChatMessage {
-                role: "user".to_string(),
+                role: ChatRole::User,
                 content: user.clone(),
             },
         ];
@@ -492,7 +492,8 @@ pub async fn remediate_dbt_sql_keys_with_llm(
 
             ctx.storage
                 .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
-                .await?;
+                .await
+                .map_err(|e| e.to_string())?;
             report.changed_files += 1;
             report.changes.push(RemediationChange {
                 key: ch.key,
@@ -891,11 +892,11 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
 
     let messages = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: sys.clone(),
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: user.clone(),
         },
     ];
@@ -998,7 +999,8 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
 
         ctx.storage
             .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
 
         report.changed_files += 1;
         report.changes.push(RemediationChange {
@@ -1277,11 +1279,11 @@ pub async fn remediate_unresolved_columns_with_llm(
 
     let messages = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: sys.clone(),
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: user.clone(),
         },
     ];
@@ -1389,7 +1391,8 @@ pub async fn remediate_unresolved_columns_with_llm(
 
         ctx.storage
             .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
 
         report.changed_files += 1;
         report.changes.push(RemediationChange {
@@ -1490,7 +1493,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg_athena()),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         actx

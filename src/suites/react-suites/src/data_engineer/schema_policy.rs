@@ -794,7 +794,7 @@ mod tests {
                 project_id: "p".to_string(),
             },
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

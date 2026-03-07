@@ -484,7 +484,7 @@ pub async fn summarize_dbt_failure_llm(
         "}\n"
     );
     let msg = react_core::llm::ChatMessage {
-        role: "user".to_string(),
+        role: react_core::llm::ChatRole::User,
         content: serde_json::json!({
             "max_summary_chars": max_summary_chars.max(200).min(8000),
             "input": user_payload
@@ -493,7 +493,7 @@ pub async fn summarize_dbt_failure_llm(
     };
     let messages = vec![
         react_core::llm::ChatMessage {
-            role: "system".to_string(),
+            role: react_core::llm::ChatRole::System,
             content: sys.to_string(),
         },
         msg,
@@ -652,7 +652,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -578,7 +577,7 @@ pub enum ThreadStep {
     ToolStart {
         tool_id: String,
         name: String,
-        /// Human-readable, short label for UI (e.g. "Read dbt_project.yml").
+        /// Human-readable, short label for UI (e.g. "Read config.yml").
         #[serde(default)]
         clean_name: String,
         args: Value,
@@ -593,7 +592,7 @@ pub enum ThreadStep {
     ToolEnd {
         tool_id: String,
         name: String,
-        /// Human-readable, short label for UI (e.g. "Read dbt_project.yml").
+        /// Human-readable, short label for UI (e.g. "Read config.yml").
         #[serde(default)]
         clean_name: String,
         #[serde(default)]
@@ -722,6 +721,8 @@ pub enum ThreadStep {
     Checkpoint {
         kind: String,
         payload: Value,
+        #[serde(default)]
+        display: Option<String>,
         observation: Observation,
         ts: String,
         agent: String,
@@ -776,21 +777,24 @@ pub struct ThreadResult {
     pub display: Option<String>,
 }
 
+impl std::fmt::Debug for ThreadStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ThreadStore { .. }")
+    }
+}
+
 #[derive(Clone)]
 pub struct ThreadStore {
     storage: Arc<dyn StorageAdapter>,
     scope: RequestScope,
     keyspace: Arc<dyn Keyspace>,
+    cache: Arc<DashMap<String, CacheEntry>>,
 }
 
 #[derive(Clone)]
-struct CacheEntry {
-    log: ThreadLog,
-    ts: Instant,
-}
-static THREAD_CACHE: OnceCell<DashMap<String, CacheEntry>> = OnceCell::new();
-fn cache() -> &'static DashMap<String, CacheEntry> {
-    THREAD_CACHE.get_or_init(|| DashMap::new())
+pub(crate) struct CacheEntry {
+    pub(crate) log: ThreadLog,
+    pub(crate) ts: Instant,
 }
 
 
@@ -1102,8 +1106,8 @@ mod tests {
                 tid,
                 ThreadStep::ToolStart {
                     tool_id: "t1".to_string(),
-                    name: "dbt_validate".to_string(),
-                    clean_name: "Validate DBT".to_string(),
+                    name: "validate_tool".to_string(),
+                    clean_name: "Validate Tool".to_string(),
                     args: serde_json::json!({"build": true}),
                     status: ToolStepStatus::Running,
                     payload: None,
@@ -1119,8 +1123,8 @@ mod tests {
                 tid,
                 ThreadStep::ToolEnd {
                     tool_id: "t1".to_string(),
-                    name: "dbt_validate".to_string(),
-                    clean_name: "Validate DBT".to_string(),
+                    name: "validate_tool".to_string(),
+                    clean_name: "Validate Tool".to_string(),
                     args: serde_json::json!({"build": true}),
                     status: ToolStepStatus::Failed,
                     payload: None,
@@ -1294,12 +1298,12 @@ mod tests {
         let mut base = ThreadState {
             thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
             thread_id: tid.to_string(),
-            suite_id: Some("data_engineer".to_string()),
+            suite_id: Some("test_suite".to_string()),
             ..ThreadState::default()
         };
         base.control_state = Some(serde_json::json!({"checkpoint": 1}));
         base.bootstrap.extensions = serde_json::json!({
-            "catalog": {
+            "discovery": {
                 "status": "ready",
                 "metadata_complete": true,
                 "ts": "2026-01-01T00:00:00Z"
@@ -1316,11 +1320,11 @@ mod tests {
         store.put_thread_state(tid, &patch).await.unwrap();
 
         let got = store.get_thread_state(tid).await.unwrap();
-        assert_eq!(got.suite_id.as_deref(), Some("data_engineer"));
+        assert_eq!(got.suite_id.as_deref(), Some("test_suite"));
         assert_eq!(got.current_phase.as_deref(), Some("model_author"));
         assert_eq!(got.control_state, Some(serde_json::json!({"checkpoint": 1})));
         assert_eq!(
-            got.bootstrap.extensions.get("catalog")
+            got.bootstrap.extensions.get("discovery")
                 .and_then(|c| c.get("status"))
                 .and_then(|s| s.as_str()),
             Some("ready")
@@ -1390,7 +1394,7 @@ mod tests {
             )
             .await
             .expect_err("invalid thread ids must fail key construction");
-        assert!(append_err.contains("failed to build thread key"));
+        assert!(append_err.to_string().contains("failed to build thread key"));
 
         let state = ThreadState {
             thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
@@ -1401,7 +1405,7 @@ mod tests {
             .put_thread_state_replace(bad_tid, &state)
             .await
             .expect_err("invalid thread ids must fail state key construction");
-        assert!(write_err.contains("failed to build thread state key"));
+        assert!(write_err.to_string().contains("failed to build thread state key"));
     }
 
     #[tokio::test]
@@ -1417,11 +1421,11 @@ mod tests {
         let tid = "tid-control-envelope";
         let payload = serde_json::json!({"schema_version": 1, "mode": "mutate"});
         store
-            .save_control_state_payload(tid, "data_engineer", payload.clone())
+            .save_control_state_payload(tid, "test_suite", payload.clone())
             .await
             .expect("save payload");
         let loaded = store
-            .load_control_state_payload(tid, "data_engineer")
+            .load_control_state_payload(tid, "test_suite")
             .await
             .expect("load payload");
         assert_eq!(loaded, Some(payload));
@@ -1449,7 +1453,7 @@ mod tests {
             .await
             .expect("seed invalid state");
         let loaded = store
-            .load_control_state_payload(tid, "data_engineer")
+            .load_control_state_payload(tid, "test_suite")
             .await
             .expect("load payload");
         assert_eq!(loaded, None);

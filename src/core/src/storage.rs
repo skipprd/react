@@ -5,18 +5,20 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::UNIX_EPOCH;
 
+use crate::error::CoreError;
+
 #[async_trait]
 pub trait StorageAdapter: Send + Sync {
-    async fn get_json(&self, key: &str) -> Result<Value, String>;
-    async fn put_json(&self, key: &str, value: &Value) -> Result<(), String>;
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError>;
+    async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError>;
 
-    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, String>;
-    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), String>;
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError>;
+    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), CoreError>;
 
-    async fn delete_object(&self, key: &str) -> Result<(), String>;
-    async fn head_etag(&self, key: &str) -> Result<Option<String>, String>;
+    async fn delete_object(&self, key: &str) -> Result<(), CoreError>;
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError>;
 
-    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, String>;
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError>;
 }
 
 /// Simple in-memory storage adapter for tests and local runs.
@@ -39,31 +41,33 @@ impl InMemoryStorageAdapter {
 
 #[async_trait]
 impl StorageAdapter for InMemoryStorageAdapter {
-    async fn get_json(&self, key: &str) -> Result<Value, String> {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
-        serde_json::from_slice::<Value>(&bytes).map_err(|e| e.to_string())
+        serde_json::from_slice::<Value>(&bytes)
+            .map_err(|e| CoreError::Storage(format!("get_json('{}'): failed to deserialize JSON: {}", key, e)))
     }
 
-    async fn put_json(&self, key: &str, value: &Value) -> Result<(), String> {
-        let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+    async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::Storage(format!("put_json('{}'): failed to serialize JSON: {}", key, e)))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
 
-    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, String> {
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         let g = self
             .inner
             .read()
-            .map_err(|_| "storage lock poisoned".to_string())?;
+            .map_err(|_| CoreError::Storage(format!("get_bytes('{}'): storage lock poisoned", key)))?;
         g.get(key)
             .map(|o| o.bytes.clone())
-            .ok_or_else(|| "not found".to_string())
+            .ok_or_else(|| CoreError::Storage(format!("get_bytes('{}'): not found", key)))
     }
 
-    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), String> {
+    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), CoreError> {
         let mut g = self
             .inner
             .write()
-            .map_err(|_| "storage lock poisoned".to_string())?;
+            .map_err(|_| CoreError::Storage(format!("put_bytes('{}'): storage lock poisoned", key)))?;
         g.insert(
             key.to_string(),
             StoredObject {
@@ -74,28 +78,28 @@ impl StorageAdapter for InMemoryStorageAdapter {
         Ok(())
     }
 
-    async fn delete_object(&self, key: &str) -> Result<(), String> {
+    async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
         let mut g = self
             .inner
             .write()
-            .map_err(|_| "storage lock poisoned".to_string())?;
+            .map_err(|_| CoreError::Storage(format!("delete_object('{}'): storage lock poisoned", key)))?;
         g.remove(key);
         Ok(())
     }
 
-    async fn head_etag(&self, key: &str) -> Result<Option<String>, String> {
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         let g = self
             .inner
             .read()
-            .map_err(|_| "storage lock poisoned".to_string())?;
+            .map_err(|_| CoreError::Storage(format!("head_etag('{}'): storage lock poisoned", key)))?;
         Ok(g.get(key).map(|o| o.etag.clone()))
     }
 
-    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, String> {
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         let g = self
             .inner
             .read()
-            .map_err(|_| "storage lock poisoned".to_string())?;
+            .map_err(|_| CoreError::Storage(format!("list_prefix('{}'): storage lock poisoned", prefix)))?;
         let mut out: Vec<String> = g
             .keys()
             .filter(|k| k.starts_with(prefix))
@@ -116,29 +120,29 @@ pub struct LocalFileStorageAdapter {
 }
 
 impl LocalFileStorageAdapter {
-    pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self, String> {
+    pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self, CoreError> {
         let p: PathBuf = base_dir.into();
-        std::fs::create_dir_all(&p).map_err(|e| format!("failed to create base dir: {e}"))?;
+        std::fs::create_dir_all(&p).map_err(|e| CoreError::Storage(format!("failed to create base dir: {e}")))?;
         Ok(Self {
             base_dir: Arc::new(p),
         })
     }
 
-    fn resolve_key(&self, key: &str) -> Result<PathBuf, String> {
+    fn resolve_key(&self, key: &str) -> Result<PathBuf, CoreError> {
         let k = key.trim().trim_start_matches('/');
         if k.is_empty() {
-            return Err("empty key".to_string());
+            return Err(CoreError::Storage("empty key".to_string()));
         }
         let mut out = (*self.base_dir).clone();
         for seg in k.split('/') {
             if seg.is_empty() {
-                return Err("invalid key (empty path segment)".to_string());
+                return Err(CoreError::Storage("invalid key (empty path segment)".to_string()));
             }
             if seg == "." || seg == ".." || seg.contains("..") {
-                return Err("invalid key (path traversal)".to_string());
+                return Err(CoreError::Storage("invalid key (path traversal)".to_string()));
             }
             if seg.contains('\\') {
-                return Err("invalid key (backslash)".to_string());
+                return Err(CoreError::Storage("invalid key (backslash)".to_string()));
             }
             out.push(seg);
         }
@@ -190,65 +194,76 @@ impl LocalFileStorageAdapter {
 
 #[async_trait]
 impl StorageAdapter for LocalFileStorageAdapter {
-    async fn get_json(&self, key: &str) -> Result<Value, String> {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
-        serde_json::from_slice::<Value>(&bytes).map_err(|e| e.to_string())
+        serde_json::from_slice::<Value>(&bytes)
+            .map_err(|e| CoreError::Storage(format!("get_json('{}'): failed to deserialize JSON: {}", key, e)))
     }
 
-    async fn put_json(&self, key: &str, value: &Value) -> Result<(), String> {
-        let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
+        let bytes = serde_json::to_vec_pretty(value)
+            .map_err(|e| CoreError::Storage(format!("put_json('{}'): failed to serialize JSON: {}", key, e)))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
 
-    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, String> {
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         let path = self.resolve_key(key)?;
-        tokio::task::spawn_blocking(move || std::fs::read(&path).map_err(|e| e.to_string()))
-            .await
-            .map_err(|e| e.to_string())?
-    }
-
-    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), String> {
-        let path = self.resolve_key(key)?;
-        let b = bytes.to_vec();
+        let key_owned = key.to_string();
         tokio::task::spawn_blocking(move || {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            std::fs::write(&path, &b).map_err(|e| e.to_string())
+            std::fs::read(&path)
+                .map_err(|e| CoreError::Storage(format!("get_bytes('{}'): {}", key_owned, e)))
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| CoreError::Storage(format!("get_bytes('{}'): join error: {}", key, e)))?
     }
 
-    async fn delete_object(&self, key: &str) -> Result<(), String> {
+    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), CoreError> {
         let path = self.resolve_key(key)?;
+        let b = bytes.to_vec();
+        let key_owned = key.to_string();
+        tokio::task::spawn_blocking(move || {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): mkdir: {}", key_owned, e)))?;
+            }
+            std::fs::write(&path, &b)
+                .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): write: {}", key_owned, e)))
+        })
+        .await
+        .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): join error: {}", key, e)))?
+    }
+
+    async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+        let path = self.resolve_key(key)?;
+        let key_owned = key.to_string();
         tokio::task::spawn_blocking(move || match std::fs::remove_file(&path) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(CoreError::Storage(format!("delete_object('{}'): {}", key_owned, e))),
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| CoreError::Storage(format!("delete_object('{}'): join error: {}", key, e)))?
     }
 
-    async fn head_etag(&self, key: &str) -> Result<Option<String>, String> {
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         let path = self.resolve_key(key)?;
+        let key_owned = key.to_string();
         tokio::task::spawn_blocking(move || match std::fs::metadata(&path) {
             Ok(meta) => Ok(Some(Self::etag_for_metadata(&meta))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(CoreError::Storage(format!("head_etag('{}'): {}", key_owned, e))),
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| CoreError::Storage(format!("head_etag('{}'): join error: {}", key, e)))?
     }
 
-    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, String> {
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         let pref = prefix.trim().trim_start_matches('/').to_string();
         let adapter = self.clone();
+        let prefix_owned = prefix.to_string();
         tokio::task::spawn_blocking(move || {
             let mut keys: Vec<String> = Vec::new();
 
-            // Prefer walking from the directory implied by the prefix when possible.
             let pref_path = PathBuf::from(&pref);
             let start = adapter.base_dir.as_ref().join(&pref_path);
             let (walk_root, filter_prefix) = if start.is_dir() {
@@ -264,7 +279,7 @@ impl StorageAdapter for LocalFileStorageAdapter {
             Ok(keys)
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| CoreError::Storage(format!("list_prefix('{}'): join error: {}", prefix_owned, e)))?
     }
 }
 

@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
+const LOCK_CONTENTION_WARN_MS: u64 = 200;
+
 static PROFILE_PERFORMANCE: LazyLock<bool> = LazyLock::new(|| {
     std::env::var("REACT_PROFILE_LOCKS")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -58,7 +60,7 @@ impl<T> TimedRwLock<T> {
             .entry(self.name.clone())
             .or_insert_with(|| AtomicU64::new(0))
             .fetch_add(nanos, Ordering::Relaxed);
-        let threshold = Duration::from_millis(200);
+        let threshold = Duration::from_millis(LOCK_CONTENTION_WARN_MS);
         if elapsed >= threshold {
             let now = Instant::now();
             let mut should_print = true;

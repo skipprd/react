@@ -10,6 +10,8 @@ use tokio::sync::mpsc;
 use crate::run::event_hub::EventHub;
 use crate::ws::api_gen::src::models as api;
 
+const DEFAULT_EVENT_HUB_CAPACITY: usize = 4096;
+
 fn classify_error(summary: &str) -> &'static str {
     let s = summary.to_ascii_lowercase();
     if s.contains("timed out reading response")
@@ -100,7 +102,7 @@ pub struct RunOpts {
 /// - 1: at least one failed item
 /// - 2: no final state could be determined
 pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry) -> Result<(i32, String), String> {
-    let hub = EventHub::new(4096);
+    let hub = EventHub::new(DEFAULT_EVENT_HUB_CAPACITY);
     let mut rx = hub.subscribe();
     let plain_progress = std::env::var("REACT_PLAIN_PROGRESS")
         .ok()

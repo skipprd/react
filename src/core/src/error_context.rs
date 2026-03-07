@@ -5,13 +5,18 @@ use serde_json::Value;
 use crate::agent::AgentCtx;
 use crate::session::ToolObservation;
 
+const MIN_EXCERPT_CHARS: usize = 256;
+const DEFAULT_MAX_CHARS: usize = 8_000;
+const MAX_TOTAL_CHARS: usize = 32_000;
+const KEYWORD_CONTEXT_LINES_AFTER: usize = 9;
+
 /// Build a prompt-safe error context string for a failed tool call.
 ///
 /// Policy:
 /// - If the full error payload fits in `max_chars`, return it (no truncation).
 /// - Otherwise, return a deterministic excerpt composed of keyword-window matches plus head/tail.
 pub fn render_failure_context(observation: &ToolObservation, max_chars: usize) -> String {
-    let max_chars = max_chars.max(256);
+    let max_chars = max_chars.max(MIN_EXCERPT_CHARS);
     let full = build_error_blob(observation);
     if full.chars().count() <= max_chars {
         return full;
@@ -41,15 +46,15 @@ pub fn estimate_max_prompt_chars(_ctx: &AgentCtx) -> usize {
         // Very conservative conversion: ~4 chars/token, with a reserved safety margin for the rest of the prompt.
         let est = toks.saturating_mul(4);
         // Leave room for system prompt, tool card, prior transcript, and the model response.
-        return est.saturating_sub(8_000).max(8_000);
+        return est.saturating_sub(DEFAULT_MAX_CHARS).max(DEFAULT_MAX_CHARS);
     }
 
-    32_000
+    MAX_TOTAL_CHARS
 }
 
 /// Deterministic excerpt: keyword-window matches (+ head/tail) under a char budget.
 pub fn excerpt_by_keywords(text: &str, max_chars: usize, patterns: &[&str]) -> String {
-    let max_chars = max_chars.max(256);
+    let max_chars = max_chars.max(MIN_EXCERPT_CHARS);
     let lines: Vec<&str> = text.lines().collect();
     if lines.is_empty() {
         return trim_to_chars(text, max_chars);
@@ -61,7 +66,7 @@ pub fn excerpt_by_keywords(text: &str, max_chars: usize, patterns: &[&str]) -> S
         let ll = line.to_ascii_lowercase();
         if patterns.iter().any(|p| !p.is_empty() && ll.contains(p)) {
             let start = i.saturating_sub(3);
-            let end = (i + 9).min(lines.len()); // +8 lines after
+            let end = (i + KEYWORD_CONTEXT_LINES_AFTER).min(lines.len());
             ranges.push((start, end));
         }
     }

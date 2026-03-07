@@ -102,7 +102,7 @@ impl CatalogProvider for DefaultCatalogProvider {
         let value =
             serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
         let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
-        self.storage.put_json(&key, &json_equiv).await?;
+        self.storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
         Ok(())
     }
 

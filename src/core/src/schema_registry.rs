@@ -118,19 +118,20 @@ pub struct PatchReplaceListV1 {
     pub edits: Vec<PatchReplaceListEditV1>,
 }
 
-fn schema_for_id(id: SchemaId) -> Value {
+fn schema_for_id(id: SchemaId) -> Result<Value, String> {
     let schema = match id {
         SchemaId::AgentStepV1 => schemars::schema_for!(AgentStepV1),
         SchemaId::PatchSingleFileV1 => schemars::schema_for!(PatchSingleFileV1),
     };
-    let root_v = serde_json::to_value(&schema).expect("schema serialization must succeed");
-    root_schema_json_to_json_schema_value(root_v)
+    let root_v = serde_json::to_value(&schema)
+        .map_err(|e| format!("schema serialization failed for {:?}: {}", id, e))?;
+    Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
-pub fn strict_json_schema_for<T: JsonSchema>() -> Value {
+pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, String> {
     let root_v = serde_json::to_value(schemars::schema_for!(T))
-        .expect("schema serialization must succeed");
-    root_schema_json_to_json_schema_value(root_v)
+        .map_err(|e| format!("schema serialization failed: {}", e))?;
+    Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
 /// Convert `schemars::schema_for!()` JSON into a standard JSON Schema document.
@@ -244,14 +245,14 @@ pub fn json_schema(id: SchemaId) -> Value {
     let map = SCHEMAS.get_or_init(|| {
         use std::collections::HashMap;
         let mut m: HashMap<SchemaId, Value> = HashMap::new();
-        m.insert(SchemaId::AgentStepV1, schema_for_id(SchemaId::AgentStepV1));
+        m.insert(SchemaId::AgentStepV1, schema_for_id(SchemaId::AgentStepV1).expect("AgentStepV1 schema init"));
         m.insert(
             SchemaId::PatchSingleFileV1,
-            schema_for_id(SchemaId::PatchSingleFileV1),
+            schema_for_id(SchemaId::PatchSingleFileV1).expect("PatchSingleFileV1 schema init"),
         );
         m
     });
-    map.get(&id).cloned().unwrap_or_else(|| schema_for_id(id))
+    map.get(&id).cloned().unwrap_or_else(|| schema_for_id(id).expect("schema_for_id fallback"))
 }
 
 pub fn validate(id: SchemaId, instance: &Value) -> Result<(), String> {

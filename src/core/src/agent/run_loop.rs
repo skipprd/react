@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use crate::llm::{ChatMessage, LlmCallOptions, LlmExpectedFormat};
+use crate::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 use crate::schema_registry::SchemaId;
 use crate::session::{ThreadStep, ToolObservation, ToolStepStatus};
 use crate::tools::ToolRegistry;
@@ -46,7 +46,7 @@ impl Agent {
         llm_options: LlmCallOptions,
     ) -> Result<String, String> {
         let messages = vec![ChatMessage {
-            role: "user".into(),
+            role: ChatRole::User,
             content: prompt,
         }];
         ctx.llm_chat(&messages, &llm_options).await
@@ -222,81 +222,10 @@ impl Agent {
             };
             let action_name_str = action_name.as_str();
 
-            info!("agent action: {}", action_name_str);
-            let timeout_secs = ctx
-                .policy
-                .timeout_for_tool(action_name_str)
-                .unwrap_or(ctx.per_step_timeout_secs)
-                .max(1);
-
-            // Persist tool_start immediately so UIs can show in-flight tool runtime.
-            let tool_id = uuid::Uuid::new_v4().to_string();
-            let agent = ctx
-                .agent_name
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
-            let clean_name = ctx.policy.clean_tool_name(action_name_str, &args);
-            if let Some(store) = store {
-                let _ = store
-                    .append_step(
-                        &tid,
-                        ThreadStep::ToolStart {
-                            tool_id: tool_id.clone(),
-                            name: action_name.to_string(),
-                            clean_name: clean_name.clone(),
-                            args: args.clone(),
-                            status: ToolStepStatus::Running,
-                            payload: None,
-                            ctx: ctx.exec_ctx.clone(),
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            agent: agent.clone(),
-                        },
-                    )
-                    .await;
-            }
-
-            let raw_obs = match tokio::time::timeout(
-                std::time::Duration::from_secs(timeout_secs),
-                tools.call(action_name_str, args.clone(), ctx),
+            let (raw_obs, obs_env) = Self::execute_tool_call(
+                tools, ctx, store, &tid, action_name_str, &args,
             )
-            .await
-            {
-                Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
-                Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
-            };
-            let obs_env = ToolObservation::normalize(raw_obs.clone());
-            let obs_env_for_transcript = obs_env.clone();
-
-            // Persist tool_end if store exists.
-            if let Some(store) = store {
-                let status = if obs_env.ok {
-                    ToolStepStatus::Ok
-                } else {
-                    ToolStepStatus::Failed
-                };
-                let payload = obs_env
-                    .extra
-                    .get("payload")
-                    .cloned()
-                    .or_else(|| obs_env.extra.get("ui_payload").cloned());
-                let _ = store
-                    .append_step(
-                        &tid,
-                        ThreadStep::ToolEnd {
-                            tool_id: tool_id.clone(),
-                            name: action_name.to_string(),
-                            clean_name: clean_name.clone(),
-                            args: args.clone(),
-                            status,
-                            payload,
-                            ctx: ctx.exec_ctx.clone(),
-                            observation: obs_env,
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            agent: agent.clone(),
-                        },
-                    )
-                    .await;
-            }
+            .await;
 
             // Policy may turn this tool into an interrupt.
             if let Some((kind, prompt)) = ctx
@@ -310,41 +239,133 @@ impl Agent {
                 });
             }
 
-            Self::transcript_add(
-                &mut transcript,
-                format!("Assistant: {}", raw),
-                &ctx.trace_tx,
+            Self::append_observation_to_transcript(
+                ctx, &mut transcript, &raw, &raw_obs, &obs_env,
             );
-
-            // Always preserve full tool output in the persisted thread log (ToolObservation).
-            // For the model-facing transcript, include the full error output when it fits the prompt budget;
-            // otherwise include a deterministic excerpt so we don't miss the critical lines while staying in-bounds.
-            if obs_env_for_transcript.ok {
-                Self::transcript_add(
-                    &mut transcript,
-                    format!("Observation: {}", raw_obs),
-                    &ctx.trace_tx,
-                );
-            } else {
-                let max_prompt_chars = crate::error_context::estimate_max_prompt_chars(ctx);
-                // Best-effort remaining budget: current transcript size + the new line overhead.
-                let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum();
-                let remaining = max_prompt_chars.saturating_sub(used_chars).max(256);
-                let rendered =
-                    crate::error_context::render_failure_context(&obs_env_for_transcript, remaining);
-                Self::transcript_add(
-                    &mut transcript,
-                    format!(
-                        "Observation: {}",
-                        serde_json::json!({ "ok": false, "error_context": rendered })
-                    ),
-                    &ctx.trace_tx,
-                );
-            }
         }
 
         ctx.policy
             .fallback(tools, ctx, &mut transcript, store, &tid)
             .await
+    }
+
+    async fn execute_tool_call(
+        tools: &ToolRegistry,
+        ctx: &AgentCtx,
+        store: Option<&crate::session::ThreadStore>,
+        tid: &str,
+        action_name: &str,
+        args: &serde_json::Value,
+    ) -> (serde_json::Value, ToolObservation) {
+        info!("agent action: {}", action_name);
+        let timeout_secs = ctx
+            .policy
+            .timeout_for_tool(action_name)
+            .unwrap_or(ctx.per_step_timeout_secs)
+            .max(1);
+
+        let tool_id = uuid::Uuid::new_v4().to_string();
+        let agent = ctx
+            .agent_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let clean_name = ctx.policy.clean_tool_name(action_name, args);
+        if let Some(store) = store {
+            let _ = store
+                .append_step(
+                    tid,
+                    ThreadStep::ToolStart {
+                        tool_id: tool_id.clone(),
+                        name: action_name.to_string(),
+                        clean_name: clean_name.clone(),
+                        args: args.clone(),
+                        status: ToolStepStatus::Running,
+                        payload: None,
+                        ctx: ctx.exec_ctx.clone(),
+                        ts: chrono::Utc::now().to_rfc3339(),
+                        agent: agent.clone(),
+                    },
+                )
+                .await;
+        }
+
+        let raw_obs = match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            tools.call(action_name, args.clone(), ctx),
+        )
+        .await
+        {
+            Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
+            Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
+        };
+        let obs_env = ToolObservation::normalize(raw_obs.clone());
+
+        if let Some(store) = store {
+            let status = if obs_env.ok {
+                ToolStepStatus::Ok
+            } else {
+                ToolStepStatus::Failed
+            };
+            let payload = obs_env
+                .extra
+                .get("payload")
+                .cloned()
+                .or_else(|| obs_env.extra.get("ui_payload").cloned());
+            let _ = store
+                .append_step(
+                    tid,
+                    ThreadStep::ToolEnd {
+                        tool_id: tool_id.clone(),
+                        name: action_name.to_string(),
+                        clean_name: clean_name.clone(),
+                        args: args.clone(),
+                        status,
+                        payload,
+                        ctx: ctx.exec_ctx.clone(),
+                        observation: obs_env.clone(),
+                        ts: chrono::Utc::now().to_rfc3339(),
+                        agent: agent.clone(),
+                    },
+                )
+                .await;
+        }
+
+        (raw_obs, obs_env)
+    }
+
+    fn append_observation_to_transcript(
+        ctx: &AgentCtx,
+        transcript: &mut Vec<String>,
+        raw_model_output: &str,
+        raw_obs: &serde_json::Value,
+        obs_env: &ToolObservation,
+    ) {
+        Self::transcript_add(
+            transcript,
+            format!("Assistant: {}", raw_model_output),
+            &ctx.trace_tx,
+        );
+
+        if obs_env.ok {
+            Self::transcript_add(
+                transcript,
+                format!("Observation: {}", raw_obs),
+                &ctx.trace_tx,
+            );
+        } else {
+            let max_prompt_chars = crate::error_context::estimate_max_prompt_chars(ctx);
+            let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum();
+            let remaining = max_prompt_chars.saturating_sub(used_chars).max(256);
+            let rendered =
+                crate::error_context::render_failure_context(obs_env, remaining);
+            Self::transcript_add(
+                transcript,
+                format!(
+                    "Observation: {}",
+                    serde_json::json!({ "ok": false, "error_context": rendered })
+                ),
+                &ctx.trace_tx,
+            );
+        }
     }
 }

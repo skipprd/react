@@ -1,4 +1,4 @@
-use crate::llm::{ChatMessage, LlmCallOptions};
+use crate::llm::{ChatMessage, ChatRole, LlmCallOptions};
 use crate::llm_observability;
 use crate::session::{LlmStepStatus, Observation, ThreadStep};
 
@@ -75,25 +75,10 @@ impl AgentCtx {
             (None, "suite_llm".to_string(), String::new(), None)
         };
 
-        if let (Some(call_id), Some(thread_id), Some(store)) = (
-            call_id_opt,
-            thread_id_opt.as_ref().cloned(),
-            store_opt.as_ref().cloned(),
-        ) {
-            let _ = store
-                .append_step(
-                    &thread_id,
-                    ThreadStep::LlmStart {
-                        call_id,
-                        model: Some("unknown".to_string()),
-                        phase: phase.clone(),
-                        ctx: self.exec_ctx.clone(),
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent: agent.clone(),
-                    },
-                )
-                .await;
-        }
+        self.emit_llm_start_step(
+            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
+            &phase, &agent,
+        ).await;
 
         let mut options = options.clone();
         if options.thread_id.is_none() {
@@ -120,24 +105,69 @@ impl AgentCtx {
                 .map_err(|e| format!("LLM request failed: {}", e))
         };
 
-        if let (Some(call_id), Some(thread_id), Some(store), Some(built)) = (
-            call_id_opt,
-            thread_id_opt.as_ref().cloned(),
-            store_opt.as_ref().cloned(),
-            parts_built,
-        ) {
+        self.emit_llm_end_step(
+            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
+            &phase, &agent, &res,
+        ).await;
+
+        self.record_llm_observation(
+            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
+            parts_built, &phase, &agent, &prompt_hash, &res,
+        ).await;
+
+        res
+    }
+
+    async fn emit_llm_start_step(
+        &self,
+        call_id_opt: Option<u64>,
+        thread_id: Option<&str>,
+        store_opt: Option<&crate::session::ThreadStore>,
+        phase: &str,
+        agent: &str,
+    ) {
+        if let (Some(call_id), Some(thread_id), Some(store)) =
+            (call_id_opt, thread_id, store_opt)
+        {
+            let _ = store
+                .append_step(
+                    thread_id,
+                    ThreadStep::LlmStart {
+                        call_id,
+                        model: Some("unknown".to_string()),
+                        phase: phase.to_string(),
+                        ctx: self.exec_ctx.clone(),
+                        ts: chrono::Utc::now().to_rfc3339(),
+                        agent: agent.to_string(),
+                    },
+                )
+                .await;
+        }
+    }
+
+    async fn emit_llm_end_step(
+        &self,
+        call_id_opt: Option<u64>,
+        thread_id: Option<&str>,
+        store_opt: Option<&crate::session::ThreadStore>,
+        phase: &str,
+        agent: &str,
+        res: &Result<String, String>,
+    ) {
+        if let (Some(call_id), Some(thread_id), Some(store)) =
+            (call_id_opt, thread_id, store_opt)
+        {
             let (ok, response_raw) = match res.as_ref() {
                 Ok(txt) => (true, txt.as_str()),
                 Err(e) => (false, e.as_str()),
             };
-
             let _ = store
                 .append_step(
-                    &thread_id,
+                    thread_id,
                     ThreadStep::LlmEnd {
                         call_id,
                         model: Some("unknown".to_string()),
-                        phase: phase.clone(),
+                        phase: phase.to_string(),
                         status: if ok {
                             LlmStepStatus::Ok
                         } else {
@@ -150,10 +180,31 @@ impl AgentCtx {
                         },
                         ctx: self.exec_ctx.clone(),
                         ts: chrono::Utc::now().to_rfc3339(),
-                        agent: agent.clone(),
+                        agent: agent.to_string(),
                     },
                 )
                 .await;
+        }
+    }
+
+    async fn record_llm_observation(
+        &self,
+        call_id_opt: Option<u64>,
+        thread_id: Option<&str>,
+        store_opt: Option<&crate::session::ThreadStore>,
+        parts_built: Option<llm_observability::BuiltParts>,
+        phase: &str,
+        agent: &str,
+        prompt_hash: &str,
+        res: &Result<String, String>,
+    ) {
+        if let (Some(call_id), Some(thread_id), Some(store), Some(built)) =
+            (call_id_opt, thread_id, store_opt, parts_built)
+        {
+            let (ok, response_raw) = match res.as_ref() {
+                Ok(txt) => (true, txt.as_str()),
+                Err(e) => (false, e.as_str()),
+            };
 
             let response_hash = llm_observability::sha256_hex_str(response_raw);
             let response_text = if llm_observability::llm_response_text_enabled() {
@@ -165,12 +216,12 @@ impl AgentCtx {
             let ts = chrono::Utc::now().to_rfc3339();
             let _ = store
                 .append_step(
-                    &thread_id,
+                    thread_id,
                     ThreadStep::LlmCall {
                         call_id,
                         model: "unknown".to_string(),
-                        phase,
-                        prompt_hash,
+                        phase: phase.to_string(),
+                        prompt_hash: prompt_hash.to_string(),
                         parts: built.parts,
                         part_hashes: built.part_hashes,
                         response_hash,
@@ -181,13 +232,11 @@ impl AgentCtx {
                             Observation::fail(vec!["llm_call_failed".to_string()])
                         },
                         ts,
-                        agent,
+                        agent: agent.to_string(),
                     },
                 )
                 .await;
         }
-
-        res
     }
 
     /// Convenience: `llm_chat` + JSON parse with escape-repair and one retry.
@@ -210,7 +259,7 @@ impl AgentCtx {
 
         let mut retry_messages = messages.to_vec();
         retry_messages.push(ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: "IMPORTANT: Return ONLY a single valid JSON object. No markdown, no code fences, no prose.".to_string(),
         });
         let raw2 = self.llm_chat(&retry_messages, options).await?;

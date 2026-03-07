@@ -7,7 +7,9 @@
 //! - Minimal capability traits/types (LLM + storage + scope/keyspace + optional providers)
 
 pub mod agent;
+pub mod capability;
 pub mod discover;
+pub mod error;
 pub mod error_context;
 pub mod helpers;
 pub mod keyspace;
@@ -22,3 +24,5 @@ pub mod storage;
 pub mod suite;
 pub mod tools;
 pub mod workflow;
+
+pub use error::{CoreError, CoreResult};

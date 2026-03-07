@@ -5,11 +5,11 @@ use std::sync::Arc;
 use react_core::agent::AgentCtx;
 use crate::data_engineer::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
 use react_core::keyspace::encode_key_component;
-use react_core::llm::{ChatMessage, LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
+use react_core::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 use react_core::tools::Tool;
 
-use react_core::suite::{FlowFrame, SuiteCtx};
+use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 use super::control_flow::Phase;
 use super::plan_kind::PlanKind;
@@ -477,11 +477,11 @@ async fn llm_json(
 
     let messages = vec![
         ChatMessage {
-            role: "system".to_string(),
+            role: ChatRole::System,
             content: system_prompt,
         },
         ChatMessage {
-            role: "user".to_string(),
+            role: ChatRole::User,
             content: user,
         },
     ];
@@ -1107,7 +1107,7 @@ pub async fn run_batched_review(
         scope: sctx.scope.clone(),
         keyspace: sctx.keyspace.clone(),
         vector: sctx.vector.clone(),
-        capabilities: std::collections::HashMap::new(),
+        capabilities: react_core::capability::CapabilityMap::default(),
         thread_store: Some(thread_store.clone()),
         exec_ctx: None,
         resolved_config: sctx.resolved_config.clone(),
@@ -1609,7 +1609,7 @@ pub async fn run_batched_review(
     }
 
     Ok(vec![FlowFrame::Complete {
-        kind: "generic".to_string(),
+        kind: FlowKind::new("generic"),
         payload: serde_json::json!({
             "text": final_review_text.clone(),
             "meta": {
@@ -1667,7 +1667,7 @@ mod tests {
             messages: &[react_core::llm::ChatMessage],
             _options: &react_core::llm::LlmCallOptions,
         ) -> Result<String, String> {
-            if let Some(u) = messages.iter().find(|m| m.role == "user") {
+            if let Some(u) = messages.iter().find(|m| m.role == react_core::llm::ChatRole::User) {
                 if let Ok(mut g) = self.captured_user_prompts.lock() {
                     g.push(u.content.clone());
                 }
@@ -1740,7 +1740,7 @@ mod tests {
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
             vector: sctx.vector.clone(),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
             thread_store: None,
             exec_ctx: None,
             resolved_config: None,

@@ -355,7 +355,7 @@ pub async fn remove_file(
     }
 
     if existed {
-        ctx.storage.delete_object(&key).await?;
+        ctx.storage.delete_object(&key).await.map_err(|e| e.to_string())?;
     }
 
     Ok(serde_json::json!({
@@ -406,8 +406,8 @@ pub async fn move_file(
         return Err(format!("destination already exists: {}", to_rel));
     }
 
-    ctx.storage.put_bytes(&to_key, &bytes, "text/plain").await?;
-    ctx.storage.delete_object(&from_key).await?;
+    ctx.storage.put_bytes(&to_key, &bytes, "text/plain").await.map_err(|e| e.to_string())?;
+    ctx.storage.delete_object(&from_key).await.map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "ok": true,
@@ -1707,7 +1707,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         if let Some(q) = query {

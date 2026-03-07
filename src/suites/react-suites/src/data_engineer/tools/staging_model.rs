@@ -1148,7 +1148,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query_prov)));
@@ -1310,7 +1310,7 @@ mod tests {
             ) -> Result<String, String> {
                 let user = messages
                     .iter()
-                    .find(|m| m.role == "user")
+                    .find(|m| m.role == react_core::llm::ChatRole::User)
                     .map(|m| m.content.clone())
                     .unwrap_or_default();
                 if let Ok(v) = serde_json::from_str::<Value>(&user) {
@@ -1380,7 +1380,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt_prov)));

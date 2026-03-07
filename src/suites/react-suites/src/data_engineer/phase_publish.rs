@@ -1,6 +1,6 @@
 use crate::data_engineer::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::data_engineer::{control_flow, tools, DataEngineerSuite, PhaseExecutorOutcome};
-use react_core::suite::{FlowFrame, SuiteCtx};
+use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 use crate::data_engineer::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
 
@@ -33,7 +33,7 @@ impl DataEngineerSuite {
                     "publish_await_approval_not_converged_after_retries: retries={retry_count}; reason={reason}"
                 ));
             }
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::StayInPhase);
         }
 
         es.reset_publish_retry(
@@ -60,7 +60,7 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::Continue)
+        Ok(PhaseExecutorOutcome::TransitionCommitted)
     }
 
     pub(super) async fn execute_publish_phase(
@@ -115,7 +115,7 @@ impl DataEngineerSuite {
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         if ok && stage == "await_approval" {
             let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
@@ -146,7 +146,7 @@ impl DataEngineerSuite {
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::Continue);
+            return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
         let retry_limit = crate::data_engineer::controller_kernel::publish_retry_limit();
         let retry_count = es.bump_publish_retry(
@@ -176,7 +176,7 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::Continue)
+        Ok(PhaseExecutorOutcome::TransitionCommitted)
     }
 
     pub(super) fn execute_done_phase(
@@ -191,7 +191,7 @@ impl DataEngineerSuite {
             answer.push_str(&last);
         }
         out_frames.push(FlowFrame::Complete {
-            kind: "generic".to_string(),
+            kind: FlowKind::new("generic"),
             payload: serde_json::json!({ "text": answer.clone() }),
             display: Some(answer),
         });

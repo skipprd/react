@@ -1,6 +1,8 @@
 use once_cell::sync::OnceCell;
 use react_core::resolved_config::{LlmProvider, ReactResolvedConfig};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+
+use crate::runtime_context::RuntimeContext;
 
 static RESOLVED_CONFIG: OnceCell<ReactResolvedConfig> = OnceCell::new();
 
@@ -10,6 +12,32 @@ pub fn bind_resolved_config(cfg: &ReactResolvedConfig) {
 
 pub fn resolved_config() -> Option<&'static ReactResolvedConfig> {
     RESOLVED_CONFIG.get()
+}
+
+/// Build a [`RuntimeContext`] from the current global config.
+///
+/// Prefer passing `RuntimeContext` through call-sites rather than reaching for
+/// the global `resolved_config()`.  This function bridges the two worlds during
+/// the progressive migration away from process-global singletons.
+pub fn build_runtime_context() -> Option<RuntimeContext> {
+    resolved_config().map(|cfg| RuntimeContext {
+        config: Arc::new(cfg.clone()),
+    })
+}
+
+pub fn getenv_nonempty(key: &str) -> Option<String> {
+    std::env::var(key).ok().and_then(|v| {
+        let t = v.trim();
+        if t.is_empty() { None } else { Some(t.to_string()) }
+    })
+}
+
+pub fn getenv_usize(key: &str) -> Option<usize> {
+    getenv_nonempty(key).and_then(|v| v.parse::<usize>().ok())
+}
+
+pub fn getenv_u64(key: &str) -> Option<u64> {
+    getenv_nonempty(key).and_then(|v| v.parse::<u64>().ok())
 }
 
 pub fn getenv(key: &str, default: &str) -> String {

@@ -46,7 +46,8 @@ pub async fn replace_file_content(
     .await?;
     ctx.storage
         .put_bytes(&out.key, out.content.as_bytes(), content_type)
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }
 
@@ -67,6 +68,7 @@ pub async fn apply_hunks_patch(
     .await?;
     ctx.storage
         .put_bytes(&out.key, out.content.as_bytes(), "text/plain")
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(out)
 }

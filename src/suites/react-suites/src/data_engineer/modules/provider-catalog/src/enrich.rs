@@ -1,6 +1,6 @@
 use react_core::keyspace::encode_key_component;
 use react_core::keyspace::Keyspace;
-use react_core::llm::{ChatMessage, LargeLanguageModel};
+use react_core::llm::{ChatMessage, ChatRole, LargeLanguageModel};
 use react_core::scope::RequestScope;
 use react_core::storage::StorageAdapter;
 use serde::Deserialize;
@@ -111,7 +111,7 @@ async fn llm_reason_pass(
         tokio::task::spawn_blocking(move || {
             llm.chat(
                 &[ChatMessage {
-                    role: "user".into(),
+                    role: ChatRole::User,
                     content: prompt,
                 }],
                 &opts,
@@ -126,7 +126,7 @@ async fn llm_reason_pass(
             tokio::task::spawn_blocking(move || {
                 llm.chat(
                     &[ChatMessage {
-                        role: "user".into(),
+                        role: ChatRole::User,
                         content: prompt,
                     }],
                     &opts,
@@ -160,7 +160,7 @@ async fn llm_compile_pass_json(
         tokio::task::spawn_blocking(move || {
             llm.chat(
                 &[ChatMessage {
-                    role: "user".into(),
+                    role: ChatRole::User,
                     content: prompt,
                 }],
                 &opts,
@@ -175,7 +175,7 @@ async fn llm_compile_pass_json(
             tokio::task::spawn_blocking(move || {
                 llm.chat(
                     &[ChatMessage {
-                        role: "user".into(),
+                        role: ChatRole::User,
                         content: prompt,
                     }],
                     &opts,
@@ -222,7 +222,7 @@ async fn write_global_semantic_context(
     let yaml = serde_yaml::to_string(ctx).unwrap_or_else(|_| "".to_string());
     let value = serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
     let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
-    storage.put_json(&key, &json_equiv).await
+    storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())
 }
 
 fn clamp_and_filter_global_context(
@@ -542,7 +542,7 @@ Output JSON only:",
                             serde_json::Value::String(text.clone()),
                         )
                     });
-                    storage.put_json(&key, &v).await?;
+                    storage.put_json(&key, &v).await.map_err(|e| e.to_string())?;
                 }
             }
         } else {
@@ -1002,7 +1002,7 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
         let value =
             serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
         let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
-        storage.put_json(&key, &json_equiv).await?;
+        storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
     }
     Ok(true)
 }

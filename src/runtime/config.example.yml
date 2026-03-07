@@ -12,7 +12,7 @@ storage:
 scope:
   tenant: "example"
   workspace: "default"
-  project_id: "data_engineer"
+  project_id: "default"
 
 llm:
   # "null" starts the server without an external LLM (useful for smoke tests)

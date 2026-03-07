@@ -102,7 +102,7 @@ pub struct ReactConfigFile {
     pub storage: Option<StorageFile>,
     pub scope: Option<ScopeFile>,
     pub llm: Option<LlmFile>,
-    pub providers: Option<ProvidersFile>,
+    pub providers: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -140,110 +140,12 @@ pub struct LlmFile {
     pub top_p: Option<f32>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct ProvidersFile {
-    pub warehouse: Option<WarehouseFile>,
-    pub catalog: Option<CatalogFile>,
-    pub dbt: Option<DbtFile>,
-    pub vector: Option<VectorFile>,
-}
-
-/// Warehouse configuration for a single provider (source or target).
-///
-/// Keep secrets in env; only non-secret wiring here.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum WarehouseFile {
-    /// AWS Athena + Glue.
-    Athena {
-        workgroup: Option<String>,
-        region: Option<String>,
-        result_s3: Option<String>,
-        max_concurrency: Option<usize>,
-        /// Container above schema: Athena catalog (Glue Data Catalog). Default: AwsDataCatalog.
-        catalog: Option<String>,
-        /// Optional default schema/database for discovery + unqualified queries.
-        schema: Option<String>,
-        discovery_cache_ttl_secs: Option<u64>,
-    },
-    /// PostgreSQL.
-    Postgres {
-        /// Optional default database name (container above schema).
-        database: Option<String>,
-        /// Optional default schema for discovery/unqualified references.
-        schema: Option<String>,
-    },
-    /// Microsoft SQL Server.
-    Mssql {
-        database: Option<String>,
-        schema: Option<String>,
-    },
-    /// Snowflake (warehouse database+schema live in Snowflake).
-    Snowflake {
-        database: Option<String>,
-        schema: Option<String>,
-        warehouse: Option<String>,
-        role: Option<String>,
-    },
-    /// BigQuery (project+dataset+table).
-    Bigquery {
-        project: Option<String>,
-        dataset: Option<String>,
-        location: Option<String>,
-        max_concurrency: Option<usize>,
-        discovery_cache_ttl_secs: Option<u64>,
-    },
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct CatalogFile {
-    pub enabled: Option<bool>,
-    pub refresh_secs: Option<u64>,
-    pub max_concurrency: Option<usize>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct DbtNamingFile {
-    pub target_schema: Option<String>,
-    pub silver_suffix: Option<String>,
-    pub gold_suffix: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct DbtFile {
-    pub enabled: Option<bool>,
-    pub profiles_dir: Option<String>,
-    pub target: Option<String>,
-    pub naming: Option<DbtNamingFile>,
-    /// DBT runner mode: "host" (default) or "docker".
-    pub runner: Option<String>,
-    /// Docker image reference to use when runner=="docker".
-    pub docker_image: Option<String>,
-    pub docker_platform: Option<String>,
-    pub docker_network: Option<String>,
-    pub docker_mount_aws_dir: Option<bool>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct VectorFile {
-    pub enabled: Option<bool>,
-}
-
 pub use rc::ReactResolvedConfig;
 pub use rc::ServerResolved;
 pub use rc::StorageResolved;
 pub use rc::LlmResolved;
 
-fn getenv_nonempty(key: &str) -> Option<String> {
-    std::env::var(key).ok().and_then(|v| {
-        let t = v.trim();
-        if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        }
-    })
-}
+use crate::runtime_settings::getenv_nonempty;
 
 fn ensure_safe_segment(name: &str, v: &str) -> Result<(), String> {
     let t = v.trim();
@@ -267,11 +169,20 @@ impl ReactConfigFile {
     }
 }
 
+const DEFAULT_SERVER_PORT: u16 = 8787;
+const DEFAULT_LOCAL_STORAGE_PATH: &str = "./.react";
+
+/// Suite-specific provider resolution. Currently dispatches to data_engineer.
+/// When multi-suite support is needed, this becomes a registry lookup by suite_id.
+fn resolve_suite_providers(providers_yaml: serde_json::Value) -> Result<serde_json::Value, String> {
+    react_suites::data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
+}
+
 pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<ReactResolvedConfig, String> {
         let server_port = ov
             .port
             .or_else(|| file.server.as_ref().and_then(|s| s.port))
-            .unwrap_or(8787);
+            .unwrap_or(DEFAULT_SERVER_PORT);
 
         // Storage mode: CLI > env > YAML > default(local)
         let mode_str = ov
@@ -319,7 +230,7 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                 .storage_path
                 .or_else(|| getenv_nonempty("REACT_STORAGE_PATH"))
                 .or_else(|| file.storage.as_ref().and_then(|s| s.path.clone()))
-                .unwrap_or_else(|| "./.react".to_string());
+                .unwrap_or_else(|| DEFAULT_LOCAL_STORAGE_PATH.to_string());
             (None, Some(abs_path(&p)?))
         };
 
@@ -340,14 +251,9 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
         ensure_safe_segment("workspace", &workspace)?;
         ensure_safe_segment("project_id", &project_id)?;
 
-        // Providers
-        let pf = file.providers.unwrap_or_default();
-        let wh_f = pf
-            .warehouse
-            .ok_or_else(|| "missing providers.warehouse in YAML config".to_string())?;
-        let cat_f = pf.catalog.unwrap_or_default();
-        let dbt_f = pf.dbt.unwrap_or_default();
-        let vec_f = pf.vector.unwrap_or_default();
+        // Providers – delegate to suite-specific resolver
+        let providers_yaml = file.providers.unwrap_or(serde_json::json!({}));
+        let providers = resolve_suite_providers(providers_yaml)?;
 
         // LLM env surface
         let llmf = file.llm.unwrap_or_default();
@@ -381,122 +287,6 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                 .or(llmf.top_p),
         };
 
-        // DBT naming (suffix strategy). If configured, dbt will materialize schemas like:
-        //   <target_schema>_<silver_suffix> and <target_schema>_<gold_suffix>
-        let dbt_naming_f = dbt_f.naming.clone().unwrap_or_default();
-        let naming_target_schema =
-            getenv_nonempty("DBT_TARGET_SCHEMA").or(dbt_naming_f.target_schema);
-        let naming_silver_suffix = getenv_nonempty("DBT_SILVER_SUFFIX")
-            .or(dbt_naming_f.silver_suffix)
-            .or(Some("silver".to_string()));
-        let naming_gold_suffix = getenv_nonempty("DBT_GOLD_SUFFIX")
-            .or(dbt_naming_f.gold_suffix)
-            .or(Some("warehouse".to_string()));
-
-        fn resolve_warehouse(w: WarehouseFile) -> serde_json::Value {
-            match w {
-                WarehouseFile::Athena {
-                    workgroup,
-                    region,
-                    result_s3,
-                    max_concurrency,
-                    catalog,
-                    schema,
-                    discovery_cache_ttl_secs,
-                } => serde_json::json!({
-                    "kind": "Athena",
-                    "container": catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
-                    "namespace": schema.unwrap_or_default(),
-                    "extras": {
-                        "workgroup": workgroup,
-                        "region": region,
-                        "result_s3": result_s3,
-                        "max_concurrency": max_concurrency,
-                        "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-                    },
-                }),
-                WarehouseFile::Postgres { database, schema } => serde_json::json!({
-                    "kind": "Postgres",
-                    "container": database.unwrap_or_default(),
-                    "namespace": schema.unwrap_or_default(),
-                    "extras": {},
-                }),
-                WarehouseFile::Mssql { database, schema } => serde_json::json!({
-                    "kind": "Mssql",
-                    "container": database.unwrap_or_default(),
-                    "namespace": schema.unwrap_or_default(),
-                    "extras": {},
-                }),
-                WarehouseFile::Snowflake {
-                    database,
-                    schema,
-                    warehouse,
-                    role,
-                } => serde_json::json!({
-                    "kind": "Snowflake",
-                    "container": database.unwrap_or_default(),
-                    "namespace": schema.unwrap_or_default(),
-                    "extras": { "warehouse": warehouse, "role": role },
-                }),
-                WarehouseFile::Bigquery {
-                    project,
-                    dataset,
-                    location,
-                    max_concurrency,
-                    discovery_cache_ttl_secs,
-                } => serde_json::json!({
-                    "kind": "Bigquery",
-                    "container": project.unwrap_or_default(),
-                    "namespace": dataset.unwrap_or_default(),
-                    "extras": {
-                        "location": location,
-                        "max_concurrency": max_concurrency,
-                        "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-                    },
-                }),
-            }
-        }
-
-        let docker_mount_aws_dir = getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
-            .map(|v| {
-                let vv = v.trim().to_lowercase();
-                vv == "1" || vv == "true" || vv == "yes"
-            })
-            .or(dbt_f.docker_mount_aws_dir)
-            .unwrap_or(false);
-
-        let providers = serde_json::json!({
-            "warehouse": resolve_warehouse(wh_f),
-            "catalog": {
-                "enabled": cat_f.enabled.unwrap_or(true),
-                "refresh_secs": cat_f.refresh_secs.unwrap_or(60),
-                "max_concurrency": cat_f.max_concurrency.unwrap_or(8),
-            },
-            "dbt": {
-                "enabled": dbt_f.enabled.unwrap_or(true),
-                "profiles_dir": getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
-                "target": getenv_nonempty("DBT_TARGET")
-                    .or(dbt_f.target)
-                    .unwrap_or_default(),
-                "naming": {
-                    "target_schema": naming_target_schema.unwrap_or_default(),
-                    "silver_suffix": naming_silver_suffix.unwrap_or_default(),
-                    "gold_suffix": naming_gold_suffix.unwrap_or_default(),
-                },
-                "runner": getenv_nonempty("DBT_RUNNER")
-                    .or(dbt_f.runner)
-                    .unwrap_or_else(|| "host".to_string()),
-                "docker_image": getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
-                "docker_platform": getenv_nonempty("DBT_DOCKER_PLATFORM")
-                    .or(dbt_f.docker_platform),
-                "docker_network": getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
-                "docker_mount_aws_dir": docker_mount_aws_dir,
-            },
-            "vector": {
-                "enabled": vec_f.enabled.unwrap_or(true),
-            },
-        });
-
         let cfg = ReactResolvedConfig {
             server: ServerResolved { port: server_port },
             storage: StorageResolved {
@@ -522,9 +312,55 @@ mod tests {
     use once_cell::sync::Lazy;
     use std::sync::Mutex;
 
-    // Env vars are process-global; tests run in parallel by default.
-    // Serialize env-dependent tests to avoid flakes.
     static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    const ALL_TEST_ENV_KEYS: &[&str] = &[
+        "SKIPPR_S3_BUCKET",
+        "REACT_STORAGE_MODE",
+        "REACT_STORAGE_PATH",
+        "LLM_PROVIDER",
+        "LLM_CHAT_MODEL",
+        "LLM_BASE_URL",
+        "LLM_EMBED_MODEL",
+        "LLM_CONTEXT_LENGTH",
+        "LLM_GPU_LAYERS",
+        "LLM_HTTP_TIMEOUT_SECS",
+        "LLM_MAX_TOKENS",
+        "LLM_TEMPERATURE",
+        "LLM_TOP_P",
+        "DBT_TARGET",
+        "DBT_SILVER_SUFFIX",
+    ];
+
+    fn save_env<'a>(keys: &'a [&'a str]) -> Vec<(&'a str, Option<String>)> {
+        keys.iter().map(|k| (*k, std::env::var(k).ok())).collect()
+    }
+
+    fn restore_env(saved: &[(&str, Option<String>)]) {
+        for (k, v) in saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+
+    fn minimal_providers_json() -> serde_json::Value {
+        serde_json::json!({
+            "warehouse": { "kind": "postgres" }
+        })
+    }
+
+    /// Runs the body under ENV_LOCK and guarantees env var cleanup regardless of panics.
+    fn with_clean_env<F: FnOnce() + std::panic::UnwindSafe>(body: F) {
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved = save_env(ALL_TEST_ENV_KEYS);
+        let result = std::panic::catch_unwind(body);
+        restore_env(&saved);
+        if let Err(e) = result {
+            std::panic::resume_unwind(e);
+        }
+    }
 
     fn clear_env(keys: &[&str]) {
         for k in keys {
@@ -534,183 +370,144 @@ mod tests {
 
     #[test]
     fn resolve_bucket_precedence_cli_over_env_over_yaml() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["SKIPPR_S3_BUCKET"]);
-        std::env::set_var("SKIPPR_S3_BUCKET", "env-bucket");
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            std::env::set_var("SKIPPR_S3_BUCKET", "env-bucket");
 
-        let file = ReactConfigFile {
-            storage: Some(StorageFile {
-                mode: Some("s3".into()),
-                bucket: Some("yaml-bucket".into()),
-                path: None,
-            }),
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
+            let file = ReactConfigFile {
+                storage: Some(StorageFile {
+                    mode: Some("s3".into()),
+                    bucket: Some("yaml-bucket".into()),
+                    path: None,
                 }),
+                providers: Some(minimal_providers_json()),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let ov = ServeOverrides {
-            storage_mode: Some("s3".into()),
-            bucket: Some("cli-bucket".into()),
-            ..Default::default()
-        };
+            };
+            let ov = ServeOverrides {
+                storage_mode: Some("s3".into()),
+                bucket: Some("cli-bucket".into()),
+                ..Default::default()
+            };
 
-        let cfg = resolve_config(file, ov).expect("resolve");
-        assert_eq!(cfg.storage.mode, StorageMode::S3);
-        assert_eq!(cfg.storage.bucket, Some("cli-bucket".to_string()));
-
-        clear_env(&["SKIPPR_S3_BUCKET"]);
+            let cfg = resolve_config(file, ov).expect("resolve");
+            assert_eq!(cfg.storage.mode, StorageMode::S3);
+            assert_eq!(cfg.storage.bucket, Some("cli-bucket".to_string()));
+        });
     }
 
     #[test]
     fn resolve_bucket_errors_if_missing_everywhere() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["SKIPPR_S3_BUCKET"]);
-        let file = ReactConfigFile {
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
-                }),
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                providers: Some(minimal_providers_json()),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let ov = ServeOverrides {
-            storage_mode: Some("s3".into()),
-            ..Default::default()
-        };
-        let err = resolve_config(file, ov)
-            .err()
-            .unwrap_or_default();
-        assert!(err.contains("missing storage bucket for s3 mode"));
+            };
+            let ov = ServeOverrides {
+                storage_mode: Some("s3".into()),
+                ..Default::default()
+            };
+            let err = resolve_config(file, ov)
+                .err()
+                .unwrap_or_default();
+            assert!(err.contains("missing storage bucket for s3 mode"));
+        });
     }
 
     #[test]
     fn resolve_rejects_unsafe_scope_segments() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["SKIPPR_S3_BUCKET"]);
-        let file = ReactConfigFile {
-            storage: Some(StorageFile {
-                mode: Some("s3".into()),
-                bucket: Some("b".into()),
-                path: None,
-            }),
-            scope: Some(ScopeFile {
-                tenant: Some("a/b".into()),
-                workspace: Some("w".into()),
-                project_id: Some("p".into()),
-            }),
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                storage: Some(StorageFile {
+                    mode: Some("s3".into()),
+                    bucket: Some("b".into()),
+                    path: None,
                 }),
+                scope: Some(ScopeFile {
+                    tenant: Some("a/b".into()),
+                    workspace: Some("w".into()),
+                    project_id: Some("p".into()),
+                }),
+                providers: Some(minimal_providers_json()),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let err = resolve_config(file, ServeOverrides::default())
-            .err()
-            .unwrap_or_default();
-        assert!(err.contains("must not contain path separators"));
+            };
+            let err = resolve_config(file, ServeOverrides::default())
+                .err()
+                .unwrap_or_default();
+            assert!(err.contains("must not contain path separators"));
+        });
     }
 
     #[test]
     fn resolve_defaults_to_local_storage_without_bucket() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&[
-            "SKIPPR_S3_BUCKET",
-            "REACT_STORAGE_MODE",
-            "REACT_STORAGE_PATH",
-        ]);
-        let file = ReactConfigFile {
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
-                }),
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                providers: Some(minimal_providers_json()),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let cfg = resolve_config(file, ServeOverrides::default()).expect("resolve");
-        assert_eq!(cfg.storage.mode, StorageMode::Local);
-        assert!(cfg.storage.bucket.is_none());
-        assert!(cfg.storage.path.as_ref().is_some());
+            };
+            let cfg = resolve_config(file, ServeOverrides::default()).expect("resolve");
+            assert_eq!(cfg.storage.mode, StorageMode::Local);
+            assert!(cfg.storage.bucket.is_none());
+            assert!(cfg.storage.path.as_ref().is_some());
+        });
     }
 
     #[test]
     fn resolve_rejects_unknown_llm_provider() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["LLM_PROVIDER"]);
-        let file = ReactConfigFile {
-            llm: Some(LlmFile {
-                provider: Some("SOME_UNKNOWN_PROVIDER".to_string()),
-                ..Default::default()
-            }),
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                llm: Some(LlmFile {
+                    provider: Some("SOME_UNKNOWN_PROVIDER".to_string()),
+                    ..Default::default()
                 }),
+                providers: Some(minimal_providers_json()),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let err = resolve_config(file, ServeOverrides::default()).unwrap_err();
-        assert!(err.contains("unsupported llm provider"));
+            };
+            let err = resolve_config(file, ServeOverrides::default()).unwrap_err();
+            assert!(err.contains("unsupported llm provider"));
+        });
     }
 
     #[test]
     fn resolve_config_does_not_mutate_llm_or_dbt_env() {
-        let _g = ENV_LOCK.lock().unwrap();
-        clear_env(&["LLM_PROVIDER", "LLM_CHAT_MODEL", "DBT_TARGET", "DBT_SILVER_SUFFIX"]);
-        std::env::set_var("LLM_PROVIDER", "NULL");
-        std::env::set_var("LLM_CHAT_MODEL", "preset-chat-model");
-        std::env::set_var("DBT_TARGET", "preset-target");
-        std::env::set_var("DBT_SILVER_SUFFIX", "preset-silver");
-        let file = ReactConfigFile {
-            llm: Some(LlmFile {
-                provider: Some("OPENAI_COMPAT".to_string()),
-                chat_model: Some("gpt-5.1".to_string()),
-                ..Default::default()
-            }),
-            providers: Some(ProvidersFile {
-                warehouse: Some(WarehouseFile::Postgres {
-                    database: None,
-                    schema: None,
-                }),
-                dbt: Some(DbtFile {
-                    target: Some("athena".to_string()),
-                    naming: Some(DbtNamingFile {
-                        silver_suffix: Some("silver".to_string()),
-                        ..Default::default()
-                    }),
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            std::env::set_var("LLM_PROVIDER", "NULL");
+            std::env::set_var("LLM_CHAT_MODEL", "preset-chat-model");
+            std::env::set_var("DBT_TARGET", "preset-target");
+            std::env::set_var("DBT_SILVER_SUFFIX", "preset-silver");
+            let file = ReactConfigFile {
+                llm: Some(LlmFile {
+                    provider: Some("OPENAI_COMPAT".to_string()),
+                    chat_model: Some("gpt-5.1".to_string()),
                     ..Default::default()
                 }),
+                providers: Some(serde_json::json!({
+                    "warehouse": { "kind": "postgres" },
+                    "dbt": {
+                        "target": "athena",
+                        "naming": { "silver_suffix": "silver" }
+                    }
+                })),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let _ = resolve_config(file, ServeOverrides::default()).expect("resolve");
-        assert_eq!(std::env::var("LLM_PROVIDER").ok().as_deref(), Some("NULL"));
-        assert_eq!(
-            std::env::var("LLM_CHAT_MODEL").ok().as_deref(),
-            Some("preset-chat-model")
-        );
-        assert_eq!(
-            std::env::var("DBT_TARGET").ok().as_deref(),
-            Some("preset-target")
-        );
-        assert_eq!(
-            std::env::var("DBT_SILVER_SUFFIX").ok().as_deref(),
-            Some("preset-silver")
-        );
-        clear_env(&["LLM_PROVIDER", "LLM_CHAT_MODEL", "DBT_TARGET", "DBT_SILVER_SUFFIX"]);
+            };
+            let _ = resolve_config(file, ServeOverrides::default()).expect("resolve");
+            assert_eq!(std::env::var("LLM_PROVIDER").ok().as_deref(), Some("NULL"));
+            assert_eq!(
+                std::env::var("LLM_CHAT_MODEL").ok().as_deref(),
+                Some("preset-chat-model")
+            );
+            assert_eq!(
+                std::env::var("DBT_TARGET").ok().as_deref(),
+                Some("preset-target")
+            );
+            assert_eq!(
+                std::env::var("DBT_SILVER_SUFFIX").ok().as_deref(),
+                Some("preset-silver")
+            );
+        });
     }
 }

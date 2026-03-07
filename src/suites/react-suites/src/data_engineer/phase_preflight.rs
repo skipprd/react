@@ -52,7 +52,7 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::Continue)
+        Ok(PhaseExecutorOutcome::TransitionCommitted)
     }
 }
 

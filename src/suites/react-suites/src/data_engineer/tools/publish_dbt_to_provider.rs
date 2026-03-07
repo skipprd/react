@@ -517,7 +517,8 @@ mod tests {
                 let bytes = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
                 self.storage
                     .put_bytes(&manifest_key, &bytes, "application/json")
-                    .await?;
+                    .await
+                    .map_err(|e| e.to_string())?;
             }
             Ok(crate::data_engineer::providers::DbtValidateResult {
                 ok: true,
@@ -581,7 +582,7 @@ mod tests {
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg.clone()),
-            capabilities: std::collections::HashMap::new(),
+            capabilities: react_core::capability::CapabilityMap::default(),
         };
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));

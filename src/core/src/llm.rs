@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Expected response format for a chat call.
@@ -69,9 +70,37 @@ pub trait LargeLanguageModel: Send + Sync {
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String>;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatRole {
+    System,
+    User,
+    Assistant,
+}
+
+impl std::fmt::Display for ChatRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::System => write!(f, "system"),
+            Self::User => write!(f, "user"),
+            Self::Assistant => write!(f, "assistant"),
+        }
+    }
+}
+
+impl From<&str> for ChatRole {
+    fn from(s: &str) -> Self {
+        match s {
+            "system" => Self::System,
+            "assistant" => Self::Assistant,
+            _ => Self::User,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ChatMessage {
-    pub role: String, // "system" | "user" | "assistant"
+    pub role: ChatRole,
     pub content: String,
 }
 

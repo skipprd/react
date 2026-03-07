@@ -1,10 +1,8 @@
 use super::{ChatMessage, LargeLanguageModel, LlmConfig};
-// removed unused imports
 
 #[cfg(feature = "llama_cpp")]
 mod inner {
     use super::*;
-    use crate::runtime_settings;
     use llama_cpp_2::context::params::LlamaContextParams;
     use llama_cpp_2::llama_backend::LlamaBackend;
     use llama_cpp_2::llama_batch::LlamaBatch;
@@ -21,7 +19,7 @@ mod inner {
         if let Some(p) = cfg.chat_model.clone() {
             return Ok(p);
         }
-        let candidates = vec!["./models"]; // search simple default dir
+        let candidates = vec!["./models"];
         for dir in candidates {
             if let Ok(rd) = fs::read_dir(dir) {
                 for e in rd.flatten() {
@@ -37,57 +35,26 @@ mod inner {
         Err("no GGUF model found; set LLM_CHAT_MODEL".to_string())
     }
 
+    fn load_tuning_map() -> serde_json::Value {
+        // TODO: S3-based tuning cache removed; using empty map as fallback
+        serde_json::json!({})
+    }
+
+    fn save_tuning_map(_obj: &serde_json::Value) {
+        // TODO: S3-based tuning cache removed; save is a no-op
+    }
+
     fn load_with_autotune(
         backend: &LlamaBackend,
         model_path: &str,
         hint_gpu_layers: Option<usize>,
     ) -> Result<(LlamaModel, i32), String> {
-        // Remote S3 autotune cache
-        fn s3_key() -> String {
-            let tenant = runtime_settings::get_tenant();
-            let workspace = runtime_settings::get_workspace_name();
-            let pipeline = runtime_settings::get_pipeline_name();
-            format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
-        }
-        fn load_map() -> serde_json::Value {
-            let key = s3_key();
-            match tokio::runtime::Handle::try_current() {
-                // Avoid blocking inside an active runtime; skip remote cache in this case
-                Ok(_h) => serde_json::json!({}),
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    rt.block_on(async { crate::helpers::s3::get_json(&key).await })
-                        .ok()
-                        .unwrap_or(serde_json::json!({}))
-                }
-            }
-        }
-        fn save_map(obj: &serde_json::Value) {
-            let key = s3_key();
-            let val = obj.clone();
-            match tokio::runtime::Handle::try_current() {
-                // Avoid blocking inside an active runtime; skip remote cache in this case
-                Ok(_h) => {
-                    let _ = &val; /* no-op */
-                }
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    let _ = rt.block_on(async { crate::helpers::s3::put_json(&key, &val).await });
-                }
-            }
-        }
         let key_model = Path::new(model_path)
             .canonicalize()
             .map_err(|_| "model path".to_string())?
             .to_string_lossy()
             .to_string();
-        let mut saved_layers: Option<i32> = load_map()
+        let saved_layers: Option<i32> = load_tuning_map()
             .get(&key_model)
             .and_then(|x| x.as_i64())
             .map(|n| n as i32);
@@ -99,11 +66,11 @@ mod inner {
             let params = LlamaModelParams::default().with_n_gpu_layers(start.max(0) as u32);
             match LlamaModel::load_from_file(backend, model_path, &params) {
                 Ok(llm) => {
-                    let mut obj = load_map();
+                    let mut obj = load_tuning_map();
                     obj.as_object_mut()
                         .unwrap()
                         .insert(key_model.clone(), serde_json::json!(start));
-                    save_map(&obj);
+                    save_tuning_map(&obj);
                     return Ok((llm, start));
                 }
                 Err(_) => {
@@ -130,19 +97,18 @@ mod inner {
         if let Some(shared) = SHARED_LOCAL.get() {
             return Ok(shared.clone());
         }
-        // suppress logs to stdout
         send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
-        println!(
+        tracing::info!(
             "{} LLM(llama.cpp): selecting model...",
             chrono::Utc::now().to_rfc3339()
         );
         let model_path = pick_model_path(cfg)?;
-        println!(
+        tracing::info!(
             "{} LLM(llama.cpp): initializing backend...",
             chrono::Utc::now().to_rfc3339()
         );
         let backend = LlamaBackend::init().map_err(|e| e.to_string())?;
-        println!(
+        tracing::info!(
             "{} LLM(llama.cpp): loading model {}...",
             chrono::Utc::now().to_rfc3339(),
             model_path
@@ -164,53 +130,13 @@ mod inner {
         model_path: &'a str,
         hint_ctx: Option<usize>,
     ) -> Result<(llama_cpp_2::context::LlamaContext<'a>, u32), String> {
-        // Use S3-based tuning map
-        fn s3_key() -> String {
-            let tenant = runtime_settings::get_tenant();
-            let workspace = runtime_settings::get_workspace_name();
-            let pipeline = runtime_settings::get_pipeline_name();
-            format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
-        }
-        fn load_map() -> serde_json::Value {
-            let key = s3_key();
-            match tokio::runtime::Handle::try_current() {
-                // Avoid blocking inside an active runtime; skip remote cache
-                Ok(_h) => serde_json::json!({}),
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    rt.block_on(async { crate::helpers::s3::get_json(&key).await })
-                        .ok()
-                        .unwrap_or(serde_json::json!({}))
-                }
-            }
-        }
-        fn save_map(obj: &serde_json::Value) {
-            let key = s3_key();
-            let val = obj.clone();
-            match tokio::runtime::Handle::try_current() {
-                // Avoid blocking inside an active runtime; skip remote cache
-                Ok(_h) => {
-                    let _ = &val; /* no-op */
-                }
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    let _ = rt.block_on(async { crate::helpers::s3::put_json(&key, &val).await });
-                }
-            }
-        }
         let key = Path::new(model_path)
             .canonicalize()
             .map_err(|_| "model path".to_string())?
             .to_string_lossy()
             .to_string()
             + "#ctx";
-        let mut saved_ctx: Option<u32> = load_map()
+        let saved_ctx: Option<u32> = load_tuning_map()
             .get(&key)
             .and_then(|x| x.as_u64())
             .map(|n| n as u32);
@@ -224,11 +150,11 @@ mod inner {
             ));
             match model.new_context(backend, params) {
                 Ok(ctx) => {
-                    let mut obj = load_map();
+                    let mut obj = load_tuning_map();
                     obj.as_object_mut()
                         .unwrap()
                         .insert(key.clone(), serde_json::json!(start));
-                    save_map(&obj);
+                    save_tuning_map(&obj);
                     return Ok((ctx, start));
                 }
                 Err(_) => {
@@ -236,19 +162,16 @@ mod inner {
                     if attempts > 6 {
                         return Err("failed to create context after autotune".to_string());
                     }
-                    // back off conservatively
                     start = start.saturating_sub(1024).max(1024);
                 }
             }
         }
     }
 
-    pub fn chat(cfg: &LlmConfig, messages: &[ChatMessage]) -> Result<String, String> {
-        // Try to get or load the shared model once; if no local model available, fall back to echo
+    pub fn chat(cfg: &LlmConfig, messages: &[ChatMessage], options: &react_core::llm::LlmCallOptions) -> Result<String, String> {
         let shared = match get_or_load_shared(cfg) {
             Ok(s) => s,
             Err(_) => {
-                // Fallback stub when no local model is available
                 let prompt = messages
                     .iter()
                     .map(|m| format!("{}: {}\n", m.role, m.content))
@@ -259,11 +182,10 @@ mod inner {
         let backend = &shared.backend;
         let model = &shared.model;
 
-        // Build prompt using model chat template if available
         let prompt = {
             let msgs: Vec<model::LlamaChatMessage> = messages
                 .iter()
-                .map(|m| model::LlamaChatMessage::new(m.role.clone(), m.content.clone()))
+                .map(|m| model::LlamaChatMessage::new(m.role.to_string(), m.content.clone()))
                 .collect::<Result<_, _>>()
                 .map_err(|e| e.to_string())?;
             if let Ok(tmpl) = model.chat_template(None) {
@@ -278,19 +200,18 @@ mod inner {
             }
         };
 
-        println!(
+        tracing::debug!(
             "{} LLM(llama.cpp): creating context (auto-tune n_ctx)...",
             chrono::Utc::now().to_rfc3339()
         );
         let (mut ctx, tuned_ctx_len) =
             load_context_with_autotune(&model, &backend, &shared.model_path, cfg.context_length)?;
-        println!(
+        tracing::debug!(
             "{} LLM(llama.cpp): context ready (n_ctx={})",
             chrono::Utc::now().to_rfc3339(),
             tuned_ctx_len
         );
 
-        // tokenize prompt
         let tokens = model
             .str_to_token(&prompt, model::AddBos::Always)
             .map_err(|e| e.to_string())?;
@@ -303,22 +224,19 @@ mod inner {
                 .add(token, i, &[0], is_last)
                 .map_err(|e| e.to_string())?;
         }
-        println!(
+        tracing::debug!(
             "{} LLM(llama.cpp): priming context... ({} tokens)",
             chrono::Utc::now().to_rfc3339(),
             last_index + 1
         );
         ctx.decode(&mut batch).map_err(|e| e.to_string())?;
 
-        // simple greedy decode up to a reasonable limit
         let mut sampler = LlamaSampler::greedy();
         let mut output = String::new();
-        // Strict JSON early-stop collector
         let mut json_started = false;
         let mut json_depth: i32 = 0;
         let mut json_buf = String::new();
         let mut n_cur = batch.n_tokens();
-        // cap new tokens; use smaller cap for structured JSON outputs
         let is_strict_json = matches!(
             options.expected_format,
             react_core::llm::LlmExpectedFormat::JsonObject
@@ -326,13 +244,12 @@ mod inner {
                 | react_core::llm::LlmExpectedFormat::JsonSchemaSpec { .. }
         );
         let max_new_tokens: i32 = if is_strict_json {
-            // Allow larger responses for structured JSON outputs. Scale with context.
             ((tuned_ctx_len as i32) / 2).clamp(256, 2048)
         } else {
             ((tuned_ctx_len as i32) / 4).clamp(64, 1024)
         };
         let mut generated: i32 = 0;
-        println!(
+        tracing::debug!(
             "{} LLM(llama.cpp): generating up to {} tokens...",
             chrono::Utc::now().to_rfc3339(),
             max_new_tokens
@@ -346,7 +263,6 @@ mod inner {
             let bytes = model
                 .token_to_bytes(token, model::Special::Tokenize)
                 .map_err(|e| e.to_string())?;
-            // Prefer strict UTF-8; skip invalid fragments instead of lossy decode to avoid garbage
             if let Ok(piece) = std::str::from_utf8(&bytes) {
                 if is_strict_json {
                     for ch in piece.chars() {
@@ -356,7 +272,6 @@ mod inner {
                                 json_depth = 1;
                                 json_buf.push('{');
                             }
-                            // ignore any preface before first '{'
                         } else {
                             json_buf.push(ch);
                             if ch == '{' {
@@ -373,8 +288,6 @@ mod inner {
                 } else {
                     output.push_str(piece);
                 }
-            } else {
-                // Skip non-UTF8 token to avoid injecting replacement chars
             }
             batch.clear();
             batch
@@ -383,12 +296,11 @@ mod inner {
             n_cur += 1;
             generated += 1;
             ctx.decode(&mut batch).map_err(|e| e.to_string())?;
-            // Early stop if strict JSON object was completed
             if is_strict_json && json_started && json_depth == 0 && !output.is_empty() {
                 break;
             }
         }
-        println!(
+        tracing::info!(
             "{} LLM(llama.cpp): generation done ({} tokens)",
             chrono::Utc::now().to_rfc3339(),
             generated
@@ -399,75 +311,30 @@ mod inner {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        // suppress logs
         send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
         let shared = match get_or_load_shared(cfg) {
             Ok(s) => s,
             Err(_) => {
-                // fallback when no model: zeros
                 return Ok(texts.iter().map(|_| vec![0.0f32; 768]).collect());
             }
         };
         let backend = &shared.backend;
-        // prefer embed model if provided, otherwise chat model / auto-discover
         let mut cfg2 = cfg.clone();
         if cfg2.chat_model.is_none() {
             cfg2.chat_model = cfg2.embed_model.clone();
         }
         let model = &shared.model;
 
-        // enable embeddings with context auto-tune similar to chat
         let threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(4);
-        // try cached/suggested context length and back off if needed
-        fn s3_key() -> String {
-            let tenant = runtime_settings::get_tenant();
-            let workspace = runtime_settings::get_workspace_name();
-            let pipeline = runtime_settings::get_pipeline_name();
-            format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
-        }
-        fn load_map() -> serde_json::Value {
-            let key = s3_key();
-            match tokio::runtime::Handle::try_current() {
-                Ok(h) => h
-                    .block_on(async { crate::helpers::s3::get_json(&key).await })
-                    .ok()
-                    .unwrap_or(serde_json::json!({})),
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    rt.block_on(async { crate::helpers::s3::get_json(&key).await })
-                        .ok()
-                        .unwrap_or(serde_json::json!({}))
-                }
-            }
-        }
-        fn save_map(obj: &serde_json::Value) {
-            let key = s3_key();
-            let val = obj.clone();
-            match tokio::runtime::Handle::try_current() {
-                Ok(h) => {
-                    let _ = h.block_on(async { crate::helpers::s3::put_json(&key, &val).await });
-                }
-                Err(_) => {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    let _ = rt.block_on(async { crate::helpers::s3::put_json(&key, &val).await });
-                }
-            }
-        }
         let key_ctx = Path::new(&shared.model_path)
             .canonicalize()
             .map_err(|_| "model path".to_string())?
             .to_string_lossy()
             .to_string()
             + "#ctx";
-        let mut saved_ctx: Option<u32> = load_map()
+        let saved_ctx: Option<u32> = load_tuning_map()
             .get(&key_ctx)
             .and_then(|x| x.as_u64())
             .map(|n| n as u32);
@@ -485,11 +352,11 @@ mod inner {
                 .with_pooling_type(llama_cpp_2::context::params::LlamaPoolingType::Mean);
             match model.new_context(&backend, params) {
                 Ok(ctx) => {
-                    let mut obj = load_map();
+                    let mut obj = load_tuning_map();
                     obj.as_object_mut()
                         .unwrap()
                         .insert(key_ctx.clone(), serde_json::json!(start_ctx));
-                    save_map(&obj);
+                    save_tuning_map(&obj);
                     break ctx;
                 }
                 Err(_) => {
@@ -507,7 +374,6 @@ mod inner {
             let tokens = model
                 .str_to_token(text, model::AddBos::Always)
                 .map_err(|e| e.to_string())?;
-            // ensure fits context
             if (tokens.len() as u32) > ctx.n_ctx() {
                 return Err("prompt exceeds context window".into());
             }
@@ -515,10 +381,8 @@ mod inner {
             batch
                 .add_sequence(&tokens, 0, true)
                 .map_err(|e| e.to_string())?;
-            // reset cache and encode
             ctx.clear_kv_cache();
             ctx.decode(&mut batch).map_err(|e| e.to_string())?;
-            // retrieve embedding for sequence 0; if pooling unsupported, average token embeddings
             match ctx.embeddings_seq_ith(0) {
                 Ok(emb) => out.push(emb.to_vec()),
                 Err(_) => {
@@ -549,7 +413,7 @@ mod inner {
 #[cfg(not(feature = "llama_cpp"))]
 mod inner {
     use super::*;
-    pub fn chat(_cfg: &LlmConfig, messages: &[ChatMessage]) -> Result<String, String> {
+    pub fn chat(_cfg: &LlmConfig, messages: &[ChatMessage], _options: &react_core::llm::LlmCallOptions) -> Result<String, String> {
         let prompt = messages
             .iter()
             .map(|m| format!("{}: {}\n", m.role, m.content))
@@ -577,9 +441,9 @@ impl LargeLanguageModel for LlamaCppModel {
     fn chat(
         &self,
         messages: &[ChatMessage],
-        _options: &react_core::llm::LlmCallOptions,
+        options: &react_core::llm::LlmCallOptions,
     ) -> Result<String, String> {
-        inner::chat(&self.cfg, messages)
+        inner::chat(&self.cfg, messages, options)
     }
 
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {

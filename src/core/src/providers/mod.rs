@@ -1,6 +1,6 @@
 //! Generic capability-level provider traits.
 //!
-//! Domain-specific providers (warehouse, catalog, dbt, query) live in their respective suites.
+//! Suite-specific providers live in their respective suite crates.
 //! Only truly generic providers remain here.
 
 pub mod secrets;

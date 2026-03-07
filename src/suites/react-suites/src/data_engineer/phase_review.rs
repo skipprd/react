@@ -3,7 +3,7 @@ use crate::data_engineer::review_batched;
 use crate::data_engineer::{
     control_flow, DataEngineerSuite, PhaseExecutorOutcome,
 };
-use react_core::suite::{FlowFrame, SuiteCtx};
+use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 use crate::data_engineer::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use react_core::session::ThreadStore;
 
@@ -39,7 +39,7 @@ impl DataEngineerSuite {
         let review_q = Self::build_review_question_with_context(question, phase, execution_state);
         let frames = review_batched::run_batched_review(thread_id, &review_q, phase, sctx).await?;
         let first = frames.into_iter().next().unwrap_or(FlowFrame::Complete {
-            kind: "generic".to_string(),
+            kind: FlowKind::new("generic"),
             payload: serde_json::json!({ "text": "" }),
             display: None,
         });
@@ -119,7 +119,7 @@ impl DataEngineerSuite {
                         thread_store, thread_id, phase, vec![violation],
                         crate::data_engineer::progress_controller::PlanRevisionStrategy::Rewrite,
                     ).await?;
-                    return Ok(PhaseExecutorOutcome::Continue);
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
                 SubjectiveRetryOutcome::WithinBudget(tries) => {
                     review_retry_count = tries;
@@ -192,7 +192,7 @@ impl DataEngineerSuite {
                     ),
                 )
                 .await?;
-                Ok(PhaseExecutorOutcome::Continue)
+                Ok(PhaseExecutorOutcome::TransitionCommitted)
             }
             ReviewDecision::PatchImpl => {
                 let back = patch_impl_target_phase(phase, meta.tier);
@@ -214,7 +214,7 @@ impl DataEngineerSuite {
                     ),
                 )
                 .await?;
-                Ok(PhaseExecutorOutcome::Continue)
+                Ok(PhaseExecutorOutcome::TransitionCommitted)
             }
         }
     }

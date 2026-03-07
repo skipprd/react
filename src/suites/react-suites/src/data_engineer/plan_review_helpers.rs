@@ -72,7 +72,7 @@ impl DataEngineerSuite {
         }
 
         if doc.is_empty() {
-            doc.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+            doc.cancel().map_err(|e| format!("plan cancel failed: {e}"))?;
             save_plan(actx, &doc).await
                 .map_err(|e| format!("failed to persist pruned-empty {} plan: {e}", track.as_str()))?;
             commit_phase_decision(
@@ -101,7 +101,7 @@ impl DataEngineerSuite {
             }
         };
         if !v.ok {
-            doc.set_status(crate::data_engineer::plan::PlanStatus::Cancelled);
+            doc.cancel().map_err(|e| format!("plan cancel failed: {e}"))?;
             save_plan(actx, &doc).await
                 .map_err(|e| format!("failed to persist semantically-invalid {} plan: {e}", track.as_str()))?;
             commit_phase_decision(
@@ -120,7 +120,7 @@ impl DataEngineerSuite {
             return Ok(true);
         }
 
-        doc.set_status(crate::data_engineer::plan::PlanStatus::Approved);
+        doc.approve().map_err(|e| format!("plan approval failed: {e}"))?;
         doc.progress_mut().last_applied_step_idx = log_len;
         save_plan(actx, &doc).await
             .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
