@@ -54,7 +54,7 @@ fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
     // Keep per-call budgets flexible, but enforce one global hard ceiling so a
     // bad prompt cannot explode token usage.
     let cap =
-        crate::helpers::configuration::Config::getenv("LLM_MAX_OUTPUT_TOKENS_HARD_CAP", "256000")
+        crate::runtime_settings::getenv("LLM_MAX_OUTPUT_TOKENS_HARD_CAP", "256000")
             .parse::<u32>()
             .ok()
             .filter(|v| *v > 0)
@@ -64,21 +64,21 @@ fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
 
 impl LargeLanguageModel for RouterModel {
     fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String> {
-        let model = crate::helpers::configuration::Config::llm_chat_model()
+        let model = crate::runtime_settings::llm_chat_model()
             .unwrap_or_else(|| "gpt-4o-mini".to_string());
 
         let default_max_output_tokens = crate::runtime_settings::llm_max_tokens().or_else(|| {
-            crate::helpers::configuration::Config::getenv("LLM_MAX_TOKENS", "1024")
+            crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
                 .parse()
                 .ok()
         });
         let default_temperature = crate::runtime_settings::llm_temperature().or_else(|| {
-            crate::helpers::configuration::Config::getenv("LLM_TEMPERATURE", "0.2")
+            crate::runtime_settings::getenv("LLM_TEMPERATURE", "0.2")
                 .parse()
                 .ok()
         });
         let default_top_p = crate::runtime_settings::llm_top_p().or_else(|| {
-            crate::helpers::configuration::Config::getenv("LLM_TOP_P", "1.0")
+            crate::runtime_settings::getenv("LLM_TOP_P", "1.0")
                 .parse()
                 .ok()
         });
@@ -97,7 +97,7 @@ impl LargeLanguageModel for RouterModel {
         let prompt_id = Some(options.prompt_id.to_string());
 
         fn should_use_background_mode(model: &str) -> bool {
-            let mode = crate::helpers::configuration::Config::getenv("LLM_BACKGROUND_MODE", "auto")
+            let mode = crate::runtime_settings::getenv("LLM_BACKGROUND_MODE", "auto")
                 .to_ascii_lowercase();
             match mode.as_str() {
                 "1" | "true" | "on" | "always" => true,
@@ -158,7 +158,7 @@ impl LargeLanguageModel for RouterModel {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let model = crate::helpers::configuration::Config::llm_embed_model()
+        let model = crate::runtime_settings::llm_embed_model()
             .unwrap_or_else(|| "text-embedding-3-small".to_string());
         let req = crate::llm::types::EmbedRequest {
             model,

@@ -136,7 +136,7 @@ pub struct OpenAICompatModel {
 impl OpenAICompatModel {
     pub fn new(cfg: LlmConfig) -> Self {
         let http_timeout_secs: u64 =
-            crate::helpers::configuration::Config::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
+            crate::runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
                 .parse()
                 .unwrap_or(1200);
         let agent = ureq::AgentBuilder::new()
@@ -203,7 +203,7 @@ impl LargeLanguageModel for OpenAICompatModel {
             }
             let url = format!("{}/v1/responses", base.trim_end_matches('/'));
             let max_tokens_env: i32 =
-                crate::helpers::configuration::Config::getenv("LLM_MAX_TOKENS", "8192")
+                crate::runtime_settings::getenv("LLM_MAX_TOKENS", "8192")
                     .parse()
                     .unwrap_or(8192);
             let max_tokens: i32 = options
@@ -370,12 +370,12 @@ impl LargeLanguageModel for OpenAICompatModel {
                         stream: Some(false),
                         max_tokens: Some(max_tokens as u32),
                         temperature: Some(
-                            crate::helpers::configuration::Config::getenv("LLM_TEMPERATURE", "0.2")
+                            crate::runtime_settings::getenv("LLM_TEMPERATURE", "0.2")
                                 .parse()
                                 .unwrap_or(0.2),
                         ),
                         top_p: Some(
-                            crate::helpers::configuration::Config::getenv("LLM_TOP_P", "1.0")
+                            crate::runtime_settings::getenv("LLM_TOP_P", "1.0")
                                 .parse()
                                 .unwrap_or(1.0),
                         ),
@@ -525,14 +525,14 @@ impl LargeLanguageModel for OpenAICompatModel {
             let url = format!("{}/v1/chat/completions", base.trim_end_matches('/'));
             // latency-optimized defaults
             let max_tokens: u32 =
-                crate::helpers::configuration::Config::getenv("LLM_MAX_TOKENS", "1024")
+                crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
                     .parse()
                     .unwrap_or(1024);
             let temperature: f32 =
-                crate::helpers::configuration::Config::getenv("LLM_TEMPERATURE", "0.2")
+                crate::runtime_settings::getenv("LLM_TEMPERATURE", "0.2")
                     .parse()
                     .unwrap_or(0.2);
-            let top_p: f32 = crate::helpers::configuration::Config::getenv("LLM_TOP_P", "1.0")
+            let top_p: f32 = crate::runtime_settings::getenv("LLM_TOP_P", "1.0")
                 .parse()
                 .unwrap_or(1.0);
             let body = OaiChatReq {

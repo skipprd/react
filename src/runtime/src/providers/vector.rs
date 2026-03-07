@@ -3,7 +3,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use react_core::providers::{ScoredVectorChunk, VectorChunk, VectorStore};
 use react_core::scope::RequestScope;
-use react_module_provider_vector_lance::global_lance_store::GlobalLanceDbStore;
 use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 
 /// Default vector store implementation (LanceDB-on-S3).
@@ -36,10 +35,6 @@ impl LanceVectorStore {
         LanceDbStore::new(&uri)
     }
 
-    pub fn global_dbt_examples_store(&self) -> GlobalLanceDbStore {
-        let uri = format!("{}/dbt-examples/lancedb", self.uri_prefix);
-        GlobalLanceDbStore::new(uri)
-    }
 }
 
 #[async_trait]

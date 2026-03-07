@@ -5917,12 +5917,12 @@ dependencies = [
  "hex",
  "httpmock",
  "itertools 0.12.1",
- "lazy_static",
  "once_cell",
  "rand 0.8.5",
  "react-core",
  "react-module-provider-athena",
  "react-module-provider-bigquery",
+ "react-module-provider-catalog",
  "react-module-provider-dbt",
  "react-module-provider-postgres",
  "react-module-provider-vector-lance",
@@ -5993,6 +5993,23 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "react-module-provider-catalog"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "react-core",
+ "react-suites",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

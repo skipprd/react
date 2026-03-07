@@ -1,11 +1,14 @@
 use react_core::keyspace::encode_key_component;
+use react_core::keyspace::Keyspace;
+use react_core::llm::{ChatMessage, LargeLanguageModel};
+use react_core::scope::RequestScope;
+use react_core::storage::StorageAdapter;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
 
-use super::types::{CatalogField, DataCatalog};
-use crate::llm::ChatMessage;
+use crate::types::{CatalogField, DataCatalog};
 
 const GLOBAL_CONTEXT_MIN_CONFIDENCE: f32 = 0.80;
 
@@ -89,7 +92,7 @@ struct GlobalAssumptionGapCompile {
 }
 
 async fn llm_reason_pass(
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
+    llm: Arc<dyn LargeLanguageModel>,
     prompt: String,
     prompt_id: &'static str,
     llm_timeout_secs: u64,
@@ -138,7 +141,7 @@ async fn llm_reason_pass(
 }
 
 async fn llm_compile_pass_json(
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
+    llm: Arc<dyn LargeLanguageModel>,
     prompt: String,
     prompt_id: &'static str,
     llm_timeout_secs: u64,
@@ -190,30 +193,30 @@ async fn llm_compile_pass_json(
 }
 
 fn global_semantic_key(
-    keyspace: &Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
+    keyspace: &Arc<dyn Keyspace>,
+    scope: &RequestScope,
 ) -> String {
     keyspace.scoped_key(
         scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(super::types::GLOBAL_SEMANTIC_DATASET_ID))],
+        &["semantic", &format!("{}.yaml", encode_key_component(crate::types::GLOBAL_SEMANTIC_DATASET_ID))],
     )
 }
 
 async fn read_global_semantic_context(
-    storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: &Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
-) -> Option<super::types::GlobalSemanticContext> {
+    storage: &Arc<dyn StorageAdapter>,
+    keyspace: &Arc<dyn Keyspace>,
+    scope: &RequestScope,
+) -> Option<crate::types::GlobalSemanticContext> {
     let key = global_semantic_key(keyspace, scope);
     let v = storage.get_json(&key).await.ok()?;
-    serde_json::from_value::<super::types::GlobalSemanticContext>(v).ok()
+    serde_json::from_value::<crate::types::GlobalSemanticContext>(v).ok()
 }
 
 async fn write_global_semantic_context(
-    storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: &Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
-    ctx: &super::types::GlobalSemanticContext,
+    storage: &Arc<dyn StorageAdapter>,
+    keyspace: &Arc<dyn Keyspace>,
+    scope: &RequestScope,
+    ctx: &crate::types::GlobalSemanticContext,
 ) -> Result<(), String> {
     let key = global_semantic_key(keyspace, scope);
     let yaml = serde_yaml::to_string(ctx).unwrap_or_else(|_| "".to_string());
@@ -223,9 +226,8 @@ async fn write_global_semantic_context(
 }
 
 fn clamp_and_filter_global_context(
-    mut ctx: super::types::GlobalSemanticContext,
-) -> super::types::GlobalSemanticContext {
-    // Confidence gating (authoritative only).
+    mut ctx: crate::types::GlobalSemanticContext,
+) -> crate::types::GlobalSemanticContext {
     ctx.audiences
         .retain(|a| a.confidence >= GLOBAL_CONTEXT_MIN_CONFIDENCE && !a.audience.trim().is_empty());
     ctx.context_bullets
@@ -238,13 +240,11 @@ fn clamp_and_filter_global_context(
     ctx.assumptions_and_gaps
         .retain(|a| a.confidence >= GLOBAL_CONTEXT_MIN_CONFIDENCE && !a.text.trim().is_empty());
 
-    // Bound sizes.
     ctx.audiences.truncate(12);
     ctx.context_bullets.truncate(24);
     ctx.dataset_groups.truncate(40);
     ctx.assumptions_and_gaps.truncate(24);
 
-    // Normalize simple dedup.
     let mut seen = std::collections::HashSet::<String>::new();
     ctx.audiences
         .retain(|a| seen.insert(a.audience.trim().to_string()));
@@ -280,7 +280,6 @@ fn compact_catalog_for_global_context(
         .and_then(|x| x.as_array())
         .cloned()
         .unwrap_or_default();
-    // Keep bounded: take first N fields (catalog is already flattened; nested paths can be large).
     let max_fields = 40usize;
     let mut out_fields: Vec<serde_json::Value> = Vec::new();
     for f in fields.into_iter().take(max_fields) {
@@ -303,7 +302,6 @@ fn compact_catalog_for_global_context(
             .unwrap_or("")
             .to_string();
         let stats = f.get("stats").cloned().unwrap_or(serde_json::Value::Null);
-        // Stats can be heavy; keep only a small subset if present.
         let stats = if let Some(obj) = stats.as_object() {
             serde_json::json!({
                 "total": obj.get("total"),
@@ -343,7 +341,7 @@ fn valid_ascii_span(s: &str, min_len: usize, max_len: usize) -> bool {
 
 fn deterministic_global_context_from_compact(
     compact_batch: &[serde_json::Value],
-) -> super::types::GlobalSemanticContext {
+) -> crate::types::GlobalSemanticContext {
     let dataset_ids: Vec<String> = compact_batch
         .iter()
         .filter_map(|v| {
@@ -352,7 +350,7 @@ fn deterministic_global_context_from_compact(
                 .map(|s| s.to_string())
         })
         .collect();
-    let mut bullets = vec![super::types::GlobalContextBullet {
+    let mut bullets = vec![crate::types::GlobalContextBullet {
         text: "Project models warehouse datasets for analytics use-cases.".to_string(),
         confidence: 0.90,
         evidence: dataset_ids
@@ -362,7 +360,7 @@ fn deterministic_global_context_from_compact(
             .collect(),
     }];
     if !dataset_ids.is_empty() {
-        bullets.push(super::types::GlobalContextBullet {
+        bullets.push(crate::types::GlobalContextBullet {
             text: "Catalog refresh confirms schema-driven planning context is available."
                 .to_string(),
             confidence: 0.85,
@@ -373,10 +371,10 @@ fn deterministic_global_context_from_compact(
                 .collect(),
         });
     }
-    super::types::GlobalSemanticContext {
+    crate::types::GlobalSemanticContext {
         version: 1,
         built_at_epoch_secs: Some((chrono::Utc::now().timestamp()).max(0) as u64),
-        audiences: vec![super::types::GlobalAudience {
+        audiences: vec![crate::types::GlobalAudience {
             audience: "Analytics engineering and data consumers".to_string(),
             confidence: 0.90,
             evidence: dataset_ids
@@ -389,7 +387,7 @@ fn deterministic_global_context_from_compact(
         dataset_groups: if dataset_ids.is_empty() {
             vec![]
         } else {
-            vec![super::types::GlobalDatasetGroup {
+            vec![crate::types::GlobalDatasetGroup {
                 group_name: "Discovered project datasets".to_string(),
                 dataset_ids: dataset_ids.clone(),
                 confidence: 0.85,
@@ -400,7 +398,7 @@ fn deterministic_global_context_from_compact(
                     .collect(),
             }]
         },
-        assumptions_and_gaps: vec![super::types::GlobalAssumptionGap {
+        assumptions_and_gaps: vec![crate::types::GlobalAssumptionGap {
             text: "Business semantics inferred from available schema and stats; validate domain-specific definitions during planning.".to_string(),
             confidence: 0.85,
             evidence: dataset_ids
@@ -416,18 +414,16 @@ fn deterministic_global_context_from_compact(
     }
 }
 
-/// Run dataset-level and field-level LLM enrichment for a dataset_id.
 pub async fn enrich_dataset_with_llm(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    llm: Arc<dyn LargeLanguageModel>,
+    scope: &RequestScope,
     dataset_id: &str,
     llm_timeout_secs: u64,
     llm_batch_size: usize,
 ) -> Result<bool, String> {
-    // Load semantic from S3
-    let semantic = super::infer::infer_semantic_model_async(
+    let semantic = crate::infer::infer_semantic_model_async(
         storage.clone(),
         keyspace.clone(),
         scope,
@@ -435,7 +431,6 @@ pub async fn enrich_dataset_with_llm(
     )
     .await;
 
-    // Dataset-level two-pass enrichment: reason (text) -> compile (strict JSON)
     if !semantic.fields.is_empty() {
         let field_names: Vec<String> = semantic.fields.iter().map(|f| f.name.clone()).collect();
         let mut lines: Vec<String> = Vec::new();
@@ -529,7 +524,6 @@ Output JSON only:",
             );
             let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
             if let Ok(mut v) = storage.get_json(&key).await {
-                // Do NOT overwrite an existing human-edited description.
                 let mut should_write = true;
                 if let Some(obj) = v.as_object() {
                     if obj
@@ -559,21 +553,17 @@ Output JSON only:",
         }
     }
 
-    // Field-level enrichment
-    // Prefer stats embedded in catalog; fallback to separate stats JSON if present
     let ns_stats: Option<react_suites::data_engineer::providers::DatasetFieldStats> = {
         let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
         match storage.get_json(&key).await {
             Ok(val) => {
-                super::stats_from_catalog::dataset_field_stats_from_catalog_json(dataset_id, &val)
+                crate::stats_from_catalog::dataset_field_stats_from_catalog_json(dataset_id, &val)
             }
             Err(_) => None,
         }
     };
-    // Load existing catalog (may be YAML stored as JSON via helper)
     let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
     if let Ok(val) = storage.get_json(&key).await {
-        // Build DataCatalog from existing JSON
         let mut catalog = DataCatalog {
             dataset_id: dataset_id.to_string(),
             catalog: val
@@ -625,10 +615,9 @@ Output JSON only:",
                                 .get("role")
                                 .and_then(|x| x.as_str())
                                 .map(|s| s.to_string());
-                            // Preserve pre-existing stats if present
                             let stats_opt = f.get("stats").cloned();
                             let stats_lite = stats_opt.and_then(|st| {
-                                serde_json::from_value::<super::types::FieldStatsLite>(st).ok()
+                                serde_json::from_value::<crate::types::FieldStatsLite>(st).ok()
                             });
                             Some(CatalogField {
                                 entity: String::new(),
@@ -646,11 +635,11 @@ Output JSON only:",
                                     .and_then(|x| x.as_str())
                                     .map(|s| s.to_string()),
                                 structure_kind: f.get("structure_kind").and_then(|x| {
-                                    serde_json::from_value::<super::types::StructureKind>(x.clone())
+                                    serde_json::from_value::<crate::types::StructureKind>(x.clone())
                                         .ok()
                                 }),
                                 access_descriptor: f.get("access_descriptor").and_then(|x| {
-                                    serde_json::from_value::<super::types::AccessDescriptor>(
+                                    serde_json::from_value::<crate::types::AccessDescriptor>(
                                         x.clone(),
                                     )
                                     .ok()
@@ -686,7 +675,6 @@ Output JSON only:",
                         })
                         .collect()
                 }),
-            // Keep structure_index and dataset_stats if present
             structure_index: val
                 .get("structure_index")
                 .and_then(|x| x.as_object())
@@ -707,14 +695,12 @@ Output JSON only:",
                 .unwrap_or_default(),
             dataset_stats: val
                 .get("dataset_stats")
-                .and_then(|x| serde_json::from_value::<super::types::DatasetStats>(x.clone()).ok()),
+                .and_then(|x| serde_json::from_value::<crate::types::DatasetStats>(x.clone()).ok()),
             built_at_epoch_secs: val.get("built_at_epoch_secs").and_then(|x| x.as_u64()),
         };
-        // Batched field enrichment
         let field_names: Vec<String> = catalog.fields.iter().map(|f| f.name.clone()).collect();
         let batch_size = llm_batch_size;
 
-        // Helper to chunk field list
         let chunks: Vec<Vec<String>> = field_names
             .chunks(batch_size.max(1))
             .map(|c| c.to_vec())
@@ -725,7 +711,6 @@ Output JSON only:",
         let mut pii_map_all = std::collections::HashMap::<String, String>::new();
         let mut units_map_all = std::collections::HashMap::<String, String>::new();
 
-        // Build role and stats context lookups
         let mut role_by_field = std::collections::HashMap::<String, String>::new();
         for f in semantic.fields.iter() {
             role_by_field.insert(f.name.clone(), format!("{:?}", f.role));
@@ -763,7 +748,6 @@ Output JSON only:",
                     .collect::<Vec<String>>()
                     .join(",")
             );
-            // Descriptions batch
             let items = fields
                 .iter()
                 .map(|n| {
@@ -830,7 +814,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
                     }
                 }
             }
-            // Follow-up pass for missing field descriptions (hard cutover: no default filler).
             let missing_desc: Vec<String> = fields
                 .iter()
                 .filter(|f| !desc_map_all.contains_key((*f).as_str()))
@@ -889,7 +872,6 @@ Dataset: {ns}\nMissingFieldNames: {missing}\nReasoning notes:\n{memo}\n\nOutput 
                 ));
             }
 
-            // Synonyms batch
             let _items2 = fields
                 .iter()
                 .map(|n| format!("{{name: {}}}", n))
@@ -935,7 +917,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
                 }
             }
 
-            // PII/Units batch
             let _items3 = fields
                 .iter()
                 .map(|n| format!("{{name: {}}}", n))
@@ -983,7 +964,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
             }
         }
 
-        // Apply to catalog
         for fld in catalog.fields.iter_mut() {
             if fld.description.is_none() {
                 if let Some(s) = desc_map_all.get(&fld.name) {
@@ -1011,7 +991,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
                     }
                 }
             }
-            // Ensure role is always populated from semantic if missing in prior catalog
             if fld.role.is_none() {
                 if let Some(r) = role_by_field.get(&fld.name) {
                     fld.role = Some(r.clone());
@@ -1019,7 +998,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
             }
         }
 
-        // Persist enriched catalog (YAML->json equiv)
         let yaml = serde_yaml::to_string(&catalog).unwrap_or_else(|_| "".to_string());
         let value =
             serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
@@ -1029,12 +1007,11 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
     Ok(true)
 }
 
-/// Enrich all datasets with LLM at the end of discovery.
 pub async fn run_llm_enrichment_all(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    llm: Arc<dyn LargeLanguageModel>,
+    scope: &RequestScope,
     dataset_ids: &std::collections::HashSet<String>,
     llm_timeout_secs: u64,
     llm_batch_size: usize,
@@ -1071,12 +1048,12 @@ pub async fn run_llm_enrichment_all(
 }
 
 async fn process_global_context_batch(
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
+    llm: Arc<dyn LargeLanguageModel>,
     llm_timeout_secs: u64,
-    scope: &crate::providers::RequestScope,
-    keyspace: &Arc<dyn crate::providers::Keyspace>,
-    storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
-    global: &mut super::types::GlobalSemanticContext,
+    scope: &RequestScope,
+    keyspace: &Arc<dyn Keyspace>,
+    storage: &Arc<dyn StorageAdapter>,
+    global: &mut crate::types::GlobalSemanticContext,
     compact_batch: &[serde_json::Value],
 ) -> Result<bool, String> {
     if compact_batch.is_empty() {
@@ -1134,13 +1111,13 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
     .await
     {
         if let Ok(parsed) = serde_json::from_value::<GlobalSemanticContextCompile>(v) {
-            let typed = super::types::GlobalSemanticContext {
+            let typed = crate::types::GlobalSemanticContext {
                 version: parsed.version.unwrap_or(1),
                 built_at_epoch_secs: parsed.built_at_epoch_secs,
                 audiences: parsed
                     .audiences
                     .into_iter()
-                    .map(|a| super::types::GlobalAudience {
+                    .map(|a| crate::types::GlobalAudience {
                         audience: a.audience,
                         confidence: a.confidence,
                         evidence: a.evidence,
@@ -1150,7 +1127,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .context_bullets
                     .into_iter()
                     .map(
-                        |b| super::types::GlobalContextBullet {
+                        |b| crate::types::GlobalContextBullet {
                             text: b.text,
                             confidence: b.confidence,
                             evidence: b.evidence,
@@ -1161,7 +1138,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .dataset_groups
                     .into_iter()
                     .map(
-                        |g| super::types::GlobalDatasetGroup {
+                        |g| crate::types::GlobalDatasetGroup {
                             group_name: g.group_name,
                             dataset_ids: g.dataset_ids,
                             confidence: g.confidence,
@@ -1173,7 +1150,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .assumptions_and_gaps
                     .into_iter()
                     .map(
-                        |a| super::types::GlobalAssumptionGap {
+                        |a| crate::types::GlobalAssumptionGap {
                             text: a.text,
                             confidence: a.confidence,
                             evidence: a.evidence,
@@ -1193,30 +1170,24 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
     Ok(true)
 }
 
-/// Enrich GLOBAL project-level context (business meaning + audiences) from all dataset catalogs.
-///
-/// This is intentionally global-only (no per-field additions). It runs in batches over *all* datasets
-/// so we don't assume which ones are important up front.
 pub async fn run_llm_global_context_enrichment_all(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    llm: Arc<dyn crate::llm::LargeLanguageModel>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    llm: Arc<dyn LargeLanguageModel>,
+    scope: &RequestScope,
     dataset_ids: &std::collections::HashSet<String>,
     llm_timeout_secs: u64,
 ) -> Result<bool, String> {
     let mut dss: Vec<String> = dataset_ids.iter().cloned().collect();
     dss.sort();
 
-    // Load existing global context if any (model should update, not rewrite).
     let mut global = read_global_semantic_context(&storage, &keyspace, scope)
         .await
         .unwrap_or_default();
 
-    // Chunk datasets by approximate character budget to keep prompts bounded.
     let mut batch: Vec<serde_json::Value> = Vec::new();
     let mut batch_chars: usize = 0;
-    let max_batch_chars: usize = 85_000; // conservative prompt budget; LLM backend dependent
+    let max_batch_chars: usize = 85_000;
 
     let flush_batch = |batch: &mut Vec<serde_json::Value>| -> Option<Vec<serde_json::Value>> {
         if batch.is_empty() {
@@ -1256,7 +1227,6 @@ pub async fn run_llm_global_context_enrichment_all(
         batch.push(compact);
     }
 
-    // Final flush.
     if let Some(compact_batch) = flush_batch(&mut batch) {
         wrote |= process_global_context_batch(
             llm.clone(),
@@ -1277,13 +1247,10 @@ pub async fn run_llm_global_context_enrichment_all(
     Ok(true)
 }
 
-// Helper to salvage first JSON object from a text block
 pub fn super_extract_json_value(text: &str) -> Result<serde_json::Value, serde_json::Error> {
-    // Try direct parse first
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
         return Ok(v);
     }
-    // Scan for the first balanced JSON object
     let bytes = text.as_bytes();
     let mut depth: i32 = 0;
     let mut start: Option<usize> = None;
@@ -1307,5 +1274,5 @@ pub fn super_extract_json_value(text: &str) -> Result<serde_json::Value, serde_j
             }
         }
     }
-    serde_json::from_str::<serde_json::Value>(text) // return last error
+    serde_json::from_str::<serde_json::Value>(text)
 }

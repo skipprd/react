@@ -25,7 +25,6 @@ pub fn flatten_athena_type(root_col: &str, type_str: &str) -> Vec<FlattenedField
     let mut stack: Vec<String> = vec![root_col.to_string()];
     parse_type_into(&mut out, &mut stack, ty);
     if out.is_empty() {
-        // Fallback to single leaf
         out.push(FlattenedField {
             path: root_col.to_string(),
             data_type: ty.to_string(),
@@ -67,13 +66,11 @@ fn parse_type_into(out: &mut Vec<FlattenedField>, stack: &mut Vec<String>, ty: &
         return;
     }
 
-    // Treat arrays/maps as complex leaves for now (no recursive explode).
     if t.to_lowercase().starts_with("array<") || t.to_lowercase().starts_with("map<") {
         push_leaf(out, stack, t, true);
         return;
     }
 
-    // Scalar leaf
     push_leaf(out, stack, t, false);
 }
 
@@ -89,8 +86,6 @@ fn push_leaf(out: &mut Vec<FlattenedField>, stack: &Vec<String>, ty: &str, is_co
 }
 
 fn build_safe_deref_expr(segments: &[String]) -> Option<String> {
-    // We only emit an expression when all nested segments are safe identifiers.
-    // (Athena/Presto supports dereference with dotted identifiers; quoting may behave like qualification.)
     if segments.is_empty() {
         return None;
     }
@@ -166,7 +161,6 @@ fn split_top_level(s: &str, sep: char) -> Vec<String> {
 }
 
 fn parse_struct_fields(inner: &str) -> Vec<(String, String)> {
-    // inner: "a:int,b:struct<c:string>"
     let mut out = Vec::new();
     for part in split_top_level(inner, ',') {
         let mut angle: i32 = 0;
@@ -196,14 +190,12 @@ fn parse_struct_fields(inner: &str) -> Vec<(String, String)> {
 }
 
 fn parse_row_fields(inner: &str) -> Vec<(String, String)> {
-    // inner: "a varchar, b row(c double)"
     let mut out = Vec::new();
     for part in split_top_level(inner, ',') {
         let trimmed = part.trim();
         if trimmed.is_empty() {
             continue;
         }
-        // split on first whitespace
         let mut idx: Option<usize> = None;
         let mut angle: i32 = 0;
         let mut paren: i32 = 0;

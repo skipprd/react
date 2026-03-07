@@ -1,6 +1,6 @@
-use crate::discover::stats::FieldStats;
+use react_core::discover::stats::FieldStats;
 
-use super::types::FieldStatsLite;
+use crate::types::FieldStatsLite;
 
 pub fn to_stats_lite(s: &FieldStats) -> FieldStatsLite {
     FieldStatsLite {

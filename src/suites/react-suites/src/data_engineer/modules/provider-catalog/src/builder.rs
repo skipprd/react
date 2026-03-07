@@ -1,23 +1,20 @@
 use tracing::{debug, info};
 
-use super::types::{DataCatalog, SemanticField, SemanticFieldRole};
-use super::utils::to_stats_lite;
+use crate::types::{DataCatalog, SemanticField, SemanticFieldRole};
+use crate::utils::to_stats_lite;
 
 pub struct CatalogBuilder;
 
 impl CatalogBuilder {
     pub async fn build_with_stats(
-        dataset: &crate::providers::dataset_catalog_provider::DatasetId,
+        dataset: &react_suites::data_engineer::providers::DatasetId,
         ns_stats: Option<react_suites::data_engineer::providers::DatasetFieldStats>,
-        dataset_stats: Option<super::types::DatasetStats>,
+        dataset_stats: Option<crate::types::DatasetStats>,
     ) -> DataCatalog {
-        // Build initial semantic view directly from provided stats to ensure first-time catalogs have fields
-        // Preserve full dot-paths for nested fields (e.g. context.session.id).
         fn classify_field(
             _name: &str,
             stats: Option<&react_core::discover::stats::FieldStats>,
         ) -> SemanticFieldRole {
-            // Name-agnostic classification using only stats
             if let Some(s) = stats {
                 if s.min_numeric.is_some() || s.max_numeric.is_some() {
                     return SemanticFieldRole::Metric;
@@ -59,14 +56,12 @@ impl CatalogBuilder {
                 (Vec::new(), Vec::new(), Vec::new())
             }
         };
-        // Keep flat names; allow shallow navigation via structure_index
         fn build_structure_index(
             names: &[String],
         ) -> std::collections::HashMap<String, Vec<String>> {
             let mut idx: std::collections::HashMap<String, Vec<String>> =
                 std::collections::HashMap::new();
             for n in names {
-                // For a.b.c -> parents: a, a.b
                 let parts: Vec<&str> = n.split('.').collect();
                 for i in 0..parts.len().saturating_sub(1) {
                     let parent = parts[0..=i].join(".");
@@ -77,7 +72,6 @@ impl CatalogBuilder {
                     }
                 }
             }
-            // Sort children for stable output
             for (_k, v) in idx.iter_mut() {
                 v.sort();
                 v.dedup();
@@ -94,7 +88,7 @@ impl CatalogBuilder {
             metrics: semantic_metrics.clone(),
             fields: semantic_fields
                 .iter()
-                .map(|f| super::types::CatalogField {
+                .map(|f| crate::types::CatalogField {
                     entity: String::new(),
                     name: f.name.clone(),
                     data_type: None,
@@ -117,7 +111,6 @@ impl CatalogBuilder {
                 .ok()
                 .map(|d| d.as_secs()),
         };
-        // Embed per-field stats if provided
         if let Some(ns) = ns_stats.as_ref() {
             let mut nulls_by_field: std::collections::HashMap<String, u64> =
                 std::collections::HashMap::new();
@@ -131,7 +124,6 @@ impl CatalogBuilder {
                 ds.nulls_by_field = nulls_by_field;
             }
         }
-        // Build structure index
         let field_names: Vec<String> = catalog.fields.iter().map(|f| f.name.clone()).collect();
         catalog.structure_index = build_structure_index(&field_names);
         let ds_id = dataset.fqn();

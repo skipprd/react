@@ -27,9 +27,9 @@ pub enum TerminalEvent {
         thread_id: String,
         plans: Vec<api::PlanSnapshot>,
     },
-    DbtProgress {
-        /// dbt subcommand label emitted by the runner (e.g. "compile", "build")
-        phase: String,
+    SubprocessProgress {
+        /// Subprocess label (e.g. "compile", "build")
+        label: String,
         /// Progress summary (e.g. "4 of 6 PASS")
         detail: String,
     },
@@ -464,14 +464,14 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
             tv.last_update = Instant::now();
             ensure_selected(m, &thread_id);
         }
-        TerminalEvent::DbtProgress { phase, detail } => {
+        TerminalEvent::SubprocessProgress { label, detail } => {
             let Some(tid) = m.selected.clone() else {
                 return;
             };
             let Some(tv) = m.threads.get_mut(&tid) else {
                 return;
             };
-            let want = phase.trim().to_lowercase();
+            let want = label.trim().to_lowercase();
             let detail = detail.trim().to_string();
             if detail.is_empty() {
                 return;

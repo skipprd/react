@@ -14,7 +14,7 @@ mod ws {
         #[derive(Clone, Debug)]
         pub enum TerminalEvent {
             #[allow(dead_code)]
-            DbtProgress { phase: String, detail: String },
+            SubprocessProgress { label: String, detail: String },
         }
 
         #[derive(Clone)]

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::helpers::configuration::Config;
+use crate::runtime_settings;
 use tracing::debug;
 
 use super::adapter::Adapter;
@@ -56,9 +56,29 @@ struct MemoEntry {
     at: Instant,
     resp: ChatResponse,
 }
+const CHAT_MEMO_MAX_ENTRIES: usize = 256;
+const CHAT_MEMO_TTL_SECS: u64 = 120;
+
 static CHAT_MEMO: OnceCell<DashMap<String, MemoEntry>> = OnceCell::new();
 fn chat_memo() -> &'static DashMap<String, MemoEntry> {
-    CHAT_MEMO.get_or_init(|| DashMap::new())
+    CHAT_MEMO.get_or_init(DashMap::new)
+}
+
+fn chat_memo_evict() {
+    let memo = chat_memo();
+    let ttl = Duration::from_secs(CHAT_MEMO_TTL_SECS);
+    memo.retain(|_, v| v.at.elapsed() < ttl);
+    if memo.len() > CHAT_MEMO_MAX_ENTRIES {
+        let mut entries: Vec<(String, Instant)> = memo
+            .iter()
+            .map(|e| (e.key().clone(), e.value().at))
+            .collect();
+        entries.sort_by_key(|(_, ts)| *ts);
+        let to_remove = entries.len() - CHAT_MEMO_MAX_ENTRIES;
+        for (key, _) in entries.into_iter().take(to_remove) {
+            memo.remove(&key);
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,11 +90,11 @@ struct HttpRetryPolicy {
 impl HttpRetryPolicy {
     fn from_env() -> Self {
         let request_timeout_secs: u64 = crate::runtime_settings::llm_http_timeout_secs()
-            .or_else(|| Config::getenv("LLM_HTTP_TIMEOUT_SECS", "1200").parse().ok())
+            .or_else(|| runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200").parse().ok())
             .unwrap_or(420)
             .max(30)
             .min(1800);
-        let max_retries: usize = Config::getenv("LLM_HTTP_MAX_RETRIES", "3")
+        let max_retries: usize = runtime_settings::getenv("LLM_HTTP_MAX_RETRIES", "3")
             .parse()
             .unwrap_or(3)
             .max(1)
@@ -134,7 +154,7 @@ static LLM_INFLIGHT_LIMITER: OnceCell<InflightLimiter> = OnceCell::new();
 
 fn llm_inflight_limiter() -> &'static InflightLimiter {
     LLM_INFLIGHT_LIMITER.get_or_init(|| {
-        let configured = Config::getenv("REACT_LLM_MAX_INFLIGHT", "4")
+        let configured = runtime_settings::getenv("REACT_LLM_MAX_INFLIGHT", "4")
             .parse::<usize>()
             .unwrap_or(4);
         InflightLimiter::new(configured)
@@ -168,8 +188,8 @@ impl LlmRouter {
             .build();
         Self {
             adapter: Arc::new(crate::llm::llama_cpp_adapter::LlamaCppAdapter::new()),
-            base_url: Config::llm_base_url(),
-            api_key: Config::llm_api_key(),
+            base_url: runtime_settings::llm_base_url(),
+            api_key: runtime_settings::llm_api_key(),
             http,
             retry_policy,
         }
@@ -193,9 +213,8 @@ impl LlmRouter {
             }
         }
         let key = format!("{}|{:016x}", req.model, hasher.finish());
-        // TTL 120s
         if let Some(entry) = chat_memo().get(&key) {
-            if entry.at.elapsed() < Duration::from_secs(120) {
+            if entry.at.elapsed() < Duration::from_secs(CHAT_MEMO_TTL_SECS) {
                 tracing::debug!("LLM(router) chat memo hit");
                 return Ok(entry.resp.clone());
             }
@@ -203,7 +222,7 @@ impl LlmRouter {
         let http_req = adapter.build_chat_http(req)?;
         // Local llama.cpp branch (no HTTP)
         if http_req.url.starts_with("local://chat") {
-            let cfg = crate::llm::config_from_env();
+            let cfg = crate::llm::config_from_global();
             let model = crate::llm::llama_cpp::LlamaCppModel::new(cfg);
             let msgs: Vec<crate::llm::ChatMessage> = req
                 .messages
@@ -246,7 +265,7 @@ impl LlmRouter {
             body_json_len
         );
         // Opt-in only: full request bodies can be enormous and leak prompts/secrets.
-        if Config::getenv("LLM_LOG_REQUEST_BODIES", "0") == "1" {
+        if runtime_settings::getenv("LLM_LOG_REQUEST_BODIES", "0") == "1" {
             debug!(
                 "LLM(router) request body:\n{}",
                 serde_json::to_string_pretty(&http_req.body).unwrap_or_default()
@@ -310,7 +329,7 @@ impl LlmRouter {
             ph.status,
             ph.body_text.len()
         );
-        if Config::getenv("LLM_LOG_RESPONSE_BODIES", "0") == "1" {
+        if runtime_settings::getenv("LLM_LOG_RESPONSE_BODIES", "0") == "1" {
             debug!(
                 "LLM(router) response chat body:\n{}",
                 pretty_json(&ph.body_text)
@@ -406,7 +425,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             }
             // Keep variables used (to avoid accidental drop warnings if future edits extend this).
             let _ = (prompt_hash, built);
-        } else if Config::getenv("LLM_LOG_PARSED_TEXT", "0") == "1" {
+        } else if runtime_settings::getenv("LLM_LOG_PARSED_TEXT", "0") == "1" {
             debug!("LLM(router) parsed text:\n{}", pretty_json(&parsed.text));
         } else {
             debug!(
@@ -415,7 +434,6 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                 llm_observability::sha256_hex_str(&parsed.text)
             );
         }
-        // store in memo
         chat_memo().insert(
             key,
             MemoEntry {
@@ -423,6 +441,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                 resp: parsed.clone(),
             },
         );
+        chat_memo_evict();
         Ok(parsed)
     }
 
@@ -434,7 +453,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         };
         let http_req = adapter.build_embed_http(req)?;
         if http_req.url.starts_with("local://embed") {
-            let cfg = crate::llm::config_from_env();
+            let cfg = crate::llm::config_from_global();
             let model = crate::llm::llama_cpp::LlamaCppModel::new(cfg);
             let vecs = model.embed(&req.inputs)?;
             let dim = vecs.get(0).map(|v| v.len()).unwrap_or(0);
@@ -451,7 +470,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             req.inputs.len(),
             body_json_len
         );
-        if Config::getenv("LLM_LOG_REQUEST_BODIES", "0") == "1" {
+        if runtime_settings::getenv("LLM_LOG_REQUEST_BODIES", "0") == "1" {
             debug!(
                 "LLM(router) request embed body:\n{}",
                 serde_json::to_string_pretty(&http_req.body).unwrap_or_default()
@@ -473,7 +492,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             ph.status,
             ph.body_text.len()
         );
-        if Config::getenv("LLM_LOG_RESPONSE_BODIES", "0") == "1" {
+        if runtime_settings::getenv("LLM_LOG_RESPONSE_BODIES", "0") == "1" {
             debug!(
                 "LLM(router) response embed body:\n{}",
                 pretty_json(&ph.body_text)
@@ -643,12 +662,12 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             .and_then(|x| x.as_str())
             .ok_or_else(|| "background response missing id".to_string())?
             .to_string();
-        let poll_every_secs: u64 = Config::getenv("LLM_BACKGROUND_POLL_SECS", "2")
+        let poll_every_secs: u64 = runtime_settings::getenv("LLM_BACKGROUND_POLL_SECS", "2")
             .parse()
             .unwrap_or(2)
             .max(1)
             .min(30);
-        let max_wait_secs: u64 = Config::getenv("LLM_BACKGROUND_MAX_WAIT_SECS", "3600")
+        let max_wait_secs: u64 = runtime_settings::getenv("LLM_BACKGROUND_MAX_WAIT_SECS", "3600")
             .parse()
             .unwrap_or(900)
             .max(30)

@@ -13,7 +13,7 @@ impl Adapter for LlamaCppAdapter {
         Capabilities {
             supports_responses_api: false,
             supports_stream: false,
-            context_window: crate::helpers::configuration::Config::llm_context_length(),
+            context_window: crate::runtime_settings::llm_context_length(),
             embed_input_tokens: 2048,
         }
     }

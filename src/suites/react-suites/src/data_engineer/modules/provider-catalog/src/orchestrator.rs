@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use futures_util::stream::{self, StreamExt};
 use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
+use react_suites::data_engineer::providers::{DatasetCatalogProvider, DatasetId};
 use serde_json::Value;
 use std::time::Duration;
 use tracing::{debug, info, warn};
@@ -11,11 +12,11 @@ pub struct Orchestrator;
 
 impl Orchestrator {
     pub async fn build_all_with_progress(
-        query: &dyn crate::providers::dataset_catalog_provider::DatasetCatalogProvider,
+        query: &dyn DatasetCatalogProvider,
         dataset_ids: &HashSet<String>,
-        progress: Option<&crate::helpers::progress::ProgressUi>,
+        progress: Option<&react_core::helpers::progress::ProgressUi>,
         thread: Option<(ThreadStore, String)>,
-    ) -> Result<Vec<(String, super::types::DataCatalog)>, String> {
+    ) -> Result<Vec<(String, crate::types::DataCatalog)>, String> {
         fn dataset_label(ds_id: &str) -> String {
             ds_id.rsplit('.').next().unwrap_or(ds_id).to_string()
         }
@@ -26,8 +27,6 @@ impl Orchestrator {
             step: ThreadStep,
             what: &str,
         ) {
-            // Best-effort durability: retries reduce orphaned start/end spans.
-            // This is still non-fatal by design (preflight observability should not block progress).
             let max_attempts: usize = 3;
             for attempt in 1..=max_attempts {
                 match store.append_step(thread_id, step.clone()).await {
@@ -126,8 +125,7 @@ impl Orchestrator {
             info!("ORCHESTRATOR: building catalogs from provider dataset discovery (all datasets)");
         } else {
             let mut found: HashSet<String> = HashSet::new();
-            let mut filtered: Vec<crate::providers::dataset_catalog_provider::DatasetId> =
-                Vec::new();
+            let mut filtered: Vec<DatasetId> = Vec::new();
             for ds in datasets.into_iter() {
                 let fqn = ds.fqn();
                 if dataset_ids.contains(&fqn) {
@@ -156,8 +154,6 @@ impl Orchestrator {
         datasets.sort_by(|a, b| a.fqn().cmp(&b.fqn()));
         info!("ORCHESTRATOR: discovered {} dataset(s)", datasets.len());
 
-        // Optional WS-visible preflight activity (tool_start/tool_end events).
-        // Keep these coarse-grained to avoid flooding.
         let overall_tool_id = Uuid::new_v4().to_string();
         tool_start(
             &thread,
@@ -169,8 +165,6 @@ impl Orchestrator {
         )
         .await;
 
-        // Canonical query concurrency is owned by the provider. Keep batching aligned so we don't
-        // create unbounded in-flight work.
         let dataset_concurrency = query.max_concurrency().max(1);
         let stats_progress_every: usize = std::env::var("CATALOG_STATS_PROGRESS_EVERY")
             .ok()
@@ -207,7 +201,6 @@ impl Orchestrator {
 
                     info!("ORCHESTRATOR: dataset='{}' start", ds_id);
 
-                    // Fetch schema once so we can embed types into the catalog fields.
                     let schema_tool_id = Uuid::new_v4().to_string();
                     tool_start(
                         &thread,
@@ -264,25 +257,22 @@ impl Orchestrator {
                         String,
                         (
                             String,
-                            super::types::StructureKind,
-                            super::types::AccessDescriptor,
+                            crate::types::StructureKind,
+                            crate::types::AccessDescriptor,
                         ),
                     > = std::collections::HashMap::new();
                     for (name, ty) in schema_cols.iter() {
-                        // Expand nested types into leaf dot-paths so catalog fields can carry types.
-                        let flattened = crate::providers::type_parse::flatten_athena_type(name, ty);
+                        let flattened = crate::type_parse::flatten_athena_type(name, ty);
                         for ff in flattened.into_iter() {
                             let path = ff.path.clone();
                             type_by_field.insert(path.clone(), ff.data_type.clone());
-                            // Derive structure metadata. This is provider-agnostic at the representation layer
-                            // (NestedPath vs ColumnName) even though we parsed engine-native types.
                             let is_nested = path.starts_with(&format!("{}.", name));
                             let kind = if ff.is_complex {
-                                super::types::StructureKind::Complex
+                                crate::types::StructureKind::Complex
                             } else if is_nested {
-                                super::types::StructureKind::NestedLeaf
+                                crate::types::StructureKind::NestedLeaf
                             } else {
-                                super::types::StructureKind::Scalar
+                                crate::types::StructureKind::Scalar
                             };
                             let access = if is_nested {
                                 let rest = path.trim_start_matches(&format!("{}.", name));
@@ -291,18 +281,17 @@ impl Orchestrator {
                                     .filter(|s| !s.trim().is_empty())
                                     .map(|s| s.to_string())
                                     .collect::<Vec<_>>();
-                                super::types::AccessDescriptor::NestedPath {
+                                crate::types::AccessDescriptor::NestedPath {
                                     root: name.clone(),
                                     path: segs,
                                 }
                             } else {
-                                super::types::AccessDescriptor::ColumnName { name: name.clone() }
+                                crate::types::AccessDescriptor::ColumnName { name: name.clone() }
                             };
                             meta_by_field.insert(path, (name.clone(), kind, access));
                         }
                     }
 
-                    // Prefer provider stats. If unavailable, fall back to schema-only catalog.
                     info!(
                         "ORCHESTRATOR: dataset='{}' stats_start max_fields={}",
                         ds_id, max_fields
@@ -360,7 +349,6 @@ impl Orchestrator {
                         };
                     let has_stats = ns_stats_opt.is_some();
 
-                    // Ensure we can still build a usable catalog even without stats: seed fields from schema.
                     let ns_stats_seeded: Option<react_suites::data_engineer::providers::DatasetFieldStats> =
                         if ns_stats_opt.is_some() {
                             ns_stats_opt
@@ -371,11 +359,11 @@ impl Orchestrator {
                                 let mut ns = react_suites::data_engineer::providers::DatasetFieldStats::new(&ds_id);
                                 for (name, _ty) in schema_cols.iter() {
                                     for (path, _leaf_ty) in
-                                        crate::providers::type_parse::flatten_type_paths(name, _ty)
+                                        crate::type_parse::flatten_type_paths(name, _ty)
                                             .into_iter()
                                     {
                                         ns.fields.entry(path).or_insert_with(
-                                            crate::discover::stats::FieldStats::default,
+                                            react_core::discover::stats::FieldStats::default,
                                         );
                                     }
                                 }
@@ -383,20 +371,18 @@ impl Orchestrator {
                             }
                         };
 
-                    let mut cat = super::builder::CatalogBuilder::build_with_stats(
+                    let mut cat = crate::builder::CatalogBuilder::build_with_stats(
                         &ds,
                         ns_stats_seeded,
                         ds_stats_opt,
                     )
                     .await;
-                    // Fill in per-field type strings (best-effort).
                     for f in cat.fields.iter_mut() {
                         if f.data_type.is_none() {
                             if let Some(ty) = type_by_field.get(&f.name) {
                                 f.data_type = Some(ty.clone());
                             }
                         }
-                        // Structure-aware metadata (best-effort).
                         if let Some((root, kind, access)) = meta_by_field.get(&f.name) {
                             if f.root_column.is_none() {
                                 f.root_column = Some(root.clone());
@@ -439,11 +425,10 @@ impl Orchestrator {
             })
             .buffer_unordered(dataset_concurrency);
 
-        let mut to_write: Vec<(String, super::types::DataCatalog)> = Vec::new();
+        let mut to_write: Vec<(String, crate::types::DataCatalog)> = Vec::new();
         while let Some(item) = st.next().await {
             to_write.push(item);
         }
-        // Keep output deterministic for downstream writers.
         to_write.sort_by(|a, b| a.0.cmp(&b.0));
         if let Some(p) = progress {
             p.complete("Building stats");
@@ -452,8 +437,6 @@ impl Orchestrator {
         if let Some(p) = progress {
             p.start("Building catalog");
         }
-        // Avoid printing full catalog JSON at info-level: it’s very large and makes logs noisy.
-        // Keep a small debug hint instead.
         for (ds_id, cat) in to_write.iter() {
             debug!(
                 "ORCHESTRATOR: dataset='{}' catalog_summary fields={} structure_index_keys={}",

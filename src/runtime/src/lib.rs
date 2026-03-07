@@ -2,7 +2,7 @@
 //!
 //! Runtime crate (CLI + WS server + concrete provider implementations).
 
-pub mod adapters;
+pub mod bootstrap;
 pub mod config;
 pub mod helpers;
 pub mod llm;
@@ -13,7 +13,4 @@ pub mod runtime_settings;
 pub mod thread_logs;
 pub mod ws;
 
-// Concrete implementations and utilities used by runtime wiring.
-pub mod discover;
-pub mod embeddings;
 pub mod util;

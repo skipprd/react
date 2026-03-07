@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
 use react_core::keyspace::encode_key_component;
+use react_core::keyspace::Keyspace;
+use react_core::scope::RequestScope;
+use react_core::storage::StorageAdapter;
 
-use super::types::SemanticModel;
+use crate::types::SemanticModel;
 
-/// Infer semantic model for a dataset_id and persist it to scoped storage.
 pub async fn infer_and_write_semantic(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    scope: &RequestScope,
     namespace: &str,
 ) -> Result<SemanticModel, String> {
-    let semantic = super::infer::infer_semantic_model_async(
+    let semantic = crate::infer::infer_semantic_model_async(
         storage.clone(),
         keyspace.clone(),
         scope,
@@ -23,9 +25,9 @@ pub async fn infer_and_write_semantic(
 }
 
 pub async fn write_semantic(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    scope: &RequestScope,
     namespace: &str,
     semantic: &SemanticModel,
 ) -> Result<(), String> {

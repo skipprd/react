@@ -4,7 +4,7 @@ use super::{ChatMessage, LargeLanguageModel, LlmConfig};
 #[cfg(feature = "llama_cpp")]
 mod inner {
     use super::*;
-    use crate::helpers::configuration::Config;
+    use crate::runtime_settings;
     use llama_cpp_2::context::params::LlamaContextParams;
     use llama_cpp_2::llama_backend::LlamaBackend;
     use llama_cpp_2::llama_batch::LlamaBatch;
@@ -44,9 +44,9 @@ mod inner {
     ) -> Result<(LlamaModel, i32), String> {
         // Remote S3 autotune cache
         fn s3_key() -> String {
-            let tenant = Config::get_tenant();
-            let workspace = Config::get_workspace_name();
-            let pipeline = Config::get_pipeline_name();
+            let tenant = runtime_settings::get_tenant();
+            let workspace = runtime_settings::get_workspace_name();
+            let pipeline = runtime_settings::get_pipeline_name();
             format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
         }
         fn load_map() -> serde_json::Value {
@@ -166,9 +166,9 @@ mod inner {
     ) -> Result<(llama_cpp_2::context::LlamaContext<'a>, u32), String> {
         // Use S3-based tuning map
         fn s3_key() -> String {
-            let tenant = Config::get_tenant();
-            let workspace = Config::get_workspace_name();
-            let pipeline = Config::get_pipeline_name();
+            let tenant = runtime_settings::get_tenant();
+            let workspace = runtime_settings::get_workspace_name();
+            let pipeline = runtime_settings::get_pipeline_name();
             format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
         }
         fn load_map() -> serde_json::Value {
@@ -422,9 +422,9 @@ mod inner {
             .unwrap_or(4);
         // try cached/suggested context length and back off if needed
         fn s3_key() -> String {
-            let tenant = Config::get_tenant();
-            let workspace = Config::get_workspace_name();
-            let pipeline = Config::get_pipeline_name();
+            let tenant = runtime_settings::get_tenant();
+            let workspace = runtime_settings::get_workspace_name();
+            let pipeline = runtime_settings::get_pipeline_name();
             format!("{}/{}/{}/llm/llm_tuning.json", tenant, workspace, pipeline)
         }
         fn load_map() -> serde_json::Value {

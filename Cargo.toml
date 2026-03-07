@@ -10,4 +10,5 @@ members = [
   "src/suites/react-suites/src/data_engineer/modules/provider-bigquery",
   "src/suites/react-suites/src/data_engineer/modules/provider-athena",
   "src/suites/react-suites/src/data_engineer/modules/provider-dbt",
+  "src/suites/react-suites/src/data_engineer/modules/provider-catalog",
 ]

@@ -6,10 +6,6 @@ use std::path::PathBuf;
 use crate::providers::RequestScope;
 use react_core::resolved_config as rc;
 use rc::{LlmProvider, StorageMode};
-use react_suites::data_engineer::de_config::{
-    CatalogResolved, DbtNamingResolved, DbtResolved, ProvidersResolved, VectorResolved,
-    WarehouseKind, WarehouseResolved,
-};
 
 /// # `react` configuration
 ///
@@ -397,7 +393,7 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
             .or(dbt_naming_f.gold_suffix)
             .or(Some("warehouse".to_string()));
 
-        fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
+        fn resolve_warehouse(w: WarehouseFile) -> serde_json::Value {
             match w {
                 WarehouseFile::Athena {
                     workgroup,
@@ -407,97 +403,99 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                     catalog,
                     schema,
                     discovery_cache_ttl_secs,
-                } => WarehouseResolved {
-                    kind: WarehouseKind::Athena,
-                    container: catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
-                    namespace: schema.unwrap_or_default(),
-                    extras: serde_json::json!({
+                } => serde_json::json!({
+                    "kind": "Athena",
+                    "container": catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
+                    "namespace": schema.unwrap_or_default(),
+                    "extras": {
                         "workgroup": workgroup,
                         "region": region,
                         "result_s3": result_s3,
                         "max_concurrency": max_concurrency,
                         "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-                    }),
-                },
-                WarehouseFile::Postgres { database, schema } => WarehouseResolved {
-                    kind: WarehouseKind::Postgres,
-                    container: database.unwrap_or_default(),
-                    namespace: schema.unwrap_or_default(),
-                    extras: serde_json::json!({}),
-                },
-                WarehouseFile::Mssql { database, schema } => WarehouseResolved {
-                    kind: WarehouseKind::Mssql,
-                    container: database.unwrap_or_default(),
-                    namespace: schema.unwrap_or_default(),
-                    extras: serde_json::json!({}),
-                },
+                    },
+                }),
+                WarehouseFile::Postgres { database, schema } => serde_json::json!({
+                    "kind": "Postgres",
+                    "container": database.unwrap_or_default(),
+                    "namespace": schema.unwrap_or_default(),
+                    "extras": {},
+                }),
+                WarehouseFile::Mssql { database, schema } => serde_json::json!({
+                    "kind": "Mssql",
+                    "container": database.unwrap_or_default(),
+                    "namespace": schema.unwrap_or_default(),
+                    "extras": {},
+                }),
                 WarehouseFile::Snowflake {
                     database,
                     schema,
                     warehouse,
                     role,
-                } => WarehouseResolved {
-                    kind: WarehouseKind::Snowflake,
-                    container: database.unwrap_or_default(),
-                    namespace: schema.unwrap_or_default(),
-                    extras: serde_json::json!({ "warehouse": warehouse, "role": role }),
-                },
+                } => serde_json::json!({
+                    "kind": "Snowflake",
+                    "container": database.unwrap_or_default(),
+                    "namespace": schema.unwrap_or_default(),
+                    "extras": { "warehouse": warehouse, "role": role },
+                }),
                 WarehouseFile::Bigquery {
                     project,
                     dataset,
                     location,
                     max_concurrency,
                     discovery_cache_ttl_secs,
-                } => WarehouseResolved {
-                    kind: WarehouseKind::Bigquery,
-                    container: project.unwrap_or_default(),
-                    namespace: dataset.unwrap_or_default(),
-                    extras: serde_json::json!({
+                } => serde_json::json!({
+                    "kind": "Bigquery",
+                    "container": project.unwrap_or_default(),
+                    "namespace": dataset.unwrap_or_default(),
+                    "extras": {
                         "location": location,
                         "max_concurrency": max_concurrency,
                         "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
-                    }),
-                },
+                    },
+                }),
             }
         }
 
-        let providers = ProvidersResolved {
-            warehouse: resolve_warehouse(wh_f),
-            catalog: CatalogResolved {
-                enabled: cat_f.enabled.unwrap_or(true),
-                refresh_secs: cat_f.refresh_secs.unwrap_or(60),
-                max_concurrency: cat_f.max_concurrency.unwrap_or(8),
+        let docker_mount_aws_dir = getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
+            .map(|v| {
+                let vv = v.trim().to_lowercase();
+                vv == "1" || vv == "true" || vv == "yes"
+            })
+            .or(dbt_f.docker_mount_aws_dir)
+            .unwrap_or(false);
+
+        let providers = serde_json::json!({
+            "warehouse": resolve_warehouse(wh_f),
+            "catalog": {
+                "enabled": cat_f.enabled.unwrap_or(true),
+                "refresh_secs": cat_f.refresh_secs.unwrap_or(60),
+                "max_concurrency": cat_f.max_concurrency.unwrap_or(8),
             },
-            dbt: DbtResolved {
-                enabled: dbt_f.enabled.unwrap_or(true),
-                profiles_dir: getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
-                target: getenv_nonempty("DBT_TARGET")
+            "dbt": {
+                "enabled": dbt_f.enabled.unwrap_or(true),
+                "profiles_dir": getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
+                "target": getenv_nonempty("DBT_TARGET")
                     .or(dbt_f.target)
                     .unwrap_or_default(),
-                naming: DbtNamingResolved {
-                    target_schema: naming_target_schema.unwrap_or_default(),
-                    silver_suffix: naming_silver_suffix.unwrap_or_default(),
-                    gold_suffix: naming_gold_suffix.unwrap_or_default(),
+                "naming": {
+                    "target_schema": naming_target_schema.unwrap_or_default(),
+                    "silver_suffix": naming_silver_suffix.unwrap_or_default(),
+                    "gold_suffix": naming_gold_suffix.unwrap_or_default(),
                 },
-                runner: getenv_nonempty("DBT_RUNNER")
+                "runner": getenv_nonempty("DBT_RUNNER")
                     .or(dbt_f.runner)
                     .unwrap_or_else(|| "host".to_string()),
-                docker_image: getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
-                docker_platform: getenv_nonempty("DBT_DOCKER_PLATFORM")
+                "docker_image": getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
+                "docker_platform": getenv_nonempty("DBT_DOCKER_PLATFORM")
                     .or(dbt_f.docker_platform),
-                docker_network: getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
-                docker_mount_aws_dir: getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
-                    .map(|v| {
-                        let vv = v.trim().to_lowercase();
-                        vv == "1" || vv == "true" || vv == "yes"
-                    })
-                    .or(dbt_f.docker_mount_aws_dir)
-                    .unwrap_or(false),
+                "docker_network": getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
+                "docker_mount_aws_dir": docker_mount_aws_dir,
             },
-            vector: VectorResolved {
-                enabled: vec_f.enabled.unwrap_or(true),
+            "vector": {
+                "enabled": vec_f.enabled.unwrap_or(true),
             },
-        };
+        });
 
         let cfg = ReactResolvedConfig {
             server: ServerResolved { port: server_port },
@@ -512,7 +510,7 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                 project_id,
             },
             llm,
-            suite_config: serde_json::to_value(&providers).unwrap_or_default(),
+            suite_config: providers,
         };
 
     Ok(cfg)

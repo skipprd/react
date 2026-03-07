@@ -800,8 +800,8 @@ fn run_spawned_cmd_labeled(
             if let Some(p) = prog.as_mut() {
                 if let Some(detail) = p.consume_line(&line) {
                     if let Some(s) = terminal::sink() {
-                        s.emit(TerminalEvent::DbtProgress {
-                            phase: label.to_string(),
+                        s.emit(TerminalEvent::SubprocessProgress {
+                            label: label.to_string(),
                             detail,
                         });
                     }

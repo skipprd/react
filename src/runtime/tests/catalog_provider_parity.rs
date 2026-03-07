@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use react::providers::catalog::DefaultCatalogProvider;
+use react_module_provider_catalog::DefaultCatalogProvider;
 use react_core::keyspace::{encode_key_component, DefaultKeyspace, Keyspace};
 use react_core::llm::{LargeLanguageModel, NullModel};
 use react_suites::data_engineer::providers::{
@@ -165,7 +165,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
     .into_iter()
     .collect();
 
-    react::providers::catalog::enrich::run_llm_global_context_enrichment_all(
+    react_module_provider_catalog::enrich::run_llm_global_context_enrichment_all(
         storage.clone(),
         keyspace.clone(),
         llm,

@@ -1,14 +1,16 @@
-use super::stats_from_catalog::dataset_field_stats_from_catalog_json;
-use super::types::{SemanticField, SemanticFieldRole, SemanticModel};
+use crate::stats_from_catalog::dataset_field_stats_from_catalog_json;
+use crate::types::{SemanticField, SemanticFieldRole, SemanticModel};
 use react_suites::data_engineer::providers::DatasetFieldStats;
 use react_core::keyspace::encode_key_component;
+use react_core::keyspace::Keyspace;
+use react_core::scope::RequestScope;
+use react_core::storage::StorageAdapter;
 use std::sync::Arc;
 
 fn classify_field(
     _name: &str,
-    stats: Option<&crate::discover::stats::FieldStats>,
+    stats: Option<&react_core::discover::stats::FieldStats>,
 ) -> SemanticFieldRole {
-    // Name-agnostic: rely only on stats
     if let Some(s) = stats {
         if s.min_numeric.is_some() || s.max_numeric.is_some() {
             return SemanticFieldRole::Metric;
@@ -22,12 +24,11 @@ fn classify_field(
 }
 
 pub async fn infer_semantic_model_async(
-    storage: Arc<dyn crate::adapters::storage::StorageAdapter>,
-    keyspace: Arc<dyn crate::providers::Keyspace>,
-    scope: &crate::providers::RequestScope,
+    storage: Arc<dyn StorageAdapter>,
+    keyspace: Arc<dyn Keyspace>,
+    scope: &RequestScope,
     dataset_id: &str,
 ) -> SemanticModel {
-    // Prefer stats embedded in Catalog; fallback to separate stats object if present
     let ns_stats: Option<DatasetFieldStats> = {
         let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
         match storage.get_json(&key).await {
