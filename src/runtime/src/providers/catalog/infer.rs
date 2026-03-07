@@ -1,6 +1,6 @@
 use super::stats_from_catalog::dataset_field_stats_from_catalog_json;
 use super::types::{SemanticField, SemanticFieldRole, SemanticModel};
-use crate::discover::stats::DatasetFieldStats;
+use react_suites::data_engineer::providers::DatasetFieldStats;
 use react_core::keyspace::encode_key_component;
 use std::sync::Arc;
 

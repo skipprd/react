@@ -195,7 +195,7 @@ fn global_semantic_key(
 ) -> String {
     keyspace.scoped_key(
         scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+        &["semantic", &format!("{}.yaml", encode_key_component(super::types::GLOBAL_SEMANTIC_DATASET_ID))],
     )
 }
 
@@ -203,17 +203,17 @@ async fn read_global_semantic_context(
     storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
     keyspace: &Arc<dyn crate::providers::Keyspace>,
     scope: &crate::providers::RequestScope,
-) -> Option<react_core::providers::catalog::types::GlobalSemanticContext> {
+) -> Option<super::types::GlobalSemanticContext> {
     let key = global_semantic_key(keyspace, scope);
     let v = storage.get_json(&key).await.ok()?;
-    serde_json::from_value::<react_core::providers::catalog::types::GlobalSemanticContext>(v).ok()
+    serde_json::from_value::<super::types::GlobalSemanticContext>(v).ok()
 }
 
 async fn write_global_semantic_context(
     storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
     keyspace: &Arc<dyn crate::providers::Keyspace>,
     scope: &crate::providers::RequestScope,
-    ctx: &react_core::providers::catalog::types::GlobalSemanticContext,
+    ctx: &super::types::GlobalSemanticContext,
 ) -> Result<(), String> {
     let key = global_semantic_key(keyspace, scope);
     let yaml = serde_yaml::to_string(ctx).unwrap_or_else(|_| "".to_string());
@@ -223,8 +223,8 @@ async fn write_global_semantic_context(
 }
 
 fn clamp_and_filter_global_context(
-    mut ctx: react_core::providers::catalog::types::GlobalSemanticContext,
-) -> react_core::providers::catalog::types::GlobalSemanticContext {
+    mut ctx: super::types::GlobalSemanticContext,
+) -> super::types::GlobalSemanticContext {
     // Confidence gating (authoritative only).
     ctx.audiences
         .retain(|a| a.confidence >= GLOBAL_CONTEXT_MIN_CONFIDENCE && !a.audience.trim().is_empty());
@@ -343,7 +343,7 @@ fn valid_ascii_span(s: &str, min_len: usize, max_len: usize) -> bool {
 
 fn deterministic_global_context_from_compact(
     compact_batch: &[serde_json::Value],
-) -> react_core::providers::catalog::types::GlobalSemanticContext {
+) -> super::types::GlobalSemanticContext {
     let dataset_ids: Vec<String> = compact_batch
         .iter()
         .filter_map(|v| {
@@ -352,7 +352,7 @@ fn deterministic_global_context_from_compact(
                 .map(|s| s.to_string())
         })
         .collect();
-    let mut bullets = vec![react_core::providers::catalog::types::GlobalContextBullet {
+    let mut bullets = vec![super::types::GlobalContextBullet {
         text: "Project models warehouse datasets for analytics use-cases.".to_string(),
         confidence: 0.90,
         evidence: dataset_ids
@@ -362,7 +362,7 @@ fn deterministic_global_context_from_compact(
             .collect(),
     }];
     if !dataset_ids.is_empty() {
-        bullets.push(react_core::providers::catalog::types::GlobalContextBullet {
+        bullets.push(super::types::GlobalContextBullet {
             text: "Catalog refresh confirms schema-driven planning context is available."
                 .to_string(),
             confidence: 0.85,
@@ -373,10 +373,10 @@ fn deterministic_global_context_from_compact(
                 .collect(),
         });
     }
-    react_core::providers::catalog::types::GlobalSemanticContext {
+    super::types::GlobalSemanticContext {
         version: 1,
         built_at_epoch_secs: Some((chrono::Utc::now().timestamp()).max(0) as u64),
-        audiences: vec![react_core::providers::catalog::types::GlobalAudience {
+        audiences: vec![super::types::GlobalAudience {
             audience: "Analytics engineering and data consumers".to_string(),
             confidence: 0.90,
             evidence: dataset_ids
@@ -389,7 +389,7 @@ fn deterministic_global_context_from_compact(
         dataset_groups: if dataset_ids.is_empty() {
             vec![]
         } else {
-            vec![react_core::providers::catalog::types::GlobalDatasetGroup {
+            vec![super::types::GlobalDatasetGroup {
                 group_name: "Discovered project datasets".to_string(),
                 dataset_ids: dataset_ids.clone(),
                 confidence: 0.85,
@@ -400,7 +400,7 @@ fn deterministic_global_context_from_compact(
                     .collect(),
             }]
         },
-        assumptions_and_gaps: vec![react_core::providers::catalog::types::GlobalAssumptionGap {
+        assumptions_and_gaps: vec![super::types::GlobalAssumptionGap {
             text: "Business semantics inferred from available schema and stats; validate domain-specific definitions during planning.".to_string(),
             confidence: 0.85,
             evidence: dataset_ids
@@ -561,7 +561,7 @@ Output JSON only:",
 
     // Field-level enrichment
     // Prefer stats embedded in catalog; fallback to separate stats JSON if present
-    let ns_stats: Option<crate::discover::stats::DatasetFieldStats> = {
+    let ns_stats: Option<react_suites::data_engineer::providers::DatasetFieldStats> = {
         let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
         match storage.get_json(&key).await {
             Ok(val) => {
@@ -1038,8 +1038,8 @@ pub async fn run_llm_enrichment_all(
     dataset_ids: &std::collections::HashSet<String>,
     llm_timeout_secs: u64,
     llm_batch_size: usize,
-) -> Result<react_core::providers::catalog::CatalogEnrichmentReport, String> {
-    let mut report = react_core::providers::catalog::CatalogEnrichmentReport {
+) -> Result<react_suites::data_engineer::providers::CatalogEnrichmentReport, String> {
+    let mut report = react_suites::data_engineer::providers::CatalogEnrichmentReport {
         dataset_total: dataset_ids.len(),
         ..Default::default()
     };
@@ -1076,7 +1076,7 @@ async fn process_global_context_batch(
     scope: &crate::providers::RequestScope,
     keyspace: &Arc<dyn crate::providers::Keyspace>,
     storage: &Arc<dyn crate::adapters::storage::StorageAdapter>,
-    global: &mut react_core::providers::catalog::types::GlobalSemanticContext,
+    global: &mut super::types::GlobalSemanticContext,
     compact_batch: &[serde_json::Value],
 ) -> Result<bool, String> {
     if compact_batch.is_empty() {
@@ -1134,13 +1134,13 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
     .await
     {
         if let Ok(parsed) = serde_json::from_value::<GlobalSemanticContextCompile>(v) {
-            let typed = react_core::providers::catalog::types::GlobalSemanticContext {
+            let typed = super::types::GlobalSemanticContext {
                 version: parsed.version.unwrap_or(1),
                 built_at_epoch_secs: parsed.built_at_epoch_secs,
                 audiences: parsed
                     .audiences
                     .into_iter()
-                    .map(|a| react_core::providers::catalog::types::GlobalAudience {
+                    .map(|a| super::types::GlobalAudience {
                         audience: a.audience,
                         confidence: a.confidence,
                         evidence: a.evidence,
@@ -1150,7 +1150,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .context_bullets
                     .into_iter()
                     .map(
-                        |b| react_core::providers::catalog::types::GlobalContextBullet {
+                        |b| super::types::GlobalContextBullet {
                             text: b.text,
                             confidence: b.confidence,
                             evidence: b.evidence,
@@ -1161,7 +1161,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .dataset_groups
                     .into_iter()
                     .map(
-                        |g| react_core::providers::catalog::types::GlobalDatasetGroup {
+                        |g| super::types::GlobalDatasetGroup {
                             group_name: g.group_name,
                             dataset_ids: g.dataset_ids,
                             confidence: g.confidence,
@@ -1173,7 +1173,7 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                     .assumptions_and_gaps
                     .into_iter()
                     .map(
-                        |a| react_core::providers::catalog::types::GlobalAssumptionGap {
+                        |a| super::types::GlobalAssumptionGap {
                             text: a.text,
                             confidence: a.confidence,
                             evidence: a.evidence,

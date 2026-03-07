@@ -12,6 +12,33 @@ use super::{
     RunOutcomeNonInteractive, StepBoundaryReason,
 };
 
+fn is_retriable_parse_error(e: &str) -> bool {
+    e.starts_with("invalid JSON from model:") || e.contains("validation error:")
+}
+
+fn build_retry_transcript(transcript: &[String], tail: Option<usize>) -> Vec<String> {
+    let mut keep: Vec<String> = Vec::new();
+    if let Some(l) = transcript.iter().find(|l| l.starts_with("System:")) {
+        keep.push(l.clone());
+    }
+    if let Some(l) = transcript.iter().find(|l| l.starts_with("Tools:")) {
+        keep.push(l.clone());
+    }
+    if let Some(tail_n) = tail {
+        if let Some(l) = transcript.iter().find(|l| l.starts_with("User:")) {
+            keep.push(l.clone());
+        }
+        let n = tail_n.min(transcript.len());
+        keep.extend(
+            transcript
+                .iter()
+                .skip(transcript.len().saturating_sub(n))
+                .cloned(),
+        );
+    }
+    keep
+}
+
 impl Agent {
     pub(crate) async fn llm_chat_once(
         ctx: &AgentCtx,
@@ -126,20 +153,23 @@ impl Agent {
                 Err(e) => {
                     // Defense in depth: if the model output is invalid JSON or fails schema validation,
                     // retry with a minimal prompt so we don't amplify prompt bloat.
-                    let is_json_err = e.starts_with("invalid JSON from model:");
-                    let is_schema_err = e.contains("validation error:");
-                    if !is_json_err && !is_schema_err {
+                    if !is_retriable_parse_error(&e) {
                         return Err(e);
                     }
 
                     let resp_hash = crate::llm_observability::sha256_hex_str(&raw);
+                    let err_label = if e.contains("validation error:") {
+                        "schema_validation_failed"
+                    } else {
+                        "invalid_json_from_model"
+                    };
                     Self::transcript_add(
                         &mut transcript,
                         format!(
                             "Observation: {}",
                             serde_json::json!({
                                 "ok": false,
-                                "error": if is_schema_err { "schema_validation_failed" } else { "invalid_json_from_model" },
+                                "error": err_label,
                                 "detail": e,
                                 "response_hash": resp_hash,
                                 "bytes": raw.as_bytes().len(),
@@ -148,25 +178,7 @@ impl Agent {
                         &ctx.trace_tx,
                     );
 
-                    // Retry 1: keep only System/Tools/initial User + last few observations, plus a strict instruction.
-                    let mut keep: Vec<String> = Vec::new();
-                    if let Some(l) = transcript.iter().find(|l| l.starts_with("System:")) {
-                        keep.push(l.clone());
-                    }
-                    if let Some(l) = transcript.iter().find(|l| l.starts_with("Tools:")) {
-                        keep.push(l.clone());
-                    }
-                    if let Some(l) = transcript.iter().find(|l| l.starts_with("User:")) {
-                        keep.push(l.clone());
-                    }
-                    // Keep a small tail of the transcript for local context.
-                    let tail_n = 12usize.min(transcript.len());
-                    keep.extend(
-                        transcript
-                            .iter()
-                            .skip(transcript.len().saturating_sub(tail_n))
-                            .cloned(),
-                    );
+                    let mut keep = build_retry_transcript(&transcript, Some(12));
                     keep.push(format!(
                         "User: IMPORTANT: Your previous response did not match schema {}. Error: {}. Return ONLY one JSON object that matches the schema.",
                         SchemaId::AgentStepV1.name(),
@@ -177,19 +189,10 @@ impl Agent {
                     match Self::parse_agent_step(&raw) {
                         Ok(v) => v,
                         Err(e2) => {
-                            let is_json_err2 = e2.starts_with("invalid JSON from model:");
-                            let is_schema_err2 = e2.contains("validation error:");
-                            if !is_json_err2 && !is_schema_err2 {
+                            if !is_retriable_parse_error(&e2) {
                                 return Err(e2);
                             }
-                            // Retry 2: ultra-minimal.
-                            let mut keep2: Vec<String> = Vec::new();
-                            if let Some(l) = transcript.iter().find(|l| l.starts_with("System:")) {
-                                keep2.push(l.clone());
-                            }
-                            if let Some(l) = transcript.iter().find(|l| l.starts_with("Tools:")) {
-                                keep2.push(l.clone());
-                            }
+                            let mut keep2 = build_retry_transcript(&transcript, None);
                             keep2.push(format!(
                                 "User: Return ONLY one JSON object matching schema {}. Error: {}.",
                                 SchemaId::AgentStepV1.name(),

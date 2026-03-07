@@ -258,22 +258,19 @@ let mut bootstrap_summary: Option<String> = None;
 if execution_state.needs_plan_bootstrap(phase) {
         // Bootstrap calls are intentionally conservative: list models (may be empty),
         // read core config files, list datasets, and run a minimal probe on one table.
-        let query = sctx
-            .query
-            .as_ref()
-            .ok_or_else(|| "query provider missing".to_string())?
-            .clone();
+        let query = crate::data_engineer::ctx_ext::sctx_query(sctx)
+            .ok_or_else(|| "query provider missing".to_string())?;
         let files_tool = tools::files_tool::FilesTool {
-            datasets: sctx.datasets.clone(),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
         };
         let sql_schema_tool = tools::sql_schema::SqlSchemaTool {
             query: query.clone(),
-            datasets: sctx.datasets.clone(),
-            catalog: sctx.catalog.clone(),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
         };
         let sql_stats_tool = tools::sql_stats::SqlStatsTool {
-            catalog: sctx.catalog.clone(),
-            datasets: sctx.datasets.clone(),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
         };
         let sql_sample_tool = tools::sql_sample::SqlSampleTool {
             query: query.clone(),
@@ -476,7 +473,7 @@ if !is_cleanse {
 if !is_cleanse {
     let global_key = sctx.keyspace.scoped_key(
         &sctx.scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+        &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
     );
     if let Ok(v) = sctx.storage.get_json(&global_key).await {
         q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
@@ -502,7 +499,7 @@ if let Some(bs) = bootstrap_summary.as_ref() {
 }
 // Plan mode should be especially broad: include the full available relation list (bounded)
 // so planning never needs to guess table names.
-if let Some(ds) = sctx.datasets.as_ref() {
+if let Some(ds) = crate::data_engineer::ctx_ext::sctx_datasets(sctx).as_ref() {
     if let Ok(items) = ds.list_datasets().await {
         let mut tables: Vec<String> =
             items.into_iter().map(|d| d.fqn()).collect();
@@ -553,8 +550,9 @@ match Agent::run_until_block_non_interactive(
         let (design_memo, design_critique) =
             Self::produce_critiqued_design_memo(&actx, track, &q).await?;
         if is_cleanse {
+            let datasets_for_catalog = crate::data_engineer::ctx_ext::sctx_datasets(sctx);
             let discovered_raw = Self::discovered_raw_relations_from_catalog(
-                sctx.datasets.as_ref(),
+                datasets_for_catalog.as_ref(),
             )
             .await;
             let skeleton =
@@ -629,7 +627,7 @@ match Agent::run_until_block_non_interactive(
                 candidates
             );
             let grounded =
-                crate::data_engineer::dataset_truth::build_grounded_raw_dataset_set(&actx, &actx.warehouse, &candidates)
+                crate::data_engineer::dataset_truth::build_grounded_raw_dataset_set(&actx, &crate::data_engineer::ctx_ext::actx_warehouse(&actx).expect("warehouse required"), &candidates)
                     .await;
             if !grounded.rejected.is_empty() {
                 for rej in grounded.rejected.iter() {

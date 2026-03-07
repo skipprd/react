@@ -13,10 +13,12 @@ pub mod type_parse;
 pub mod vector;
 
 pub use react_core::providers::{
+    NullSecretsProvider, SecretsProvider, StateStore, VectorStore,
+};
+pub use react_suites::data_engineer::providers::{
     CatalogProvider, DatasetCatalogProvider, DatasetId, DbtProvider, DbtValidateArgs,
-    DbtValidateResult, NullSecretsProvider, NullWarehouseProvider, QueryProvider, QueryResult,
-    SecretsProvider, StateStore, VectorStore, WarehouseProvider,
-    DEFAULT_WAREHOUSE_MAX_CONCURRENCY,
+    DbtValidateResult, NullWarehouseProvider, QueryProvider, QueryResult, WarehouseProvider,
+    DEFAULT_MAX_CONCURRENCY,
 };
 pub use react_core::scope::RequestScope;
 

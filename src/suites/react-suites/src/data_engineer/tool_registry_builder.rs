@@ -4,7 +4,7 @@ fn register_batch_tool_for_plan_state(
     reg: &mut ToolRegistry,
     phase: control_flow::Phase,
     plan_state: &PlanState,
-    datasets: &Option<std::sync::Arc<dyn react_core::providers::DatasetCatalogProvider>>,
+    datasets: &Option<std::sync::Arc<dyn crate::data_engineer::providers::DatasetCatalogProvider>>,
 ) -> Option<&'static str> {
     match (phase, plan_state) {
         (control_flow::Phase::CleanseAuthor, PlanState::CleanseSqlDatasetIds(_)) => {
@@ -126,21 +126,17 @@ impl DataEngineerSuite {
 
         let mut registry = ToolRegistry::new();
 
-        let query = sctx
-            .query
-            .as_ref()
-            .ok_or_else(|| "query provider missing".to_string())?
-            .clone();
+        let query = crate::data_engineer::ctx_ext::sctx_query(sctx)
+            .ok_or_else(|| "query provider missing".to_string())?;
 
-        // Shared analytics tools (note: run_sql is registered per-agent so authoring agents can be guarded)
         registry.register(SqlSchemaTool {
             query: query.clone(),
-            datasets: sctx.datasets.clone(),
-            catalog: sctx.catalog.clone(),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
         });
         registry.register(SqlStatsTool {
-            catalog: sctx.catalog.clone(),
-            datasets: sctx.datasets.clone(),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
         });
         registry.register(SqlSampleTool {
             query: query.clone(),
@@ -153,7 +149,7 @@ impl DataEngineerSuite {
         if caps.contains(&AgentToolCapability::ReadOnlyFile) {
             registry.register(PolicyFilesTool {
                 inner: FilesTool {
-                    datasets: sctx.datasets.clone(),
+                    datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                 },
                 policy: FileAccessPolicy::ReadOnly {
                     error_message: "file is read-only for review; use op='get' or op='list' (mutating ops are disabled: patch/rm/mv)",
@@ -161,7 +157,7 @@ impl DataEngineerSuite {
             });
         } else if caps.contains(&AgentToolCapability::MutableFile) {
             registry.register(FilesTool {
-                datasets: sctx.datasets.clone(),
+                datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
             });
         }
         if caps.contains(&AgentToolCapability::RunSql) {
@@ -180,7 +176,7 @@ impl DataEngineerSuite {
         }
         if caps.contains(&AgentToolCapability::StagingModel) {
             registry.register(tools::staging_model::StagingModelTool {
-                datasets: sctx.datasets.clone(),
+                datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
             });
         }
         if caps.contains(&AgentToolCapability::GoldModel) {
@@ -189,15 +185,15 @@ impl DataEngineerSuite {
         if caps.contains(&AgentToolCapability::DbtValidate) {
             registry.register(ThreadDerivedDbtValidateTool {
                 inner: tools::dbt_validate::DbtValidateTool {
-                    datasets: sctx.datasets.clone(),
-                    catalog: sctx.catalog.clone(),
+                    datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+                    catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
                 },
             });
         }
         if caps.contains(&AgentToolCapability::PublishDbt) {
             registry.register(tools::publish_dbt_to_provider::PublishDbtToProviderTool {
-                datasets: sctx.datasets.clone(),
-                catalog: sctx.catalog.clone(),
+                datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+                catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
             });
         }
         if caps.contains(&AgentToolCapability::SqlRegister) {
@@ -317,23 +313,21 @@ impl DataEngineerSuite {
             sql_stats::SqlStatsTool, vect_query::VectQueryTool,
         };
 
-        let query = sctx
-            .query
-            .as_ref()
-            .ok_or_else(|| "query provider missing".to_string())?
-            .clone();
+        let query = crate::data_engineer::ctx_ext::sctx_query(sctx)
+            .ok_or_else(|| "query provider missing".to_string())?;
+        let datasets_opt = crate::data_engineer::ctx_ext::sctx_datasets(sctx);
 
         let mut reg = ToolRegistry::new();
 
         // Common read tools (safe in most phases)
         reg.register(SqlSchemaTool {
             query: query.clone(),
-            datasets: sctx.datasets.clone(),
-            catalog: sctx.catalog.clone(),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
         });
         reg.register(SqlStatsTool {
-            catalog: sctx.catalog.clone(),
-            datasets: sctx.datasets.clone(),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
         });
         reg.register(SqlSampleTool {
             query: query.clone(),
@@ -355,7 +349,7 @@ impl DataEngineerSuite {
 
                 reg.register(PolicyFilesTool {
                     inner: FilesTool {
-                        datasets: sctx.datasets.clone(),
+                        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                     },
                     policy: FileAccessPolicy::ReadOnly {
                         error_message: "file is read-only in plan phases; use op='get' or op='list' (mutating ops are disabled: patch/rm/mv)",
@@ -587,7 +581,7 @@ impl DataEngineerSuite {
                     }
                     reg.register(PutOnlyFilesTool {
                         inner: FilesTool {
-                            datasets: sctx.datasets.clone(),
+                            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                         },
                         single_target_path: single_target_repair_path.clone(),
                     });
@@ -675,7 +669,7 @@ impl DataEngineerSuite {
                         crate::data_engineer::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
                     ) {
                         let batch_tool_name = register_batch_tool_for_plan_state(
-                            &mut reg, phase, plan_state, &sctx.datasets,
+                            &mut reg, phase, plan_state, &datasets_opt,
                         );
                         if let Some(name) = batch_tool_name {
                             tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
@@ -705,23 +699,23 @@ impl DataEngineerSuite {
                 } else {
                     // Normal authoring: batch tool from PlanState + read/explore tools.
                     let batch_tool_name = register_batch_tool_for_plan_state(
-                        &mut reg, phase, plan_state, &sctx.datasets,
+                        &mut reg, phase, plan_state, &datasets_opt,
                     );
                     if matches!(plan_state, PlanState::Unconstrained) {
                         if phase == control_flow::Phase::CleanseAuthor {
                             reg.register(tools::staging_model::StagingModelTool {
-                                datasets: sctx.datasets.clone(),
+                                datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                             });
                             reg.register(
                                 tools::apply_next_schema_batch::ApplyNextCleanseSchemaBatchTool {
-                                    datasets: sctx.datasets.clone(),
+                                    datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                                 },
                             );
                         } else {
                             reg.register(tools::gold_model::GoldModelTool);
                             reg.register(
                                 tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                                    datasets: sctx.datasets.clone(),
+                                    datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                                 },
                             );
                         }
@@ -731,7 +725,7 @@ impl DataEngineerSuite {
                     });
                     reg.register(tools::dbt_examples::SearchDbtExamplesTool);
                     reg.register(FilesTool {
-                        datasets: sctx.datasets.clone(),
+                        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                     });
                     reg.register(JsonFileTool);
 
@@ -794,7 +788,7 @@ impl DataEngineerSuite {
                 // Review phases: keep read-only; do not allow arbitrary SQL execution.
                 reg.register(PolicyFilesTool {
                     inner: FilesTool {
-                        datasets: sctx.datasets.clone(),
+                        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
                     },
                     policy: FileAccessPolicy::ReadOnly {
                         error_message: "file is read-only in review phases; use op='get' or op='list' (mutating ops are disabled: patch/rm/mv)",

@@ -5,7 +5,11 @@ use std::path::PathBuf;
 
 use crate::providers::RequestScope;
 use react_core::resolved_config as rc;
-use rc::{LlmProvider, StorageMode, WarehouseKind};
+use rc::{LlmProvider, StorageMode};
+use react_suites::data_engineer::de_config::{
+    CatalogResolved, DbtNamingResolved, DbtResolved, ProvidersResolved, VectorResolved,
+    WarehouseKind, WarehouseResolved,
+};
 
 /// # `react` configuration
 ///
@@ -233,12 +237,6 @@ pub use rc::ReactResolvedConfig;
 pub use rc::ServerResolved;
 pub use rc::StorageResolved;
 pub use rc::LlmResolved;
-pub use rc::ProvidersResolved;
-pub use rc::WarehouseResolved;
-pub use rc::CatalogResolved;
-pub use rc::DbtResolved;
-pub use rc::DbtNamingResolved;
-pub use rc::VectorResolved;
 
 fn getenv_nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().and_then(|v| {
@@ -463,6 +461,44 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
             }
         }
 
+        let providers = ProvidersResolved {
+            warehouse: resolve_warehouse(wh_f),
+            catalog: CatalogResolved {
+                enabled: cat_f.enabled.unwrap_or(true),
+                refresh_secs: cat_f.refresh_secs.unwrap_or(60),
+                max_concurrency: cat_f.max_concurrency.unwrap_or(8),
+            },
+            dbt: DbtResolved {
+                enabled: dbt_f.enabled.unwrap_or(true),
+                profiles_dir: getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
+                target: getenv_nonempty("DBT_TARGET")
+                    .or(dbt_f.target)
+                    .unwrap_or_default(),
+                naming: DbtNamingResolved {
+                    target_schema: naming_target_schema.unwrap_or_default(),
+                    silver_suffix: naming_silver_suffix.unwrap_or_default(),
+                    gold_suffix: naming_gold_suffix.unwrap_or_default(),
+                },
+                runner: getenv_nonempty("DBT_RUNNER")
+                    .or(dbt_f.runner)
+                    .unwrap_or_else(|| "host".to_string()),
+                docker_image: getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
+                docker_platform: getenv_nonempty("DBT_DOCKER_PLATFORM")
+                    .or(dbt_f.docker_platform),
+                docker_network: getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
+                docker_mount_aws_dir: getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
+                    .map(|v| {
+                        let vv = v.trim().to_lowercase();
+                        vv == "1" || vv == "true" || vv == "yes"
+                    })
+                    .or(dbt_f.docker_mount_aws_dir)
+                    .unwrap_or(false),
+            },
+            vector: VectorResolved {
+                enabled: vec_f.enabled.unwrap_or(true),
+            },
+        };
+
         let cfg = ReactResolvedConfig {
             server: ServerResolved { port: server_port },
             storage: StorageResolved {
@@ -476,43 +512,7 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                 project_id,
             },
             llm,
-            providers: ProvidersResolved {
-                warehouse: resolve_warehouse(wh_f),
-                catalog: CatalogResolved {
-                    enabled: cat_f.enabled.unwrap_or(true),
-                    refresh_secs: cat_f.refresh_secs.unwrap_or(60),
-                    max_concurrency: cat_f.max_concurrency.unwrap_or(8),
-                },
-                dbt: DbtResolved {
-                    enabled: dbt_f.enabled.unwrap_or(true),
-                    profiles_dir: getenv_nonempty("DBT_PROFILES_DIR").or(dbt_f.profiles_dir),
-                    target: getenv_nonempty("DBT_TARGET")
-                        .or(dbt_f.target)
-                        .unwrap_or_default(),
-                    naming: DbtNamingResolved {
-                        target_schema: naming_target_schema.unwrap_or_default(),
-                        silver_suffix: naming_silver_suffix.unwrap_or_default(),
-                        gold_suffix: naming_gold_suffix.unwrap_or_default(),
-                    },
-                    runner: getenv_nonempty("DBT_RUNNER")
-                        .or(dbt_f.runner)
-                        .unwrap_or_else(|| "host".to_string()),
-                    docker_image: getenv_nonempty("DBT_DOCKER_IMAGE").or(dbt_f.docker_image),
-                    docker_platform: getenv_nonempty("DBT_DOCKER_PLATFORM")
-                        .or(dbt_f.docker_platform),
-                    docker_network: getenv_nonempty("DBT_DOCKER_NETWORK").or(dbt_f.docker_network),
-                    docker_mount_aws_dir: getenv_nonempty("DBT_DOCKER_MOUNT_AWS_DIR")
-                        .map(|v| {
-                            let vv = v.trim().to_lowercase();
-                            vv == "1" || vv == "true" || vv == "yes"
-                        })
-                        .or(dbt_f.docker_mount_aws_dir)
-                        .unwrap_or(false),
-                },
-                vector: VectorResolved {
-                    enabled: vec_f.enabled.unwrap_or(true),
-                },
-            },
+            suite_config: serde_json::to_value(&providers).unwrap_or_default(),
         };
 
     Ok(cfg)

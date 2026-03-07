@@ -16,6 +16,10 @@ use react::providers::catalog::DefaultCatalogProvider;
 use react::providers::{DefaultKeyspace, EnvSecretsProvider, LanceVectorStore, LocalKeyspace};
 use react_core::resolved_config as rc;
 use react_core::suite::SuiteCtx;
+use react_suites::data_engineer::de_config::{self as de_cfg, WarehouseKind};
+use react_suites::data_engineer::ctx_ext::{
+    WarehouseCap, QueryCap, DatasetsCap, CatalogCap, DbtCap, ProvidersCfgCap,
+};
 use react_module_provider_athena::{AthenaQueryProvider, AthenaSettings};
 use react_module_provider_bigquery::{BigQueryProvider, BigQuerySettings};
 use react_module_provider_dbt::{DbtProjectProvider, DbtRunnerConfig, DbtRunnerMode};
@@ -274,8 +278,8 @@ fn apply_aws_region_fallback_from_warehouse(warehouse_extras: &serde_json::Value
     }
 }
 
-fn resolve_athena_settings(cfg: &react::config::ReactResolvedConfig) -> AthenaSettings {
-    let extras = &cfg.providers.warehouse.extras;
+fn resolve_athena_settings(providers: &react_suites::data_engineer::de_config::ProvidersResolved) -> AthenaSettings {
+    let extras = &providers.warehouse.extras;
     let workgroup = getenv_nonempty("ATHENA_WORKGROUP")
         .or_else(|| {
             extras
@@ -293,11 +297,11 @@ fn resolve_athena_settings(cfg: &react::config::ReactResolvedConfig) -> AthenaSe
         });
 
     let default_catalog = getenv_nonempty("ATHENA_TARGET_CATALOG")
-        .or_else(|| Some(cfg.providers.warehouse.container.clone()).filter(|s| !s.is_empty()))
+        .or_else(|| Some(providers.warehouse.container.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_else(|| "AwsDataCatalog".to_string());
 
     let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA")
-        .or_else(|| Some(cfg.providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()));
+        .or_else(|| Some(providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()));
 
     let max_concurrency = env_usize("ATHENA_MAX_CONCURRENCY")
         .or_else(|| {
@@ -706,46 +710,44 @@ async fn main() {
                 SuiteCtx::new(storage, secrets, llm, cfg.scope.clone(), keyspace.clone());
             suite_ctx.resolved_config = Some(Arc::new(cfg.clone()));
 
-            let wh_kind = cfg.providers.warehouse.kind;
-            if wh_kind == rc::WarehouseKind::Athena {
-                apply_aws_region_fallback_from_warehouse(&cfg.providers.warehouse.extras);
+            let providers = de_cfg::de_config_from_resolved(&cfg).unwrap_or_default();
+            let wh_kind = providers.warehouse.kind;
+            if wh_kind == WarehouseKind::Athena {
+                apply_aws_region_fallback_from_warehouse(&providers.warehouse.extras);
                 let athena = Arc::new(
-                    AthenaQueryProvider::from_settings(resolve_athena_settings(&cfg)).await,
+                    AthenaQueryProvider::from_settings(resolve_athena_settings(&providers)).await,
                 );
-                suite_ctx.warehouse = athena.clone();
-                suite_ctx.query = Some(athena.clone());
-                suite_ctx.datasets = Some(athena.clone());
-            } else if wh_kind == rc::WarehouseKind::Postgres {
-                let dbname = nonempty(&cfg.providers.warehouse.container);
-                let default_schema = nonempty(&cfg.providers.warehouse.namespace);
+                suite_ctx.set_capability(Arc::new(WarehouseCap(athena.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(athena.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(athena.clone())));
+            } else if wh_kind == WarehouseKind::Postgres {
+                let dbname = nonempty(&providers.warehouse.container);
+                let default_schema = nonempty(&providers.warehouse.namespace);
                 let pg = Arc::new(PostgresProvider::from_settings(PostgresSettings {
                     dbname,
                     default_schema,
                     ..Default::default()
                 }));
-                suite_ctx.warehouse = pg.clone();
-                suite_ctx.query = Some(pg.clone());
-                suite_ctx.datasets = Some(pg.clone());
-            } else if wh_kind == rc::WarehouseKind::Bigquery {
-                let project = nonempty(&cfg.providers.warehouse.container);
-                let dataset = nonempty(&cfg.providers.warehouse.namespace);
-                let location = cfg
-                    .providers
+                suite_ctx.set_capability(Arc::new(WarehouseCap(pg.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(pg.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(pg.clone())));
+            } else if wh_kind == WarehouseKind::Bigquery {
+                let project = nonempty(&providers.warehouse.container);
+                let dataset = nonempty(&providers.warehouse.namespace);
+                let location = providers
                     .warehouse
                     .extras
                     .get("location")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                let max_conc = cfg
-                    .providers
+                let max_conc = providers
                     .warehouse
                     .extras
                     .get("max_concurrency")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as usize)
                     .unwrap_or(15);
-                let ttl_secs = cfg
-                    .providers
+                let ttl_secs = providers
                     .warehouse
                     .extras
                     .get("discovery_cache_ttl_secs")
@@ -766,19 +768,18 @@ async fn main() {
                     })
                     .unwrap(),
                 );
-                suite_ctx.warehouse = bq.clone();
-                suite_ctx.query = Some(bq.clone());
-                suite_ctx.datasets = Some(bq.clone());
+                suite_ctx.set_capability(Arc::new(WarehouseCap(bq.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(bq.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(bq.clone())));
             } else {
                 eprintln!(
                     "ERROR: unsupported providers.warehouse.kind '{}'",
-                    cfg.providers.warehouse.kind
+                    providers.warehouse.kind
                 );
                 std::process::exit(1);
             }
 
-            // Catalog provider (storage-backed), optional but strongly recommended for UX and speed.
-            if cfg.providers.catalog.enabled {
+            if providers.catalog.enabled {
                 let cat = Arc::new(DefaultCatalogProvider::new(
                     suite_ctx.storage.clone(),
                     keyspace.clone(),
@@ -786,11 +787,10 @@ async fn main() {
                     30,
                     6,
                 ));
-                suite_ctx.catalog = Some(cat);
+                suite_ctx.set_capability(Arc::new(CatalogCap(cat)));
             }
 
-            // Vector store (LanceDB on S3), optional but enables dataset/artifact search.
-            if cfg.providers.vector.enabled {
+            if providers.vector.enabled {
                 suite_ctx.vector = Some(Arc::new(LanceVectorStore::new(
                     keyspace.clone(),
                     cfg.scope.clone(),
@@ -798,9 +798,8 @@ async fn main() {
                 )));
             }
 
-            // DBT provider (host/docker runner), required for dbt_validate/build/publish workflows.
-            if cfg.providers.dbt.enabled {
-                let runner_mode = match DbtRunnerMode::parse(&cfg.providers.dbt.runner) {
+            if providers.dbt.enabled {
+                let runner_mode = match DbtRunnerMode::parse(&providers.dbt.runner) {
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("ERROR: {}", e);
@@ -809,17 +808,19 @@ async fn main() {
                 };
                 let runner = DbtRunnerConfig {
                     mode: runner_mode,
-                    docker_image: cfg.providers.dbt.docker_image.clone(),
-                    docker_platform: cfg.providers.dbt.docker_platform.clone(),
-                    docker_network: cfg.providers.dbt.docker_network.clone(),
-                    docker_mount_aws_dir: cfg.providers.dbt.docker_mount_aws_dir,
+                    docker_image: providers.dbt.docker_image.clone(),
+                    docker_platform: providers.dbt.docker_platform.clone(),
+                    docker_network: providers.dbt.docker_network.clone(),
+                    docker_mount_aws_dir: providers.dbt.docker_mount_aws_dir,
                 };
-                suite_ctx.dbt = Some(Arc::new(DbtProjectProvider::new(
+                suite_ctx.set_capability(Arc::new(DbtCap(Arc::new(DbtProjectProvider::new(
                     suite_ctx.storage.clone(),
                     keyspace.clone(),
                     runner,
-                )));
+                )))));
             }
+
+            suite_ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
 
             let registry = react_suites::default_registry();
             if let Err(e) = react::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
@@ -1025,46 +1026,44 @@ async fn main() {
                 SuiteCtx::new(storage, secrets, llm, cfg.scope.clone(), keyspace.clone());
             suite_ctx.resolved_config = Some(Arc::new(cfg.clone()));
 
-            let wh_kind = cfg.providers.warehouse.kind;
-            if wh_kind == rc::WarehouseKind::Athena {
-                apply_aws_region_fallback_from_warehouse(&cfg.providers.warehouse.extras);
+            let providers = de_cfg::de_config_from_resolved(&cfg).unwrap_or_default();
+            let wh_kind = providers.warehouse.kind;
+            if wh_kind == WarehouseKind::Athena {
+                apply_aws_region_fallback_from_warehouse(&providers.warehouse.extras);
                 let athena = Arc::new(
-                    AthenaQueryProvider::from_settings(resolve_athena_settings(&cfg)).await,
+                    AthenaQueryProvider::from_settings(resolve_athena_settings(&providers)).await,
                 );
-                suite_ctx.warehouse = athena.clone();
-                suite_ctx.query = Some(athena.clone());
-                suite_ctx.datasets = Some(athena.clone());
-            } else if wh_kind == rc::WarehouseKind::Postgres {
-                let dbname = nonempty(&cfg.providers.warehouse.container);
-                let default_schema = nonempty(&cfg.providers.warehouse.namespace);
+                suite_ctx.set_capability(Arc::new(WarehouseCap(athena.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(athena.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(athena.clone())));
+            } else if wh_kind == WarehouseKind::Postgres {
+                let dbname = nonempty(&providers.warehouse.container);
+                let default_schema = nonempty(&providers.warehouse.namespace);
                 let pg = Arc::new(PostgresProvider::from_settings(PostgresSettings {
                     dbname,
                     default_schema,
                     ..Default::default()
                 }));
-                suite_ctx.warehouse = pg.clone();
-                suite_ctx.query = Some(pg.clone());
-                suite_ctx.datasets = Some(pg.clone());
-            } else if wh_kind == rc::WarehouseKind::Bigquery {
-                let project = nonempty(&cfg.providers.warehouse.container);
-                let dataset = nonempty(&cfg.providers.warehouse.namespace);
-                let location = cfg
-                    .providers
+                suite_ctx.set_capability(Arc::new(WarehouseCap(pg.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(pg.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(pg.clone())));
+            } else if wh_kind == WarehouseKind::Bigquery {
+                let project = nonempty(&providers.warehouse.container);
+                let dataset = nonempty(&providers.warehouse.namespace);
+                let location = providers
                     .warehouse
                     .extras
                     .get("location")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                let max_conc = cfg
-                    .providers
+                let max_conc = providers
                     .warehouse
                     .extras
                     .get("max_concurrency")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as usize)
                     .unwrap_or(15);
-                let ttl_secs = cfg
-                    .providers
+                let ttl_secs = providers
                     .warehouse
                     .extras
                     .get("discovery_cache_ttl_secs")
@@ -1085,18 +1084,18 @@ async fn main() {
                     })
                     .unwrap(),
                 );
-                suite_ctx.warehouse = bq.clone();
-                suite_ctx.query = Some(bq.clone());
-                suite_ctx.datasets = Some(bq.clone());
+                suite_ctx.set_capability(Arc::new(WarehouseCap(bq.clone())));
+                suite_ctx.set_capability(Arc::new(QueryCap(bq.clone())));
+                suite_ctx.set_capability(Arc::new(DatasetsCap(bq.clone())));
             } else {
                 eprintln!(
                     "ERROR: unsupported providers.warehouse.kind '{}'",
-                    cfg.providers.warehouse.kind
+                    providers.warehouse.kind
                 );
                 std::process::exit(1);
             }
 
-            if cfg.providers.catalog.enabled {
+            if providers.catalog.enabled {
                 let cat = Arc::new(DefaultCatalogProvider::new(
                     suite_ctx.storage.clone(),
                     keyspace.clone(),
@@ -1104,10 +1103,10 @@ async fn main() {
                     30,
                     6,
                 ));
-                suite_ctx.catalog = Some(cat);
+                suite_ctx.set_capability(Arc::new(CatalogCap(cat)));
             }
 
-            if cfg.providers.vector.enabled {
+            if providers.vector.enabled {
                 suite_ctx.vector = Some(Arc::new(LanceVectorStore::new(
                     keyspace.clone(),
                     cfg.scope.clone(),
@@ -1115,8 +1114,8 @@ async fn main() {
                 )));
             }
 
-            if cfg.providers.dbt.enabled {
-                let runner_mode = match DbtRunnerMode::parse(&cfg.providers.dbt.runner) {
+            if providers.dbt.enabled {
+                let runner_mode = match DbtRunnerMode::parse(&providers.dbt.runner) {
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("ERROR: {}", e);
@@ -1125,17 +1124,19 @@ async fn main() {
                 };
                 let runner = DbtRunnerConfig {
                     mode: runner_mode,
-                    docker_image: cfg.providers.dbt.docker_image.clone(),
-                    docker_platform: cfg.providers.dbt.docker_platform.clone(),
-                    docker_network: cfg.providers.dbt.docker_network.clone(),
-                    docker_mount_aws_dir: cfg.providers.dbt.docker_mount_aws_dir,
+                    docker_image: providers.dbt.docker_image.clone(),
+                    docker_platform: providers.dbt.docker_platform.clone(),
+                    docker_network: providers.dbt.docker_network.clone(),
+                    docker_mount_aws_dir: providers.dbt.docker_mount_aws_dir,
                 };
-                suite_ctx.dbt = Some(Arc::new(DbtProjectProvider::new(
+                suite_ctx.set_capability(Arc::new(DbtCap(Arc::new(DbtProjectProvider::new(
                     suite_ctx.storage.clone(),
                     keyspace.clone(),
                     runner,
-                )));
+                )))));
             }
+
+            suite_ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
 
             let requested_thread_id = thread_id.clone();
 

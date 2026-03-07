@@ -174,17 +174,26 @@ impl ThreadStore {
                 if let Some(v) = state.control_state.clone() {
                     merged.control_state = Some(v);
                 }
-                if state.bootstrap.catalog.is_some() {
-                    merged.bootstrap.catalog = state.bootstrap.catalog.clone();
+                if !state.bootstrap.extensions.is_null() {
+                    if let (Some(base), Some(incoming)) = (
+                        merged.bootstrap.extensions.as_object_mut(),
+                        state.bootstrap.extensions.as_object(),
+                    ) {
+                        for (k, v) in incoming {
+                            base.insert(k.clone(), v.clone());
+                        }
+                    } else {
+                        merged.bootstrap.extensions = state.bootstrap.extensions.clone();
+                    }
                 }
                 merged
             }
         };
-        let mut final_state = next_state;
-        final_state.thread_state_schema_version = THREAD_STATE_SCHEMA_VERSION;
-        final_state.thread_id = thread_id.to_string();
+        let mut merged_state = next_state;
+        merged_state.thread_state_schema_version = THREAD_STATE_SCHEMA_VERSION;
+        merged_state.thread_id = thread_id.to_string();
         let key = self.state_key(thread_id)?;
-        let v = serde_json::to_value(&final_state).map_err(|e| e.to_string())?;
+        let v = serde_json::to_value(&merged_state).map_err(|e| e.to_string())?;
         self.storage.put_json(&key, &v).await
     }
 
@@ -393,13 +402,13 @@ impl ThreadStore {
         Ok(())
     }
 
-    pub async fn finalize_title(&self, thread_id: &str, title: &str) -> Result<(), String> {
+    pub async fn lock_title(&self, thread_id: &str, title: &str) -> Result<(), String> {
         let key = self.key(thread_id)?;
         let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
-        if !log.title_finalized {
+        if !log.title_locked {
             log.title = Some(title.to_string());
-            log.title_finalized = true;
+            log.title_locked = true;
             let val = serde_json::to_value(&log).map_err(|e| e.to_string())?;
             self.storage.put_json(&key, &val).await?;
             cache().insert(

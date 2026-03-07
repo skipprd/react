@@ -59,18 +59,10 @@ pub struct ThreadState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct ThreadBootstrapState {
+    /// Suite-opaque extension data. Each suite serializes its own bootstrap state here.
     #[serde(default)]
-    pub catalog: Option<CatalogBootstrapState>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct CatalogBootstrapState {
-    pub status: String,
-    pub metadata_complete: bool,
-    pub ts: String,
+    pub extensions: Value,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -158,40 +150,25 @@ pub enum LlmStepStatus {
 }
 
 
+/// Artifact kind as a plain string. Suites define their own constants (e.g. "model", "metric").
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ArtifactKind {
-    Model,
-    Metric,
-    Other(String),
-}
+pub struct ArtifactKind(pub String);
 
 impl ArtifactKind {
     pub fn as_str(&self) -> &str {
-        match self {
-            ArtifactKind::Model => "model",
-            ArtifactKind::Metric => "metric",
-            ArtifactKind::Other(s) => s.as_str(),
-        }
+        &self.0
     }
 }
 
 impl From<String> for ArtifactKind {
     fn from(value: String) -> Self {
-        match value.as_str() {
-            "model" => ArtifactKind::Model,
-            "metric" => ArtifactKind::Metric,
-            _ => ArtifactKind::Other(value),
-        }
+        Self(value)
     }
 }
 
 impl From<ArtifactKind> for String {
     fn from(value: ArtifactKind) -> Self {
-        match value {
-            ArtifactKind::Model => "model".to_string(),
-            ArtifactKind::Metric => "metric".to_string(),
-            ArtifactKind::Other(s) => s,
-        }
+        value.0
     }
 }
 
@@ -210,7 +187,7 @@ impl<'de> Deserialize<'de> for ArtifactKind {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(ArtifactKind::from(s))
+        Ok(ArtifactKind(s))
     }
 }
 
@@ -366,6 +343,44 @@ pub struct ThreadItemState {
     pub last_error: Option<ThreadItemError>,
     #[serde(default)]
     pub outputs: Option<Value>,
+}
+
+impl ThreadItemState {
+    pub fn phase_running(ts: &str) -> Self {
+        Self {
+            kind: ThreadItemKind::Phase,
+            status: ThreadItemStatus::Running,
+            started_at: Some(ts.to_string()),
+            finished_at: None,
+            runtime_ms: None,
+            last_error: None,
+            outputs: None,
+        }
+    }
+
+    pub fn phase_finished(ts: &str) -> Self {
+        Self {
+            kind: ThreadItemKind::Phase,
+            status: ThreadItemStatus::Ok,
+            started_at: None,
+            finished_at: Some(ts.to_string()),
+            runtime_ms: None,
+            last_error: None,
+            outputs: None,
+        }
+    }
+
+    pub fn phase_blocked(ts: &str) -> Self {
+        Self {
+            kind: ThreadItemKind::Phase,
+            status: ThreadItemStatus::Blocked,
+            started_at: Some(ts.to_string()),
+            finished_at: None,
+            runtime_ms: None,
+            last_error: None,
+            outputs: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -713,28 +728,22 @@ pub enum ThreadStep {
     },
 }
 
-impl ThreadStep {
-    pub fn ts(&self) -> &str {
-        match self {
-            ThreadStep::SwitchSuite { ts, .. } => ts,
-            ThreadStep::SwitchAgent { ts, .. } => ts,
-            ThreadStep::User { ts, .. } => ts,
-            ThreadStep::ToolStart { ts, .. } => ts,
-            ThreadStep::ToolEnd { ts, .. } => ts,
-            ThreadStep::LlmStart { ts, .. } => ts,
-            ThreadStep::LlmEnd { ts, .. } => ts,
-            ThreadStep::LlmCall { ts, .. } => ts,
-            ThreadStep::Phase { ts, .. } => ts,
-            ThreadStep::GuardBlock { ts, .. } => ts,
-            ThreadStep::ArtifactFocus { ts, .. } => ts,
-            ThreadStep::ArtifactSaved { ts, .. } => ts,
-            ThreadStep::Interrupt { ts, .. } => ts,
-            ThreadStep::ReviewResponse { ts, .. } => ts,
-            ThreadStep::Complete { ts, .. } => ts,
-            ThreadStep::Checkpoint { ts, .. } => ts,
+macro_rules! thread_step_ts {
+    ($($variant:ident),* $(,)?) => {
+        impl ThreadStep {
+            pub fn ts(&self) -> &str {
+                match self { $(Self::$variant { ts, .. } => ts,)* }
+            }
         }
-    }
+    };
 }
+
+thread_step_ts!(
+    SwitchSuite, SwitchAgent, User, ToolStart, ToolEnd,
+    LlmStart, LlmEnd, LlmCall, Phase, GuardBlock,
+    ArtifactFocus, ArtifactSaved, Interrupt, ReviewResponse,
+    Complete, Checkpoint,
+);
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -743,7 +752,7 @@ pub struct ThreadLog {
     pub steps: Vec<ThreadStep>,
     pub result: Option<ThreadResult>,
     pub title: Option<String>,
-    pub title_finalized: bool,
+    pub title_locked: bool,
 }
 
 impl Default for ThreadLog {
@@ -753,7 +762,7 @@ impl Default for ThreadLog {
             steps: Vec::new(),
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         }
     }
 }
@@ -837,7 +846,7 @@ mod tests {
             }],
             "result": null,
             "title": null,
-            "title_finalized": false
+            "title_locked": false
         });
         assert!(serde_json::from_value::<ThreadLog>(bad).is_err());
     }
@@ -860,7 +869,7 @@ mod tests {
             }],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         let events = build_thread_events_from_log(&log, 200);
         assert!(
@@ -886,7 +895,7 @@ mod tests {
             }],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         let events = build_thread_events_from_log(&log, 200);
         assert!(
@@ -934,7 +943,7 @@ mod tests {
             ],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         let events = build_thread_events_from_log(&log, 200);
         assert!(
@@ -971,7 +980,7 @@ mod tests {
             }],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         let v = serde_json::to_value(&log).unwrap();
         let parsed: ThreadLog = serde_json::from_value(v).unwrap();
@@ -1012,7 +1021,7 @@ mod tests {
             steps: vec![step],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         let v = serde_json::to_value(&log).unwrap();
         let parsed: ThreadLog = serde_json::from_value(v).unwrap();
@@ -1259,7 +1268,7 @@ mod tests {
             steps: vec![],
             result: None,
             title: None,
-            title_finalized: false,
+            title_locked: false,
         };
         storage
             .put_json(&key, &serde_json::to_value(log).unwrap())
@@ -1289,10 +1298,12 @@ mod tests {
             ..ThreadState::default()
         };
         base.control_state = Some(serde_json::json!({"checkpoint": 1}));
-        base.bootstrap.catalog = Some(CatalogBootstrapState {
-            status: "ready".to_string(),
-            metadata_complete: true,
-            ts: "2026-01-01T00:00:00Z".to_string(),
+        base.bootstrap.extensions = serde_json::json!({
+            "catalog": {
+                "status": "ready",
+                "metadata_complete": true,
+                "ts": "2026-01-01T00:00:00Z"
+            }
         });
         store.put_thread_state(tid, &base).await.unwrap();
 
@@ -1309,7 +1320,9 @@ mod tests {
         assert_eq!(got.current_phase.as_deref(), Some("model_author"));
         assert_eq!(got.control_state, Some(serde_json::json!({"checkpoint": 1})));
         assert_eq!(
-            got.bootstrap.catalog.as_ref().map(|c| c.status.as_str()),
+            got.bootstrap.extensions.get("catalog")
+                .and_then(|c| c.get("status"))
+                .and_then(|s| s.as_str()),
             Some("ready")
         );
     }

@@ -49,7 +49,7 @@ impl KbSuite {
             sctx.keyspace.clone(),
         );
 
-        let actx = AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 20,
             per_step_timeout_secs: 30,
             max_steps: 30,
@@ -63,14 +63,13 @@ impl KbSuite {
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: None,
-            warehouse: sctx.warehouse.clone(),
-            dbt: None,
             vector: sctx.vector.clone(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: None,
+            capabilities: std::collections::HashMap::new(),
         };
+        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
         match Agent::run_until_block(&registry, &actx, sys, tools_card, question, {
             // OpenAI Responses output_tokens includes reasoning tokens; ensure we have enough

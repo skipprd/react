@@ -1,5 +1,5 @@
 use react_core::agent::AgentCtx;
-use react_core::providers::WarehouseProvider;
+use crate::data_engineer::providers::WarehouseProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -42,11 +42,11 @@ impl GroundedDatasetSet {
 }
 
 fn source_container_from_cfg(ctx: &AgentCtx) -> Option<String> {
-    crate::data_engineer::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.container.clone())
+    crate::data_engineer::ctx_ext::actx_providers_cfg(ctx).map(|p| p.warehouse.container.clone())
 }
 
 fn source_namespace_from_cfg(ctx: &AgentCtx) -> Option<String> {
-    crate::data_engineer::resolved_config_from_ctx(ctx).map(|c| c.providers.warehouse.namespace.clone())
+    crate::data_engineer::ctx_ext::actx_providers_cfg(ctx).map(|p| p.warehouse.namespace.clone())
 }
 
 fn is_in_source_namespace(ctx: &AgentCtx, dataset_id: &str) -> bool {
@@ -247,7 +247,7 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
 }
 
 /// Helper to build candidate list for raw datasets from a list_datasets call.
-pub fn candidates_from_list_datasets(listed: &[react_core::providers::DatasetId]) -> Vec<String> {
+pub fn candidates_from_list_datasets(listed: &[crate::data_engineer::providers::DatasetId]) -> Vec<String> {
     let mut out: BTreeSet<String> = BTreeSet::new();
     for ds in listed.iter() {
         out.insert(ds.fqn());

@@ -42,7 +42,7 @@ impl Tool for KbSearchTool {
 
         // Limit to doc chunks. We also filter to dataset_id in post-processing.
         let mut hits = vector.query(&ctx.scope, &qv, k * 5, Some("doc")).await?;
-        hits.retain(|h| h.item.dataset_id == dataset_id);
+        hits.retain(|h| h.item.entity_id == dataset_id);
         hits.sort_by(|a, b| {
             a.score
                 .partial_cmp(&b.score)
@@ -55,7 +55,7 @@ impl Tool for KbSearchTool {
             .map(|h| {
                 let it = h.item;
                 serde_json::json!({
-                    "dataset_id": it.dataset_id,
+                    "dataset_id": it.entity_id,
                     "text": it.text,
                     "score": h.score,
                     "meta": it.meta

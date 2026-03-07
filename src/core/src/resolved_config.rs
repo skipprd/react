@@ -28,34 +28,6 @@ impl Default for StorageMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WarehouseKind {
-    Athena,
-    Postgres,
-    Mssql,
-    Snowflake,
-    Bigquery,
-}
-
-impl fmt::Display for WarehouseKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Athena => write!(f, "athena"),
-            Self::Postgres => write!(f, "postgres"),
-            Self::Mssql => write!(f, "mssql"),
-            Self::Snowflake => write!(f, "snowflake"),
-            Self::Bigquery => write!(f, "bigquery"),
-        }
-    }
-}
-
-impl Default for WarehouseKind {
-    fn default() -> Self {
-        Self::Athena
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LlmProvider {
     Null,
@@ -134,7 +106,9 @@ pub struct ReactResolvedConfig {
     pub storage: StorageResolved,
     pub scope: RequestScope,
     pub llm: LlmResolved,
-    pub providers: ProvidersResolved,
+    /// Suite-specific configuration, opaque to core.
+    /// Each suite deserializes its own config from this value.
+    pub suite_config: serde_json::Value,
 }
 
 #[derive(Clone, Debug)]
@@ -161,63 +135,4 @@ pub struct LlmResolved {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ProvidersResolved {
-    pub warehouse: WarehouseResolved,
-    pub catalog: CatalogResolved,
-    pub dbt: DbtResolved,
-    pub vector: VectorResolved,
-}
-
-#[derive(Clone, Debug)]
-pub struct WarehouseResolved {
-    pub kind: WarehouseKind,
-    pub container: String,
-    pub namespace: String,
-    pub extras: serde_json::Value,
-}
-
-impl Default for WarehouseResolved {
-    fn default() -> Self {
-        Self {
-            kind: WarehouseKind::default(),
-            container: String::new(),
-            namespace: String::new(),
-            extras: serde_json::Value::Null,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct CatalogResolved {
-    pub enabled: bool,
-    pub refresh_secs: u64,
-    pub max_concurrency: usize,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct VectorResolved {
-    pub enabled: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct DbtNamingResolved {
-    pub target_schema: String,
-    pub silver_suffix: String,
-    pub gold_suffix: String,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct DbtResolved {
-    pub enabled: bool,
-    pub profiles_dir: Option<String>,
-    pub target: String,
-    pub naming: DbtNamingResolved,
-    pub runner: String,
-    pub docker_image: Option<String>,
-    pub docker_platform: Option<String>,
-    pub docker_network: Option<String>,
-    pub docker_mount_aws_dir: bool,
 }

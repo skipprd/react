@@ -36,10 +36,10 @@ react-core = { path = "../core" }
 react-suites = { path = "../suites/react-suites" }
 react-module-provider-vector-lance = { path = "../modules/provider-vector-lance" }
 react-module-storage = { path = "../modules/storage" }
-react-module-provider-postgres = { path = "../modules/provider-postgres" }
-react-module-provider-bigquery = { path = "../modules/provider-bigquery" }
-react-module-provider-athena = { path = "../modules/provider-athena" }
-react-module-provider-dbt = { path = "../modules/provider-dbt" }
+react-module-provider-postgres = { path = "../suites/react-suites/src/data_engineer/modules/provider-postgres" }
+react-module-provider-bigquery = { path = "../suites/react-suites/src/data_engineer/modules/provider-bigquery" }
+react-module-provider-athena = { path = "../suites/react-suites/src/data_engineer/modules/provider-athena" }
+react-module-provider-dbt = { path = "../suites/react-suites/src/data_engineer/modules/provider-dbt" }
 
 # Vector store + Arrow
 arrow = { version = "56.2.0", features = ["ipc_compression"] }

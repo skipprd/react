@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use std::collections::HashSet;
 
-use crate::helpers::progress::ProgressUi;
-use crate::providers::dataset_catalog_provider::DatasetCatalogProvider;
-use crate::scope::RequestScope;
+use react_core::helpers::progress::ProgressUi;
+use react_core::scope::RequestScope;
 
-pub mod types;
+use super::dataset_catalog::DatasetCatalogProvider;
 
-pub use types::{DataCatalog, SemanticModel};
+pub use super::catalog_types::*;
 
 #[derive(Clone, Debug, Default)]
 pub struct CatalogEnrichmentReport {

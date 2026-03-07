@@ -6,8 +6,8 @@ members = [
   "src/suites/react-suites",
   "src/modules/storage",
   "src/modules/provider-vector-lance",
-  "src/modules/provider-postgres",
-  "src/modules/provider-bigquery",
-  "src/modules/provider-athena",
-  "src/modules/provider-dbt",
+  "src/suites/react-suites/src/data_engineer/modules/provider-postgres",
+  "src/suites/react-suites/src/data_engineer/modules/provider-bigquery",
+  "src/suites/react-suites/src/data_engineer/modules/provider-athena",
+  "src/suites/react-suites/src/data_engineer/modules/provider-dbt",
 ]

@@ -58,8 +58,10 @@ impl DataEngineerSuite {
                 }
                 candidates.sort();
                 candidates.dedup();
+                let wh = crate::data_engineer::ctx_ext::actx_warehouse(actx)
+                    .ok_or_else(|| "warehouse provider missing for plan grounding".to_string())?;
                 let grounded = crate::data_engineer::dataset_truth::build_grounded_raw_dataset_set(
-                    actx, &actx.warehouse, &candidates,
+                    actx, &wh, &candidates,
                 ).await;
                 crate::data_engineer::plan::prune_cleanse_plan_to_grounded_raw_datasets(p, &grounded.allowed);
             }

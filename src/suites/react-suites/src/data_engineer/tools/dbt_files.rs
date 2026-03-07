@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 use crate::data_engineer::patch_contract::{normalize_hunks_only_patch_text, SingleFilePatchArgs};
@@ -785,35 +785,7 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: config::LlmResolved::default(),
-            providers: config::ProvidersResolved {
-                warehouse: config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({}),
         })
     }
 
@@ -838,9 +810,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

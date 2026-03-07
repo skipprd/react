@@ -12,7 +12,7 @@ use crate::data_engineer::files_store;
 use crate::data_engineer::references::DatasetRef;
 use crate::data_engineer::sql_first;
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
@@ -179,9 +179,7 @@ impl Tool for StagingModelTool {
     }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
-        let dbt = ctx
-            .dbt
-            .as_ref()
+        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
             .ok_or_else(|| "dbt provider missing".to_string())?;
 
         // Resolve datasets explicitly; NEVER default to all datasets.
@@ -227,10 +225,14 @@ impl Tool for StagingModelTool {
         let cfg = crate::data_engineer::resolved_config_from_ctx(ctx).ok_or_else(|| {
             "resolved_config missing (cannot enforce raw dataset constraints)".to_string()
         })?;
-        let want_catalog = cfg.providers.warehouse.container.clone();
-        let want_schema = cfg.providers.warehouse.namespace.clone();
+        let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg)
+            .ok_or_else(|| "suite_config missing or invalid".to_string())?;
+        let want_catalog = providers.warehouse.container.clone();
+        let want_schema = providers.warehouse.namespace.clone();
         let mut schema_cols_by_ds: std::collections::HashMap<String, Vec<(String, String)>> =
             std::collections::HashMap::new();
+        let gating_wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+            .ok_or_else(|| "warehouse provider missing".to_string())?;
         let mut gating_errors: Vec<String> = Vec::new();
         for ds_ref in dataset_refs.iter() {
             let ds = ds_ref.fqn();
@@ -250,7 +252,7 @@ impl Tool for StagingModelTool {
                 ));
                 continue;
             }
-            match ctx.warehouse.schema(&ds).await {
+            match gating_wh.schema(&ds).await {
                 Ok(cols) => {
                     schema_cols_by_ds.insert(ds, cols);
                 }
@@ -399,14 +401,18 @@ impl Tool for StagingModelTool {
             .map(active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
         let provider_name = crate::data_engineer::resolved_config_from_ctx(ctx)
-            .map(|cfg| cfg.providers.warehouse.kind.to_string())
+            .and_then(|cfg| crate::data_engineer::de_config::de_config_from_resolved(cfg))
+            .map(|p| p.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
+        let stg_wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
         let provider_prompt_rules = {
             let mut out = String::new();
-            for rule in ctx.warehouse.sql_prompt_rules().into_iter() {
-                out.push_str("  - ");
-                out.push_str(rule);
-                out.push('\n');
+            if let Some(ref w) = stg_wh {
+                for rule in w.sql_prompt_rules().into_iter() {
+                    out.push_str("  - ");
+                    out.push_str(rule);
+                    out.push('\n');
+                }
             }
             out
         };
@@ -664,7 +670,7 @@ impl Tool for StagingModelTool {
 
             let cols_for_sql: Vec<String> = cols
                 .iter()
-                .map(|(n, _t)| ctx.warehouse.quote_ident(n))
+                .map(|(n, _t)| stg_wh.as_ref().map(|w| w.quote_ident(n)).unwrap_or_else(|| format!("\"{}\"", n)))
                 .collect();
 
             let user_value = serde_json::json!({
@@ -690,14 +696,14 @@ impl Tool for StagingModelTool {
             let max_tokens = sql_first::sql_first_max_output_tokens(6000);
             let max_attempts = sql_first::sql_first_max_repair_attempts(4);
             let mut repl = std::collections::HashMap::new();
-            let dsid = match ctx.warehouse.parse_dataset_fqn(&ds) {
+            let dsid = match stg_wh.as_ref().ok_or_else(|| "warehouse missing".to_string()).and_then(|w| w.parse_dataset_fqn(&ds)) {
                 Ok(id) => id,
                 Err(e) => {
                     errors.push(format!("{ds}: invalid dataset fqn: {e}"));
                     continue;
                 }
             };
-            repl.insert("__SOURCE__".to_string(), ctx.warehouse.quote_fqn(&dsid));
+            repl.insert("__SOURCE__".to_string(), stg_wh.as_ref().unwrap().quote_fqn(&dsid));
 
             let mut last_err = String::new();
             let mut prev_sql: Option<String> = None;
@@ -911,7 +917,7 @@ mod tests {
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
     use react_core::llm::LargeLanguageModel;
-    use react_core::providers::{DbtProvider, QueryProvider, QueryResult};
+    use crate::data_engineer::providers::{DbtProvider, QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::{Arc, Mutex};
@@ -1075,8 +1081,8 @@ mod tests {
             async fn validate_project(
                 &self,
                 _scope: &RequestScope,
-                _args: &react_core::providers::DbtValidateArgs,
-            ) -> Result<react_core::providers::DbtValidateResult, String> {
+                _args: &crate::data_engineer::providers::DbtValidateArgs,
+            ) -> Result<crate::data_engineer::providers::DbtValidateResult, String> {
                 Err("not used".to_string())
             }
         }
@@ -1112,38 +1118,19 @@ mod tests {
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "test", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         });
 
-        let ctx = AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let query_prov: Arc<dyn crate::data_engineer::providers::QueryProvider> = Arc::new(MockQuery);
+        let dbt_prov: Arc<dyn crate::data_engineer::providers::DbtProvider> = Arc::new(MockDbt);
+        let mut ctx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -1157,14 +1144,15 @@ mod tests {
             storage: storage.clone(),
             scope,
             keyspace,
-            query: Some(Arc::new(MockQuery)),
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: Some(Arc::new(MockDbt)),
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg),
+            capabilities: std::collections::HashMap::new(),
         };
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query_prov)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt_prov)));
 
         let tool = StagingModelTool { datasets: None };
         let obs = tool
@@ -1220,8 +1208,8 @@ mod tests {
             async fn validate_project(
                 &self,
                 _scope: &RequestScope,
-                _args: &react_core::providers::DbtValidateArgs,
-            ) -> Result<react_core::providers::DbtValidateResult, String> {
+                _args: &crate::data_engineer::providers::DbtValidateArgs,
+            ) -> Result<crate::data_engineer::providers::DbtValidateResult, String> {
                 Err("not used".to_string())
             }
         }
@@ -1256,9 +1244,9 @@ mod tests {
             }
         }
         #[async_trait]
-        impl react_core::providers::DatasetCatalogProvider for MockWarehouse {
-            async fn list_datasets(&self) -> Result<Vec<react_core::providers::DatasetId>, String> {
-                Ok(vec![react_core::providers::DatasetId {
+        impl crate::data_engineer::providers::DatasetCatalogProvider for MockWarehouse {
+            async fn list_datasets(&self) -> Result<Vec<crate::data_engineer::providers::DatasetId>, String> {
+                Ok(vec![crate::data_engineer::providers::DatasetId {
                     catalog: "AwsDataCatalog".to_string(),
                     database: "test_raw".to_string(),
                     table: "raw_orders".to_string(),
@@ -1267,38 +1255,38 @@ mod tests {
 
             async fn get_dataset_schema(
                 &self,
-                dataset: &react_core::providers::DatasetId,
+                dataset: &crate::data_engineer::providers::DatasetId,
             ) -> Result<Vec<(String, String)>, String> {
                 self.schema(&dataset.fqn()).await
             }
 
             async fn get_dataset_stats(
                 &self,
-                _dataset: &react_core::providers::DatasetId,
+                _dataset: &crate::data_engineer::providers::DatasetId,
                 _max_fields: usize,
             ) -> Result<
                 (
-                    react_core::discover::stats::DatasetFieldStats,
-                    react_core::providers::catalog::types::DatasetStats,
+                    crate::data_engineer::providers::DatasetFieldStats,
+                    crate::data_engineer::providers::DatasetStats,
                 ),
                 String,
             > {
                 Err("not used".to_string())
             }
         }
-        impl react_core::providers::WarehouseNaming for MockWarehouse {
+        impl crate::data_engineer::providers::WarehouseNaming for MockWarehouse {
             fn kind(&self) -> &'static str {
                 "mock"
             }
             fn parse_dataset_fqn(
                 &self,
                 fqn: &str,
-            ) -> Result<react_core::providers::DatasetId, String> {
+            ) -> Result<crate::data_engineer::providers::DatasetId, String> {
                 let parts: Vec<&str> = fqn.split('.').collect();
                 if parts.len() != 3 {
                     return Err("expected <catalog>.<schema>.<table>".to_string());
                 }
-                Ok(react_core::providers::DatasetId {
+                Ok(crate::data_engineer::providers::DatasetId {
                     catalog: parts[0].to_string(),
                     database: parts[1].to_string(),
                     table: parts[2].to_string(),
@@ -1353,35 +1341,12 @@ mod tests {
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "test", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         });
 
         let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -1394,7 +1359,10 @@ mod tests {
             captured_user_instructions: captured.clone(),
         });
 
-        let ctx = AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(MockWarehouse);
+        let dbt_prov: Arc<dyn crate::data_engineer::providers::DbtProvider> = Arc::new(MockDbt);
+        let mut ctx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -1408,14 +1376,14 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(MockWarehouse),
-            dbt: Some(Arc::new(MockDbt)),
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg),
+            capabilities: std::collections::HashMap::new(),
         };
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt_prov)));
 
         // Seed an approved cleanse plan with invariants/checklist for this dataset.
         let ds = "AwsDataCatalog.test_raw.raw_orders".to_string();

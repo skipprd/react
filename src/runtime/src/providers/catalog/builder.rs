@@ -8,14 +8,14 @@ pub struct CatalogBuilder;
 impl CatalogBuilder {
     pub async fn build_with_stats(
         dataset: &crate::providers::dataset_catalog_provider::DatasetId,
-        ns_stats: Option<crate::discover::stats::DatasetFieldStats>,
+        ns_stats: Option<react_suites::data_engineer::providers::DatasetFieldStats>,
         dataset_stats: Option<super::types::DatasetStats>,
     ) -> DataCatalog {
         // Build initial semantic view directly from provided stats to ensure first-time catalogs have fields
         // Preserve full dot-paths for nested fields (e.g. context.session.id).
         fn classify_field(
             _name: &str,
-            stats: Option<&crate::discover::stats::FieldStats>,
+            stats: Option<&react_core::discover::stats::FieldStats>,
         ) -> SemanticFieldRole {
             // Name-agnostic classification using only stats
             if let Some(s) = stats {

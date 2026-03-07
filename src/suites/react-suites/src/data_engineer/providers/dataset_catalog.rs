@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 
-/// Canonical dataset identifier for catalog building and tool UX.
-///
-/// For Athena/Glue, `catalog` will typically be `"AwsDataCatalog"` (or similar),
-/// but we keep it explicit for future portability.
+use super::catalog_types::DatasetStats;
+use super::stats::DatasetFieldStats;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DatasetId {
     pub catalog: String,
@@ -39,6 +38,25 @@ impl DatasetId {
     }
 }
 
+#[async_trait]
+pub trait DatasetCatalogProvider: Send + Sync {
+    async fn list_datasets(&self) -> Result<Vec<DatasetId>, String>;
+    async fn get_dataset_schema(
+        &self,
+        dataset: &DatasetId,
+    ) -> Result<Vec<(String, String)>, String>;
+
+    async fn get_dataset_stats(
+        &self,
+        dataset: &DatasetId,
+        max_fields: usize,
+    ) -> Result<(DatasetFieldStats, DatasetStats), String>;
+
+    fn max_concurrency(&self) -> usize {
+        super::limits::DEFAULT_MAX_CONCURRENCY
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::DatasetId;
@@ -56,37 +74,5 @@ mod tests {
         assert!(DatasetId::parse_fqn_strict("raw_customers").is_err());
         assert!(DatasetId::parse_fqn_strict("a.b").is_err());
         assert!(DatasetId::parse_fqn_strict("a..c").is_err());
-    }
-}
-
-/// Provider capability for enumerating datasets and retrieving schema.
-///
-/// This intentionally keeps suites from calling any SDKs directly.
-#[async_trait]
-pub trait DatasetCatalogProvider: Send + Sync {
-    async fn list_datasets(&self) -> Result<Vec<DatasetId>, String>;
-    async fn get_dataset_schema(
-        &self,
-        dataset: &DatasetId,
-    ) -> Result<Vec<(String, String)>, String>;
-
-    /// Optional: Provider-computed stats for a dataset. Providers may return an error if unsupported.
-    async fn get_dataset_stats(
-        &self,
-        dataset: &DatasetId,
-        max_fields: usize,
-    ) -> Result<
-        (
-            crate::discover::stats::DatasetFieldStats,
-            crate::providers::catalog::types::DatasetStats,
-        ),
-        String,
-    >;
-
-    /// Max in-flight queries the underlying provider is configured to allow.
-    ///
-    /// Suites should treat this as the canonical concurrency limit for query batching.
-    fn max_concurrency(&self) -> usize {
-        crate::providers::limits::DEFAULT_WAREHOUSE_MAX_CONCURRENCY
     }
 }

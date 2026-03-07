@@ -46,7 +46,7 @@ pub async fn run_discovery(
     let mut all: Vec<(String, f32)> = Vec::new();
     if let Ok(hits) = vector.query(&sctx.scope, &vec, k, Some("dataset")).await {
         for h in hits {
-            all.push((h.item.dataset_id, h.score));
+            all.push((h.item.entity_id, h.score));
         }
     }
     // Dedupe by dataset_id, keep lowest score

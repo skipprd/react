@@ -1,8 +1,10 @@
 use serde_json::Value;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::keyspace::Keyspace;
-use crate::providers::{DbtProvider, QueryProvider, VectorStore, WarehouseProvider};
+use crate::providers::VectorStore;
 use crate::schema_registry::{AgentStepTypeV1, AgentStepV1, SchemaId};
 use crate::scope::RequestScope;
 use crate::session::{
@@ -34,39 +36,32 @@ pub struct AgentCtx {
     pub thread_id: Option<String>,
     pub progress_tx: Option<tokio::sync::mpsc::UnboundedSender<usize>>,
     pub pre_step_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
-    /// Optional trace channel for streaming prompt/response summaries and tool actions.
     pub trace_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     pub agent_name: Option<String>,
-    /// Suite-provided policy that defines what completion means, what context to inject, and any
-    /// required validations. This is the primary extension point that keeps the core loop agnostic.
     pub policy: Arc<dyn AgentPolicy>,
-    /// LLM provider to use for the ReAct loop.
     pub llm: Arc<dyn crate::llm::LargeLanguageModel>,
-    /// Storage adapter for reads/writes (S3, in-memory, etc.).
     pub storage: Arc<dyn StorageAdapter>,
-    /// Authoritative request scope (tenant/workspace/project_id).
     pub scope: RequestScope,
-    /// Canonical key/URI builder for scoped persistence.
     pub keyspace: Arc<dyn Keyspace>,
-    /// Optional query provider (suite-provided). Used for existence checks and data access.
-    pub query: Option<Arc<dyn QueryProvider>>,
-    /// Warehouse provider (dbt target). Suites should use this as the single source of truth.
-    pub warehouse: Arc<dyn WarehouseProvider>,
-    /// Optional DBT provider (suite-provided).
-    pub dbt: Option<Arc<dyn DbtProvider>>,
-    /// Optional vector store provider (suite-provided).
     pub vector: Option<Arc<dyn VectorStore>>,
-    /// Optional thread store (for transcript persistence and artifact context).
     pub thread_store: Option<ThreadStore>,
-
-    /// Optional explicit execution context for hierarchical UI rendering.
     pub exec_ctx: Option<ExecutionContext>,
-
-    /// Resolved runtime configuration (parsed YAML config).
-    ///
-    /// Injected by the runtime so suites/tools can access warehouse, dbt,
-    /// and other provider configuration without coupling to parsing logic.
     pub resolved_config: Option<Arc<crate::resolved_config::ReactResolvedConfig>>,
+    pub capabilities: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+}
+
+impl AgentCtx {
+    /// Retrieve a suite-specific capability by concrete type.
+    pub fn capability<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.capabilities
+            .get(&TypeId::of::<T>())
+            .and_then(|a| a.clone().downcast::<T>().ok())
+    }
+
+    /// Store a suite-specific capability by concrete type.
+    pub fn set_capability<T: Send + Sync + 'static>(&mut self, val: Arc<T>) {
+        self.capabilities.insert(TypeId::of::<T>(), val);
+    }
 }
 
 pub struct Agent;
@@ -291,7 +286,7 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
 mod tests {
     use super::*;
     use crate::keyspace::DefaultKeyspace;
-    use crate::providers::NullWarehouseProvider;
+
     use crate::scope::RequestScope;
     use crate::storage::InMemoryStorageAdapter;
     use crate::tools::ToolRegistry;
@@ -429,9 +424,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -500,9 +493,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -557,9 +548,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -573,7 +562,7 @@ mod tests {
             "tools",
             "q",
             crate::llm::LlmCallOptions {
-                prompt_id: "react_core.agent.tests.final_payload_round_trip",
+                prompt_id: "react_core.agent.tests.complete_payload_round_trip",
                 thread_id: None,
                 expected_format: crate::llm::LlmExpectedFormat::JsonObject,
                 max_output_tokens: None,
@@ -675,9 +664,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(crate::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -747,9 +734,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(crate::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -788,12 +773,12 @@ mod tests {
         );
     }
 
-    struct CapturingDbtFilesPatchTool {
+    struct CapturingFilesPatchTool {
         saw_patch: Arc<Mutex<bool>>,
     }
 
     #[async_trait]
-    impl crate::tools::Tool for CapturingDbtFilesPatchTool {
+    impl crate::tools::Tool for CapturingFilesPatchTool {
         fn name(&self) -> &'static str {
             "file"
         }
@@ -854,7 +839,7 @@ mod tests {
         };
 
         let mut reg = ToolRegistry::new();
-        reg.register(CapturingDbtFilesPatchTool {
+        reg.register(CapturingFilesPatchTool {
             saw_patch: saw_patch.clone(),
         });
 
@@ -872,9 +857,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             // Critical: only wrap patch-protocol objects when exec_ctx exists.
@@ -987,9 +970,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1056,9 +1037,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,

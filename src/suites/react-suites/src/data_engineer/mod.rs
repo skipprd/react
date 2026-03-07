@@ -10,7 +10,7 @@ use react_core::agent::{
 use crate::data_engineer::domain_types::{GuardBlockKind, PhaseReasonCode};
 use react_core::keyspace::encode_key_component;
 use react_core::llm::LlmCallOptions;
-use react_core::session::{CatalogBootstrapState, ThreadBootstrapState, ThreadStore, ToolStepStatus};
+use react_core::session::{ThreadBootstrapState, ThreadStore, ToolStepStatus};
 use react_core::tools::ToolRegistry;
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
@@ -88,6 +88,10 @@ impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
     }
 }
 
+pub mod providers;
+pub mod de_config;
+#[allow(dead_code)]
+pub mod ctx_ext;
 pub mod controller_event;
 pub mod controller_kernel;
 pub mod control_flow;
@@ -765,7 +769,7 @@ impl DataEngineerSuite {
 
 
     async fn discovered_raw_relations_from_catalog(
-        datasets: Option<&Arc<dyn react_core::providers::DatasetCatalogProvider>>,
+        datasets: Option<&Arc<dyn crate::data_engineer::providers::DatasetCatalogProvider>>,
     ) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         let Some(ds) = datasets else {
@@ -878,11 +882,12 @@ impl DataEngineerSuite {
             sctx.keyspace.clone(),
         );
         if let Ok(st) = thread_store.get_thread_state(thread_id).await {
-            if let Some(catalog) = st.bootstrap.catalog.as_ref() {
-                if catalog.status == "ready" || catalog.status == "best_effort" {
+            if let Some(cat) = st.bootstrap.extensions.get("catalog") {
+                let status = cat.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                if status == "ready" || status == "best_effort" {
                     tracing::info!(
                         "data_engineer: catalog bootstrap semaphore hit status={} thread_id={}",
-                        catalog.status,
+                        status,
                         thread_id
                     );
                     return Ok(());
@@ -927,10 +932,12 @@ impl DataEngineerSuite {
                 ..react_core::session::ThreadState::default()
             });
         st.bootstrap = ThreadBootstrapState {
-            catalog: Some(CatalogBootstrapState {
-                status,
-                metadata_complete: out.metadata_complete,
-                ts,
+            extensions: serde_json::json!({
+                "catalog": {
+                    "status": status,
+                    "metadata_complete": out.metadata_complete,
+                    "ts": ts,
+                }
             }),
         };
         if let Err(e) = thread_store.put_thread_state(thread_id, &st).await {
@@ -2005,7 +2012,7 @@ Apply these fixes in the output.",
     /// This builds/refreshes warehouse-backed catalog artifacts and then enforces that required
     /// metadata exists so planning can treat catalog as canonical.
     async fn ensure_catalog_bootstrap(sctx: &SuiteCtx) -> Result<CatalogBootstrapOutcome, String> {
-        let (Some(cat), Some(datasets)) = (sctx.catalog.as_ref(), sctx.datasets.as_ref()) else {
+        let (Some(cat), Some(datasets)) = (crate::data_engineer::ctx_ext::sctx_catalog(sctx), crate::data_engineer::ctx_ext::sctx_datasets(sctx)) else {
             return Ok(CatalogBootstrapOutcome {
                 metadata_complete: true,
             });
@@ -2027,7 +2034,7 @@ Apply these fixes in the output.",
         // Also detect whether the global semantic context exists.
         let global_key = sctx.keyspace.scoped_key(
             &sctx.scope,
-            &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+            &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
         );
         tracing::info!(
             "data_engineer: refreshing canonical catalogs/stats for {} dataset(s)",
@@ -2091,7 +2098,7 @@ Apply these fixes in the output.",
             }
             let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
                 serde_json::from_value::<
-                    react_core::providers::catalog::types::GlobalSemanticContext,
+                    crate::data_engineer::providers::GlobalSemanticContext,
                 >(v)
                 .ok()
             });
@@ -2170,7 +2177,7 @@ Apply these fixes in the output.",
             // Deterministic global semantic context repair.
             let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
                 serde_json::from_value::<
-                    react_core::providers::catalog::types::GlobalSemanticContext,
+                    crate::data_engineer::providers::GlobalSemanticContext,
                 >(v)
                 .ok()
             });
@@ -2180,10 +2187,10 @@ Apply these fixes in the output.",
             };
             if needs_global_defaults {
                 let dataset_ids = dss.iter().map(|d| d.fqn()).collect::<Vec<_>>();
-                let default_global = react_core::providers::catalog::types::GlobalSemanticContext {
+                let default_global = crate::data_engineer::providers::GlobalSemanticContext {
                     version: 1,
                     built_at_epoch_secs: Some((chrono::Utc::now().timestamp()).max(0) as u64),
-                    audiences: vec![react_core::providers::catalog::types::GlobalAudience {
+                    audiences: vec![crate::data_engineer::providers::GlobalAudience {
                         audience: "Analytics engineering and data consumers".to_string(),
                         confidence: 0.90,
                         evidence: dataset_ids
@@ -2193,7 +2200,7 @@ Apply these fixes in the output.",
                             .collect(),
                     }],
                     context_bullets: vec![
-                        react_core::providers::catalog::types::GlobalContextBullet {
+                        crate::data_engineer::providers::GlobalContextBullet {
                             text: "Project models warehouse datasets for analytics use-cases."
                                 .to_string(),
                             confidence: 0.90,
@@ -2248,7 +2255,7 @@ Apply these fixes in the output.",
             sctx.keyspace.clone(),
         );
 
-        let actx = AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 30,
             per_step_timeout_secs: 10,
             max_steps: 50,
@@ -2273,14 +2280,13 @@ Apply these fixes in the output.",
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: sctx.query.clone(),
-            warehouse: sctx.warehouse.clone(),
-            dbt: sctx.dbt.clone(),
             vector: sctx.vector.clone(),
+            capabilities: std::collections::HashMap::new(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
         };
+        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
         match Agent::run_until_block(
             &registry,
@@ -2340,7 +2346,7 @@ Apply these fixes in the output.",
             sctx.keyspace.clone(),
         );
 
-        let actx = AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 30,
             per_step_timeout_secs: 10,
             max_steps: 40,
@@ -2354,14 +2360,13 @@ Apply these fixes in the output.",
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: sctx.query.clone(),
-            warehouse: sctx.warehouse.clone(),
-            dbt: sctx.dbt.clone(),
             vector: sctx.vector.clone(),
+            capabilities: std::collections::HashMap::new(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
         };
+        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
         let prompt = Self::inject_review_question(question);
         match Agent::run_until_block(
@@ -2412,7 +2417,7 @@ Apply these fixes in the output.",
             sctx.scope.clone(),
             sctx.keyspace.clone(),
         );
-        AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 30,
             per_step_timeout_secs: 10,
             max_steps: 6,
@@ -2426,26 +2431,23 @@ Apply these fixes in the output.",
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: sctx.query.clone(),
-            warehouse: sctx.warehouse.clone(),
-            dbt: sctx.dbt.clone(),
             vector: sctx.vector.clone(),
+            capabilities: std::collections::HashMap::new(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
-        }
+        };
+        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
+        actx
     }
 
     fn plan_agent_ctx(thread_id: &str, sctx: &SuiteCtx) -> AgentCtx {
-        // Plan phases (cleanse_plan/model_plan) are tool-heavy: they must do discovery and evidence,
-        // then emit a complete plan object. The small 6-step budget used for some helper contexts can
-        // cause a fallback ("No result") which then fails plan JSON parsing.
         let thread_store = ThreadStore::new(
             sctx.storage.clone(),
             sctx.scope.clone(),
             sctx.keyspace.clone(),
         );
-        AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 30,
             per_step_timeout_secs: 20,
             max_steps: 40,
@@ -2453,22 +2455,20 @@ Apply these fixes in the output.",
             progress_tx: None,
             pre_step_tx: None,
             trace_tx: sctx.trace_tx.clone(),
-            // Keep a single agent label for agent-mode runs; phase selection is handled by the outer loop.
             agent_name: Some("agent".to_string()),
-            // Non-deterministic single-pass modes may interrupt via ask_user/ask_approval.
             policy: std::sync::Arc::new(InterruptOnlyPolicy),
             llm: sctx.llm.clone(),
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: sctx.query.clone(),
-            warehouse: sctx.warehouse.clone(),
-            dbt: sctx.dbt.clone(),
             vector: sctx.vector.clone(),
+            capabilities: std::collections::HashMap::new(),
             thread_store: Some(thread_store),
             exec_ctx: None,
             resolved_config: sctx.resolved_config.clone(),
-        }
+        };
+        crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
+        actx
     }
 
     async fn run_agent(
@@ -2857,9 +2857,9 @@ mod tests {
     }
 
     #[async_trait]
-    impl react_core::providers::QueryProvider for MockWarehouseOk {
-        async fn query(&self, _sql: &str) -> Result<react_core::providers::QueryResult, String> {
-            Ok(react_core::providers::QueryResult {
+    impl crate::data_engineer::providers::QueryProvider for MockWarehouseOk {
+        async fn query(&self, _sql: &str) -> Result<crate::data_engineer::providers::QueryResult, String> {
+            Ok(crate::data_engineer::providers::QueryResult {
                 header: vec![],
                 rows: vec![],
                 meta: None,
@@ -2884,27 +2884,27 @@ mod tests {
     }
 
     #[async_trait]
-    impl react_core::providers::DatasetCatalogProvider for MockWarehouseOk {
-        async fn list_datasets(&self) -> Result<Vec<react_core::providers::DatasetId>, String> {
+    impl crate::data_engineer::providers::DatasetCatalogProvider for MockWarehouseOk {
+        async fn list_datasets(&self) -> Result<Vec<crate::data_engineer::providers::DatasetId>, String> {
             Ok(vec![])
         }
 
         async fn get_dataset_schema(
             &self,
-            dataset: &react_core::providers::DatasetId,
+            dataset: &crate::data_engineer::providers::DatasetId,
         ) -> Result<Vec<(String, String)>, String> {
             let fqn = dataset.fqn();
-            react_core::providers::QueryProvider::schema(self, fqn.as_str()).await
+            crate::data_engineer::providers::QueryProvider::schema(self, fqn.as_str()).await
         }
 
         async fn get_dataset_stats(
             &self,
-            _dataset: &react_core::providers::DatasetId,
+            _dataset: &crate::data_engineer::providers::DatasetId,
             _max_fields: usize,
         ) -> Result<
             (
-                react_core::discover::stats::DatasetFieldStats,
-                react_core::providers::catalog::types::DatasetStats,
+                crate::data_engineer::providers::DatasetFieldStats,
+                crate::data_engineer::providers::DatasetStats,
             ),
             String,
         > {
@@ -2912,7 +2912,7 @@ mod tests {
         }
     }
 
-    impl react_core::providers::WarehouseNaming for MockWarehouseOk {
+    impl crate::data_engineer::providers::WarehouseNaming for MockWarehouseOk {
         fn kind(&self) -> &'static str {
             "mock"
         }
@@ -2920,12 +2920,12 @@ mod tests {
         fn parse_dataset_fqn(
             &self,
             dataset_fqn: &str,
-        ) -> Result<react_core::providers::DatasetId, String> {
+        ) -> Result<crate::data_engineer::providers::DatasetId, String> {
             let parts: Vec<&str> = dataset_fqn.split('.').collect();
             if parts.len() != 3 {
                 return Err("expected <catalog>.<schema>.<table>".to_string());
             }
-            Ok(react_core::providers::DatasetId {
+            Ok(crate::data_engineer::providers::DatasetId {
                 catalog: parts[0].to_string(),
                 database: parts[1].to_string(),
                 table: parts[2].to_string(),
@@ -2940,9 +2940,9 @@ mod tests {
     struct MockQuery;
 
     #[async_trait]
-    impl react_core::providers::QueryProvider for MockQuery {
-        async fn query(&self, _sql: &str) -> Result<react_core::providers::QueryResult, String> {
-            Ok(react_core::providers::QueryResult {
+    impl crate::data_engineer::providers::QueryProvider for MockQuery {
+        async fn query(&self, _sql: &str) -> Result<crate::data_engineer::providers::QueryResult, String> {
+            Ok(crate::data_engineer::providers::QueryResult {
                 header: vec![],
                 rows: vec![],
                 meta: None,
@@ -3041,7 +3041,7 @@ mod tests {
     #[tokio::test]
     async fn review_registry_is_read_only() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
 
         let reg = DataEngineerSuite::build_tools(AgentMode::Review, &sctx)
             .expect("build_tools(review) should succeed");
@@ -3106,7 +3106,7 @@ mod tests {
     #[tokio::test]
     async fn agent_authoring_hard_mutation_phase_locks_tools() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3159,7 +3159,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("probe-thread", &sctx);
         let store = actx.thread_store.as_ref().expect("thread_store");
 
@@ -3222,7 +3222,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("probe-exhausted-thread", &sctx);
         let store = actx.thread_store.as_ref().expect("thread_store");
 
@@ -3289,7 +3289,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
             last_validate_failed: true,
@@ -3320,7 +3320,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_single_target_hides_schema_batch_tools() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3363,7 +3363,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3428,7 +3428,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3488,7 +3488,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3561,7 +3561,7 @@ mod tests {
     #[tokio::test]
     async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState {
@@ -3634,7 +3634,7 @@ mod tests {
     #[tokio::test]
     async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
 
@@ -3695,7 +3695,7 @@ mod tests {
     #[tokio::test]
     async fn plan_batched_staging_model_is_not_exposed_to_agent() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
@@ -3733,7 +3733,7 @@ mod tests {
     #[tokio::test]
     async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
         let (reg, card) = DataEngineerSuite::build_tools_for_phase(
@@ -3763,7 +3763,7 @@ mod tests {
     #[tokio::test]
     async fn plan_batched_gold_model_is_not_exposed_to_agent() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
@@ -3800,7 +3800,7 @@ mod tests {
     #[tokio::test]
     async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
         let (reg, card) = DataEngineerSuite::build_tools_for_phase(
@@ -4039,7 +4039,7 @@ mod tests {
     #[tokio::test]
     async fn model_plan_can_disable_json_file_after_manifest_retry_suppression() {
         let mut sctx = SuiteCtx::default();
-        sctx.query = Some(Arc::new(MockQuery));
+        sctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(Arc::new(MockQuery))));
         let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
         let guard = crate::data_engineer::control_flow::DerivedGuardState::default();
         let (reg, card) = DataEngineerSuite::build_tools_for_phase(

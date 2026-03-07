@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FieldStats {
@@ -180,31 +179,6 @@ impl FieldStats {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct DatasetFieldStats {
-    pub dataset_id: String,
-    pub fields: HashMap<String, FieldStats>,
-    pub last_updated_epoch_ms: u64,
-}
-
-impl DatasetFieldStats {
-    pub fn new(dataset_id: &str) -> Self {
-        Self {
-            dataset_id: dataset_id.to_string(),
-            fields: HashMap::new(),
-            last_updated_epoch_ms: current_millis(),
-        }
-    }
-
-    pub fn update_field(&mut self, field: &str, value: &serde_json::Value) {
-        let entry = self
-            .fields
-            .entry(field.to_string())
-            .or_insert_with(FieldStats::default);
-        entry.update_value(value);
-        self.last_updated_epoch_ms = current_millis();
-    }
-}
 
 fn current_millis() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -231,42 +205,37 @@ mod tests {
 
     #[test]
     fn updates_numeric_and_string_bounds() {
-        let mut ns = DatasetFieldStats::new("ds1");
-        ns.update_field("a", &json!(3));
-        ns.update_field("a", &json!(1));
-        ns.update_field("a", &json!(5));
-        ns.update_field("s", &json!("hi"));
-        ns.update_field("s", &json!("hello"));
-        let a = ns.fields.get("a").unwrap();
+        let mut a = FieldStats::default();
+        a.update_value(&json!(3));
+        a.update_value(&json!(1));
+        a.update_value(&json!(5));
         assert_eq!(a.total, 3);
         assert_eq!(a.nulls, 0);
         assert_eq!(a.min_numeric, Some(1.0));
         assert_eq!(a.max_numeric, Some(5.0));
-        let s = ns.fields.get("s").unwrap();
+
+        let mut s = FieldStats::default();
+        s.update_value(&json!("hi"));
+        s.update_value(&json!("hello"));
         assert_eq!(s.min_len, Some(2));
         assert_eq!(s.max_len, Some(5));
     }
 
     #[test]
     fn approx_distinct_estimation_present() {
-        let mut ns = DatasetFieldStats::new("ds1");
+        let mut fs = FieldStats::default();
         for i in 0..100 {
-            ns.update_field("k", &json!(format!("val{}", i)));
+            fs.update_value(&json!(format!("val{}", i)));
         }
-        if let Some(fs) = ns.fields.get_mut("k") {
-            fs.finalize();
-            assert!(fs.approx_distinct.unwrap_or(0) > 0);
-        } else {
-            panic!("missing field stats");
-        }
+        fs.finalize();
+        assert!(fs.approx_distinct.unwrap_or(0) > 0);
     }
 
     #[test]
     fn handles_nulls_and_no_minmax_when_only_nulls() {
-        let mut ns = DatasetFieldStats::new("ds1");
-        ns.update_field("n", &json!(null));
-        ns.update_field("n", &json!(null));
-        let f = ns.fields.get("n").unwrap();
+        let mut f = FieldStats::default();
+        f.update_value(&json!(null));
+        f.update_value(&json!(null));
         assert_eq!(f.total, 2);
         assert_eq!(f.nulls, 2);
         assert!(f.min_numeric.is_none());
@@ -274,11 +243,9 @@ mod tests {
         assert!(f.min_len.is_none());
         assert!(f.max_len.is_none());
         let prev = f.last_updated_epoch_ms;
-        // updating with another null still moves last_updated
         let mut f2 = f.clone();
         f2.update_value(&json!(null));
         assert!(f2.last_updated_epoch_ms >= prev);
-        // no approx when only nulls
         let mut f3 = f2.clone();
         f3.finalize();
         assert!(f3.approx_distinct.is_none());
@@ -286,10 +253,9 @@ mod tests {
 
     #[test]
     fn ignores_arrays_and_objects_for_bounds() {
-        let mut ns = DatasetFieldStats::new("ds1");
-        ns.update_field("x", &json!([1, 2, 3]));
-        ns.update_field("x", &json!({"a":1}));
-        let f = ns.fields.get("x").unwrap();
+        let mut f = FieldStats::default();
+        f.update_value(&json!([1, 2, 3]));
+        f.update_value(&json!({"a":1}));
         assert_eq!(f.total, 2);
         assert_eq!(f.nulls, 0);
         assert!(f.min_numeric.is_none());
@@ -300,10 +266,9 @@ mod tests {
 
     #[test]
     fn bool_values_contribute_to_distinct_only() {
-        let mut ns = DatasetFieldStats::new("ds1");
-        ns.update_field("b", &json!(true));
-        ns.update_field("b", &json!(false));
-        let mut f = ns.fields.get("b").unwrap().clone();
+        let mut f = FieldStats::default();
+        f.update_value(&json!(true));
+        f.update_value(&json!(false));
         assert_eq!(f.total, 2);
         assert_eq!(f.nulls, 0);
         assert!(f.min_numeric.is_none());
@@ -317,11 +282,10 @@ mod tests {
     #[test]
     fn numeric_histogram_is_generated() {
         std::env::set_var("STATS_HISTOGRAM_ENABLED", "true");
-        let mut ns = DatasetFieldStats::new("ds1");
+        let mut f = FieldStats::default();
         for i in 0..1000 {
-            ns.update_field("x", &json!(i as f64));
+            f.update_value(&json!(i as f64));
         }
-        let mut f = ns.fields.get("x").unwrap().clone();
         f.finalize();
         assert!(f.histogram_bins.is_some());
         let bins = f.histogram_bins.unwrap();

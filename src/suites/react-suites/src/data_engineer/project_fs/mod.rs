@@ -8,7 +8,7 @@ use std::path::Path;
 
 use diffy::Patch;
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 
 use crate::data_engineer::naming;
 use crate::data_engineer::patch_contract::normalize_hunks_only_patch_text;
@@ -1126,11 +1126,15 @@ async fn postprocess_schema_yml(
     // Dynamic, grounded sources:
     // - list_datasets is advisory only (can be incomplete due to permissions/caching).
     // - The only fact we trust is that QueryProvider.schema(<fqn>) succeeds.
-    let q = ctx.warehouse.as_ref();
+    let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+        .ok_or_else(|| "warehouse provider missing for schema.yml postprocess".to_string())?;
+    let q = wh.as_ref();
     let cfg = crate::data_engineer::resolved_config_from_ctx(ctx)
         .ok_or_else(|| "resolved_config missing for schema.yml postprocess".to_string())?;
-    let want_catalog = cfg.providers.warehouse.container.clone();
-    let want_schema = cfg.providers.warehouse.namespace.clone();
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg)
+        .ok_or_else(|| "suite_config missing or invalid for schema.yml postprocess".to_string())?;
+    let want_catalog = providers.warehouse.container.clone();
+    let want_schema = providers.warehouse.namespace.clone();
     const MAX_PROVED_SOURCES: usize = 200;
 
     fn parse_sources_from_schema_yml(root: &YamlMapping) -> Vec<(String, String)> {
@@ -1403,7 +1407,9 @@ fn postprocess_model_sql(ctx: &AgentCtx, rel: &str, content: &str) -> Result<Str
     validate_model_sql_identity(rel, content)?;
     let cfg = crate::data_engineer::resolved_config_from_ctx(ctx)
         .ok_or_else(|| "resolved_config missing for model SQL postprocess".to_string())?;
-    let suffix = tier_suffix_for_path(rel, &cfg)
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg)
+        .ok_or_else(|| "suite_config missing or invalid for model SQL postprocess".to_string())?;
+    let suffix = tier_suffix_for_path(rel, &providers)
         .ok_or_else(|| "unable to infer tier suffix for model path".to_string())?;
     let alias = model_alias_from_rel(rel)
         .ok_or_else(|| "unable to infer model alias from path".to_string())?;
@@ -1453,15 +1459,15 @@ fn validate_model_sql_identity(rel: &str, content: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn tier_suffix_for_path(rel: &str, cfg: &react_core::resolved_config::ReactResolvedConfig) -> Option<String> {
+fn tier_suffix_for_path(rel: &str, pcfg: &crate::data_engineer::de_config::ProvidersResolved) -> Option<String> {
     if rel.starts_with("models/staging/") {
-        return Some(cfg.providers.dbt.naming.silver_suffix.clone());
+        return Some(pcfg.dbt.naming.silver_suffix.clone());
     }
     if rel.starts_with("models/core/") || rel.starts_with("models/marts/") {
-        return Some(cfg.providers.dbt.naming.gold_suffix.clone());
+        return Some(pcfg.dbt.naming.gold_suffix.clone());
     }
     if rel.starts_with("models/") {
-        return Some(cfg.providers.dbt.naming.gold_suffix.clone());
+        return Some(pcfg.dbt.naming.gold_suffix.clone());
     }
     None
 }
@@ -1499,7 +1505,7 @@ mod tests {
     use async_trait::async_trait;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{ChatMessage, LargeLanguageModel};
-    use react_core::providers::{DatasetId, QueryProvider, QueryResult};
+    use crate::data_engineer::providers::{DatasetId, QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::collections::HashMap;
@@ -1543,8 +1549,8 @@ mod tests {
             _max_fields: usize,
         ) -> Result<
             (
-                react_core::discover::stats::DatasetFieldStats,
-                react_core::providers::catalog::types::DatasetStats,
+                crate::data_engineer::providers::DatasetFieldStats,
+                crate::data_engineer::providers::DatasetStats,
             ),
             String,
         > {
@@ -1562,35 +1568,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "test", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         })
     }
 
@@ -1664,8 +1647,8 @@ mod tests {
             _max_fields: usize,
         ) -> Result<
             (
-                react_core::discover::stats::DatasetFieldStats,
-                react_core::providers::catalog::types::DatasetStats,
+                crate::data_engineer::providers::DatasetFieldStats,
+                crate::data_engineer::providers::DatasetStats,
             ),
             String,
         > {
@@ -1673,7 +1656,7 @@ mod tests {
         }
     }
 
-    impl react_core::providers::WarehouseNaming for MockWarehouse {
+    impl crate::data_engineer::providers::WarehouseNaming for MockWarehouse {
         fn kind(&self) -> &'static str {
             "mock"
         }
@@ -1704,7 +1687,9 @@ mod tests {
             workspace: "w".to_string(),
             project_id: "p".to_string(),
         };
-        AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -1718,14 +1703,17 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
+            capabilities: std::collections::HashMap::new(),
+        };
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        if let Some(q) = query {
+            actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(q)));
         }
+        actx
     }
 
     #[tokio::test]
@@ -1882,14 +1870,12 @@ select * from {{ source('test_raw','raw_customers') }}
             "AwsDataCatalog.test_raw.raw_customers".to_string(),
             vec![("id".to_string(), "varchar".to_string())],
         )]);
-        let warehouse: Arc<dyn react_core::providers::WarehouseProvider> =
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(MockWarehouse {
                 schemas: q.schemas.clone(),
             });
-        let ctx = AgentCtx {
-            warehouse,
-            ..make_ctx(storage, Some(Arc::new(q)))
-        };
+        let mut ctx = make_ctx(storage, Some(Arc::new(q)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         let datasets: Arc<dyn DatasetCatalogProvider> = Arc::new(MockDatasets { items: vec![] });
 
         let existing = r#"

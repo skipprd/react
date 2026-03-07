@@ -7,7 +7,7 @@ use crate::adapters::storage::StorageAdapter;
 use crate::providers::{Keyspace, RequestScope};
 
 use crate::ws::terminal::{self, TerminalEvent};
-use react_core::providers::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
+use react_suites::data_engineer::providers::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
 
 #[derive(Clone)]
 pub struct DbtProjectProvider {

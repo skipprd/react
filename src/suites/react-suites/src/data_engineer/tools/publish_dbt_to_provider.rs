@@ -10,7 +10,7 @@ use react_core::resolved_config::ReactResolvedConfig;
 use crate::data_engineer::progress_controller::ExecutionState;
 use crate::data_engineer::state_manager;
 use react_core::agent::AgentCtx;
-use react_core::providers::{CatalogProvider, DatasetCatalogProvider};
+use crate::data_engineer::providers::{CatalogProvider, DatasetCatalogProvider};
 use crate::data_engineer::thread_cache::ThreadCacheStore;
 use react_core::tools::Tool;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl Tool for PublishDbtToProviderTool {
             .min(25);
 
         // Enforce single active warehouse provider for publishing.
-        let threads = ctx.query.as_ref().map(|q| q.max_concurrency());
+        let threads = crate::data_engineer::ctx_ext::actx_query(ctx).map(|q| q.max_concurrency());
         let gen = crate::data_engineer::dbt::profile::generate_profiles_yml(cfg, threads)?;
         let provider_target = args
             .get("target")
@@ -66,11 +66,9 @@ impl Tool for PublishDbtToProviderTool {
             })
             .filter(|v| !v.is_empty());
 
-        let dbt = ctx
-            .dbt
-            .as_ref()
+        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
             .ok_or_else(|| "dbt provider missing".to_string())?;
-        let query = ctx.query.as_ref();
+        let query = crate::data_engineer::ctx_ext::actx_query(ctx);
 
         // Write generated profiles.yml into a temp dir and run compile.
         let td = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -82,8 +80,8 @@ impl Tool for PublishDbtToProviderTool {
         let (compile_res, compile_repair) =
             crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                 ctx,
-                dbt,
-                &react_core::providers::DbtValidateArgs {
+                &dbt,
+                &crate::data_engineer::providers::DbtValidateArgs {
                     project_name: "data_engineer".to_string(),
                     profiles_dir: Some(td.path().to_string_lossy().to_string()),
                     target: provider_target.clone(),
@@ -168,7 +166,7 @@ impl Tool for PublishDbtToProviderTool {
                 }
             }
             emit_trace(ctx, "publish awaiting approval");
-            let exists = check_existing_relations(query, cfg, &relations).await;
+            let exists = check_existing_relations(query.as_ref(), cfg, &relations).await;
             let existing_list = exists
                 .iter()
                 .filter(|(_, v)| **v)
@@ -214,8 +212,8 @@ impl Tool for PublishDbtToProviderTool {
         let (build_res, build_repair) =
             crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                 ctx,
-                dbt,
-                &react_core::providers::DbtValidateArgs {
+                &dbt,
+                &crate::data_engineer::providers::DbtValidateArgs {
                     project_name: "data_engineer".to_string(),
                     profiles_dir: Some(td.path().to_string_lossy().to_string()),
                     target: provider_target.clone(),
@@ -245,6 +243,8 @@ impl Tool for PublishDbtToProviderTool {
         // Best-effort: cache published relation list in-memory for ask-mode prelude.
         if let Some(tid) = ctx.thread_id.as_deref() {
             if !tid.trim().is_empty() {
+                let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg);
+                let wh_container = providers.as_ref().map(|p| p.warehouse.container.as_str()).unwrap_or("");
                 let fqns = relations
                     .iter()
                     .map(|r| {
@@ -255,7 +255,7 @@ impl Tool for PublishDbtToProviderTool {
                         };
                         format!(
                             "{}.{}.{}",
-                            cfg.providers.warehouse.container, db, r.identifier
+                            wh_container, db, r.identifier
                         )
                     })
                     .collect::<Vec<_>>();
@@ -286,10 +286,12 @@ impl Tool for PublishDbtToProviderTool {
 }
 
 async fn check_existing_relations(
-    query: Option<&std::sync::Arc<dyn react_core::providers::QueryProvider>>,
+    query: Option<&std::sync::Arc<dyn crate::data_engineer::providers::QueryProvider>>,
     cfg: &react_core::resolved_config::ReactResolvedConfig,
     relations: &[PublishedRelation],
 ) -> BTreeMap<String, bool> {
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg);
+    let wh_container = providers.as_ref().map(|p| p.warehouse.container.as_str()).unwrap_or("");
     let mut out = BTreeMap::<String, bool>::new();
     let Some(q) = query else {
         // If we can't check existence, require approval (conservative).
@@ -301,7 +303,7 @@ async fn check_existing_relations(
             };
             let fqn = format!(
                 "{}.{}.{}",
-                cfg.providers.warehouse.container, db, r.identifier
+                wh_container, db, r.identifier
             );
             out.insert(fqn, true);
         }
@@ -317,7 +319,7 @@ async fn check_existing_relations(
         };
         let fqn = format!(
             "{}.{}.{}",
-            cfg.providers.warehouse.container, db, r.identifier
+            wh_container, db, r.identifier
         );
         let exists = q.schema(&fqn).await.is_ok();
         out.insert(fqn, exists);
@@ -420,7 +422,7 @@ mod tests {
     use async_trait::async_trait;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
-    use react_core::providers::DbtProvider;
+    use crate::data_engineer::providers::DbtProvider;
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::Arc;
@@ -446,31 +448,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "src".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: false,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved::default(),
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": false, "target": "athena", "naming": {}, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         };
         let rels = vec![PublishedRelation {
             database: "AwsDataCatalog".to_string(),
@@ -515,8 +498,8 @@ mod tests {
         async fn validate_project(
             &self,
             scope: &RequestScope,
-            args: &react_core::providers::DbtValidateArgs,
-        ) -> Result<react_core::providers::DbtValidateResult, String> {
+            args: &crate::data_engineer::providers::DbtValidateArgs,
+        ) -> Result<crate::data_engineer::providers::DbtValidateResult, String> {
             // When "compiling", simulate uploading a manifest.json where publish expects it.
             if !args.build {
                 let base = self
@@ -536,14 +519,14 @@ mod tests {
                     .put_bytes(&manifest_key, &bytes, "application/json")
                     .await?;
             }
-            Ok(react_core::providers::DbtValidateResult {
+            Ok(crate::data_engineer::providers::DbtValidateResult {
                 ok: true,
                 deps_ok: true,
                 parse_ok: true,
                 compile_ok: true,
                 run_ok: Some(args.build),
                 uploaded_target_files: 1,
-                failure_class: react_core::providers::DbtFailureClass::NoFailure,
+                failure_class: crate::data_engineer::providers::DbtFailureClass::NoFailure,
                 errors: vec![],
                 warnings: vec![],
                 logs: serde_json::json!({}),
@@ -570,38 +553,17 @@ mod tests {
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "picnic".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "picnic".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "picnic", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "picnic", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         });
 
-        let ctx = react_core::agent::AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let mut ctx = react_core::agent::AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -615,14 +577,14 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: Some(dbt),
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(cfg.clone()),
+            capabilities: std::collections::HashMap::new(),
         };
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));
 
         let tool = PublishDbtToProviderTool {
             datasets: None,

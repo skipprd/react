@@ -50,7 +50,7 @@ impl Tool for SearchDbtExamplesTool {
         // Map to compact response
         let mut examples: Vec<Value> = Vec::new();
         for sc in results.into_iter() {
-            let project = sc.item.dataset_id.clone();
+            let project = sc.item.entity_id.clone();
             let path = sc.item.field.clone().unwrap_or_default();
             // Filter to DBT-relevant paths only; skip CI/workflow or hidden files
             let p = path.replace('\\', "/");

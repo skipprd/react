@@ -160,14 +160,18 @@ impl Tool for GoldModelTool {
             .map(active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
         let provider_name = crate::data_engineer::resolved_config_from_ctx(ctx)
-            .map(|cfg| cfg.providers.warehouse.kind.to_string())
+            .and_then(|cfg| crate::data_engineer::de_config::de_config_from_resolved(cfg))
+            .map(|p| p.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
+        let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
         let provider_prompt_rules = {
             let mut out = String::new();
-            for rule in ctx.warehouse.sql_prompt_rules().into_iter() {
-                out.push_str("  - ");
-                out.push_str(rule);
-                out.push('\n');
+            if let Some(ref w) = wh {
+                for rule in w.sql_prompt_rules().into_iter() {
+                    out.push_str("  - ");
+                    out.push_str(rule);
+                    out.push('\n');
+                }
             }
             out
         };
@@ -180,7 +184,7 @@ impl Tool for GoldModelTool {
             .storage
             .get_json(&ctx.keyspace.scoped_key(
                 &ctx.scope,
-                &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+                &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
             ))
             .await
             .ok()
@@ -191,14 +195,15 @@ impl Tool for GoldModelTool {
             .scoped_prefix(&ctx.scope, &["dbt"])
             .trim_end_matches('/')
             .to_string();
-        let query = ctx.warehouse.clone();
+        let query = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+            .expect("warehouse provider required for gold_model");
         let (target_container, silver_ns) = crate::data_engineer::resolved_config_from_ctx(ctx)
-            .map(|cfg| {
-                let container = cfg.providers.warehouse.container.clone();
-                let base_schema = cfg.providers.dbt.naming.target_schema.clone();
-                let silver_suffix = cfg.providers.dbt.naming.silver_suffix.clone();
+            .and_then(|cfg| crate::data_engineer::de_config::de_config_from_resolved(cfg))
+            .map(|p| {
+                let container = p.warehouse.container.clone();
+                let base_schema = p.dbt.naming.target_schema.clone();
+                let silver_suffix = p.dbt.naming.silver_suffix.clone();
                 let db = if base_schema.trim().is_empty() {
-                    // Fallback: do not guess; leave empty so we skip schema probing.
                     "".to_string()
                 } else {
                     format!("{}_{}", base_schema.trim(), silver_suffix.trim())
@@ -446,14 +451,14 @@ impl Tool for GoldModelTool {
                     errors.push(format!("{name}: cannot validate gold SQL: missing derived_relation_fqn for input '{inp}' (ensure silver models exist and are queryable)"));
                     continue;
                 }
-                let id = match ctx.warehouse.parse_dataset_fqn(&derived_fqn) {
+                let id = match query.parse_dataset_fqn(&derived_fqn) {
                     Ok(id) => id,
                     Err(e) => {
                         errors.push(format!("{name}: invalid derived_relation_fqn '{derived_fqn}' for input '{inp}': {e}"));
                         continue;
                     }
                 };
-                repl_validate.insert(ph.clone(), ctx.warehouse.quote_fqn(&id));
+                repl_validate.insert(ph.clone(), query.quote_fqn(&id));
                 // Materialize: ref('stg_*') only for named inputs; path-like inputs are invalid for gold.
                 if inp.trim().contains('/') || inp.trim().ends_with(".sql") {
                     errors.push(format!(
@@ -575,7 +580,7 @@ impl Tool for GoldModelTool {
                 ));
                 continue;
             }
-            if let Some(msg) = ctx.warehouse.unsupported_sql_reason(&dbt_sql) {
+            if let Some(msg) = query.unsupported_sql_reason(&dbt_sql) {
                 errors.push(format!(
                     "{name}: unsupported SQL for provider '{provider_name}': {msg}"
                 ));
@@ -679,7 +684,7 @@ mod tests {
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
     use react_core::llm::LargeLanguageModel;
-    use react_core::providers::{QueryProvider, QueryResult};
+    use crate::data_engineer::providers::{QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::{Arc, Mutex};
@@ -709,24 +714,24 @@ mod tests {
     }
 
     #[async_trait]
-    impl react_core::providers::DatasetCatalogProvider for MockWarehouse {
-        async fn list_datasets(&self) -> Result<Vec<react_core::providers::DatasetId>, String> {
+    impl crate::data_engineer::providers::DatasetCatalogProvider for MockWarehouse {
+        async fn list_datasets(&self) -> Result<Vec<crate::data_engineer::providers::DatasetId>, String> {
             Ok(vec![])
         }
         async fn get_dataset_schema(
             &self,
-            dataset: &react_core::providers::DatasetId,
+            dataset: &crate::data_engineer::providers::DatasetId,
         ) -> Result<Vec<(String, String)>, String> {
             self.schema(&dataset.fqn()).await
         }
         async fn get_dataset_stats(
             &self,
-            _dataset: &react_core::providers::DatasetId,
+            _dataset: &crate::data_engineer::providers::DatasetId,
             _max_fields: usize,
         ) -> Result<
             (
-                react_core::discover::stats::DatasetFieldStats,
-                react_core::providers::catalog::types::DatasetStats,
+                crate::data_engineer::providers::DatasetFieldStats,
+                crate::data_engineer::providers::DatasetStats,
             ),
             String,
         > {
@@ -734,19 +739,19 @@ mod tests {
         }
     }
 
-    impl react_core::providers::WarehouseNaming for MockWarehouse {
+    impl crate::data_engineer::providers::WarehouseNaming for MockWarehouse {
         fn kind(&self) -> &'static str {
             "mock"
         }
         fn parse_dataset_fqn(
             &self,
             dataset_fqn: &str,
-        ) -> Result<react_core::providers::DatasetId, String> {
+        ) -> Result<crate::data_engineer::providers::DatasetId, String> {
             let parts: Vec<&str> = dataset_fqn.split('.').collect();
             if parts.len() != 3 {
                 return Err("invalid fqn".to_string());
             }
-            Ok(react_core::providers::DatasetId {
+            Ok(crate::data_engineer::providers::DatasetId {
                 catalog: parts[0].to_string(),
                 database: parts[1].to_string(),
                 table: parts[2].to_string(),
@@ -785,35 +790,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "test", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         })
     }
 
@@ -824,7 +806,9 @@ mod tests {
             workspace: "w".to_string(),
             project_id: "p".to_string(),
         };
-        AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(MockWarehouse::default());
+        let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -838,14 +822,14 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(MockWarehouse::default()),
-            dbt: None,
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
-        }
+            capabilities: std::collections::HashMap::new(),
+        };
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        actx
     }
 
     fn analyst_notes() -> serde_json::Value {

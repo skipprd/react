@@ -3,7 +3,7 @@ use super::remediate::list_sql_keys_for_scope;
 use super::remediate::remediate_dbt_failures_grounded_with_llm;
 use super::remediate::RemediationDiff;
 use react_core::agent::AgentCtx;
-use react_core::providers::{
+use crate::data_engineer::providers::{
     CatalogProvider, DatasetCatalogProvider, DbtFailureClass, DbtProvider, DbtValidateArgs,
     DbtValidateResult,
 };
@@ -408,7 +408,7 @@ mod tests {
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{ChatMessage, LargeLanguageModel};
-    use react_core::providers::{DbtValidateArgs, DbtValidateResult};
+    use crate::data_engineer::providers::{DbtValidateArgs, DbtValidateResult};
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::Mutex;
@@ -447,35 +447,7 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "src".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "src".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({}),
         })
     }
 
@@ -509,9 +481,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -552,7 +522,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                     errors: vec!["Compilation Error: something".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -616,9 +586,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -659,7 +627,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(false),
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                     errors: vec!["Database Error: something during run".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -748,9 +716,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -805,7 +771,7 @@ mod tests {
                         compile_ok: true,
                         run_ok: Some(false),
                         uploaded_target_files: 0,
-                        failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                        failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                         errors: vec![format!("Runtime Error: Column 'context.session.id' cannot be resolved (models/staging/stg_src_events.sql)")],
                         warnings: vec![],
                         logs: serde_json::json!({}),
@@ -818,7 +784,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(true),
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::NoFailure,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::NoFailure,
                     errors: vec![],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -906,9 +872,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -949,7 +913,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                     errors: vec!["Compilation Error: mismatched input".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -1023,9 +987,7 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1066,7 +1028,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                     errors: vec!["Compilation Error: syntax error".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -1128,9 +1090,7 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
@@ -1176,7 +1136,7 @@ mod tests {
                         compile_ok: false,
                         run_ok: None,
                         uploaded_target_files: 0,
-                        failure_class: react_core::providers::DbtFailureClass::SchemaOrProject,
+                        failure_class: crate::data_engineer::providers::DbtFailureClass::SchemaOrProject,
                         errors: vec!["Compilation Error: 'dbt_utils' is undefined".to_string()],
                         warnings: vec![],
                         logs: serde_json::json!({}),
@@ -1189,7 +1149,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(true),
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::NoFailure,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::NoFailure,
                     errors: vec![],
                     warnings: vec![],
                     logs: serde_json::json!({}),

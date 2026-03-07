@@ -167,7 +167,7 @@ async fn sync_from_local(
         chunks.push(VectorChunk {
             id,
             kind: "dbt_example".to_string(),
-            dataset_id: project.clone(),
+            entity_id: project.clone(),
             field: Some(rel.clone()),
             text,
             vector: Vec::new(),

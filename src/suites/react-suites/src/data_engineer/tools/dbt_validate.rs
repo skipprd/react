@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::{CatalogProvider, DatasetCatalogProvider};
+use crate::data_engineer::providers::{CatalogProvider, DatasetCatalogProvider};
 use react_core::tools::Tool;
 use std::fs;
 use std::path::PathBuf;
@@ -128,7 +128,7 @@ async fn probe_compiled_model_sql(
         };
         let sql = String::from_utf8_lossy(&bytes).to_string();
         let probe_sql = crate::data_engineer::sql_first::wrap_sql_for_validation(&sql, 1);
-        match ctx.warehouse.query(&probe_sql).await {
+        match crate::data_engineer::ctx_ext::actx_warehouse(ctx).unwrap().query(&probe_sql).await {
             Ok(qr) => {
                 probed = probed.saturating_add(1);
                 let dups =
@@ -177,9 +177,7 @@ impl Tool for DbtValidateTool {
             .get("project_name")
             .and_then(|x| x.as_str())
             .unwrap_or("data_engineer");
-        let dbt = ctx
-            .dbt
-            .as_ref()
+        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
             .ok_or_else(|| "dbt provider missing".to_string())?;
         // Prefer profiles generated from resolved config (so dbt_validate is deterministic and
         // avoids host-local profiles drift). Only use DBT_PROFILES_DIR if the caller explicitly
@@ -215,9 +213,8 @@ impl Tool for DbtValidateTool {
         let mut _tmp: Option<tempfile::TempDir> = None;
         if profiles_dir.is_none() {
             if let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) {
-                let threads = Some(react_core::providers::QueryProvider::max_concurrency(
-                    ctx.warehouse.as_ref(),
-                ));
+                let threads = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+                    .map(|w| crate::data_engineer::providers::QueryProvider::max_concurrency(w.as_ref()));
                 if let Ok(gen) = crate::data_engineer::dbt::profile::generate_profiles_yml(cfg, threads) {
                     let td = tempfile::tempdir().map_err(|e| e.to_string())?;
                     let mut p = PathBuf::from(td.path());
@@ -255,12 +252,12 @@ impl Tool for DbtValidateTool {
 
         let select_terms = derive_select_terms(ctx, &args).await;
         let mut ladder: Vec<ValidationLadderPhase> = Vec::new();
-        let mut final_res: react_core::providers::DbtValidateResult;
+        let mut final_res: crate::data_engineer::providers::DbtValidateResult;
         let final_report: crate::data_engineer::dbt_repair::repair_loop::RepairReport;
 
         if build {
             // Phase 1: compile-only + repair loop on targeted scope first (faster fail).
-            let compile_args = react_core::providers::DbtValidateArgs {
+            let compile_args = crate::data_engineer::providers::DbtValidateArgs {
                 project_name: project_name.to_string(),
                 profiles_dir: profiles_dir.clone(),
                 target: target.clone(),
@@ -275,7 +272,7 @@ impl Tool for DbtValidateTool {
             };
             let (res1, rep1) = crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                 ctx,
-                dbt,
+                &dbt,
                 &compile_args,
                 max_iters,
                 self.datasets.as_ref(),
@@ -314,7 +311,7 @@ impl Tool for DbtValidateTool {
             } else {
                 // Phase 2: selective build (changed/targeted models only).
                 if !select_terms.is_empty() {
-                    let selective_args = react_core::providers::DbtValidateArgs {
+                    let selective_args = crate::data_engineer::providers::DbtValidateArgs {
                         project_name: project_name.to_string(),
                         profiles_dir: profiles_dir.clone(),
                         target: target.clone(),
@@ -326,7 +323,7 @@ impl Tool for DbtValidateTool {
                     let (res2, rep2) =
                         crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                             ctx,
-                            dbt,
+                            &dbt,
                             &selective_args,
                             max_iters,
                             self.datasets.as_ref(),
@@ -348,7 +345,7 @@ impl Tool for DbtValidateTool {
                         final_report = rep2;
                     } else {
                         // Phase 3: full build for final confidence.
-                        let full_args = react_core::providers::DbtValidateArgs {
+                        let full_args = crate::data_engineer::providers::DbtValidateArgs {
                             project_name: project_name.to_string(),
                             profiles_dir: profiles_dir.clone(),
                             target: target.clone(),
@@ -360,7 +357,7 @@ impl Tool for DbtValidateTool {
                         let (res3, rep3) =
                             crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                                 ctx,
-                                dbt,
+                                &dbt,
                                 &full_args,
                                 max_iters,
                                 self.datasets.as_ref(),
@@ -382,7 +379,7 @@ impl Tool for DbtValidateTool {
                     }
                 } else {
                     // No targeted selectors -> skip selective stage and go straight to full build.
-                    let full_args = react_core::providers::DbtValidateArgs {
+                    let full_args = crate::data_engineer::providers::DbtValidateArgs {
                         project_name: project_name.to_string(),
                         profiles_dir: profiles_dir.clone(),
                         target: target.clone(),
@@ -394,7 +391,7 @@ impl Tool for DbtValidateTool {
                     let (res3, rep3) =
                         crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                             ctx,
-                            dbt,
+                            &dbt,
                             &full_args,
                             max_iters,
                             self.datasets.as_ref(),
@@ -419,8 +416,8 @@ impl Tool for DbtValidateTool {
             let (res, repair_report) =
                 crate::data_engineer::dbt_repair::repair_loop::run_repair_loop(
                     ctx,
-                    dbt,
-                    &react_core::providers::DbtValidateArgs {
+                    &dbt,
+                    &crate::data_engineer::providers::DbtValidateArgs {
                         project_name: project_name.to_string(),
                         profiles_dir: profiles_dir.clone(),
                         target: target.clone(),
@@ -521,7 +518,7 @@ mod tests {
     use async_trait::async_trait;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
-    use react_core::providers::DbtProvider;
+    use crate::data_engineer::providers::DbtProvider;
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::{Arc, Mutex};
@@ -575,32 +572,32 @@ mod tests {
         async fn validate_project(
             &self,
             _scope: &RequestScope,
-            _args: &react_core::providers::DbtValidateArgs,
-        ) -> Result<react_core::providers::DbtValidateResult, String> {
+            _args: &crate::data_engineer::providers::DbtValidateArgs,
+        ) -> Result<crate::data_engineer::providers::DbtValidateResult, String> {
             let mut c = self.calls.lock().unwrap();
             *c += 1;
             if *c == 1 {
-                return Ok(react_core::providers::DbtValidateResult {
+                return Ok(crate::data_engineer::providers::DbtValidateResult {
                     ok: false,
                     deps_ok: true,
                     parse_ok: true,
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: react_core::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime,
                     errors: vec!["Compilation Error: database error".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
                 });
             }
-            Ok(react_core::providers::DbtValidateResult {
+            Ok(crate::data_engineer::providers::DbtValidateResult {
                 ok: true,
                 deps_ok: true,
                 parse_ok: true,
                 compile_ok: true,
                 run_ok: Some(true),
                 uploaded_target_files: 0,
-                failure_class: react_core::providers::DbtFailureClass::NoFailure,
+                failure_class: crate::data_engineer::providers::DbtFailureClass::NoFailure,
                 errors: vec![],
                 warnings: vec![],
                 logs: serde_json::json!({}),
@@ -628,35 +625,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "src".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "src".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "src", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         })
     }
 
@@ -700,7 +674,9 @@ mod tests {
             project_id: "p".to_string(),
         };
 
-        let ctx = AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let mut ctx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -714,14 +690,14 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: Some(dbt),
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
+            capabilities: std::collections::HashMap::new(),
         };
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));
 
         let tool = DbtValidateTool {
             datasets: None,

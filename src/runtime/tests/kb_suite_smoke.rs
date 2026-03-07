@@ -103,13 +103,11 @@ async fn agent_default_policy_accepts_typed_complete() {
             project_id: "p".into(),
         },
         keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        query: None,
-        warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-        dbt: None,
         vector: None,
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        capabilities: Default::default(),
     };
     let reg = ToolRegistry::new();
     let out = Agent::run_until_block(
@@ -166,13 +164,11 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
             project_id: "p".into(),
         },
         keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        query: None,
-        warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-        dbt: None,
         vector: None,
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        capabilities: Default::default(),
     };
     let mut reg = ToolRegistry::new();
     reg.register(AskUserTool);
@@ -229,13 +225,11 @@ async fn agent_interrupts_only_when_policy_requests_it() {
             project_id: "p".into(),
         },
         keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        query: None,
-        warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-        dbt: None,
         vector: None,
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        capabilities: Default::default(),
     };
     let mut reg = ToolRegistry::new();
     reg.register(AskUserTool);

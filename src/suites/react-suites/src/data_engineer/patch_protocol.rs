@@ -4,7 +4,7 @@ use std::sync::Arc;
 use react_core::agent::AgentCtx;
 use react_core::llm::ChatMessage;
 use react_core::llm::LlmCallOptions;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 
 use crate::data_engineer::patch_contract::{
     normalize_hunks_only_patch_text, LlmSingleFilePatchResponse,
@@ -590,6 +590,9 @@ pub async fn llm_patch_loop_single_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data_engineer::ctx_ext::{ProvidersCfgCap, WarehouseCap};
+    use crate::data_engineer::de_config;
+    use crate::data_engineer::providers::NullWarehouseProvider;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::LargeLanguageModel;
     use react_core::scope::RequestScope;
@@ -662,35 +665,32 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
+            suite_config: serde_json::json!({
+                "warehouse": {
+                    "kind": "athena",
+                    "container": "AwsDataCatalog",
+                    "namespace": "test_raw",
+                    "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}
                 },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
+                "catalog": {
+                    "enabled": false,
+                    "refresh_secs": 60,
+                    "max_concurrency": 8
                 },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
+                "dbt": {
+                    "enabled": true,
+                    "target": "athena",
+                    "naming": {
+                        "target_schema": "test",
+                        "silver_suffix": "silver",
+                        "gold_suffix": "warehouse"
                     },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
+                    "runner": "host"
                 },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+                "vector": {
+                    "enabled": false
+                }
+            }),
         })
     }
 
@@ -752,7 +752,7 @@ mod tests {
             workspace: "w".to_string(),
             project_id: "p".to_string(),
         };
-        let ctx = AgentCtx {
+        let mut ctx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 2,
@@ -766,14 +766,17 @@ mod tests {
             storage: storage.clone(),
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
         };
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
+        ctx.set_capability(Arc::new(WarehouseCap(
+            Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
+        )));
 
         let (outcome, notes) = llm_patch_loop_single_file(
             &ctx,

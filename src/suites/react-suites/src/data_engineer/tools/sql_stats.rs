@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::data_engineer::probe_target::ProbeTarget;
 use react_core::agent::AgentCtx;
-use react_core::providers::{CatalogProvider, DatasetCatalogProvider, DatasetId};
+use crate::data_engineer::providers::{CatalogProvider, DatasetCatalogProvider, DatasetId};
 use react_core::tools::Tool;
 
 pub struct SqlStatsTool {

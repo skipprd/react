@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::QueryProvider;
+use crate::data_engineer::providers::QueryProvider;
 use react_core::tools::Tool;
 
 pub struct SqlRunTool {

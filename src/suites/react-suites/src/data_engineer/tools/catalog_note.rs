@@ -239,7 +239,7 @@ impl Tool for CatalogNoteTool {
             let chunk = react_core::providers::VectorChunk {
                 id,
                 kind: "doc".to_string(),
-                dataset_id: dataset_id.clone(),
+                entity_id: dataset_id.clone(),
                 field: field_opt.clone(),
                 text: digest.clone(),
                 vector: vec1,

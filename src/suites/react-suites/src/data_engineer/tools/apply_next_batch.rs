@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 use crate::data_engineer::dataset_truth;
@@ -178,7 +178,7 @@ impl Tool for ApplyNextCleanseBatchTool {
         }
 
         // Truth gating (fail-fast): only proceed if schema() proves each dataset exists.
-        if let Some(q) = ctx.query.as_ref() {
+        if let Some(q) = crate::data_engineer::ctx_ext::actx_query(ctx) {
             let mut gating_errors: Vec<String> = Vec::new();
             for ds in batch.iter() {
                 if let Err(e) = q.schema(ds).await {
@@ -746,35 +746,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "test", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         })
     }
 
@@ -784,7 +761,9 @@ mod tests {
         let llm: Arc<dyn LargeLanguageModel> = Arc::new(ScriptedLlm {
             replies: Mutex::new(vec![]),
         });
-        AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 2,
@@ -802,14 +781,14 @@ mod tests {
                 project_id: "p".to_string(),
             },
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
-        }
+            capabilities: std::collections::HashMap::new(),
+        };
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        actx
     }
 
     async fn seed_cleanse_plan(ctx: &AgentCtx, sql_done: bool, schema_done: bool, locked: bool) {

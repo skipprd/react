@@ -2,9 +2,10 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-use react_core::providers::dataset_catalog_provider::{DatasetCatalogProvider, DatasetId};
-use react_core::providers::warehouse::WarehouseNaming;
-use react_core::providers::{QueryProvider, QueryResult, DEFAULT_WAREHOUSE_MAX_CONCURRENCY};
+use react_suites::data_engineer::providers::{
+    DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
+    WarehouseNaming, DEFAULT_MAX_CONCURRENCY,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct PostgresSettings {
@@ -306,13 +307,7 @@ impl DatasetCatalogProvider for PostgresProvider {
         &self,
         _dataset: &DatasetId,
         _max_fields: usize,
-    ) -> Result<
-        (
-            react_core::discover::stats::DatasetFieldStats,
-            react_core::providers::catalog::types::DatasetStats,
-        ),
-        String,
-    > {
+    ) -> Result<(DatasetFieldStats, DatasetStats), String> {
         Err("postgres stats not implemented".to_string())
     }
 
@@ -330,7 +325,7 @@ impl Default for PostgresProvider {
             password: None,
             dbname: None,
             default_schema: None,
-            max_concurrency: DEFAULT_WAREHOUSE_MAX_CONCURRENCY,
+            max_concurrency: DEFAULT_MAX_CONCURRENCY,
         })
     }
 }

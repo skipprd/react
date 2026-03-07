@@ -256,7 +256,7 @@ pub fn extract_source_calls(sql: &str) -> Vec<(String, String)> {
 }
 
 async fn schema_columns_for_fqn(ctx: &AgentCtx, fqn: &str) -> Option<RelationFacts> {
-    let q = ctx.query.as_ref()?;
+    let q = crate::data_engineer::ctx_ext::actx_query(ctx)?;
     match q.schema(fqn).await {
         Ok(cols) => {
             let columns: Vec<ColumnFact> = cols
@@ -547,11 +547,12 @@ pub fn merge_relation_fqns(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
 mod tests {
     use super::*;
     use react_core::resolved_config as config;
+    use crate::data_engineer::de_config as de_config;
     use async_trait::async_trait;
     use react_core::agent::{AgentCtx, DefaultPolicy};
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::NullModel;
-    use react_core::providers::{DbtProvider, QueryProvider};
+    use crate::data_engineer::providers::{DbtProvider, QueryProvider};
     use react_core::scope::RequestScope;
     use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
     use std::sync::Arc;
@@ -566,42 +567,46 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: config::LlmResolved::default(),
-            providers: config::ProvidersResolved {
-                warehouse: config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "test_raw".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: config::DbtNamingResolved {
-                        target_schema: "test".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({}),
         })
+    }
+
+    fn minimal_providers() -> de_config::ProvidersResolved {
+        de_config::ProvidersResolved {
+            warehouse: de_config::WarehouseResolved {
+                kind: de_config::WarehouseKind::Athena,
+                container: "AwsDataCatalog".to_string(),
+                namespace: "test_raw".to_string(),
+                extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
+            },
+            catalog: de_config::CatalogResolved {
+                enabled: false,
+                refresh_secs: 60,
+                max_concurrency: 8,
+            },
+            dbt: de_config::DbtResolved {
+                enabled: true,
+                profiles_dir: None,
+                target: "athena".to_string(),
+                naming: de_config::DbtNamingResolved {
+                    target_schema: "test".to_string(),
+                    silver_suffix: "silver".to_string(),
+                    gold_suffix: "warehouse".to_string(),
+                },
+                runner: "host".to_string(),
+                docker_image: None,
+                docker_platform: None,
+                docker_network: None,
+                docker_mount_aws_dir: false,
+            },
+            vector: de_config::VectorResolved { enabled: false },
+        }
     }
 
     struct MockQueryProvider;
     #[async_trait]
     impl QueryProvider for MockQueryProvider {
-        async fn query(&self, _sql: &str) -> Result<react_core::providers::QueryResult, String> {
+        async fn query(&self, _sql: &str) -> Result<crate::data_engineer::providers::QueryResult, String> {
             Err("not implemented".to_string())
         }
         async fn schema(&self, table: &str) -> Result<Vec<(String, String)>, String> {
@@ -646,9 +651,9 @@ mod tests {
         async fn validate_project(
             &self,
             _scope: &RequestScope,
-            _args: &react_core::providers::DbtValidateArgs,
-        ) -> Result<react_core::providers::DbtValidateResult, String> {
-            Ok(react_core::providers::DbtValidateResult::default())
+            _args: &crate::data_engineer::providers::DbtValidateArgs,
+        ) -> Result<crate::data_engineer::providers::DbtValidateResult, String> {
+            Ok(crate::data_engineer::providers::DbtValidateResult::default())
         }
     }
 
@@ -659,7 +664,7 @@ mod tests {
             workspace: "w".to_string(),
             project_id: "p".to_string(),
         };
-        AgentCtx {
+        let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -673,14 +678,17 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: Some(query),
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: Some(Arc::new(NoopDbtProvider)),
             vector: None,
+            capabilities: std::collections::HashMap::new(),
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg()),
-        }
+        };
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query)));
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default()))));
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(Arc::new(NoopDbtProvider))));
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::ProvidersCfgCap(minimal_providers())));
+        actx
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use react_core::agent::{AgentCtx, DefaultPolicy};
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::NullModel;
-use react_core::providers::{QueryProvider, QueryResult};
+use react_suites::data_engineer::providers::{QueryProvider, QueryResult};
 use react_core::scope::RequestScope;
 use react_core::storage::InMemoryStorageAdapter;
 use react_core::tools::Tool;
@@ -62,13 +62,11 @@ LIMIT 1
             project_id: "p".into(),
         },
         keyspace: std::sync::Arc::new(DefaultKeyspace::new("b".into())),
-        query: None,
-        warehouse: std::sync::Arc::new(react_core::providers::NullWarehouseProvider::default()),
-        dbt: None,
         vector: None,
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        capabilities: Default::default(),
     };
     let res = tool.call(args, &actx).await.expect("tool call");
     assert!(

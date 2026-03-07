@@ -57,7 +57,7 @@ impl Tool for VectUpsertTool {
             items.push(VectorChunk {
                 id,
                 kind,
-                dataset_id,
+                entity_id: dataset_id,
                 field,
                 text,
                 vector: vecs.get(i).cloned().unwrap_or_default(),

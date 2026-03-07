@@ -8,7 +8,7 @@ use crate::scope::RequestScope;
 pub struct VectorChunk {
     pub id: String,
     pub kind: String, // dataset|field|doc
-    pub dataset_id: String,
+    pub entity_id: String,
     pub field: Option<String>,
     pub text: String,
     pub vector: Vec<f32>,

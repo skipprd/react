@@ -222,12 +222,14 @@ pub async fn validate_sql_quick(
     placeholder_replacements: &HashMap<String, String>,
 ) -> Result<(), String> {
     reject_non_sql_surface(sql)?;
+    let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+        .ok_or_else(|| "warehouse provider missing".to_string())?;
     let expanded = apply_placeholders(sql, placeholder_replacements);
-    if let Some(msg) = ctx.warehouse.unsupported_sql_reason(&expanded) {
+    if let Some(msg) = wh.unsupported_sql_reason(&expanded) {
         return Err(msg);
     }
     let probe = wrap_sql_for_validation(&expanded, 1);
-    let res = ctx.warehouse.query(&probe).await?;
+    let res = wh.query(&probe).await?;
     let dups = duplicate_output_columns(&res.header);
     if !dups.is_empty() {
         return Err(format!(

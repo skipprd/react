@@ -81,8 +81,8 @@ impl DataEngineerSuite {
         }
         let actx = Self::agent_tool_ctx(thread_id, sctx);
         let tool = tools::publish_dbt_to_provider::PublishDbtToProviderTool {
-            datasets: sctx.datasets.clone(),
-            catalog: sctx.catalog.clone(),
+            datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+            catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
         };
         let obs = control_flow::call_and_record_tool(
             thread_store,

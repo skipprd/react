@@ -1,2 +1,2 @@
-pub use react_core::providers::query::{QueryProvider, QueryResult};
+pub use react_suites::data_engineer::providers::{QueryProvider, QueryResult};
 

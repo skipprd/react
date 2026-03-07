@@ -32,7 +32,7 @@ pub(crate) fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -
                 .iter()
                 .rev()
                 .find_map(|e| e.phase.as_deref())
-                .or(Some("preflight")),
+                .or(Some("unknown")),
         };
         if let Some(ev) = step_to_timeline_event(idx, step, current_phase) {
             events.push(ev);
@@ -72,7 +72,7 @@ fn step_to_timeline_event(
             error: None,
             call_id: None,
             model: None,
-            phase: Some(current_phase.unwrap_or("preflight").to_string()),
+            phase: Some(current_phase.unwrap_or("unknown").to_string()),
             ctx: ctx.clone(),
         }),
         ThreadStep::ToolEnd {
@@ -106,7 +106,7 @@ fn step_to_timeline_event(
             },
             call_id: None,
             model: None,
-            phase: Some(current_phase.unwrap_or("preflight").to_string()),
+            phase: Some(current_phase.unwrap_or("unknown").to_string()),
             ctx: ctx.clone(),
         }),
         ThreadStep::LlmStart {

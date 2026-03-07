@@ -91,7 +91,7 @@ impl Tool for VectQueryTool {
 
         let items: Vec<Value> = dedup.into_iter().map(|h| {
             let it = h.item;
-            serde_json::json!({"kind": it.kind, "dataset_id": it.dataset_id, "field": it.field, "text": it.text, "score": h.score})
+            serde_json::json!({"kind": it.kind, "dataset_id": it.entity_id, "field": it.field, "text": it.text, "score": h.score})
         }).collect();
         let est_tokens = ((embed_chars as f32) / 4.0).round() as i64;
         Ok(

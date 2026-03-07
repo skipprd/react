@@ -1,10 +1,6 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-/// Minimal query result for generic suites.
-///
-/// This is intentionally JSON-friendly so suites can render it without depending
-/// on DataFusion/Arrow types directly.
 #[derive(Clone, Debug)]
 pub struct QueryResult {
     pub header: Vec<String>,
@@ -18,10 +14,7 @@ pub trait QueryProvider: Send + Sync {
     async fn schema(&self, dataset_fqn: &str) -> Result<Vec<(String, String)>, String>;
     async fn sample(&self, dataset_fqn: &str, limit: usize) -> Result<Vec<Vec<String>>, String>;
 
-    /// Max in-flight queries the provider is configured to allow.
-    ///
-    /// Suites should treat this as the canonical concurrency limit for query batching.
     fn max_concurrency(&self) -> usize {
-        crate::providers::limits::DEFAULT_WAREHOUSE_MAX_CONCURRENCY
+        super::limits::DEFAULT_MAX_CONCURRENCY
     }
 }

@@ -1,1 +1,1 @@
-pub use react_core::providers::{DatasetCatalogProvider, DatasetId};
+pub use react_suites::data_engineer::providers::{DatasetCatalogProvider, DatasetId};

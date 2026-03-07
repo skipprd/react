@@ -1,5 +1,6 @@
 use react_core::resolved_config::ReactResolvedConfig;
 
+
 #[derive(Clone, Debug)]
 pub enum ActiveWarehouse {
     Athena,
@@ -21,8 +22,10 @@ pub struct GeneratedProfiles {
 ///
 /// Today only Athena exists; the shape is designed to extend to other engines.
 pub fn active_warehouse(cfg: &ReactResolvedConfig) -> Result<ActiveWarehouse, String> {
-    use react_core::resolved_config::WarehouseKind;
-    match cfg.providers.warehouse.kind {
+    use crate::data_engineer::de_config::WarehouseKind;
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg)
+        .ok_or_else(|| "suite_config missing or invalid for data_engineer".to_string())?;
+    match providers.warehouse.kind {
         WarehouseKind::Athena => Ok(ActiveWarehouse::Athena),
         WarehouseKind::Postgres => Ok(ActiveWarehouse::Postgres),
         WarehouseKind::Snowflake => Ok(ActiveWarehouse::Snowflake),
@@ -41,9 +44,11 @@ pub fn generate_profiles_yml(
     threads: Option<usize>,
 ) -> Result<GeneratedProfiles, String> {
     let active = active_warehouse(cfg)?;
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg)
+        .ok_or_else(|| "suite_config missing or invalid for data_engineer".to_string())?;
     match active {
         ActiveWarehouse::Athena => {
-            let wh = &cfg.providers.warehouse;
+            let wh = &providers.warehouse;
             // dbt-athena-adapter expects a region.
             // Prefer explicit configured region (ensures work_group lookup happens in the right region),
             // otherwise defer to env with a safe default.
@@ -97,10 +102,10 @@ pub fn generate_profiles_yml(
             //   <target_schema>_<tier_suffix>
             // so `schema` must be the BASE (e.g. "test"), not the final tier schema.
             let database = wh.container.clone();
-            let schema = if cfg.providers.dbt.naming.target_schema.trim().is_empty() {
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
                 derive_scope_db_name(cfg)
             } else {
-                cfg.providers.dbt.naming.target_schema.trim().to_string()
+                providers.dbt.naming.target_schema.trim().to_string()
             };
 
             // Profile name must match dbt_project.yml `profile:` setting.
@@ -108,10 +113,10 @@ pub fn generate_profiles_yml(
             let profile_name = cfg.scope.project_id.clone();
 
             // Target name: allow config override, default to "athena" for publish workflow.
-            let target = if cfg.providers.dbt.target.trim().is_empty() {
+            let target = if providers.dbt.target.trim().is_empty() {
                 "athena".to_string()
             } else {
-                cfg.providers.dbt.target.trim().to_string()
+                providers.dbt.target.trim().to_string()
             };
 
             // dbt-athena-adapter typical output keys: type, s3_staging_dir, region_name, database, schema, work_group, catalog_name
@@ -152,17 +157,17 @@ pub fn generate_profiles_yml(
             })
         }
         ActiveWarehouse::Postgres => {
-            let wh = &cfg.providers.warehouse;
+            let wh = &providers.warehouse;
             let profile_name = cfg.scope.project_id.clone();
-            let target = if cfg.providers.dbt.target.trim().is_empty() {
+            let target = if providers.dbt.target.trim().is_empty() {
                 "postgres".to_string()
             } else {
-                cfg.providers.dbt.target.trim().to_string()
+                providers.dbt.target.trim().to_string()
             };
-            let schema = if cfg.providers.dbt.naming.target_schema.trim().is_empty() {
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
                 derive_scope_db_name(cfg)
             } else {
-                cfg.providers.dbt.naming.target_schema.trim().to_string()
+                providers.dbt.naming.target_schema.trim().to_string()
             };
             let dbname = if !wh.container.trim().is_empty() {
                 wh.container.trim().to_string()
@@ -197,17 +202,17 @@ pub fn generate_profiles_yml(
         }
         ActiveWarehouse::Snowflake => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if cfg.providers.dbt.target.trim().is_empty() {
+            let target = if providers.dbt.target.trim().is_empty() {
                 "snowflake".to_string()
             } else {
-                cfg.providers.dbt.target.trim().to_string()
+                providers.dbt.target.trim().to_string()
             };
-            let schema = if cfg.providers.dbt.naming.target_schema.trim().is_empty() {
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
                 derive_scope_db_name(cfg)
             } else {
-                cfg.providers.dbt.naming.target_schema.trim().to_string()
+                providers.dbt.naming.target_schema.trim().to_string()
             };
-            let wh = &cfg.providers.warehouse;
+            let wh = &providers.warehouse;
             let database = if !wh.container.trim().is_empty() {
                 wh.container.trim().to_string()
             } else {
@@ -254,21 +259,21 @@ pub fn generate_profiles_yml(
         }
         ActiveWarehouse::Bigquery => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if cfg.providers.dbt.target.trim().is_empty() {
+            let target = if providers.dbt.target.trim().is_empty() {
                 "bigquery".to_string()
             } else {
-                cfg.providers.dbt.target.trim().to_string()
+                providers.dbt.target.trim().to_string()
             };
-            let wh = &cfg.providers.warehouse;
+            let wh = &providers.warehouse;
             let project = if !wh.container.trim().is_empty() {
                 wh.container.trim().to_string()
             } else {
                 "{{ env_var('BIGQUERY_PROJECT') }}".to_string()
             };
-            let schema = if cfg.providers.dbt.naming.target_schema.trim().is_empty() {
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
                 derive_scope_db_name(cfg)
             } else {
-                cfg.providers.dbt.naming.target_schema.trim().to_string()
+                providers.dbt.naming.target_schema.trim().to_string()
             };
             let location = wh
                 .extras
@@ -303,21 +308,21 @@ pub fn generate_profiles_yml(
         }
         ActiveWarehouse::Mssql => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if cfg.providers.dbt.target.trim().is_empty() {
+            let target = if providers.dbt.target.trim().is_empty() {
                 "sqlserver".to_string()
             } else {
-                cfg.providers.dbt.target.trim().to_string()
+                providers.dbt.target.trim().to_string()
             };
-            let wh = &cfg.providers.warehouse;
+            let wh = &providers.warehouse;
             let dbname = if !wh.container.trim().is_empty() {
                 wh.container.trim().to_string()
             } else {
                 "{{ env_var('MSSQL_DATABASE') }}".to_string()
             };
-            let schema = if cfg.providers.dbt.naming.target_schema.trim().is_empty() {
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
                 derive_scope_db_name(cfg)
             } else {
-                cfg.providers.dbt.naming.target_schema.trim().to_string()
+                providers.dbt.naming.target_schema.trim().to_string()
             };
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
@@ -414,31 +419,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "src".to_string(),
-                    extras: serde_json::json!({}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: false,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved::default(),
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": false, "target": "athena", "naming": {}, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         };
         let err = generate_profiles_yml(&cfg, None).unwrap_err();
         assert!(err.contains("result_s3"));

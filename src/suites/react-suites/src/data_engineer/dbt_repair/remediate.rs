@@ -2,7 +2,7 @@ use react_core::resolved_config::ReactResolvedConfig;
 use react_core::agent::AgentCtx;
 use react_core::llm::ChatMessage;
 use react_core::llm::LlmCallOptions;
-use react_core::providers::{DatasetCatalogProvider, DatasetId};
+use crate::data_engineer::providers::{DatasetCatalogProvider, DatasetId};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -96,8 +96,10 @@ pub struct LlmRemediationDecision {
 }
 
 pub fn active_provider_dialect(cfg: &ReactResolvedConfig) -> String {
-    use react_core::resolved_config::WarehouseKind;
-    match cfg.providers.warehouse.kind {
+    use crate::data_engineer::de_config::WarehouseKind;
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg);
+    let kind = providers.as_ref().map(|p| p.warehouse.kind.clone()).unwrap_or(WarehouseKind::Athena);
+    match kind {
         WarehouseKind::Athena => "Amazon Athena (engine v3 / Trino SQL)".to_string(),
         WarehouseKind::Postgres => "PostgreSQL".to_string(),
         WarehouseKind::Mssql => "Microsoft SQL Server (T-SQL)".to_string(),
@@ -551,9 +553,9 @@ async fn best_effort_samples_for_source(
     source_table: &str,
     limit: usize,
 ) -> Option<Value> {
-    let cfg = crate::data_engineer::resolved_config_from_ctx(ctx);
-    let catalog = cfg
-        .map(|c| c.providers.warehouse.container.clone())
+    let catalog = crate::data_engineer::resolved_config_from_ctx(ctx)
+        .and_then(|c| crate::data_engineer::de_config::de_config_from_resolved(c))
+        .map(|p| p.warehouse.container.clone())
         .unwrap_or_default();
     let fqn = format!("{}.{}.{}", catalog, source_schema, source_table);
 
@@ -561,8 +563,11 @@ async fn best_effort_samples_for_source(
         return None;
     }
 
-    let header: Vec<String> = ctx
-        .warehouse
+    let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
+    let Some(ref wh) = wh else {
+        return None;
+    };
+    let header: Vec<String> = wh
         .schema(&fqn)
         .await
         .ok()
@@ -571,7 +576,7 @@ async fn best_effort_samples_for_source(
         .map(|(n, _t)| n)
         .collect();
 
-    let rows = ctx.warehouse.sample(&fqn, limit).await.ok()?;
+    let rows = wh.sample(&fqn, limit).await.ok()?;
     Some(serde_json::json!({
         "dataset_fqn": fqn,
         "limit": limit,
@@ -674,7 +679,7 @@ async fn best_effort_schema_columns_for_relation(
     ctx: &AgentCtx,
     fqn: &str,
 ) -> Vec<(String, String)> {
-    let Some(q) = ctx.query.as_ref() else {
+    let Some(q) = crate::data_engineer::ctx_ext::actx_query(ctx) else {
         return vec![];
     };
     q.schema(fqn).await.ok().unwrap_or_default()
@@ -705,7 +710,8 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
         });
     };
     let dialect = active_provider_dialect(cfg);
-    let catalog = cfg.providers.warehouse.container.clone();
+    let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg);
+    let catalog = providers.as_ref().map(|p| p.warehouse.container.clone()).unwrap_or_default();
 
     let mut keys: Vec<String> = keys.iter().cloned().collect();
     keys.sort();
@@ -1046,15 +1052,18 @@ async fn best_effort_schema_columns_for_source(
     source_schema: &str,
     source_table: &str,
 ) -> Vec<(String, String)> {
-    let cfg = crate::data_engineer::resolved_config_from_ctx(ctx);
-    let catalog = cfg
-        .map(|c| c.providers.warehouse.container.clone())
+    let catalog = crate::data_engineer::resolved_config_from_ctx(ctx)
+        .and_then(|c| crate::data_engineer::de_config::de_config_from_resolved(c))
+        .map(|p| p.warehouse.container.clone())
         .unwrap_or_default();
 
     // Prefer the source warehouse provider (ground truth for the current connection).
     let ds_id = format!("{}.{}.{}", catalog, source_schema, source_table);
-    if let Ok(cols) = ctx.warehouse.schema(&ds_id).await {
-        return cols;
+    let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
+    if let Some(ref wh) = wh {
+        if let Ok(cols) = wh.schema(&ds_id).await {
+            return cols;
+        }
     }
 
     // Fall back to dataset catalog provider (may be cached/partial).
@@ -1092,7 +1101,8 @@ pub async fn remediate_unresolved_columns_with_llm(
         });
     };
     let dialect = active_provider_dialect(cfg);
-    let catalog = cfg.providers.warehouse.container.clone();
+    let providers_cfg = crate::data_engineer::de_config::de_config_from_resolved(cfg);
+    let catalog = providers_cfg.as_ref().map(|p| p.warehouse.container.clone()).unwrap_or_default();
 
     let mut keys: Vec<String> = keys.iter().cloned().collect();
     keys.sort();
@@ -1228,7 +1238,8 @@ pub async fn remediate_unresolved_columns_with_llm(
     // Strict JSON-only contract: select files + provide brief per-file instructions.
     let provider_dialect_rules = {
         let mut out = String::new();
-        for rule in ctx.warehouse.sql_remediation_rules().into_iter() {
+        let wh_for_rules = crate::data_engineer::ctx_ext::actx_warehouse(ctx);
+        for rule in wh_for_rules.iter().flat_map(|w| w.sql_remediation_rules().into_iter()) {
             out.push_str("         - ");
             out.push_str(rule);
             out.push('\n');
@@ -1443,35 +1454,12 @@ mod tests {
                 project_id: "p".to_string(),
             },
             llm: react_core::resolved_config::LlmResolved::default(),
-            providers: react_core::resolved_config::ProvidersResolved {
-                warehouse: react_core::resolved_config::WarehouseResolved {
-                    kind: react_core::resolved_config::WarehouseKind::Athena,
-                    container: "AwsDataCatalog".to_string(),
-                    namespace: "src".to_string(),
-                    extras: serde_json::json!({"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"}),
-                },
-                catalog: react_core::resolved_config::CatalogResolved {
-                    enabled: false,
-                    refresh_secs: 60,
-                    max_concurrency: 8,
-                },
-                dbt: react_core::resolved_config::DbtResolved {
-                    enabled: true,
-                    profiles_dir: None,
-                    target: "athena".to_string(),
-                    naming: react_core::resolved_config::DbtNamingResolved {
-                        target_schema: "src".to_string(),
-                        silver_suffix: "silver".to_string(),
-                        gold_suffix: "warehouse".to_string(),
-                    },
-                    runner: "host".to_string(),
-                    docker_image: None,
-                    docker_platform: None,
-                    docker_network: None,
-                    docker_mount_aws_dir: false,
-                },
-                vector: react_core::resolved_config::VectorResolved { enabled: false },
-            },
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "src", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
         })
     }
 
@@ -1482,7 +1470,9 @@ mod tests {
             project_id: "p".to_string(),
         };
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        AgentCtx {
+        let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
+            Arc::new(crate::data_engineer::providers::NullWarehouseProvider::default());
+        let mut actx = AgentCtx {
             top_k: 1,
             per_step_timeout_secs: 1,
             max_steps: 1,
@@ -1496,14 +1486,14 @@ mod tests {
             storage,
             scope: scope.clone(),
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
             vector: None,
             thread_store: None,
             exec_ctx: None,
             resolved_config: Some(minimal_cfg_athena()),
-        }
+            capabilities: std::collections::HashMap::new(),
+        };
+        actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
+        actx
     }
 
     #[test]

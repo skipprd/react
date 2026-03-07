@@ -1,16 +1,13 @@
 use async_trait::async_trait;
 
-use crate::providers::{DatasetCatalogProvider, DatasetId, QueryProvider, QueryResult};
+use super::dataset_catalog::{DatasetCatalogProvider, DatasetId};
+use super::query::{QueryProvider, QueryResult};
+use super::catalog_types::DatasetStats;
+use super::stats::DatasetFieldStats;
 
-/// Provider-agnostic warehouse interface: query + catalog + mechanical naming/quoting.
-///
-/// Implementations live in the runtime crate (`react`).
 pub trait WarehouseNaming: Send + Sync {
     fn kind(&self) -> &'static str;
 
-    /// Parse a dataset identifier.
-    ///
-    /// Providers may accept shorthand forms, but suites should prefer canonical 3-part FQNs.
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String>;
 
     fn format_dataset_fqn(&self, id: &DatasetId) -> String {
@@ -28,25 +25,19 @@ pub trait WarehouseNaming: Send + Sync {
         )
     }
 
-    /// Provider-owned SQL authoring rules for LLM prompts.
     fn sql_prompt_rules(&self) -> Vec<&'static str> {
         vec![]
     }
 
-    /// Provider-owned SQL remediation rules for repair prompts.
     fn sql_remediation_rules(&self) -> Vec<&'static str> {
         vec![]
     }
 
-    /// Optional provider-owned deterministic SQL guardrail.
-    /// Return a human-readable reason when SQL should be rejected.
     fn unsupported_sql_reason(&self, _sql: &str) -> Option<String> {
         None
     }
 }
 
-/// Conservative SQL guard: detects obvious same-select alias reuse patterns like
-/// `SELECT a AS x, x + 1 AS y FROM ...` that are unsupported by multiple engines.
 pub fn has_obvious_same_select_alias_reuse(sql: &str) -> bool {
     let lower = sql.to_ascii_lowercase();
     let Some(select_pos) = lower.find("select") else {
@@ -119,13 +110,13 @@ fn contains_identifier_reference(haystack: &str, ident: &str) -> bool {
     let mut start = 0usize;
     while let Some(rel) = haystack[start..].find(ident) {
         let pos = start + rel;
-        let end = pos + ident.len();
+        let end_pos = pos + ident.len();
         let prev = if pos == 0 {
             None
         } else {
             haystack.as_bytes().get(pos - 1).copied()
         };
-        let next = haystack.as_bytes().get(end).copied();
+        let next = haystack.as_bytes().get(end_pos).copied();
         let prev_is_ident = prev
             .map(|b| b.is_ascii_alphanumeric() || b == b'_')
             .unwrap_or(false);
@@ -135,16 +126,14 @@ fn contains_identifier_reference(haystack: &str, ident: &str) -> bool {
         if !prev_is_ident && !next_is_ident {
             return true;
         }
-        start = end;
+        start = end_pos;
     }
     false
 }
 
-/// Full warehouse capability: query + dataset catalog + naming helpers.
 pub trait WarehouseProvider: QueryProvider + DatasetCatalogProvider + WarehouseNaming {}
 impl<T> WarehouseProvider for T where T: QueryProvider + DatasetCatalogProvider + WarehouseNaming {}
 
-/// Default placeholder warehouse used for tests/defaults when the runtime does not wire providers.
 #[derive(Clone, Default)]
 pub struct NullWarehouseProvider;
 
@@ -176,13 +165,7 @@ impl DatasetCatalogProvider for NullWarehouseProvider {
         &self,
         _dataset: &DatasetId,
         _max_fields: usize,
-    ) -> Result<
-        (
-            crate::discover::stats::DatasetFieldStats,
-            crate::providers::catalog::types::DatasetStats,
-        ),
-        String,
-    > {
+    ) -> Result<(DatasetFieldStats, DatasetStats), String> {
         Err("warehouse provider not configured".to_string())
     }
 }

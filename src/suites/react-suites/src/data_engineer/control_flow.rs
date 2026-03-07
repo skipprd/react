@@ -5,7 +5,7 @@ use tokio::time::timeout;
 use tracing::warn;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::DbtValidateArgs;
+use crate::data_engineer::providers::DbtValidateArgs;
 use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
 use react_core::tools::Tool;
 
@@ -275,9 +275,7 @@ impl DeterministicDbtValidateOnce {
         run: bool,
         dataset_ids: Option<&[String]>,
     ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
-        let dbt = ctx
-            .dbt
-            .as_ref()
+        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
             .ok_or_else(|| "dbt provider missing".to_string())?;
         let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) else {
             return Err(
@@ -285,7 +283,7 @@ impl DeterministicDbtValidateOnce {
                     .to_string(),
             );
         };
-        let threads = ctx.query.as_ref().map(|q| q.max_concurrency());
+        let threads = crate::data_engineer::ctx_ext::actx_query(ctx).as_ref().map(|q| q.max_concurrency());
         let gen = dbt::profile::generate_profiles_yml(cfg, threads)?;
         let td = tempfile::tempdir().map_err(|e| e.to_string())?;
         let profiles_dir = td.path().to_string_lossy().to_string();
@@ -372,9 +370,7 @@ impl DeterministicDbtValidateTargetedOnce {
         build: bool,
         run: bool,
     ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
-        let dbt = ctx
-            .dbt
-            .as_ref()
+        let dbt = crate::data_engineer::ctx_ext::actx_dbt(ctx)
             .ok_or_else(|| "dbt provider missing".to_string())?;
         let Some(cfg) = crate::data_engineer::resolved_config_from_ctx(ctx) else {
             return Err(
@@ -382,7 +378,7 @@ impl DeterministicDbtValidateTargetedOnce {
                     .to_string(),
             );
         };
-        let threads = ctx.query.as_ref().map(|q| q.max_concurrency());
+        let threads = crate::data_engineer::ctx_ext::actx_query(ctx).as_ref().map(|q| q.max_concurrency());
         let gen = dbt::profile::generate_profiles_yml(cfg, threads)?;
         let td = tempfile::tempdir().map_err(|e| e.to_string())?;
         let profiles_dir = td.path().to_string_lossy().to_string();

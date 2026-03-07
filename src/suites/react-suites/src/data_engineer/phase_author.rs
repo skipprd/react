@@ -392,24 +392,19 @@ let mut actx = AgentCtx {
     progress_tx: None,
     pre_step_tx: None,
     trace_tx: sctx.trace_tx.clone(),
-    // IMPORTANT: always record a single agent label for agent-mode runs.
-    // Phase selection (cleanse vs model) is handled by the deterministic outer loop and prompts.
     agent_name: Some("agent".to_string()),
-    // IMPORTANT: in agent-mode, the deterministic outer loop enforces validation/invariants.
-    // Non-interactive behavior is enforced at the suite boundary contract.
     policy: std::sync::Arc::new(InterruptOnlyPolicy),
     llm: sctx.llm.clone(),
     storage: sctx.storage.clone(),
     scope: sctx.scope.clone(),
     keyspace: sctx.keyspace.clone(),
-    query: sctx.query.clone(),
-    warehouse: sctx.warehouse.clone(),
-    dbt: sctx.dbt.clone(),
     vector: sctx.vector.clone(),
+    capabilities: std::collections::HashMap::new(),
     thread_store: Some(thread_store.clone()),
     exec_ctx: None,
     resolved_config: sctx.resolved_config.clone(),
 };
+crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
 // Plan-driven batching: load the approved plan, update progress from the thread log,
 // and compute the exact next batch to execute (max 5).

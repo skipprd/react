@@ -1,4 +1,5 @@
-use crate::discover::stats::{DatasetFieldStats, FieldStats};
+use crate::discover::stats::FieldStats;
+use react_suites::data_engineer::providers::DatasetFieldStats;
 
 pub fn dataset_field_stats_from_catalog_json(
     dataset_id: &str,

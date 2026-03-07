@@ -1,6 +1,6 @@
 use crate::data_engineer::references::DatasetRef;
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetId;
+use crate::data_engineer::providers::DatasetId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProbeTarget {
@@ -14,8 +14,9 @@ impl ProbeTarget {
         if table.is_empty() {
             return Err("missing_table".to_string());
         }
-        let parsed: DatasetId = ctx
-            .warehouse
+        let wh = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
+            .ok_or_else(|| "warehouse_provider_missing".to_string())?;
+        let parsed: DatasetId = wh
             .parse_dataset_fqn(table)
             .map_err(|_| "invalid_table_format".to_string())?;
         DatasetRef::parse(&parsed.fqn()).ok_or_else(|| "invalid_table_format".to_string())

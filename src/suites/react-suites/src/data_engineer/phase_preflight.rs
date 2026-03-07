@@ -9,13 +9,13 @@ impl DataEngineerSuite {
         thread_id: &str,
         sctx: &SuiteCtx,
     ) -> Result<PhaseExecutorOutcome, String> {
-        if sctx.query.is_none() {
+        if crate::data_engineer::ctx_ext::sctx_query(sctx).is_none() {
             return Err("data engineer agent requires a warehouse provider configured. configure providers.warehouse and restart.".to_string());
         }
-        if sctx.dbt.is_none() {
+        if crate::data_engineer::ctx_ext::sctx_dbt(sctx).is_none() {
             return Err("data engineer agent requires a dbt provider configured. enable providers.dbt and restart.".to_string());
         }
-        if let Some(dbt) = sctx.dbt.as_ref() {
+        if let Some(dbt) = crate::data_engineer::ctx_ext::sctx_dbt(sctx) {
             if let Err(e) = dbt.ensure_minimal_project(&sctx.scope).await {
                 let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
                 return Err(format!(
@@ -46,8 +46,8 @@ impl DataEngineerSuite {
                 Some(PhaseReasonCode::PreflightOk),
                 Some(serde_json::json!({
                     "dbt_project_key": key,
-                    "has_query_provider": sctx.query.is_some(),
-                    "has_dbt_provider": sctx.dbt.is_some(),
+                    "has_query_provider": crate::data_engineer::ctx_ext::sctx_query(sctx).is_some(),
+                    "has_dbt_provider": crate::data_engineer::ctx_ext::sctx_dbt(sctx).is_some(),
                 })),
             ),
         )

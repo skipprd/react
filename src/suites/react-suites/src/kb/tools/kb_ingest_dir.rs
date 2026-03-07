@@ -148,7 +148,7 @@ impl Tool for KbIngestDirTool {
                 chunks.push(VectorChunk {
                     id: format!("doc:{}:{}:{}", dataset_id, rel, i),
                     kind: "doc".to_string(),
-                    dataset_id: dataset_id.clone(),
+                    entity_id: dataset_id.clone(),
                     field: None,
                     text: doc_text,
                     vector: Vec::new(),

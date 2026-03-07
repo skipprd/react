@@ -51,7 +51,7 @@ impl VectorStore for LanceVectorStore {
             .map(|c| Chunk {
                 id: c.id,
                 kind: c.kind,
-                dataset_id: c.dataset_id,
+                dataset_id: c.entity_id,
                 field: c.field,
                 text: c.text,
                 vector: c.vector,
@@ -79,7 +79,7 @@ impl VectorStore for LanceVectorStore {
                 item: VectorChunk {
                     id: s.item.id,
                     kind: s.item.kind,
-                    dataset_id: s.item.dataset_id,
+                    entity_id: s.item.dataset_id,
                     field: s.item.field,
                     text: s.item.text,
                     vector: s.item.vector,

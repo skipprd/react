@@ -882,7 +882,7 @@ async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>
                                     &display_text,
                                 )
                                 .await;
-                                let _ = store.finalize_title(&thread_id, &title).await;
+                                let _ = store.lock_title(&thread_id, &title).await;
                             }
                             // Persist complete so reconnect/history can observe completion.
                             {
@@ -1942,7 +1942,7 @@ async fn log_thread_steps_if_enabled(store: &ThreadStore, thread_id: &str, reaso
                 thread_id,
                 log.steps.len(),
                 log.title,
-                log.title_finalized
+                log.title_locked
             );
             // Print last N steps (most useful when debugging long loops).
             let n = 40usize;

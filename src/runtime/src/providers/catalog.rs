@@ -14,7 +14,7 @@ pub mod utils;
 pub use types::{DataCatalog, SemanticModel};
 
 use react_core::keyspace::encode_key_component;
-use react_core::providers::{CatalogProvider, DatasetId};
+use react_suites::data_engineer::providers::{CatalogProvider, DatasetId};
 
 /// Default catalog provider implementation (current behavior).
 ///
@@ -154,7 +154,7 @@ impl CatalogProvider for DefaultCatalogProvider {
         &self,
         scope: &crate::providers::RequestScope,
         dataset_ids: &HashSet<String>,
-    ) -> Result<react_core::providers::catalog::CatalogEnrichmentReport, String> {
+    ) -> Result<react_suites::data_engineer::providers::CatalogEnrichmentReport, String> {
         let mut report = enrich::run_llm_enrichment_all(
             self.storage.clone(),
             self.keyspace.clone(),

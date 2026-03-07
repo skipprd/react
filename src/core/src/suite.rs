@@ -1,14 +1,11 @@
 use async_trait::async_trait;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::llm::{DynLlm, NullModel};
-use crate::providers::{
-    CatalogProvider, DatasetCatalogProvider, DbtProvider, NullSecretsProvider,
-    NullWarehouseProvider, QueryProvider, SecretsProvider, StateStore, VectorStore,
-    WarehouseProvider,
-};
+use crate::providers::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
 use crate::storage::{InMemoryStorageAdapter, StorageAdapter};
@@ -52,14 +49,9 @@ pub struct SuiteCtx {
     pub llm: DynLlm,
     pub resolved_config: Option<Arc<ReactResolvedConfig>>,
     pub trace_tx: Option<UnboundedSender<String>>,
-
-    pub query: Option<Arc<dyn QueryProvider>>,
-    pub datasets: Option<Arc<dyn DatasetCatalogProvider>>,
-    pub warehouse: Arc<dyn WarehouseProvider>,
-    pub catalog: Option<Arc<dyn CatalogProvider>>,
     pub vector: Option<Arc<dyn VectorStore>>,
-    pub dbt: Option<Arc<dyn DbtProvider>>,
     pub state: Option<Arc<dyn StateStore>>,
+    capabilities: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl SuiteCtx {
@@ -78,18 +70,26 @@ impl SuiteCtx {
             llm,
             resolved_config: None,
             trace_tx: None,
-            query: None,
-            datasets: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            catalog: None,
             vector: None,
-            dbt: None,
             state: None,
+            capabilities: HashMap::new(),
         }
     }
 
     pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
         self.llm.embed(texts)
+    }
+
+    /// Retrieve a suite-specific capability by concrete type.
+    pub fn capability<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.capabilities
+            .get(&TypeId::of::<T>())
+            .and_then(|a| a.clone().downcast::<T>().ok())
+    }
+
+    /// Store a suite-specific capability by concrete type.
+    pub fn set_capability<T: Send + Sync + 'static>(&mut self, val: Arc<T>) {
+        self.capabilities.insert(TypeId::of::<T>(), val);
     }
 }
 
@@ -107,13 +107,9 @@ impl Default for SuiteCtx {
             llm: Arc::new(NullModel::new()),
             resolved_config: None,
             trace_tx: None,
-            query: None,
-            datasets: None,
-            warehouse: Arc::new(NullWarehouseProvider::default()),
-            catalog: None,
             vector: None,
-            dbt: None,
             state: None,
+            capabilities: HashMap::new(),
         }
     }
 }
@@ -172,11 +168,6 @@ pub trait Suite: Send + Sync {
 }
 
 /// Compile-time workflow contract for suites using the core workflow kernel.
-///
-/// This keeps core generic while giving suites a typed place to declare:
-/// - phase/reason enums
-/// - state/reducer model
-/// - transition/backtrack semantics
 pub trait WorkflowSuiteContract {
     type Phase: Copy + Eq + Send + Sync + 'static;
     type ReasonCode: Copy + Eq + Send + Sync + 'static;
@@ -197,9 +188,6 @@ pub trait WorkflowSuiteContract {
 }
 
 /// Typed node contract for suites that use an explicit workflow state-machine node.
-///
-/// This lets runtime orchestration derive phase execution from one canonical node source,
-/// rather than recomputing control flow from multiple independent state fields.
 pub trait WorkflowNodeContract: WorkflowSuiteContract {
     type Node: Copy + Eq + Send + Sync + 'static;
 

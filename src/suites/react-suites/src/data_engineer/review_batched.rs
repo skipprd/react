@@ -503,7 +503,7 @@ async fn llm_json(
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {
     let key = sctx.keyspace.scoped_key(
         &sctx.scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+        &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
     );
     actx.storage
         .get_json(&key)
@@ -883,13 +883,13 @@ async fn read_project_json_pointer(actx: &AgentCtx, path: &str, pointer: &str) -
 }
 
 async fn schema_for_dataset_fqn(sctx: &SuiteCtx, actx: &AgentCtx, dataset_fqn: &str) -> Value {
-    let Some(q) = sctx.query.as_ref() else {
+    let Some(q) = crate::data_engineer::ctx_ext::sctx_query(sctx) else {
         return serde_json::json!({"ok": false, "error": "query provider missing"});
     };
     let tool = SqlSchemaTool {
         query: q.clone(),
-        datasets: sctx.datasets.clone(),
-        catalog: sctx.catalog.clone(),
+        datasets: crate::data_engineer::ctx_ext::sctx_datasets(sctx),
+        catalog: crate::data_engineer::ctx_ext::sctx_catalog(sctx),
     };
     tool.call(serde_json::json!({"table": dataset_fqn}), actx)
         .await
@@ -1092,7 +1092,7 @@ pub async fn run_batched_review(
         sctx.scope.clone(),
         sctx.keyspace.clone(),
     );
-    let actx = AgentCtx {
+    let mut actx = AgentCtx {
         top_k: 1,
         per_step_timeout_secs: 10,
         max_steps: 1,
@@ -1106,14 +1106,13 @@ pub async fn run_batched_review(
         storage: sctx.storage.clone(),
         scope: sctx.scope.clone(),
         keyspace: sctx.keyspace.clone(),
-        query: sctx.query.clone(),
-        warehouse: sctx.warehouse.clone(),
-        dbt: sctx.dbt.clone(),
         vector: sctx.vector.clone(),
+        capabilities: std::collections::HashMap::new(),
         thread_store: Some(thread_store.clone()),
         exec_ctx: None,
         resolved_config: sctx.resolved_config.clone(),
     };
+    crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
     // Determine which plan (if any) to use for batching + persistence target.
     let (plan_kind, plan_key, batches, item_to_path_inv_notes): (
@@ -1740,10 +1739,8 @@ mod tests {
             storage: sctx.storage.clone(),
             scope: sctx.scope.clone(),
             keyspace: sctx.keyspace.clone(),
-            query: None,
-            warehouse: std::sync::Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
-            vector: None,
+            vector: sctx.vector.clone(),
+            capabilities: std::collections::HashMap::new(),
             thread_store: None,
             exec_ctx: None,
             resolved_config: None,
@@ -1986,7 +1983,7 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let gkey = keyspace.scoped_key(
             &scope,
-            &["semantic", &format!("{}.yaml", encode_key_component(react_core::providers::catalog::types::GLOBAL_SEMANTIC_DATASET_ID))],
+            &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
         );
         storage
             .put_bytes(

@@ -94,15 +94,7 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
                 .filter(|s| !s.is_empty())
             {
                 let key = format!("phase:{}", prev);
-                let ent = st.items.entry(key).or_insert_with(|| ThreadItemState {
-                    kind: ThreadItemKind::Phase,
-                    status: ThreadItemStatus::Ok,
-                    started_at: None,
-                    finished_at: Some(ts.clone()),
-                    runtime_ms: None,
-                    last_error: None,
-                    outputs: None,
-                });
+                let ent = st.items.entry(key).or_insert_with(|| ThreadItemState::phase_finished(ts));
                 ent.kind = ThreadItemKind::Phase;
                 ent.status = ThreadItemStatus::Ok;
                 ent.finished_at.get_or_insert_with(|| ts.clone());
@@ -114,15 +106,7 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
             }
 
             let key = format!("phase:{}", ph);
-            let ent = st.items.entry(key).or_insert_with(|| ThreadItemState {
-                kind: ThreadItemKind::Phase,
-                status: ThreadItemStatus::Running,
-                started_at: Some(ts.clone()),
-                finished_at: None,
-                runtime_ms: None,
-                last_error: None,
-                outputs: None,
-            });
+            let ent = st.items.entry(key).or_insert_with(|| ThreadItemState::phase_running(ts));
             ent.kind = ThreadItemKind::Phase;
             ent.status = ThreadItemStatus::Running;
             ent.started_at.get_or_insert_with(|| ts.clone());
@@ -143,15 +127,7 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
             };
 
             let key = format!("phase:{}", ph);
-            let ent = st.items.entry(key).or_insert_with(|| ThreadItemState {
-                kind: ThreadItemKind::Phase,
-                status: ThreadItemStatus::Running,
-                started_at: Some(ts.clone()),
-                finished_at: None,
-                runtime_ms: None,
-                last_error: None,
-                outputs: None,
-            });
+            let ent = st.items.entry(key).or_insert_with(|| ThreadItemState::phase_running(ts));
             ent.kind = ThreadItemKind::Phase;
             ent.status = if observation.ok {
                 ThreadItemStatus::Ok
@@ -183,15 +159,7 @@ fn block_current_phase(st: &mut ThreadState, msg: &str, ts: &str) {
         return;
     };
     let key = format!("phase:{}", ph);
-    let ent = st.items.entry(key).or_insert_with(|| ThreadItemState {
-        kind: ThreadItemKind::Phase,
-        status: ThreadItemStatus::Blocked,
-        started_at: Some(ts.to_string()),
-        finished_at: None,
-        runtime_ms: None,
-        last_error: None,
-        outputs: None,
-    });
+    let ent = st.items.entry(key).or_insert_with(|| ThreadItemState::phase_blocked(ts));
     ent.kind = ThreadItemKind::Phase;
     ent.status = ThreadItemStatus::Blocked;
     ent.last_error = Some(ThreadItemError {

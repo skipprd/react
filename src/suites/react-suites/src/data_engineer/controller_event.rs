@@ -72,13 +72,13 @@ fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> V
     let class = obj
         .get("failure_class")
         .cloned()
-        .and_then(|v| serde_json::from_value::<react_core::providers::DbtFailureClass>(v).ok())
-        .unwrap_or(react_core::providers::DbtFailureClass::Unknown);
+        .and_then(|v| serde_json::from_value::<crate::data_engineer::providers::DbtFailureClass>(v).ok())
+        .unwrap_or(crate::data_engineer::providers::DbtFailureClass::Unknown);
     match class {
-        react_core::providers::DbtFailureClass::WarehouseConfig => {
+        crate::data_engineer::providers::DbtFailureClass::WarehouseConfig => {
             ValidateFailureClass::WarehouseConfig
         }
-        react_core::providers::DbtFailureClass::SqlOrRuntime => ValidateFailureClass::SqlOrRuntime,
+        crate::data_engineer::providers::DbtFailureClass::SqlOrRuntime => ValidateFailureClass::SqlOrRuntime,
         _ => ValidateFailureClass::Unknown,
     }
 }

@@ -1,1 +1,1 @@
-pub use react_core::providers::catalog::types::*;
+pub use react_suites::data_engineer::providers::catalog_types::*;

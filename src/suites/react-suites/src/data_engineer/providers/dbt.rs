@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::scope::RequestScope;
+use react_core::scope::RequestScope;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DbtValidateArgs {
@@ -10,11 +10,8 @@ pub struct DbtValidateArgs {
     pub target: String,
     pub run: bool,
     pub build: bool,
-    /// Optional dbt selection terms passed as repeated `--select` flags.
-    /// When unset or empty, validation runs against the whole project.
     #[serde(default)]
     pub select: Option<Vec<String>>,
-    /// Optional dbt exclusion terms passed as repeated `--exclude` flags.
     #[serde(default)]
     pub exclude: Option<Vec<String>>,
 }

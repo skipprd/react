@@ -126,7 +126,7 @@ pub async fn sync_pipeline(
                     items.push(react_core::providers::VectorChunk {
                         id: format!("field:{}:{}", ns, name),
                         kind: "field".to_string(),
-                        dataset_id: ns.clone(),
+                        entity_id: ns.clone(),
                         field: Some(name.to_string()),
                         text,
                         vector: Vec::new(),
@@ -189,7 +189,7 @@ pub async fn sync_pipeline(
             items.push(react_core::providers::VectorChunk {
                 id: format!("dataset:{}", ns),
                 kind: "dataset".to_string(),
-                dataset_id: ns.clone(),
+                entity_id: ns.clone(),
                 field: None,
                 text: dataset_text,
                 vector: Vec::new(),
@@ -261,7 +261,7 @@ pub async fn sync_pipeline(
                         items.push(react_core::providers::VectorChunk {
                             id: format!("artifact:{}:{}:{}", atype, ns, extract_artifact_name(&k)),
                             kind: "artifact".to_string(),
-                            dataset_id: ns.clone(),
+                            entity_id: ns.clone(),
                             field: None,
                             text,
                             vector: Vec::new(),
@@ -283,7 +283,7 @@ pub async fn sync_pipeline(
                     items.push(react_core::providers::VectorChunk {
                         id: format!("artifact:{}:{}:{}", *tname, ns, fname),
                         kind: "artifact".to_string(),
-                        dataset_id: ns.clone(),
+                        entity_id: ns.clone(),
                         field: None,
                         text,
                         vector: Vec::new(),

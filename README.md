@@ -102,27 +102,34 @@ The **effective output token limit** is controlled by the environment variable *
 ```
 react (workspace root)
 │
-├── src/core          (react-core)        Generic loop, traits, session — no infra or domain deps
-├── src/runtime       (react)             CLI, WS server, concrete provider wiring
-├── src/suites        (react-suites)      Suite implementations
+├── src/core            (react-core)      Generic loop, traits, session — no infra or domain deps
+├── src/runtime         (react)           CLI, WS server, concrete provider wiring
+├── src/suites          (react-suites)    Suite implementations
 │   └── lib.rs + one directory per suite (data_engineer/, kb/)
+│       └── data_engineer/
+│           ├── providers/                Suite-specific provider traits
+│           ├── de_config.rs              Suite-specific config types
+│           ├── ctx_ext.rs                Capability accessors (newtypes + helpers)
+│           └── modules/                  Suite-specific module crates (src/data_engineer/modules/)
+│               ├── provider-athena       Athena warehouse
+│               ├── provider-bigquery     BigQuery warehouse
+│               ├── provider-postgres     Postgres warehouse
+│               └── provider-dbt          dbt CLI wrapper
 │
-└── src/modules                           Pluggable provider implementations
+└── src/modules                           Generic (suite-agnostic) modules
     ├── storage                           S3 adapter
-    ├── provider-athena                   Athena warehouse
-    ├── provider-bigquery                 BigQuery warehouse
-    ├── provider-postgres                 Postgres warehouse
-    ├── provider-dbt                      dbt CLI wrapper
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, thread caches) live exclusively in the suite that owns them.
+**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
+
+**Two-tier module architecture**: modules that are specific to a single suite (e.g. warehouse adapters, dbt CLI wrapper) live under that suite's directory and depend on suite-local traits. Modules that are truly suite-agnostic (e.g. S3 storage, vector store) live at the top-level `src/modules/` and depend only on `react-core`.
 
 ```
 runtime ──► react-core ◄── react-suites
-  │                             │
-  └──► modules (storage,        └── (uses core traits only)
-       providers)
+  │              ▲              │
+  └──► modules ──┘              └── suite modules (depend on suite traits)
+       (generic)
 ```
 
 ---
@@ -201,14 +208,10 @@ SuiteCtx
 ├── keyspace         Keyspace (persistence key layout)
 ├── secrets          SecretsProvider
 ├── llm              Raw LLM handle
-├── resolved_config  Parsed YAML config
-├── query?           QueryProvider
-├── datasets?        DatasetCatalogProvider
-├── warehouse        WarehouseProvider
-├── catalog?         CatalogProvider
+├── resolved_config  Parsed YAML config (suite_config: Value for domain-specific)
 ├── vector?          VectorStore
-├── dbt?             DbtProvider
 ├── state?           StateStore
+├── capabilities     HashMap<TypeId, Arc<dyn Any>>  ← suite-specific providers
 └── trace_tx?        Trace channel
 ```
 
@@ -220,7 +223,8 @@ AgentCtx
 ├── policy           AgentPolicy (suite-chosen, phase-specific)
 ├── storage          StorageAdapter
 ├── scope / keyspace (from SuiteCtx)
-├── query? / warehouse / dbt? / vector?   (subset of providers)
+├── vector?          VectorStore (generic, in core)
+├── capabilities     HashMap<TypeId, Arc<dyn Any>>  ← suite-specific providers
 ├── thread_store?    ThreadStore (for transcript persistence)
 ├── max_steps        Step limit for this phase
 ├── per_step_timeout_secs
@@ -228,7 +232,14 @@ AgentCtx
 └── exec_ctx?        ExecutionContext (for hierarchical UI rendering)
 ```
 
-The `SuiteCtx → AgentCtx` construction is where the suite sets the policy, step limits, and tool registry for each phase. The agent loop itself never sees `SuiteCtx`.
+**Capability registry pattern**: both `SuiteCtx` and `AgentCtx` carry a generic `capabilities: HashMap<TypeId, Arc<dyn Any + Send + Sync>>` map. Suite-specific providers (e.g. `WarehouseProvider`, `DbtProvider`, `QueryProvider`, `CatalogProvider`) are stored as typed capabilities using wrapper newtypes (e.g. `WarehouseCap(Arc<dyn WarehouseProvider>)`). Helper functions in `data_engineer/ctx_ext.rs` provide ergonomic typed access:
+
+```rust
+let wh = sctx_warehouse(sctx).unwrap();
+let dbt = actx_dbt(ctx).unwrap();
+```
+
+The `SuiteCtx → AgentCtx` construction is where the suite sets the policy, step limits, and tool registry for each phase. Capabilities are copied from `SuiteCtx` to `AgentCtx` via `copy_capabilities_to_actx()`. The agent loop itself never sees `SuiteCtx`.
 
 #### 4. Agent types
 
@@ -339,24 +350,33 @@ Key policy patterns:
 
 #### 9. Providers — capabilities injection
 
-**Traits**: `src/core/src/providers/` · **Concrete impls**: `src/modules/` + `src/runtime/src/providers/`
+Providers are trait objects injected via `SuiteCtx`. The core and suites never import concrete implementations. Provider traits are split into two tiers:
 
-Providers are trait objects injected via `SuiteCtx`. The core and suites never import concrete implementations.
+**Generic traits** (in `react-core`, `src/core/src/providers/`):
 
 | Trait | Capability |
 |-------|------------|
-| `QueryProvider` | SQL execution, schema introspection, sampling |
-| `WarehouseProvider` | Warehouse metadata (databases, schemas, tables) |
-| `DatasetCatalogProvider` | Dataset discovery and bootstrap |
-| `CatalogProvider` | Semantic catalog (descriptions, lineage) |
 | `VectorStore` | Embedding upsert/query |
-| `DbtProvider` | dbt project scaffolding, validation, run |
 | `StorageAdapter` | Key-value persistence (local FS or S3) |
 | `Keyspace` | Generic scoped key layout. Requires only `scoped_key(scope, segments)` and `scoped_prefix(scope, segments)`; default impls cover thread/log keys. Domain-specific key methods (catalog, semantic, dbt, lancedb, etc.) are defined in suites, not core. A free function `encode_key_component()` encodes arbitrary identifiers for key segments. |
 | `StateStore` | Execution state persistence |
 | `SecretsProvider` | Credential resolution |
 
-The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
+**Suite-specific traits** (in `data_engineer/providers/`):
+
+| Trait | Capability |
+|-------|------------|
+| `QueryProvider` | SQL execution, schema introspection, sampling |
+| `WarehouseProvider` | Warehouse metadata + naming (supertype of QueryProvider + DatasetCatalogProvider + WarehouseNaming) |
+| `DatasetCatalogProvider` | Dataset discovery and bootstrap |
+| `CatalogProvider` | Semantic catalog (descriptions, lineage) |
+| `DbtProvider` | dbt project scaffolding, validation, run |
+
+Suite-specific providers are stored in the **capabilities registry** (`HashMap<TypeId, Arc<dyn Any>>`) on `SuiteCtx`/`AgentCtx` using wrapper newtypes. This keeps `react-core` free of domain-specific provider types while providing type-safe access in suite code.
+
+**Concrete impls**: `src/suites/react-suites/src/data_engineer/modules/` (suite-specific) + `src/modules/` (generic) + `src/runtime/src/providers/`
+
+The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it via `set_capability()`. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
 
 #### 10. Session and persistence
 
@@ -505,9 +525,10 @@ The `data_engineer` suite's `PreTurnDirective::FailFast` guards prevent runaway 
 
 ### Extending the system
 
-- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, `domain_types` module (reason codes, guard kinds), control flow, prompts, and tools. Implement `WorkflowSuiteContract` with your associated types and register it in `src/suites/react-suites/src/lib.rs` (`default_registry`).
+- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, `domain_types` module (reason codes, guard kinds), control flow, prompts, and tools. Implement `WorkflowSuiteContract` with your associated types and register it in `src/suites/react-suites/src/lib.rs` (`default_registry`). Define suite-specific provider traits in a `providers/` submodule, config types in a `<suite>_config.rs`, and capability accessors in a `ctx_ext.rs`.
 - **Add a tool**: implement `Tool` and register it in the relevant phase's tool registry
-- **Add a provider**: define a trait in `react-core`, implement it in a new module crate, wire it in the runtime
+- **Add a generic provider**: define a trait in `react-core` (`src/core/src/providers/`), implement it in a new module crate under `src/modules/`, wire it in the runtime
+- **Add a suite-specific provider**: define the trait in the suite's `providers/` module, implement it in a module crate under the suite's `modules/` directory (e.g. `src/suites/react-suites/src/data_engineer/modules/`), register it as a capability via `set_capability()` in the runtime, and add an accessor function in the suite's `ctx_ext.rs`
 - **Add an agent type**: define a new variant in the suite's `AgentMode` enum, select appropriate tools/policy/phases for it
 - **Change completion semantics**: implement a new `AgentPolicy` and use it in the suite's `AgentCtx`
 - **Swap infra**: construct a different `SuiteCtx` (different providers/storage/keyspace) and pass it to `ws::server::start_with_ctx`

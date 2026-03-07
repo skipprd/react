@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::DatasetCatalogProvider;
+use crate::data_engineer::providers::DatasetCatalogProvider;
 
 use crate::data_engineer::files_store;
 

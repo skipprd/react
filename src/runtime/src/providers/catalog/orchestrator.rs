@@ -361,14 +361,14 @@ impl Orchestrator {
                     let has_stats = ns_stats_opt.is_some();
 
                     // Ensure we can still build a usable catalog even without stats: seed fields from schema.
-                    let ns_stats_seeded: Option<crate::discover::stats::DatasetFieldStats> =
+                    let ns_stats_seeded: Option<react_suites::data_engineer::providers::DatasetFieldStats> =
                         if ns_stats_opt.is_some() {
                             ns_stats_opt
                         } else {
                             if schema_cols.is_empty() {
                                 None
                             } else {
-                                let mut ns = crate::discover::stats::DatasetFieldStats::new(&ds_id);
+                                let mut ns = react_suites::data_engineer::providers::DatasetFieldStats::new(&ds_id);
                                 for (name, _ty) in schema_cols.iter() {
                                     for (path, _leaf_ty) in
                                         crate::providers::type_parse::flatten_type_paths(name, _ty)

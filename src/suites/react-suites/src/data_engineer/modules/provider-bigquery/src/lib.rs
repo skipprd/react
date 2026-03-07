@@ -16,10 +16,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
 
-use react_core::discover::stats::{DatasetFieldStats, FieldStats};
-use react_core::providers::dataset_catalog_provider::{DatasetCatalogProvider, DatasetId};
-use react_core::providers::warehouse::WarehouseNaming;
-use react_core::providers::{QueryProvider, QueryResult};
+use react_core::discover::stats::FieldStats;
+use react_suites::data_engineer::providers::{
+    DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
+    WarehouseNaming, has_obvious_same_select_alias_reuse,
+};
 
 const DEFAULT_BIGQUERY_MAX_CONCURRENCY: usize = 15;
 const BIGQUERY_MAX_CONCURRENCY_CAP: usize = 20;
@@ -378,7 +379,7 @@ impl WarehouseNaming for BigQueryProvider {
                 "BigQuery does not support try_cast(); use SAFE_CAST(...) instead.".to_string(),
             );
         }
-        if react_core::providers::warehouse::has_obvious_same_select_alias_reuse(sql) {
+        if has_obvious_same_select_alias_reuse(sql) {
             return Some("BigQuery cannot reference a SELECT-list alias inside another expression in the same SELECT list; move the dependent expression to an outer SELECT/CTE.".to_string());
         }
         None
@@ -435,13 +436,7 @@ impl DatasetCatalogProvider for BigQueryProvider {
         &self,
         dataset: &DatasetId,
         max_fields: usize,
-    ) -> Result<
-        (
-            react_core::discover::stats::DatasetFieldStats,
-            react_core::providers::catalog::types::DatasetStats,
-        ),
-        String,
-    > {
+    ) -> Result<(DatasetFieldStats, DatasetStats), String> {
         let cols = self.cached_schema(dataset).await?;
         let max_fields = max_fields.max(1).min(500);
 
@@ -529,7 +524,7 @@ impl DatasetCatalogProvider for BigQueryProvider {
             ns_stats.fields.insert(name, fs);
         }
 
-        let mut ds_stats = react_core::providers::catalog::types::DatasetStats::default();
+        let mut ds_stats = DatasetStats::default();
         ds_stats.approx_total_rows = total_rows;
         let _ = attempted;
         Ok((ns_stats, ds_stats))

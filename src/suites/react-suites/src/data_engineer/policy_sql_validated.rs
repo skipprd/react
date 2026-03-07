@@ -472,7 +472,7 @@ mod tests {
             .append_step(
                 &tid,
                 ThreadStep::ArtifactSaved {
-                    kind: react_core::session::ArtifactKind::Model,
+                    kind: react_core::session::ArtifactKind("model".to_string()),
                     name: "m".to_string(),
                     entity_id: Some("d".to_string()),
                     key: "dbt/models/d/m.sql".to_string(),
@@ -536,9 +536,7 @@ mod tests {
             storage,
             scope,
             keyspace,
-            query: None,
-            warehouse: Arc::new(react_core::providers::NullWarehouseProvider::default()),
-            dbt: None,
+            capabilities: std::collections::HashMap::new(),
             vector: None,
             thread_store: Some(store.clone()),
             exec_ctx: None,

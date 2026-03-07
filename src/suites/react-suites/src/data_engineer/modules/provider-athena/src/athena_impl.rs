@@ -10,7 +10,7 @@ use tokio::sync::Semaphore;
 
 use crate::providers::dataset_catalog_provider::{DatasetCatalogProvider, DatasetId};
 use crate::providers::{QueryProvider, QueryResult};
-use react_core::providers::warehouse::WarehouseNaming;
+use crate::providers::warehouse::WarehouseNaming;
 
 const DEFAULT_ATHENA_MAX_CONCURRENCY: usize = 15;
 const ATHENA_MAX_CONCURRENCY_CAP: usize = 20;
@@ -484,7 +484,7 @@ impl WarehouseNaming for AthenaQueryProvider {
                     .to_string(),
             );
         }
-        if react_core::providers::warehouse::has_obvious_same_select_alias_reuse(sql) {
+        if crate::providers::warehouse::has_obvious_same_select_alias_reuse(sql) {
             return Some("Athena/Trino cannot reference a SELECT-list alias inside another expression in the same SELECT list; move the dependent expression to an outer SELECT/CTE.".to_string());
         }
         None
