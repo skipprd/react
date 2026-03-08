@@ -262,7 +262,3 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
     }
     Ok((0, thread_id))
 }
-
-pub fn _sink_terminal(_hub: &EventHub) -> broadcast::Receiver<api::ServerMessage> {
-    _hub.subscribe()
-}

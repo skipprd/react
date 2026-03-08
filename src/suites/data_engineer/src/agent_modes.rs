@@ -406,10 +406,9 @@ impl DataEngineerSuite {
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
             let phase = execution_state.phase.current_phase.unwrap_or(control_flow::Phase::Preflight);
             let thread_state_step_count = thread_store
-                .get_thread_state(thread_id)
+                .get(thread_id)
                 .await
-                .ok()
-                .map(|st| st.last_materialized_step_count)
+                .map(|log| log.steps.len())
                 .unwrap_or(0);
             let idx = phase.ordinal();
             if idx > max_phase_idx_seen {
