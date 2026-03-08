@@ -44,7 +44,7 @@ async fn was_recently_removed_in_repair(ctx: &AgentCtx, rel_path: &str) -> bool 
     let want = project_fs::normalize_rel_path(rel_path)
         .ok()
         .unwrap_or_else(|| rel_path.trim().to_string());
-    match crate::state_manager::load_execution_state_strict(store, thread_id).await
+    match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id).await
     {
         Ok(Some(st)) => {
             if !st.hard_mutation_repair_mode() {
@@ -570,7 +570,7 @@ impl Tool for FilesTool {
                     let paths = vec![parsed.path.clone()];
                     let select_terms = select_terms_from_paths(&paths);
                     let _ = crate::state_manager::mutate_execution_state(
-                        store,
+                        &store.control_store(),
                         thread_id,
                         |es| {
                             es.set_last_mutation_summary(
@@ -604,7 +604,7 @@ impl Tool for FilesTool {
                     let paths = vec![parsed.to.clone()];
                     let select_terms = select_terms_from_paths(&paths);
                     let _ = crate::state_manager::mutate_execution_state(
-                        store,
+                        &store.control_store(),
                         thread_id,
                         |es| {
                             es.set_last_mutation_summary(
@@ -742,7 +742,7 @@ impl Tool for FilesTool {
                     let paths = vec![outcome.rel_path.clone()];
                     let select_terms = select_terms_from_paths(&paths);
                     let _ = crate::state_manager::mutate_execution_state(
-                        store,
+                        &store.control_store(),
                         thread_id,
                         |es| {
                             es.set_last_mutation_summary(
@@ -934,7 +934,7 @@ mod tests {
             vec!["models/staging/m.sql".to_string()],
             vec!["path:models/staging/m.sql".to_string()],
         );
-        state_manager::replace_execution_state(&store, &tid, es)
+        state_manager::replace_execution_state(&store.control_store(), &tid, es)
             .await
             .expect("seed execution state");
         ctx.set_thread_store(Some(store));
@@ -981,7 +981,7 @@ mod tests {
             vec!["models/staging/m.sql".to_string()],
             vec!["path:models/staging/m.sql".to_string()],
         );
-        state_manager::replace_execution_state(&store, &tid, es)
+        state_manager::replace_execution_state(&store.control_store(), &tid, es)
             .await
             .expect("seed execution state");
         ctx.set_thread_store(Some(store));

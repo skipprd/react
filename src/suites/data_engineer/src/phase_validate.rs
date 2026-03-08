@@ -189,7 +189,7 @@ let actx = Self::agent_tool_ctx(thread_id, sctx);
 {
     let mut es =
         crate::progress_controller::ExecutionState::load(
-            &thread_store,
+            &thread_store.control_store(),
             thread_id,
         )
         .await
@@ -202,7 +202,7 @@ let actx = Self::agent_tool_ctx(thread_id, sctx);
         crate::progress_controller::ExecutionTier::Model
     };
     es.enter_validate_mode(tier);
-    es.save(&thread_store, thread_id).await.map_err(|e| {
+    es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
         format!(
             "failed to persist execution state before validate: {e}"
         )
@@ -353,7 +353,7 @@ if matches!(
             crate::progress_controller::ExecutionTier::Model
         };
         crate::state_manager::apply_execution_event(
-            &thread_store,
+            &thread_store.control_store(),
             thread_id,
             crate::progress_controller::DataEngineerEvent::ValidatePassed {
                 tier,
@@ -465,7 +465,7 @@ let errs: Vec<String> = obs
         backlog,
     );
     crate::state_manager::apply_execution_event(
-        &thread_store,
+        &thread_store.control_store(),
         thread_id,
         crate::progress_controller::DataEngineerEvent::ValidateFailed {
             tier,

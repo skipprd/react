@@ -35,7 +35,7 @@ pub async fn dispatch_phase_transition(
     }
 
     // Canonical transition side effects are centralized here.
-    let mut st = state_manager::load_execution_state_strict(store, thread_id)
+    let mut st = state_manager::load_execution_state_strict(&store.control_store(), thread_id)
         .await?
         .unwrap_or_else(ExecutionState::new);
     let prev_state = st.clone();
@@ -73,7 +73,7 @@ pub async fn dispatch_phase_transition(
         phase_state.phase_reason_code = reason_code.clone();
         phase_state.phase_reason_detail = reason_detail.clone();
     });
-    state_manager::replace_execution_state(store, thread_id, st).await?;
+    state_manager::replace_execution_state(&store.control_store(), thread_id, st).await?;
 
     let agent = agent.unwrap_or_else(|| crate::env_util::DEFAULT_AGENT_NAME.to_string());
     if let Err(e) = store
@@ -91,7 +91,7 @@ pub async fn dispatch_phase_transition(
         )
         .await
     {
-        let _ = state_manager::replace_execution_state(store, thread_id, prev_state).await;
+        let _ = state_manager::replace_execution_state(&store.control_store(), thread_id, prev_state).await;
         return Err(e.to_string());
     }
 
@@ -167,7 +167,7 @@ mod tests {
 
         let mut st = ExecutionState::new();
         st.phase.replan_backtracks = 2;
-        state_manager::replace_execution_state(&store, tid, st)
+        state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
             .expect("seed execution state");
 
@@ -184,7 +184,7 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store, tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
         assert_eq!(
             got.phase.replan_backtracks, 0,
             "forward transitions must reset loopback counter"
@@ -201,7 +201,7 @@ mod tests {
 
         let mut st = ExecutionState::new();
         st.phase.replan_backtracks = 0;
-        state_manager::replace_execution_state(&store, tid, st)
+        state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
             .expect("seed execution state");
 
@@ -218,7 +218,7 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store, tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
         assert_eq!(got.phase.replan_backtracks, 1);
     }
 
@@ -235,7 +235,7 @@ mod tests {
         st.manifest.manifest_lookup.retry_suppressed = true;
         st.manifest.manifest_lookup.repeated_failure_count = 3;
         st.manifest.manifest_lookup.failure_signature = Some("NoSuchKey:Ambiguous".to_string());
-        state_manager::replace_execution_state(&store, tid, st)
+        state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
             .expect("seed execution state");
 
@@ -252,7 +252,7 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store, tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
         assert!(
             !got.manifest.plan_bootstrap.model_done,
             "model-plan bootstrap should reset on fresh model_plan entry"
@@ -304,7 +304,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.phase.current_phase = Some(Phase::CleansePlan);
         st.phase.replan_backtracks = 2;
-        state_manager::replace_execution_state(&store, tid, st)
+        state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
             .expect("seed state");
 
@@ -323,7 +323,7 @@ mod tests {
         .await
         .expect("annotation should succeed");
 
-        let got = state_manager::load_execution_state(&store, tid)
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
             .await
             .expect("state");
         assert_eq!(got.phase.replan_backtracks, 2);
@@ -339,7 +339,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.phase.current_phase = Some(Phase::CleanseValidate);
         st.phase.replan_backtracks = replan_backtrack_counter_cap();
-        state_manager::replace_execution_state(&store, tid, st)
+        state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
             .expect("seed state");
 
@@ -356,7 +356,7 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store, tid)
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
             .await
             .expect("state");
         assert_eq!(got.phase.replan_backtracks, replan_backtrack_counter_cap());

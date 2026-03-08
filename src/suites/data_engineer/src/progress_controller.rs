@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use crate::domain_types::PhaseReasonCode;
-use react_core::session::ThreadStore;
+use react_core::session::ControlStateStore;
 
 use crate::control_flow::Phase;
 
@@ -1539,21 +1539,21 @@ impl ExecutionState {
         });
     }
 
-    pub async fn load(thread_store: &ThreadStore, thread_id: &str) -> Option<Self> {
-        crate::state_manager::load_execution_state(thread_store, thread_id).await
+    pub async fn load(control: &ControlStateStore, thread_id: &str) -> Option<Self> {
+        crate::state_manager::load_execution_state(control, thread_id).await
     }
 
     pub async fn load_strict(
-        thread_store: &ThreadStore,
+        control: &ControlStateStore,
         thread_id: &str,
     ) -> Result<Option<Self>, String> {
-        crate::state_manager::load_execution_state_strict(thread_store, thread_id)
+        crate::state_manager::load_execution_state_strict(control, thread_id)
             .await
     }
 
-    pub async fn save(&self, thread_store: &ThreadStore, thread_id: &str) -> Result<(), String> {
+    pub async fn save(&self, control: &ControlStateStore, thread_id: &str) -> Result<(), String> {
         crate::state_manager::replace_execution_state(
-            thread_store,
+            control,
             thread_id,
             self.clone(),
         )
@@ -2012,7 +2012,7 @@ mod tests {
 
     use react_core::keyspace::DefaultKeyspace;
     use react_core::scope::RequestScope;
-    use react_core::session::ThreadStore;
+    use react_core::session::ControlStateStore;
     use react_module_storage_memory::InMemoryStorageAdapter;
     use std::sync::Arc;
 
@@ -2536,25 +2536,20 @@ mod tests {
         let storage = Arc::new(InMemoryStorageAdapter::default());
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let store = ThreadStore::new(storage, scope, keyspace);
+        let control = ControlStateStore::new(storage, scope, keyspace);
         let tid = "tid-malformed-control-state";
 
-        let mut st = react_core::session::ThreadState {
-            thread_state_schema_version: react_core::session::THREAD_STATE_SCHEMA_VERSION,
-            thread_id: tid.to_string(),
-            ..react_core::session::ThreadState::default()
-        };
-        st.control_state = Some(serde_json::json!({
+        let malformed_envelope = serde_json::json!({
             "schema_version": react_core::session::CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
             "suite_id": "data_engineer",
             "payload": {"schema_version":"bad"}
-        }));
-        store
-            .put_thread_state(tid, &st)
+        });
+        control
+            .save(tid, "data_engineer", &malformed_envelope)
             .await
-            .expect("seed thread state");
+            .expect("seed control state");
 
-        let got = ExecutionState::load_strict(&store, tid).await;
+        let got = ExecutionState::load_strict(&control, tid).await;
         assert!(got.is_err(), "malformed control_state must fail loudly");
     }
 }

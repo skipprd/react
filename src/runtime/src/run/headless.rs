@@ -2,7 +2,7 @@
 //!
 //! Design goal: subscribe to the same typed events as WS without using a socket.
 
-use react_core::session::{ThreadEvent, ThreadEventStatus, ThreadItemStatus, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadItemStatus, ThreadStore};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
@@ -33,7 +33,7 @@ fn classify_error(summary: &str) -> &'static str {
 }
 
 fn summarize_failure_state(
-    st: &react_core::session::ThreadState,
+    st: &react_core::session::ThreadLogViewCache,
     events: &[ThreadEvent],
 ) -> Option<String> {
     let last_failed_event = events
@@ -228,8 +228,36 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         .or_else(|| captured_tid)
         .unwrap_or_else(|| tid.clone());
 
-    // Determine exit code from durable, materialized state.
+    // Determine exit code: prefer ControlState, fall back to view cache.
     let store = ThreadStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
+    let control = ControlStateStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
+
+    // Check ControlState for execution outcome (primary source of truth).
+    if let Ok(Some(outcome)) = control.load::<serde_json::Value>(&thread_id, "data_engineer").await {
+        if let Some(mode) = outcome.get("phase_state")
+            .and_then(|ps| ps.get("mode"))
+            .and_then(|m| m.as_str())
+        {
+            if mode == "failed" {
+                if plain_progress {
+                    let st = store.get_thread_state(&thread_id).await.ok();
+                    let timeline_events = store
+                        .get_thread_events_from_log(&thread_id)
+                        .await
+                        .unwrap_or_default();
+                    if let Some(ref st) = st {
+                        if let Some(line) = summarize_failure_state(st, &timeline_events) {
+                            println!("{}", line);
+                        }
+                    }
+                }
+                return Ok((1, thread_id));
+            }
+            return Ok((0, thread_id));
+        }
+    }
+
+    // Fallback: check materialized view cache.
     let st = store.get_thread_state(&thread_id).await.ok();
     if st.is_none() && !saw_final {
         return Ok((2, thread_id));

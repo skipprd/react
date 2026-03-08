@@ -150,7 +150,7 @@ impl DataEngineerSuite {
         match meta.decision {
             ReviewDecision::Proceed => {
                 crate::state_manager::mutate_execution_state(
-                    thread_store,
+                    &thread_store.control_store(),
                     thread_id,
                     |es| es.clear_pending_patch_impl(),
                 )
@@ -165,7 +165,7 @@ impl DataEngineerSuite {
                 if next == control_flow::Phase::PublishAwaitApproval {
                     let mut st =
                         crate::progress_controller::ExecutionState::load_strict(
-                            thread_store,
+                            &thread_store.control_store(),
                             thread_id,
                         )
                         .await?
@@ -175,7 +175,7 @@ impl DataEngineerSuite {
                     st.set_publish_approval(
                         crate::progress_controller::PublishApprovalDecision::Approved,
                     );
-                    st.save(thread_store, thread_id).await.map_err(|e| {
+                    st.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
                         format!(
                             "failed to persist explicit publish approval on model review proceed: {e}"
                         )
@@ -197,7 +197,7 @@ impl DataEngineerSuite {
             ReviewDecision::PatchImpl => {
                 let back = patch_impl_target_phase(phase, meta.tier);
                 crate::state_manager::mutate_execution_state(
-                    thread_store,
+                    &thread_store.control_store(),
                     thread_id,
                     |es| es.set_pending_patch_impl_intent(back),
                 )

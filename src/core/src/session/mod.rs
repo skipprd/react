@@ -9,6 +9,15 @@ use crate::storage::StorageAdapter;
 mod types;
 pub use types::*;
 
+mod control_state;
+pub use control_state::ControlStateStore;
+
+mod log_reader;
+pub use log_reader::ThreadLogReader;
+
+mod log_writer;
+pub use log_writer::ThreadLogWriter;
+
 /// Runtime-tunable knobs for `ThreadStore`.
 #[derive(Clone, Debug)]
 pub struct ThreadStoreConfig {
@@ -52,6 +61,24 @@ mod store_io;
 
 fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -> Vec<ThreadEvent> {
     projection::build_thread_events_from_log(log, max_events)
+}
+
+#[async_trait::async_trait]
+impl ThreadLogReader for ThreadStore {
+    async fn get_log(&self, thread_id: &str) -> crate::error::CoreResult<ThreadLog> {
+        self.get(thread_id).await
+    }
+    async fn get_events(&self, thread_id: &str, max: usize) -> crate::error::CoreResult<Vec<ThreadEvent>> {
+        let log = self.get(thread_id).await?;
+        Ok(build_thread_events_from_log(&log, max))
+    }
+    async fn get_step_count(&self, thread_id: &str) -> crate::error::CoreResult<usize> {
+        let log = self.get(thread_id).await?;
+        Ok(log.steps.len())
+    }
+    async fn list_thread_ids(&self) -> Vec<String> {
+        self.list().await
+    }
 }
 
 #[cfg(test)]

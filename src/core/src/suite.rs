@@ -8,6 +8,7 @@ use crate::llm::{DynLlm, NullModel};
 use crate::provider_traits::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
+use crate::session::{ControlStateStore, ThreadLogWriter, ThreadStore};
 use crate::error::CoreError;
 use crate::storage::StorageAdapter;
 
@@ -129,6 +130,18 @@ impl SuiteCtx {
     pub fn set_trace_tx(&mut self, v: Option<UnboundedSender<String>>) { self.trace_tx = v; }
     pub fn set_vector(&mut self, v: Option<Arc<dyn VectorStore>>) { self.vector = v; }
     pub fn set_state(&mut self, v: Option<Arc<dyn StateStore>>) { self.state = v; }
+
+    pub fn control_store(&self) -> ControlStateStore {
+        ControlStateStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+    }
+
+    pub fn log_writer(&self) -> ThreadLogWriter {
+        ThreadLogWriter::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+    }
+
+    pub fn thread_store(&self) -> ThreadStore {
+        ThreadStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+    }
 
     pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
         self.llm.embed(texts).map_err(crate::CoreError::generic)

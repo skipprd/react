@@ -265,7 +265,7 @@ async fn run_plan_bootstrap(
     if bootstrap_sufficient {
         let mut st = execution_state.clone();
         st.mark_plan_bootstrap_done(phase);
-        st.save(thread_store, thread_id).await.map_err(|e| {
+        st.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
             format!("failed to persist plan bootstrap state: {e}")
         })?;
     }
@@ -298,13 +298,13 @@ let actx = Self::plan_agent_ctx(thread_id, sctx);
 // consume the intent and branch on strategy.
 let plan_revision: Option<crate::progress_controller::PlanRevisionIntent> = {
     let mut es = crate::state_manager::load_execution_state_strict(
-        &thread_store, thread_id,
+        &thread_store.control_store(), thread_id,
     )
     .await?
     .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     let rev = es.take_pending_plan_revision();
     if rev.is_some() {
-        es.save(&thread_store, thread_id).await.map_err(|e| {
+        es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
             format!("failed to persist execution state after consuming plan revision: {e}")
         })?;
     }
@@ -373,7 +373,7 @@ if let Some(mut existing_plan) =
             return Ok(PhaseExecutorOutcome::StayInPhase);
         }
         crate::state_manager::mutate_execution_state(
-            &thread_store,
+            &thread_store.control_store(),
             thread_id,
             |es| es.clear_pending_patch_impl(),
         )

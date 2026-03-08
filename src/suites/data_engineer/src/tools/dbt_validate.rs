@@ -41,7 +41,7 @@ async fn derive_select_terms(ctx: &AgentCtx, args: &Value) -> Vec<String> {
     let Some(store) = ctx.thread_store().as_ref() else {
         return vec![];
     };
-    let st = match crate::state_manager::load_execution_state_strict(store, thread_id)
+    let st = match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
         .await
     {
         Ok(Some(st)) => st,

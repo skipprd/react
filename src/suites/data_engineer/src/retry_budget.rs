@@ -77,13 +77,13 @@ pub(crate) async fn check_subjective_retry_budget(
 ) -> Result<SubjectiveRetryOutcome, String> {
     let cap = subjective_retry_state_cap();
     let mut st = crate::progress_controller::ExecutionState::load(
-        thread_store,
+        &thread_store.control_store(),
         thread_id,
     )
     .await
     .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     let retries = st.bump_subjective_retry(kind, cap);
-    st.save(thread_store, thread_id)
+    st.save(&thread_store.control_store(), thread_id)
         .await
         .map_err(|e| format!("failed to persist subjective retry: {e}"))?;
     if retries > subjective_retry_limit() {
@@ -100,13 +100,13 @@ pub(crate) async fn clear_subjective_retries_matching(
     f: impl Fn(&crate::progress_controller::SubjectiveRetryKind) -> bool,
 ) -> Result<(), String> {
     let mut st = crate::progress_controller::ExecutionState::load(
-        thread_store,
+        &thread_store.control_store(),
         thread_id,
     )
     .await
     .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     st.clear_subjective_retries_matching(f);
-    st.save(thread_store, thread_id)
+    st.save(&thread_store.control_store(), thread_id)
         .await
         .map_err(|e| format!("failed to clear subjective retries: {e}"))
 }

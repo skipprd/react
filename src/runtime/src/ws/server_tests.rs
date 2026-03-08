@@ -9,7 +9,7 @@ use futures_util::sink::Sink;
 use react_core::keyspace::Keyspace;
 use react_core::llm::NullModel;
 use react_core::session::{
-    Observation, ThreadLog, ThreadState as CoreThreadState, ThreadStep, ThreadStore,
+    Observation, ThreadLog, ThreadLogViewCache as CoreThreadLogViewCache, ThreadStep, ThreadStore,
     ToolObservation,
 };
 use react_core::provider_traits::NullSecretsProvider;
@@ -23,7 +23,7 @@ use std::time::Duration;
 
 #[test]
 fn thread_state_snapshot_maps_ctx_from_core_event_field() {
-    let mut core = CoreThreadState::default();
+    let mut core = CoreThreadLogViewCache::default();
     core.thread_state_schema_version = react_core::session::THREAD_STATE_SCHEMA_VERSION;
     core.thread_id = "tid".to_string();
     core.suite_id = Some("suite_x".to_string());

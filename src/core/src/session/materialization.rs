@@ -1,16 +1,16 @@
 use crate::error::{CoreError, CoreResult};
 
 use super::{
-    ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadState, ThreadStep,
+    ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadLogViewCache, ThreadStep,
     ThreadStore, THREAD_STATE_SCHEMA_VERSION,
 };
 
 impl ThreadStore {
-    pub(crate) fn new_thread_state(thread_id: &str) -> ThreadState {
-        ThreadState {
+    pub(crate) fn new_thread_state(thread_id: &str) -> ThreadLogViewCache {
+        ThreadLogViewCache {
             thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
             thread_id: thread_id.to_string(),
-            ..ThreadState::default()
+            ..ThreadLogViewCache::default()
         }
     }
 
@@ -67,7 +67,7 @@ fn duration_ms(start_ts: &str, end_ts: &str) -> Option<u64> {
     Some(ms as u64)
 }
 
-pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: &ThreadStep) {
+pub(crate) fn apply_step_to_state(st: &mut ThreadLogViewCache, _step_idx: usize, step: &ThreadStep) {
     match step {
         ThreadStep::SwitchSuite { to, .. } => {
             if !to.trim().is_empty() {
@@ -170,7 +170,7 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
     }
 }
 
-fn block_current_phase(st: &mut ThreadState, msg: &str, ts: &str) {
+fn block_current_phase(st: &mut ThreadLogViewCache, msg: &str, ts: &str) {
     let Some(ph) = st.current_phase.clone() else {
         return;
     };

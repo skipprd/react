@@ -115,7 +115,7 @@ pub async fn commit_plan_revision_loopback(
             )
         })?;
     crate::state_manager::mutate_execution_state(
-        thread_store,
+        &thread_store.control_store(),
         thread_id,
         |es| es.set_pending_plan_revision(violations, strategy),
     )

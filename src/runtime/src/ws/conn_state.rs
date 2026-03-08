@@ -4,7 +4,7 @@ use crate::run::event_hub::EventHub;
 const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalSink};
-use react_core::session::{ThreadLog, ThreadStep, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadLog, ThreadLogReader, ThreadStep, ThreadStore};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -50,6 +50,19 @@ impl ConnState {
             self.suite_ctx.scope().clone(),
             self.suite_ctx.keyspace().clone(),
         )
+    }
+
+    pub fn control_store(&self) -> ControlStateStore {
+        ControlStateStore::new(
+            self.suite_ctx.storage().clone(),
+            self.suite_ctx.scope().clone(),
+            self.suite_ctx.keyspace().clone(),
+        )
+    }
+
+    /// Read-only ThreadLog access. Prefer this over thread_store() for read operations.
+    pub fn log_reader(&self) -> impl ThreadLogReader {
+        self.thread_store()
     }
     pub fn next_seq(&mut self) -> i32 {
         self.seq += 1;
@@ -100,6 +113,17 @@ pub(super) fn default_suite_id(reg: &SuiteRegistry) -> Option<String> {
 pub(super) async fn resolve_suite_id_for_thread(state: &mut ConnState, thread_id: &str) -> String {
     if let Some(s) = state.current_suite.get(thread_id).cloned() {
         return s;
+    }
+    let control = ControlStateStore::new(
+        state.suite_ctx.storage().clone(),
+        state.suite_ctx.scope().clone(),
+        state.suite_ctx.keyspace().clone(),
+    );
+    if let Ok(Some(sid)) = control.load_suite_id(thread_id).await {
+        if !sid.trim().is_empty() {
+            state.current_suite.insert(thread_id.to_string(), sid.clone());
+            return sid;
+        }
     }
     if let Ok(log) = state.thread_store().get(thread_id).await {
         let (mut suite_id, _agent_type) = derive_thread_context(&log);

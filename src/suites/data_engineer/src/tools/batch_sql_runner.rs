@@ -37,7 +37,7 @@ pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -
     let Some(thread_id) = ctx.thread_id().as_deref() else {
         return Ok(());
     };
-    state_manager::apply_execution_event(thread_store, thread_id, event)
+    state_manager::apply_execution_event(&thread_store.control_store(), thread_id, event)
         .await
         .map(|_| ())
 }

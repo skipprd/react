@@ -18,10 +18,12 @@ pub struct ControlStateEnvelope {
     pub payload: Value,
 }
 
-/// Materialized, reloadable thread state (stable summary, not raw streaming events).
+/// Disposable, materialized projection of the ThreadLog for display purposes.
+///
+/// This is a tertiary concern -- it can be fully rebuilt from the ThreadLog at any time.
+/// Control state lives separately in ControlStateStore.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ThreadState {
+pub struct ThreadLogViewCache {
     pub thread_state_schema_version: u32,
     pub thread_id: String,
     #[serde(default)]
@@ -39,23 +41,13 @@ pub struct ThreadState {
     /// Per-item semaphore/state keyed by stable item ids.
     #[serde(default)]
     pub items: BTreeMap<String, ThreadItemState>,
-    /// Opaque suite-owned state snapshot.
+    /// Opaque suite-owned display state (plan summaries, etc). Tertiary.
     #[serde(default)]
     pub suite_state: Option<Value>,
-    /// Opaque suite-owned control snapshot (authoritative control state).
-    #[serde(default)]
-    pub control_state: Option<Value>,
-    /// Thread-scoped bootstrap statuses (catalog/discovery readiness, etc).
-    #[serde(default)]
-    pub bootstrap: ThreadBootstrapState,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct ThreadBootstrapState {
-    /// Suite-opaque extension data. Each suite serializes its own bootstrap state here.
-    #[serde(default)]
-    pub extensions: Value,
-}
+/// Backward-compatible alias during the migration.
+pub type ThreadState = ThreadLogViewCache;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]

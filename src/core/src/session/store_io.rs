@@ -1,18 +1,16 @@
-use serde_json::Value;
-use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
 
 use super::{
-    CacheEntry, ControlStateEnvelope, ThreadLog, ThreadState, ThreadStep, ThreadStore,
+    CacheEntry, ThreadLog, ThreadLogViewCache, ThreadStep, ThreadStore,
     ThreadStoreConfig,
-    CONTROL_STATE_ENVELOPE_SCHEMA_VERSION, THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
+    THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
 };
 
 #[derive(Clone, Copy)]
-enum ThreadStateWriteMode {
+enum ThreadLogViewCacheWriteMode {
     Merge,
     Replace,
 }
@@ -43,6 +41,14 @@ impl ThreadStore {
 
     pub fn config(&self) -> &ThreadStoreConfig {
         &self.config
+    }
+
+    pub fn control_store(&self) -> super::ControlStateStore {
+        super::ControlStateStore::new(
+            self.storage.clone(),
+            self.scope.clone(),
+            self.keyspace.clone(),
+        )
     }
 
     pub(crate) fn key(&self, thread_id: &str) -> CoreResult<String> {
@@ -119,18 +125,20 @@ impl ThreadStore {
             .materialize_thread_state_incremental(thread_id, step_count, &step)
             .await
         {
-            return Err(CoreError::Session(format!(
-                "thread_state_materialize_failed thread_id={} step_count={} error={}",
-                thread_id, step_count, e
-            )));
+            tracing::warn!(
+                thread_id,
+                step_count,
+                error = %e,
+                "view cache materialization failed (non-fatal)"
+            );
         }
         Ok(())
     }
 
-    pub async fn get_thread_state(&self, thread_id: &str) -> CoreResult<ThreadState> {
+    pub async fn get_thread_state(&self, thread_id: &str) -> CoreResult<ThreadLogViewCache> {
         let key = self.state_key(thread_id)?;
         let v = self.storage.get_json(&key).await?;
-        let s = serde_json::from_value::<ThreadState>(v)
+        let s = serde_json::from_value::<ThreadLogViewCache>(v)
             .map_err(|e| CoreError::Session(format!("failed to parse thread state: {e}")))?;
         if s.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
             return Err(CoreError::Schema(format!(
@@ -141,16 +149,16 @@ impl ThreadStore {
         Ok(s)
     }
 
-    pub async fn put_thread_state(&self, thread_id: &str, state: &ThreadState) -> CoreResult<()> {
-        self.write_thread_state(thread_id, state, ThreadStateWriteMode::Merge)
+    pub async fn put_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
+        self.write_thread_state(thread_id, state, ThreadLogViewCacheWriteMode::Merge)
             .await
     }
 
     async fn write_thread_state(
         &self,
         thread_id: &str,
-        state: &ThreadState,
-        mode: ThreadStateWriteMode,
+        state: &ThreadLogViewCache,
+        mode: ThreadLogViewCacheWriteMode,
     ) -> CoreResult<()> {
         if state.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
             return Err(CoreError::Schema(format!(
@@ -165,8 +173,8 @@ impl ThreadStore {
             )));
         }
         let next_state = match mode {
-            ThreadStateWriteMode::Replace => state.clone(),
-            ThreadStateWriteMode::Merge => {
+            ThreadLogViewCacheWriteMode::Replace => state.clone(),
+            ThreadLogViewCacheWriteMode::Merge => {
                 let mut merged = self
                     .get_thread_state(thread_id)
                     .await
@@ -190,21 +198,6 @@ impl ThreadStore {
                 if let Some(v) = state.suite_state.clone() {
                     merged.suite_state = Some(v);
                 }
-                if let Some(v) = state.control_state.clone() {
-                    merged.control_state = Some(v);
-                }
-                if !state.bootstrap.extensions.is_null() {
-                    if let (Some(base), Some(incoming)) = (
-                        merged.bootstrap.extensions.as_object_mut(),
-                        state.bootstrap.extensions.as_object(),
-                    ) {
-                        for (k, v) in incoming {
-                            base.insert(k.clone(), v.clone());
-                        }
-                    } else {
-                        merged.bootstrap.extensions = state.bootstrap.extensions.clone();
-                    }
-                }
                 merged
             }
         };
@@ -220,118 +213,10 @@ impl ThreadStore {
     pub(crate) async fn put_thread_state_replace(
         &self,
         thread_id: &str,
-        state: &ThreadState,
+        state: &ThreadLogViewCache,
     ) -> CoreResult<()> {
-        self.write_thread_state(thread_id, state, ThreadStateWriteMode::Replace)
+        self.write_thread_state(thread_id, state, ThreadLogViewCacheWriteMode::Replace)
             .await
-    }
-
-    fn decode_control_state_payload(raw: &Value, expected_suite_id: &str) -> Option<Value> {
-        if let Ok(env) = serde_json::from_value::<ControlStateEnvelope>(raw.clone()) {
-            if env.schema_version == CONTROL_STATE_ENVELOPE_SCHEMA_VERSION
-                && env.suite_id.trim() == expected_suite_id.trim()
-            {
-                return Some(env.payload);
-            }
-            return None;
-        }
-        None
-    }
-
-    fn encode_control_state_payload(suite_id: &str, payload: Value) -> CoreResult<Value> {
-        serde_json::to_value(ControlStateEnvelope {
-            schema_version: CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
-            suite_id: suite_id.trim().to_string(),
-            payload,
-        })
-        .map_err(|e| CoreError::Session(format!("encode_control_state_payload(suite_id='{}'): {}", suite_id, e)))
-    }
-
-    pub(crate) async fn load_control_state_payload(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-    ) -> CoreResult<Option<Value>> {
-        let state = self.get_thread_state(thread_id).await?;
-        let Some(raw) = state.control_state else {
-            return Ok(None);
-        };
-        Ok(Self::decode_control_state_payload(&raw, suite_id))
-    }
-
-    pub(crate) async fn save_control_state_payload(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-        payload: Value,
-    ) -> CoreResult<()> {
-        let mut state = self
-            .get_thread_state(thread_id)
-            .await
-            .unwrap_or_else(|_| Self::new_thread_state(thread_id));
-        state.control_state = Some(Self::encode_control_state_payload(suite_id, payload)?);
-        self.put_thread_state(thread_id, &state).await
-    }
-
-    pub(crate) async fn mutate_control_state_payload(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-        mutate: impl FnOnce(Option<Value>) -> CoreResult<Value>,
-    ) -> CoreResult<Value> {
-        let current = self.load_control_state_payload(thread_id, suite_id).await?;
-        let next = mutate(current)?;
-        self.save_control_state_payload(thread_id, suite_id, next.clone())
-            .await?;
-        Ok(next)
-    }
-
-    pub async fn load_typed_control_state<T: DeserializeOwned>(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-    ) -> CoreResult<Option<T>> {
-        let Some(payload) = self.load_control_state_payload(thread_id, suite_id).await? else {
-            return Ok(None);
-        };
-        let parsed = serde_json::from_value::<T>(payload)
-            .map_err(|e| CoreError::Session(format!("failed to parse typed control state payload: {e}")))?;
-        Ok(Some(parsed))
-    }
-
-    pub async fn save_typed_control_state<T: Serialize>(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-        state: &T,
-    ) -> CoreResult<()> {
-        let payload = serde_json::to_value(state)
-            .map_err(|e| CoreError::Session(format!("failed to serialize typed control state payload: {e}")))?;
-        self.save_control_state_payload(thread_id, suite_id, payload).await
-    }
-
-    pub async fn mutate_typed_control_state<T: Serialize + DeserializeOwned>(
-        &self,
-        thread_id: &str,
-        suite_id: &str,
-        mutate: impl FnOnce(Option<T>) -> CoreResult<T>,
-    ) -> CoreResult<T> {
-        let mut typed_next: Option<T> = None;
-        self.mutate_control_state_payload(thread_id, suite_id, |current_raw| {
-            let current = match current_raw {
-                Some(raw) => Some(
-                    serde_json::from_value::<T>(raw)
-                        .map_err(|e| CoreError::Session(format!("failed to parse typed control state payload: {e}")))?,
-                ),
-                None => None,
-            };
-            let next = mutate(current)?;
-            typed_next = Some(next);
-            serde_json::to_value(typed_next.as_ref().expect("typed next set"))
-                .map_err(|e| CoreError::Session(format!("failed to serialize typed control state payload: {e}")))
-        })
-        .await?;
-        typed_next.ok_or_else(|| CoreError::Session("typed control-state mutation produced no value".to_string()))
     }
 
     pub async fn get_thread_events_from_log(&self, thread_id: &str) -> CoreResult<Vec<super::ThreadEvent>> {

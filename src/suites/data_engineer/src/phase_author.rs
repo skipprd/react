@@ -1294,7 +1294,7 @@ if hard_mutation_repair_mode
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     let mut es = crate::progress_controller::ExecutionState::load(
-        &thread_store,
+        &thread_store.control_store(),
         thread_id,
     )
     .await
@@ -1307,7 +1307,7 @@ if hard_mutation_repair_mode
         if let Ok(path) = crate::progress_controller::SqlModelPath::parse(target.clone()) {
             es.ensure_repair_target_path(path);
         }
-        es.save(&thread_store, thread_id).await.map_err(|e| {
+        es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
             format!(
                 "failed to persist execution-state target path in deterministic repair mode: {e}"
             )
@@ -1489,7 +1489,7 @@ match Agent::run_until_block_non_interactive(
         // Refresh control-state after tool run; tool-side writes in this turn
         // must be visible before we decide whether authoring can advance.
         let gate_state = crate::progress_controller::ExecutionState::load_strict(
-            &thread_store,
+            &thread_store.control_store(),
             thread_id,
         )
         .await?
@@ -1531,7 +1531,7 @@ match Agent::run_until_block_non_interactive(
             Some(intent) if intent.phase == phase
         ) {
             crate::state_manager::mutate_execution_state(
-                &thread_store,
+                &thread_store.control_store(),
                 thread_id,
                 |es| es.clear_pending_patch_impl(),
             )
@@ -1591,7 +1591,7 @@ match Agent::run_until_block_non_interactive(
     Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
         if hard_mutation_repair_mode && phase_guard.last_validate_failed {
             let post_state = crate::progress_controller::ExecutionState::load_strict(
-                &thread_store,
+                &thread_store.control_store(),
                 thread_id,
             )
             .await?

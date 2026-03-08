@@ -4,13 +4,13 @@ use crate::ws::api_gen::src::models as api;
 use react_core::session::{
     Observation, ThreadItemError as CoreThreadItemError, ThreadItemKind as CoreThreadItemKind,
     ThreadItemState as CoreThreadItemState, ThreadItemStatus as CoreThreadItemStatus,
-    ThreadState as CoreThreadState, ThreadStep, ThreadStore,
+    ThreadLogViewCache as CoreThreadLogViewCache, ThreadStep, ThreadStore,
 };
 use react_core::suite::SuiteRegistry;
 use std::collections::BTreeMap;
 
 pub(super) fn ws_thread_state_snapshot_from_core(
-    st: &CoreThreadState,
+    st: &CoreThreadLogViewCache,
     timeline_events: &[react_core::session::ThreadEvent],
     reg: &SuiteRegistry,
 ) -> api::ThreadStateSnapshot {

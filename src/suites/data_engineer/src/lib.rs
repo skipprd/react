@@ -10,7 +10,7 @@ use react_core::agent::{
 use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
 use react_core::keyspace::encode_key_component;
 use react_core::llm::LlmCallOptions;
-use react_core::session::{ThreadBootstrapState, ThreadStore, ToolStepStatus};
+use react_core::session::{ThreadStore, ToolStepStatus};
 use react_core::tools::ToolRegistry;
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;

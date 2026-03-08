@@ -127,7 +127,7 @@ impl Tool for PublishDbtToProviderTool {
         let tid = ctx.thread_id().clone().unwrap_or_default();
         if !tid.is_empty() {
             if let Some(store) = ctx.thread_store().as_ref() {
-                let es = state_manager::load_execution_state_strict(store, &tid)
+                let es = state_manager::load_execution_state_strict(&store.control_store(), &tid)
                     .await
                     .map_err(|e| {
                         format!("failed to load strict execution state for publish: {e}")
@@ -154,7 +154,7 @@ impl Tool for PublishDbtToProviderTool {
         if !confirm {
             if !tid.is_empty() {
                 if let Some(store) = ctx.thread_store().as_ref() {
-                    state_manager::mutate_execution_state(store, &tid, |es| {
+                    state_manager::mutate_execution_state(&store.control_store(), &tid, |es| {
                         es.set_pending_publish_plan(plan_sha256.clone());
                     })
                     .await
@@ -262,7 +262,7 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish finished");
         if !tid.is_empty() {
             if let Some(store) = ctx.thread_store().as_ref() {
-                state_manager::mutate_execution_state(store, &tid, |es| {
+                state_manager::mutate_execution_state(&store.control_store(), &tid, |es| {
                     es.mark_publish_complete(plan_sha256.clone());
                 })
                 .await

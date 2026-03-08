@@ -344,7 +344,7 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
             },
         );
     st.telemetry.probe.required = true;
-    st.save(store, "probe-thread").await.expect("save state");
+    st.save(&store.control_store(), "probe-thread").await.expect("save state");
 
     let guard = crate::control_flow::DerivedGuardState {
         last_validate_failed: true,
@@ -375,7 +375,7 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
         .expect_err("run_sql should not be exposed in hard mutation mode");
     assert!(err.contains("unknown tool"));
 
-    let updated = crate::progress_controller::ExecutionState::load(store, "probe-thread")
+    let updated = crate::progress_controller::ExecutionState::load(&store.control_store(), "probe-thread")
         .await
         .expect("state should load");
     assert_eq!(updated.telemetry.probe.attempts_total, 0);
@@ -417,7 +417,7 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
     let _ = st.note_probe_attempt("select * from t limit 10", true, sig.clone());
     let _ = st.note_probe_attempt("select * from t limit 10", true, sig.clone());
     let _ = st.note_probe_attempt("select * from t limit 10", true, sig);
-    st.save(store, "probe-exhausted-thread")
+    st.save(&store.control_store(), "probe-exhausted-thread")
         .await
         .expect("save state");
 
@@ -572,7 +572,7 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
             },
         );
         seeded
-            .save(store, "t")
+            .save(&store.control_store(), "t")
             .await
             .expect("seed hard repair state");
     }
@@ -638,7 +638,7 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
             },
         );
         seeded
-            .save(store, "t")
+            .save(&store.control_store(), "t")
             .await
             .expect("seed patch-target hard repair state");
     }
@@ -700,7 +700,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
             },
         );
         seeded
-            .save(store, "t")
+            .save(&store.control_store(), "t")
             .await
             .expect("seed replace-contents hard repair state");
     }
@@ -775,7 +775,7 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
             },
         );
         seeded
-            .save(store, "t")
+            .save(&store.control_store(), "t")
             .await
             .expect("seed fs-op hard repair state");
     }
@@ -1151,7 +1151,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
         },
     );
     state
-        .save(&store, tid)
+        .save(&store.control_store(), tid)
         .await
         .expect("save failing validate state");
 
@@ -1184,7 +1184,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
         vec![],
     );
     state
-        .save(&store, tid)
+        .save(&store.control_store(), tid)
         .await
         .expect("save patched state");
 

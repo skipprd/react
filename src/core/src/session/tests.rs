@@ -414,7 +414,7 @@ async fn list_returns_only_thread_logs_not_thread_state_snapshots() {
         .unwrap();
 
     let state_key = keyspace.thread_state_key(&scope, tid).unwrap();
-    let st = ThreadState {
+    let st = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
         ..Default::default()
@@ -461,40 +461,25 @@ async fn put_thread_state_merges_non_destructively() {
     let store = ThreadStore::new(storage, scope, keyspace);
     let tid = "tid-merge";
 
-    let mut base = ThreadState {
+    let base = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
         suite_id: Some("test_suite".to_string()),
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
-    base.control_state = Some(serde_json::json!({"checkpoint": 1}));
-    base.bootstrap.extensions = serde_json::json!({
-        "discovery": {
-            "status": "ready",
-            "metadata_complete": true,
-            "ts": "2026-01-01T00:00:00Z"
-        }
-    });
     store.put_thread_state(tid, &base).await.unwrap();
 
-    let patch = ThreadState {
+    let patch = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
         current_phase: Some("model_author".to_string()),
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
     store.put_thread_state(tid, &patch).await.unwrap();
 
     let got = store.get_thread_state(tid).await.unwrap();
     assert_eq!(got.suite_id.as_deref(), Some("test_suite"));
     assert_eq!(got.current_phase.as_deref(), Some("model_author"));
-    assert_eq!(got.control_state, Some(serde_json::json!({"checkpoint": 1})));
-    assert_eq!(
-        got.bootstrap.extensions.get("discovery")
-            .and_then(|c| c.get("status"))
-            .and_then(|s| s.as_str()),
-        Some("ready")
-    );
 }
 
 #[tokio::test]
@@ -504,10 +489,10 @@ async fn put_thread_state_rejects_schema_version_mismatch() {
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
     let store = ThreadStore::new(storage, scope, keyspace);
     let tid = "tid-schema-check";
-    let st = ThreadState {
+    let st = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION.saturating_add(1),
         thread_id: tid.to_string(),
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
     let got = store.put_thread_state(tid, &st).await;
     assert!(got.is_err(), "schema mismatches must fail");
@@ -519,10 +504,10 @@ async fn put_thread_state_rejects_thread_id_mismatch() {
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
     let store = ThreadStore::new(storage, scope, keyspace);
-    let st = ThreadState {
+    let st = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: "other-thread".to_string(),
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
     let got = store.put_thread_state("tid-id-check", &st).await;
     assert!(got.is_err(), "thread_id mismatches must fail");
@@ -550,10 +535,10 @@ async fn session_key_build_failures_are_hard_errors() {
         .expect_err("invalid thread ids must fail key construction");
     assert!(append_err.to_string().contains("failed to build thread key"));
 
-    let state = ThreadState {
+    let state = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: bad_tid.to_string(),
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
     let write_err = store
         .put_thread_state_replace(bad_tid, &state)
@@ -563,45 +548,32 @@ async fn session_key_build_failures_are_hard_errors() {
 }
 
 #[tokio::test]
-async fn control_state_payload_round_trips_with_core_envelope() {
+async fn control_state_store_round_trips() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-    let store = ThreadStore::new(storage, scope, keyspace);
+    let control = ControlStateStore::new(storage, scope, keyspace);
     let tid = "tid-control-envelope";
-    let payload = serde_json::json!({"schema_version": 1, "mode": "mutate"});
-    store
-        .save_control_state_payload(tid, "test_suite", payload.clone())
-        .await
-        .expect("save payload");
-    let loaded = store
-        .load_control_state_payload(tid, "test_suite")
-        .await
-        .expect("load payload");
-    assert_eq!(loaded, Some(payload));
+
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
+    struct TestState { schema_version: u32, mode: String }
+
+    let state = TestState { schema_version: 1, mode: "mutate".to_string() };
+    control.save(tid, "test_suite", &state).await.expect("save");
+    let loaded: Option<TestState> = control.load(tid, "test_suite").await.expect("load");
+    assert_eq!(loaded, Some(state));
 }
 
 #[tokio::test]
-async fn control_state_payload_load_rejects_non_envelope_payload() {
+async fn control_state_store_returns_none_for_wrong_suite() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-    let store = ThreadStore::new(storage, scope, keyspace);
-    let tid = "tid-control-invalid";
-    let mut st = ThreadState {
-        thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
-        thread_id: tid.to_string(),
-        ..ThreadState::default()
-    };
-    st.control_state = Some(serde_json::json!({"legacy": true}));
-    store
-        .put_thread_state_replace(tid, &st)
-        .await
-        .expect("seed invalid state");
-    let loaded = store
-        .load_control_state_payload(tid, "test_suite")
-        .await
-        .expect("load payload");
+    let control = ControlStateStore::new(storage, scope, keyspace);
+    let tid = "tid-control-wrong-suite";
+
+    control.save(tid, "suite_a", &serde_json::json!({"x":1})).await.expect("save");
+    let loaded: Option<serde_json::Value> = control.load(tid, "suite_b").await.expect("load");
     assert_eq!(loaded, None);
 }
 
@@ -613,11 +585,11 @@ async fn materialization_gap_reset_clears_stale_state_items() {
     let store = ThreadStore::new(storage, scope, keyspace);
     let tid = "tid-gap-reset";
 
-    let mut stale = ThreadState {
+    let mut stale = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
         last_materialized_step_count: 1,
-        ..ThreadState::default()
+        ..ThreadLogViewCache::default()
     };
     stale.items.insert(
         "phase:stale".to_string(),

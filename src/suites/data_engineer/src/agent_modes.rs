@@ -399,7 +399,7 @@ impl DataEngineerSuite {
             remaining_steps = remaining_steps.saturating_sub(1);
 
             let execution_state = crate::progress_controller::ExecutionState::load_strict(
-                &thread_store,
+                &thread_store.control_store(),
                 thread_id,
             )
             .await?
@@ -440,7 +440,7 @@ impl DataEngineerSuite {
                     .await?;
                     let mut es = execution_state.clone();
                     es.mark_failed(reason.clone());
-                    es.save(&thread_store, thread_id).await.map_err(|e| {
+                    es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
                         format!("failed to persist fail-fast mark_failed: {e}")
                     })?;
                     return Err(reason);
@@ -471,7 +471,7 @@ impl DataEngineerSuite {
             "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n\nBudget:\n- max_steps_per_progress={max_phase_steps}\n- total_steps={total_steps}\n\nThis indicates a loop (re-entering phases without durable progress)."
         );
         if let Some(mut es) =
-            crate::progress_controller::ExecutionState::load(&thread_store, thread_id)
+            crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
                 .await
         {
             budget_msg.push_str(&format!(
@@ -485,7 +485,7 @@ impl DataEngineerSuite {
                 es.hard_mutation_repair_mode(),
             ));
             es.mark_failed(budget_msg.clone());
-            if let Err(e) = es.save(&thread_store, thread_id).await {
+            if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
                 tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
             }
         }

@@ -12,6 +12,7 @@ pub mod discover;
 pub mod error;
 pub mod error_context;
 pub mod helpers;
+pub mod interrupt;
 pub mod keyspace;
 pub mod llm;
 pub mod llm_observability;

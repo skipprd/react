@@ -94,7 +94,7 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
             (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
             let guard = crate::progress_controller::ExecutionState::load(
-                store, tid,
+                &store.control_store(), tid,
             )
             .await
             .map(|st| {
@@ -185,7 +185,7 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
         ) {
             if is_repair_mutation {
                 let es = crate::progress_controller::ExecutionState::load(
-                    store, thread_id,
+                    &store.control_store(), thread_id,
                 )
                 .await
                 .unwrap_or_else(
@@ -263,7 +263,7 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
             if is_repair_mutation {
                 let mut es =
                     crate::progress_controller::ExecutionState::load(
-                        store, thread_id,
+                        &store.control_store(), thread_id,
                     )
                     .await
                     .unwrap_or_else(
@@ -290,7 +290,7 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                     }
                 }
                 // Persist state; hard fail if we cannot persist during repair mode.
-                es.save(store, thread_id).await?;
+                es.save(&store.control_store(), thread_id).await?;
             }
         }
 
@@ -320,7 +320,7 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
             (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
             let mut es = crate::progress_controller::ExecutionState::load(
-                store, thread_id,
+                &store.control_store(), thread_id,
             )
             .await
             .unwrap_or_else(
@@ -358,7 +358,7 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
                         let _ = es.note_probe_attempt(&sql, false, sig);
                     }
                 }
-                es.save(store, thread_id).await?;
+                es.save(&store.control_store(), thread_id).await?;
             }
             return res;
         }

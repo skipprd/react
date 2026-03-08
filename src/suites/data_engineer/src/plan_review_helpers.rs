@@ -132,7 +132,7 @@ impl DataEngineerSuite {
         save_plan(actx, &doc).await
             .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
         crate::state_manager::mutate_execution_state(
-            thread_store, thread_id,
+            &thread_store.control_store(), thread_id,
             |es| es.clear_pending_patch_impl(),
         ).await.map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
 
@@ -154,7 +154,7 @@ impl DataEngineerSuite {
         has_models: bool,
     ) -> serde_json::Value {
         let execution_state = crate::progress_controller::ExecutionState::load(
-            thread_store,
+            &thread_store.control_store(),
             thread_id,
         )
         .await

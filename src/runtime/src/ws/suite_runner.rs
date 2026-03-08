@@ -10,8 +10,10 @@ use crate::models as m;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::TerminalEvent;
 use futures_util::SinkExt;
+use react_core::interrupt::{InterruptDecision, InterruptPolicy};
 use react_core::session::{Observation, ThreadStep, ToolStepStatus};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message;
 
 pub(super) enum AgentFrame {
@@ -51,10 +53,25 @@ pub(super) async fn run_suite_and_stream(
     state: &mut ConnState,
     write: &mut (impl SinkExt<Message> + Unpin),
 ) -> Result<(), String> {
+    let policy: Arc<dyn InterruptPolicy> = build_interrupt_policy(cid);
     run_agent_with_processing_suite(
-        thread_id, question, suite_id, agent, cid, kind, state, write,
+        thread_id, question, suite_id, agent, cid, kind, state, write, &*policy,
     )
     .await
+}
+
+fn build_interrupt_policy(cid: &str) -> Arc<dyn InterruptPolicy> {
+    let headless = env_bool("REACT_HEADLESS", false) || crate::ws::terminal::enabled();
+    if cid == "headless" || headless {
+        let auto_approve = env_bool("REACT_HEADLESS_AUTO_APPROVE", true);
+        if auto_approve {
+            Arc::new(react_core::interrupt::AutoApprovePolicy)
+        } else {
+            Arc::new(react_core::interrupt::RejectPolicy)
+        }
+    } else {
+        Arc::new(react_core::interrupt::WsInterruptPolicy)
+    }
 }
 
 async fn emit_ws(
@@ -101,13 +118,8 @@ async fn run_agent_with_processing_suite(
     kind: SuiteRunKind,
     state: &mut ConnState,
     write: &mut (impl SinkExt<Message> + Unpin),
+    interrupt_policy: &dyn InterruptPolicy,
 ) -> Result<(), String> {
-    let headless = env_bool("REACT_HEADLESS", false) || crate::ws::terminal::enabled();
-    let auto_approve = if headless {
-        env_bool("REACT_HEADLESS_AUTO_APPROVE", true)
-    } else {
-        env_bool("REACT_HEADLESS_AUTO_APPROVE", false)
-    };
 
     let sctx2 = state.suite_ctx.clone();
 
@@ -735,17 +747,21 @@ async fn run_agent_with_processing_suite(
                                 )
                                 .await;
                             }
-                            if cid == "headless" {
-                                if let Some(t) = state.term() {
-                                    t.emit(TerminalEvent::Info(format!(
-                                        "headless: ask_user is unsupported (prompt='{}')",
-                                        truncate_str(&prompt, 220)
-                                    )));
+                            match interrupt_policy.on_await_user(&prompt).await {
+                                InterruptDecision::Reject { reason } => {
+                                    if let Some(t) = state.term() {
+                                        t.emit(TerminalEvent::Info(format!(
+                                            "interrupt rejected: ask_user (prompt='{}')",
+                                            truncate_str(&prompt, 220)
+                                        )));
+                                    }
+                                    return Err(reason);
                                 }
-                                return Err(format!(
-                                    "ask_user_not_supported_in_headless: {}",
-                                    truncate_str(&prompt, 1200)
-                                ));
+                                InterruptDecision::AutoApprove => {
+                                    rerun = Some((SuiteRunKind::User, "Continue.".to_string()));
+                                    break;
+                                }
+                                InterruptDecision::Forward => {}
                             }
                             let tseq = state.next_thread_seq(thread_id);
                             let resp = api::AwaitUserResponse::new(
@@ -780,30 +796,42 @@ async fn run_agent_with_processing_suite(
                                 )
                                 .await;
                             }
-                            if headless && auto_approve && auto_turns < 32 {
-                                auto_turns += 1;
-                                {
-                                    let store = state.thread_store();
-                                    let _ = store
-                                        .append_step(
-                                            thread_id,
-                                            ThreadStep::User {
-                                                text: "approve".to_string(),
-                                                observation: Observation::ok(),
-                                                ts: chrono::Utc::now().to_rfc3339(),
-                                                agent: agent.to_string(),
-                                            },
-                                        )
-                                        .await;
+                            match interrupt_policy.on_await_approval(&prompt).await {
+                                InterruptDecision::AutoApprove => {
+                                    auto_turns += 1;
+                                    {
+                                        let store = state.thread_store();
+                                        let _ = store
+                                            .append_step(
+                                                thread_id,
+                                                ThreadStep::User {
+                                                    text: "approve".to_string(),
+                                                    observation: Observation::ok(),
+                                                    ts: chrono::Utc::now().to_rfc3339(),
+                                                    agent: agent.to_string(),
+                                                },
+                                            )
+                                            .await;
+                                    }
+                                    if let Some(t) = state.term() {
+                                        t.emit(TerminalEvent::Info(format!(
+                                            "auto approve (prompt='{}')",
+                                            prompt
+                                        )));
+                                    }
+                                    rerun = Some((SuiteRunKind::User, "Continue.".to_string()));
+                                    break;
                                 }
-                                if let Some(t) = state.term() {
-                                    t.emit(TerminalEvent::Info(format!(
-                                        "headless: auto approve (prompt='{}')",
-                                        prompt
-                                    )));
+                                InterruptDecision::Reject { reason } => {
+                                    if let Some(t) = state.term() {
+                                        t.emit(TerminalEvent::Info(format!(
+                                            "interrupt rejected: await_approval (prompt='{}')",
+                                            truncate_str(&prompt, 220)
+                                        )));
+                                    }
+                                    return Err(reason);
                                 }
-                                rerun = Some((SuiteRunKind::User, "Continue.".to_string()));
-                                break;
+                                InterruptDecision::Forward => {}
                             }
                             let tseq = state.next_thread_seq(thread_id);
                             let resp = api::AwaitApprovalResponse::new(

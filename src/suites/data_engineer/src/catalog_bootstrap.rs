@@ -19,30 +19,35 @@ impl BootstrapStatus {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+struct CatalogBootstrapCache {
+    status: BootstrapStatus,
+    metadata_complete: bool,
+    ts: String,
+}
+
+impl Default for BootstrapStatus {
+    fn default() -> Self {
+        Self::Pending
+    }
+}
+
+const BOOTSTRAP_SUITE_ID: &str = "data_engineer_bootstrap";
+
 impl DataEngineerSuite {
     pub(super) async fn ensure_catalog_bootstrap_semaphored(
         thread_id: &str,
         sctx: &SuiteCtx,
     ) -> Result<(), String> {
-        let thread_store = ThreadStore::new(
-            sctx.storage().clone(),
-            sctx.scope().clone(),
-            sctx.keyspace().clone(),
-        );
-        if let Ok(st) = thread_store.get_thread_state(thread_id).await {
-            if let Some(cat) = st.bootstrap.extensions.get("catalog") {
-                let status: BootstrapStatus = cat
-                    .get("status")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or(BootstrapStatus::Pending);
-                if status.is_usable() {
-                    tracing::info!(
-                        "data_engineer: catalog bootstrap semaphore hit status={:?} thread_id={}",
-                        status,
-                        thread_id
-                    );
-                    return Ok(());
-                }
+        let control = sctx.control_store();
+        if let Ok(Some(cache)) = control.load::<CatalogBootstrapCache>(thread_id, BOOTSTRAP_SUITE_ID).await {
+            if cache.status.is_usable() {
+                tracing::info!(
+                    "data_engineer: catalog bootstrap semaphore hit status={:?} thread_id={}",
+                    cache.status,
+                    thread_id
+                );
+                return Ok(());
             }
         }
         let bootstrap_timeout_secs = env_util::catalog_bootstrap_timeout_secs();
@@ -69,24 +74,12 @@ impl DataEngineerSuite {
             BootstrapStatus::BestEffort
         };
         let ts = chrono::Utc::now().to_rfc3339();
-        let mut st = thread_store
-            .get_thread_state(thread_id)
-            .await
-            .unwrap_or_else(|_| react_core::session::ThreadState {
-                thread_state_schema_version: react_core::session::THREAD_STATE_SCHEMA_VERSION,
-                thread_id: thread_id.to_string(),
-                ..react_core::session::ThreadState::default()
-            });
-        st.bootstrap = ThreadBootstrapState {
-            extensions: serde_json::json!({
-                "catalog": {
-                    "status": status,
-                    "metadata_complete": out.metadata_complete,
-                    "ts": ts,
-                }
-            }),
+        let cache = CatalogBootstrapCache {
+            status,
+            metadata_complete: out.metadata_complete,
+            ts,
         };
-        if let Err(e) = thread_store.put_thread_state(thread_id, &st).await {
+        if let Err(e) = control.save(thread_id, BOOTSTRAP_SUITE_ID, &cache).await {
             tracing::warn!(
                 "data_engineer: failed to persist catalog bootstrap state thread_id={} err={}",
                 thread_id,

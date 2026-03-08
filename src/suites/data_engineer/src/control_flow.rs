@@ -542,7 +542,7 @@ pub async fn call_and_record_tool(
         if let Some(path_kind) =
             crate::progress_controller::classify_manifest_lookup_path(manifest_path)
         {
-            match crate::state_manager::load_execution_state_strict(store, thread_id)
+            match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
                 .await
             {
                 Ok(Some(mut st)) => {
@@ -556,7 +556,7 @@ pub async fn call_and_record_tool(
                         };
                         st.note_manifest_lookup_attempt(path_kind, obs.ok, failure_kind);
                         if let Err(e) =
-                            crate::state_manager::replace_execution_state(store, thread_id, st).await
+                            crate::state_manager::replace_execution_state(&store.control_store(), thread_id, st).await
                         {
                             warn!("failed to persist manifest lookup telemetry: {}", e);
                         }
@@ -587,13 +587,13 @@ pub async fn call_and_record_tool(
             Some((crate::progress_controller::MutationOp::Patch, items))
         }
     })() {
-        match crate::state_manager::load_execution_state_strict(store, thread_id)
+        match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
             .await
         {
             Ok(Some(mut st)) => {
                 st.set_last_mutation_summary(op, affected_paths, Vec::new());
                 if let Err(e) =
-                    crate::state_manager::replace_execution_state(store, thread_id, st)
+                    crate::state_manager::replace_execution_state(&store.control_store(), thread_id, st)
                         .await
                 {
                     warn!("failed to persist non-file mutation summary: {}", e);

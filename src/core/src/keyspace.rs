@@ -38,6 +38,10 @@ pub trait Keyspace: Send + Sync {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["state", thread_id, "state.json"]))
     }
+    fn control_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
+        Ok(self.scoped_key(scope, &["state", thread_id, "control.json"]))
+    }
     fn thread_artifact_key(
         &self,
         scope: &RequestScope,
@@ -145,6 +149,14 @@ mod tests {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_state_key(&scope, "123").unwrap();
         assert_eq!(k, "t/w/p/state/123/state.json");
+    }
+
+    #[test]
+    fn keyspace_builds_control_state_key() {
+        let ks = DefaultKeyspace::new("b".to_string());
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let k = ks.control_state_key(&scope, "123").unwrap();
+        assert_eq!(k, "t/w/p/state/123/control.json");
     }
 
     #[test]

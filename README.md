@@ -123,6 +123,8 @@ react (workspace root)
 
 **Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
 
+**State hierarchy rule**: `ControlState` is the first-class source of truth. The `ThreadLog` is a secondary audit log — append-only, readable via a single compile-time-guaranteed read-only API (`ThreadLogReader`). `ThreadLogViewCache` / WS are disposable display projections that must never drive control flow. Execution state (suite phase, progress, errors) is always read from `ControlStateStore`, never inferred from the log or view cache.
+
 **Two-tier module architecture**: modules that are specific to a single suite (e.g. warehouse adapters, dbt CLI wrapper) live under that suite's directory and depend on suite-local traits. Modules that are truly suite-agnostic (e.g. S3 storage, vector store) live at the top-level `src/modules/` and depend only on `react-core`.
 
 ```
@@ -140,13 +142,14 @@ runtime ──► react-core ◄── react-suites
 
 **Crate**: `runtime` · **File**: `src/runtime/src/ws/server.rs`
 
-The WS server is a thin routing layer. It never calls the agent loop directly.
+The WS server is a thin routing layer. It never calls the agent loop directly and never drives control flow — it is a read-only lens onto thread state.
 
 - Parses inbound frames (`new`, `open`, `user`, `approve`, `delete`, etc.)
 - Creates/loads threads and persists user steps
-- Resolves `suite_id` + `agent_type` and dispatches to the suite
+- Resolves `suite_id` + `agent_type` — first from `ControlStateStore`, falling back to `ThreadLog` scan
 - Converts the suite's `FlowFrame` output into wire-format `ServerMessage`s and streams them back
 - Constructs the `SuiteCtx` (injected capabilities) for each request via the runtime's provider wiring
+- Holds an `InterruptPolicy` (injected) to decide how user prompts are surfaced, without branching on environment flags
 
 **`FlowFrame` → wire mapping:**
 
@@ -203,16 +206,18 @@ Two context structs carry capabilities through the system. Understanding the bou
 
 ```
 SuiteCtx
-├── storage          StorageAdapter (S3 / local FS)
-├── scope            RequestScope (tenant / workspace / project)
-├── keyspace         Keyspace (persistence key layout)
-├── secrets          SecretsProvider
-├── llm              Raw LLM handle
-├── resolved_config  Parsed YAML config (suite_config: Value for domain-specific)
-├── vector?          VectorStore
-├── state?           StateStore
-├── capabilities     HashMap<TypeId, Arc<dyn Any>>  ← suite-specific providers
-└── trace_tx?        Trace channel
+├── storage            StorageAdapter (S3 / local FS)
+├── scope              RequestScope (tenant / workspace / project)
+├── keyspace           Keyspace (persistence key layout)
+├── secrets            SecretsProvider
+├── llm                Raw LLM handle
+├── resolved_config    Parsed YAML config (suite_config: Value for domain-specific)
+├── vector?            VectorStore
+├── state?             StateStore
+├── capabilities       HashMap<TypeId, Arc<dyn Any>>  ← suite-specific providers
+├── trace_tx?          Trace channel
+├── control_store()    → ControlStateStore (typed, independent control state)
+└── thread_store.log_reader() → impl ThreadLogReader (read-only log access)
 ```
 
 **`AgentCtx`** is what the suite builds *per phase* for the agent loop. It narrows `SuiteCtx` to what a single ReAct invocation needs:
@@ -378,11 +383,24 @@ Suite-specific providers are stored in the **capabilities registry** (`HashMap<T
 
 The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it via `set_capability()`. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
 
-#### 10. Session and persistence
+#### 10. Session, state, and persistence
 
 **Files**: `src/core/src/session/`
 
-Every interaction is stored as a **thread** — an append-only sequence of `ThreadStep`s:
+The session layer enforces a strict three-tier hierarchy:
+
+```
+1. ControlState   — THE core. Source of truth. Drives all execution decisions.
+2. ThreadLog      — Audit log. Important but secondary. Append-only from suites,
+                    readable only via ThreadLogReader (single API, compile-time read-only).
+3. ViewCache / WS — Disposable display projection. Tertiary.
+```
+
+The system functions correctly with no WS attached, no ViewCache materialized, and even with a corrupt/missing ThreadLog — as long as ControlState is intact.
+
+**ControlState** (`ControlStateStore`) is the authoritative record of where a thread's execution stands. It has its own dedicated storage key (`state/{thread_id}/control.json`), completely independent of the thread log or view cache. Suites own and mutate control state exclusively.
+
+**ThreadLog** is an append-only audit trail of `ThreadStep`s:
 
 ```
 ThreadStep::User           — user message
@@ -400,7 +418,23 @@ ThreadStep::Complete       — terminal result (kind: String)
 
 `ThreadStep` uses **strings at the serialization boundary**: `Phase.reason_code` is `Option<String>`, `GuardBlock.kind` is `String`, `Complete.kind` is `String`. Suites maintain compile-time enum safety internally; conversion to/from strings happens at the recording point. This keeps core free of domain-specific enum variants.
 
-`ThreadStore` persists steps as JSON via `StorageAdapter` + `Keyspace`. This gives full observability and replay capability.
+Reading and writing the log are separated by type:
+
+| Type | Role | Who holds it |
+|------|------|-------------|
+| `ThreadLogReader` (trait) | Read-only access to the log | Everyone — WS, LLM prompt builder, policy gates, headless CLI |
+| `ThreadLogWriter` | Append-only writes | Suites (via `SuiteCtx`) |
+| `ControlStateStore` | Read-write execution state | Suites (via `SuiteCtx`) |
+
+**ThreadLogViewCache** is a disposable, materialized projection of the ThreadLog for display purposes. It can be rebuilt from the log at any time. Materialization is non-fatal — if it fails, a warning is logged but the log append succeeds. The WS layer reads this for rendering thread state snapshots.
+
+**InterruptPolicy** decouples control-flow decisions about user interrupts from the presentation layer. The suite runner receives an injected policy rather than checking environment flags directly:
+
+| Policy | Behaviour |
+|--------|-----------|
+| `WsInterruptPolicy` | Forwards all interrupts to the WebSocket user |
+| `AutoApprovePolicy` | Auto-approves approvals, rejects `ask_user` (headless CI) |
+| `RejectPolicy` | Rejects all interrupts (dry-run testing) |
 
 ---
 
