@@ -220,8 +220,15 @@ fn sanitize_for_filename(s: &str) -> String {
         .collect()
 }
 
+fn default_registry() -> react_core::suite::SuiteRegistry {
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    reg
+}
+
 fn resolve_default_suite_id() -> String {
-    react_suites::default_registry()
+    default_registry()
         .list_ids()
         .into_iter()
         .next()
@@ -558,7 +565,7 @@ async fn main() {
                 }
             };
 
-            let registry = react_suites::default_registry();
+            let registry = default_registry();
             if let Err(e) = react::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
                 tracing::error!("{}", e);
                 std::process::exit(1);
@@ -757,7 +764,7 @@ async fn main() {
                 .clone()
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(resolve_default_suite_id);
-            let registry = react_suites::default_registry();
+            let registry = default_registry();
             let run_fut = react::run::headless::run_headless(
                 suite_ctx,
                 react::run::headless::RunOpts {

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use super::*;
 use crate::keyspace::DefaultKeyspace;
-use crate::storage::InMemoryStorageAdapter;
+use crate::test_support::InMemoryStorageAdapter;
 
 #[test]
 fn tool_observation_normalizes_legacy_error_field_into_errors_array() {

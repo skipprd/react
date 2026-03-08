@@ -2,7 +2,7 @@ use super::*;
 use crate::keyspace::DefaultKeyspace;
 
 use crate::scope::RequestScope;
-use crate::storage::InMemoryStorageAdapter;
+use crate::test_support::InMemoryStorageAdapter;
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};

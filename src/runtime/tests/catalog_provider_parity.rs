@@ -3,11 +3,12 @@ use std::sync::Arc;
 use react_module_provider_catalog::DefaultCatalogProvider;
 use react_core::keyspace::{encode_key_component, DefaultKeyspace, Keyspace};
 use react_core::llm::{LargeLanguageModel, NullModel};
-use react_suites::data_engineer::providers::{
+use react_suite_data_engineer::providers::{
     CatalogProvider, DataCatalog, GlobalSemanticContext, SemanticModel,
 };
 use react_core::scope::RequestScope;
-use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
+use react_core::storage::StorageAdapter;
+use react_module_storage_memory::InMemoryStorageAdapter;
 
 #[tokio::test]
 async fn provider_write_semantic_uses_keyspace_key_and_roundtrips() {
@@ -166,7 +167,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
 
     let gkey = keyspace.scoped_key(
         &scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(react_suites::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+        &["semantic", &format!("{}.yaml", encode_key_component(react_suite_data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
     );
     let raw = storage
         .get_json(&gkey)

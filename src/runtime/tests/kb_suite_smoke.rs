@@ -8,7 +8,7 @@ use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
 use react_core::scope::RequestScope;
 use react_core::session::ThreadStore;
-use react_core::storage::InMemoryStorageAdapter;
+use react_module_storage_memory::InMemoryStorageAdapter;
 use react_core::tools::{Tool, ToolRegistry};
 use serde_json::Value;
 
@@ -227,7 +227,9 @@ async fn agent_interrupts_only_when_policy_requests_it() {
 
 #[test]
 fn default_registry_includes_kb_suite() {
-    let reg = react_suites::default_registry();
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
     let ids = reg.list_ids();
     assert!(
         ids.contains(&"kb"),

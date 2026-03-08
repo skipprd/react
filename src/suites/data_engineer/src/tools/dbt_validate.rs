@@ -1,0 +1,706 @@
+use async_trait::async_trait;
+use serde_json::Value;
+
+use react_core::agent::AgentCtx;
+use crate::providers::{CatalogProvider, DatasetCatalogProvider};
+use react_core::tools::Tool;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+pub struct DbtValidateTool {
+    pub datasets: Option<Arc<dyn DatasetCatalogProvider>>,
+    pub catalog: Option<Arc<dyn CatalogProvider>>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+struct ValidationLadderPhase {
+    phase: String,
+    select_terms: Vec<String>,
+    ok: bool,
+    compile_ok: bool,
+    run_ok: Option<bool>,
+    error_count: usize,
+    probe: Option<serde_json::Value>,
+}
+
+async fn derive_select_terms(ctx: &AgentCtx, args: &Value) -> Vec<String> {
+    if let Some(arr) = args.get("select").and_then(|v| v.as_array()) {
+        let mut out: Vec<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect();
+        out.sort();
+        out.dedup();
+        return out;
+    }
+    let Some(thread_id) = ctx.thread_id().as_deref() else {
+        return vec![];
+    };
+    let Some(store) = ctx.thread_store().as_ref() else {
+        return vec![];
+    };
+    let st = match crate::state_manager::load_execution_state_strict(store, thread_id)
+        .await
+    {
+        Ok(Some(st)) => st,
+        Ok(None) => crate::progress_controller::ExecutionState::new(),
+        Err(e) => {
+            tracing::warn!(
+                "skipping targeted validate terms due to invalid execution state: {}",
+                e
+            );
+            return vec![];
+        }
+    };
+    let mut out = st
+        .telemetry
+        .last_mutation_summary
+        .as_ref()
+        .map(|m| m.select_terms.clone())
+        .unwrap_or_default();
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn model_name_from_compiled_key(key: &str) -> Option<String> {
+    let file = key.rsplit('/').next()?.trim();
+    file.strip_suffix(".sql").map(|s| s.to_string())
+}
+
+fn key_matches_select_terms(key: &str, terms: &[String]) -> bool {
+    if terms.is_empty() {
+        return true;
+    }
+    let Some(name) = model_name_from_compiled_key(key) else {
+        return false;
+    };
+    let n = name.to_ascii_lowercase();
+    terms.iter().any(|t| {
+        let tl = t.trim().to_ascii_lowercase();
+        tl == n || tl.ends_with(&format!(".{}", n)) || tl.contains(&n)
+    })
+}
+
+async fn probe_compiled_model_sql(
+    ctx: &AgentCtx,
+    _project_name: &str,
+    select_terms: &[String],
+) -> Result<serde_json::Value, String> {
+    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]));
+    let mut keys = ctx
+        .storage()
+        .list_prefix(&compiled_prefix)
+        .await
+        .unwrap_or_default();
+    keys.sort();
+    keys.dedup();
+    let keys: Vec<String> = keys
+        .into_iter()
+        .filter(|k| k.ends_with(".sql"))
+        .filter(|k| k.contains("/models/"))
+        // Exclude compiled dbt tests under ".../<model>.yml/<test>.sql".
+        .filter(|k| !k.contains(".yml/"))
+        .filter(|k| key_matches_select_terms(k, select_terms))
+        .collect();
+    if keys.is_empty() {
+        return Ok(serde_json::json!({
+            "ok": true,
+            "probed_models": 0,
+            "skipped_reason": "no_compiled_model_sql_found_for_scope"
+        }));
+    }
+
+    let mut failures: Vec<serde_json::Value> = Vec::new();
+    let mut probed = 0usize;
+    for key in keys.iter() {
+        let bytes = match ctx.storage().get_bytes(key).await {
+            Ok(b) => b,
+            Err(e) => {
+                failures.push(serde_json::json!({
+                    "key": key,
+                    "error": format!("failed_to_read_compiled_sql: {}", e),
+                }));
+                continue;
+            }
+        };
+        let sql = String::from_utf8_lossy(&bytes).to_string();
+        let probe_sql = crate::sql_first::wrap_sql_for_validation(&sql, 1);
+        match crate::ctx_ext::actx_warehouse(ctx).unwrap().query(&probe_sql).await {
+            Ok(qr) => {
+                probed = probed.saturating_add(1);
+                let dups =
+                    crate::sql_first::detect_duplicate_output_columns(&qr.header);
+                if !dups.is_empty() {
+                    failures.push(serde_json::json!({
+                        "key": key,
+                        "model_name": model_name_from_compiled_key(key),
+                        "error": "duplicate_output_columns",
+                        "duplicate_columns": dups,
+                    }));
+                }
+            }
+            Err(e) => {
+                failures.push(serde_json::json!({
+                    "key": key,
+                    "model_name": model_name_from_compiled_key(key),
+                    "error": format!("warehouse_probe_failed: {}", e),
+                }));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(serde_json::json!({
+            "ok": true,
+            "probed_models": probed,
+            "failed_models": []
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "ok": false,
+            "probed_models": probed,
+            "failed_models": failures
+        }))
+    }
+}
+
+#[async_trait]
+impl Tool for DbtValidateTool {
+    fn name(&self) -> &'static str {
+        "dbt_validate"
+    }
+
+    async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
+        let project_name = args
+            .get("project_name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("data_engineer");
+        let dbt = crate::ctx_ext::actx_dbt(ctx)
+            .ok_or_else(|| "dbt provider missing".to_string())?;
+        // Prefer profiles generated from resolved config (so dbt_validate is deterministic and
+        // avoids host-local profiles drift). Only use DBT_PROFILES_DIR if the caller explicitly
+        // requested it (via args.profiles_dir) or if we cannot generate a profile.
+        let explicit_profiles_dir = args
+            .get("profiles_dir")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let mut profiles_dir = explicit_profiles_dir.clone();
+        // Target selection:
+        // - If explicitly provided (args.target), use it.
+        // - Otherwise, if we generated profiles.yml from the configured warehouse provider, use its target (typically "athena").
+        // - Otherwise, error (we do NOT have a valid generic default target).
+        let explicit_target = args
+            .get("target")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let mut target: Option<String> = explicit_target.clone();
+        let run = args.get("run").and_then(|x| x.as_bool()).unwrap_or(false);
+        let build = args.get("build").and_then(|x| x.as_bool()).unwrap_or(false);
+        let dataset_ids: Option<Vec<String>> = args
+            .get("dataset_ids")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|v| !v.is_empty());
+
+        // If profiles_dir not provided, try generating one from resolved config for the active warehouse provider.
+        // Keep the tempdir alive for the duration of this call.
+        let mut _tmp: Option<tempfile::TempDir> = None;
+        if profiles_dir.is_none() {
+            if let Some(cfg) = crate::resolved_config_from_ctx(ctx) {
+                let threads = crate::ctx_ext::actx_warehouse(ctx)
+                    .map(|w| crate::providers::QueryProvider::max_concurrency(w.as_ref()));
+                if let Ok(gen) = crate::dbt::profile::generate_profiles_yml(cfg, threads) {
+                    let td = tempfile::tempdir().map_err(|e| e.to_string())?;
+                    let mut p = PathBuf::from(td.path());
+                    p.push("profiles.yml");
+                    fs::write(&p, gen.profiles_yml.as_bytes()).map_err(|e| e.to_string())?;
+                    profiles_dir = Some(td.path().to_string_lossy().to_string());
+                    _tmp = Some(td);
+                    // If caller didn't explicitly set a target, use the generated one so we
+                    // always validate against the configured warehouse provider.
+                    if target.is_none() {
+                        target = Some(gen.target);
+                    }
+                }
+            }
+        }
+        // As a last resort, fall back to the host env var.
+        if profiles_dir.is_none() {
+            profiles_dir = crate::env_util::getenv_nonempty(
+                crate::env_util::env_keys::DBT_PROFILES_DIR,
+            );
+        }
+        let target = target.ok_or_else(|| {
+            "dbt_validate requires a dbt target name (e.g. 'athena', 'postgres', 'snowflake', 'bigquery', 'sqlserver'). Configure providers.dbt.target or pass args.target explicitly."
+                .to_string()
+        })?;
+
+        let dialect = crate::resolved_config_from_ctx(ctx)
+            .map(crate::dbt_repair::remediate::active_provider_dialect)
+            .unwrap_or_else(|| "Unknown SQL dialect".to_string());
+
+        let max_iters: usize = crate::env_util::env_usize(
+            crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS,
+        )
+        .unwrap_or(8)
+        .max(1)
+        .min(25);
+
+        let select_terms = derive_select_terms(ctx, &args).await;
+        let mut ladder: Vec<ValidationLadderPhase> = Vec::new();
+        let mut final_res: crate::providers::DbtValidateResult;
+        let final_report: crate::dbt_repair::repair_loop::RepairReport;
+
+        if build {
+            // Phase 1: compile-only + repair loop on targeted scope first (faster fail).
+            let compile_args = crate::providers::DbtValidateArgs {
+                project_name: project_name.to_string(),
+                profiles_dir: profiles_dir.clone(),
+                target: target.clone(),
+                run: false,
+                build: false,
+                select: if select_terms.is_empty() {
+                    None
+                } else {
+                    Some(select_terms.clone())
+                },
+                exclude: None,
+            };
+            let (res1, rep1) = crate::dbt_repair::repair_loop::run_repair_loop(
+                ctx,
+                &dbt,
+                &compile_args,
+                max_iters,
+                self.datasets.as_ref(),
+                self.catalog.as_ref(),
+                dataset_ids.as_deref(),
+            )
+            .await?;
+            let probe = probe_compiled_model_sql(ctx, project_name, &select_terms).await?;
+            let probe_ok = probe.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+            ladder.push(ValidationLadderPhase {
+                phase: "compile_probe".to_string(),
+                select_terms: select_terms.clone(),
+                ok: res1.ok && probe_ok,
+                compile_ok: res1.compile_ok,
+                run_ok: res1.run_ok,
+                error_count: res1.errors.len(),
+                probe: Some(probe.clone()),
+            });
+            if !res1.ok || !probe_ok {
+                final_res = res1;
+                if !probe_ok {
+                    let mut errs = final_res.errors.clone();
+                    errs.push("compiled_sql_probe_failed: one or more compiled model queries failed warehouse probe or projected duplicate output columns".to_string());
+                    if let Some(arr) = probe.get("failed_models").and_then(|v| v.as_array()) {
+                        for f in arr.iter().take(20) {
+                            errs.push(format!(
+                                "compiled_probe: {}",
+                                serde_json::to_string(f).unwrap_or_else(|_| "{}".to_string())
+                            ));
+                        }
+                    }
+                    final_res.ok = false;
+                    final_res.errors = errs;
+                }
+                final_report = rep1;
+            } else {
+                // Phase 2: selective build (changed/targeted models only).
+                if !select_terms.is_empty() {
+                    let selective_args = crate::providers::DbtValidateArgs {
+                        project_name: project_name.to_string(),
+                        profiles_dir: profiles_dir.clone(),
+                        target: target.clone(),
+                        run: false,
+                        build: true,
+                        select: Some(select_terms.clone()),
+                        exclude: None,
+                    };
+                    let (res2, rep2) =
+                        crate::dbt_repair::repair_loop::run_repair_loop(
+                            ctx,
+                            &dbt,
+                            &selective_args,
+                            max_iters,
+                            self.datasets.as_ref(),
+                            self.catalog.as_ref(),
+                            dataset_ids.as_deref(),
+                        )
+                        .await?;
+                    ladder.push(ValidationLadderPhase {
+                        phase: "selective_build".to_string(),
+                        select_terms: select_terms.clone(),
+                        ok: res2.ok,
+                        compile_ok: res2.compile_ok,
+                        run_ok: res2.run_ok,
+                        error_count: res2.errors.len(),
+                        probe: None,
+                    });
+                    if !res2.ok {
+                        final_res = res2;
+                        final_report = rep2;
+                    } else {
+                        // Phase 3: full build for final confidence.
+                        let full_args = crate::providers::DbtValidateArgs {
+                            project_name: project_name.to_string(),
+                            profiles_dir: profiles_dir.clone(),
+                            target: target.clone(),
+                            run: false,
+                            build: true,
+                            select: None,
+                            exclude: None,
+                        };
+                        let (res3, rep3) =
+                            crate::dbt_repair::repair_loop::run_repair_loop(
+                                ctx,
+                                &dbt,
+                                &full_args,
+                                max_iters,
+                                self.datasets.as_ref(),
+                                self.catalog.as_ref(),
+                                dataset_ids.as_deref(),
+                            )
+                            .await?;
+                        ladder.push(ValidationLadderPhase {
+                            phase: "full_build".to_string(),
+                            select_terms: vec![],
+                            ok: res3.ok,
+                            compile_ok: res3.compile_ok,
+                            run_ok: res3.run_ok,
+                            error_count: res3.errors.len(),
+                            probe: None,
+                        });
+                        final_res = res3;
+                        final_report = rep3;
+                    }
+                } else {
+                    // No targeted selectors -> skip selective stage and go straight to full build.
+                    let full_args = crate::providers::DbtValidateArgs {
+                        project_name: project_name.to_string(),
+                        profiles_dir: profiles_dir.clone(),
+                        target: target.clone(),
+                        run: false,
+                        build: true,
+                        select: None,
+                        exclude: None,
+                    };
+                    let (res3, rep3) =
+                        crate::dbt_repair::repair_loop::run_repair_loop(
+                            ctx,
+                            &dbt,
+                            &full_args,
+                            max_iters,
+                            self.datasets.as_ref(),
+                            self.catalog.as_ref(),
+                            dataset_ids.as_deref(),
+                        )
+                        .await?;
+                    ladder.push(ValidationLadderPhase {
+                        phase: "full_build".to_string(),
+                        select_terms: vec![],
+                        ok: res3.ok,
+                        compile_ok: res3.compile_ok,
+                        run_ok: res3.run_ok,
+                        error_count: res3.errors.len(),
+                        probe: None,
+                    });
+                    final_res = res3;
+                    final_report = rep3;
+                }
+            }
+        } else {
+            let (res, repair_report) =
+                crate::dbt_repair::repair_loop::run_repair_loop(
+                    ctx,
+                    &dbt,
+                    &crate::providers::DbtValidateArgs {
+                        project_name: project_name.to_string(),
+                        profiles_dir: profiles_dir.clone(),
+                        target: target.clone(),
+                        run,
+                        build,
+                        select: None,
+                        exclude: None,
+                    },
+                    max_iters,
+                    self.datasets.as_ref(),
+                    self.catalog.as_ref(),
+                    dataset_ids.as_deref(),
+                )
+                .await?;
+            ladder.push(ValidationLadderPhase {
+                phase: "default".to_string(),
+                select_terms: vec![],
+                ok: res.ok,
+                compile_ok: res.compile_ok,
+                run_ok: res.run_ok,
+                error_count: res.errors.len(),
+                probe: None,
+            });
+            final_res = res;
+            final_report = repair_report;
+        }
+
+        let mut v = serde_json::to_value(final_res).unwrap_or_else(
+            |_| serde_json::json!({"ok": false, "error": "failed to serialize result"}),
+        );
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("dialect".to_string(), serde_json::json!(dialect));
+            obj.insert(
+                "repair_report".to_string(),
+                serde_json::to_value(final_report).unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "validation_ladder".to_string(),
+                serde_json::to_value(ladder).unwrap_or(Value::Null),
+            );
+            // Structured runtime/test failures extracted from build/run stdout (if present).
+            // This avoids relying on giant error blobs or tiny brief summaries.
+            let rf = crate::dbt_error::extract_runtime_failures_from_logs(
+                &obj.get("logs").cloned().unwrap_or(Value::Null),
+            );
+            obj.insert("runtime_failures".to_string(), serde_json::json!(rf));
+
+            // Always produce an LLM-backed condensed error summary on failure.
+            // This is used by terminal mode to show the real root cause (not startup banners).
+            let ok = obj.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !ok {
+                let errors: Vec<String> = obj
+                    .get("errors")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
+                match crate::dbt_error::summarize_dbt_failure_llm(
+                    ctx,
+                    &errors,
+                    &logs,
+                    &rf,
+                    2000,
+                ).await {
+                    Ok(sum) => {
+                        obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
+                        obj.insert(
+                            "failing_nodes".to_string(),
+                            serde_json::json!(sum.failing_nodes),
+                        );
+                        obj.insert(
+                            "suggested_next_files".to_string(),
+                            serde_json::json!(sum.suggested_next_files),
+                        );
+                    }
+                    Err(e) => {
+                        obj.insert(
+                            "error_summary".to_string(),
+                            serde_json::json!(format!("(failed to summarize dbt error: {e})")),
+                        );
+                    }
+                }
+            }
+
+            let _ = crate::controller_event::attach_validate_outcome_v2(&mut v)?;
+        }
+        Ok(v)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use react_core::agent::DefaultPolicy;
+    use react_core::keyspace::{DefaultKeyspace, Keyspace};
+    use crate::providers::DbtProvider;
+    use react_core::scope::RequestScope;
+    use react_core::storage::StorageAdapter;
+    use react_module_storage_memory::InMemoryStorageAdapter;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct MockLlm {
+        chat_responses: Mutex<Vec<String>>,
+    }
+    impl react_core::llm::LargeLanguageModel for MockLlm {
+        fn chat(
+            &self,
+            _messages: &[react_core::llm::ChatMessage],
+            _options: &react_core::llm::LlmCallOptions,
+        ) -> Result<String, String> {
+            let mut q = self.chat_responses.lock().unwrap();
+            if q.is_empty() {
+                return Err("no mock responses remaining".to_string());
+            }
+            Ok(q.remove(0))
+        }
+        fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+            Ok(vec![])
+        }
+    }
+
+    struct MockDbtProvider {
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl DbtProvider for MockDbtProvider {
+        async fn ensure_minimal_project(&self, _scope: &RequestScope) -> Result<(), String> {
+            Ok(())
+        }
+        async fn write_model_sql(
+            &self,
+            _scope: &RequestScope,
+            _rel_path: &str,
+            _sql: &str,
+        ) -> Result<String, String> {
+            Ok("k".to_string())
+        }
+        async fn write_metricflow_yaml(
+            &self,
+            _scope: &RequestScope,
+            _rel_path: &str,
+            _yaml_text: &str,
+        ) -> Result<String, String> {
+            Ok("k".to_string())
+        }
+        async fn validate_project(
+            &self,
+            _scope: &RequestScope,
+            _args: &crate::providers::DbtValidateArgs,
+        ) -> Result<crate::providers::DbtValidateResult, String> {
+            let mut c = self.calls.lock().unwrap();
+            *c += 1;
+            if *c == 1 {
+                return Ok(crate::providers::DbtValidateResult {
+                    ok: false,
+                    deps_ok: true,
+                    parse_ok: true,
+                    compile_ok: false,
+                    run_ok: None,
+                    uploaded_target_files: 0,
+                    failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                    errors: vec!["Compilation Error: database error".to_string()],
+                    warnings: vec![],
+                    logs: serde_json::json!({}),
+                });
+            }
+            Ok(crate::providers::DbtValidateResult {
+                ok: true,
+                deps_ok: true,
+                parse_ok: true,
+                compile_ok: true,
+                run_ok: Some(true),
+                uploaded_target_files: 0,
+                failure_class: crate::providers::DbtFailureClass::NoFailure,
+                errors: vec![],
+                warnings: vec![],
+                logs: serde_json::json!({}),
+            })
+        }
+    }
+
+    #[test]
+    fn dbt_validate_mock_change_does_not_require_expected_sha256() {
+        // Ensure unit tests do not require LLM echo of sha (suite enforces drift safety internally).
+        let v = serde_json::json!({
+            "patch_text": "@@\n- select 1\n+ select 2\n",
+            "notes": []
+        });
+        assert!(v.get("patch_text").and_then(|x| x.as_str()).is_some());
+    }
+
+    fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
+        Arc::new(react_core::resolved_config::ReactResolvedConfig {
+            server: react_core::resolved_config::ServerResolved { port: 1 },
+            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
+            llm: react_core::resolved_config::LlmResolved::default(),
+            suite_config: serde_json::json!({
+                "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
+                "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "src", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "vector": { "enabled": false }
+            }),
+        })
+    }
+
+    #[tokio::test]
+    async fn dbt_validate_retries_once_after_remediation_on_sql_failure() {
+        let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
+        // Store one SQL file so remediation scans something.
+        storage
+            .put_bytes("t/w/p/dbt/models/m.sql", b"select 1", "text/sql")
+            .await
+            .unwrap();
+
+        let llm: Arc<dyn react_core::llm::LargeLanguageModel> = Arc::new(MockLlm {
+            chat_responses: Mutex::new(vec![
+                // 1) grounded remediation selects file + provides brief instructions
+                serde_json::json!({
+                    "changes": [{
+                        "key":"t/w/p/dbt/models/m.sql",
+                        "instructions": "Append `-- remediation` to the query to produce a minimal change.",
+                        "reason":"minimal change to trigger retry"
+                    }],
+                    "notes": []
+                })
+                .to_string(),
+                // 2) single-file patch authored via llm_patch_loop_single_file
+                serde_json::json!({
+                    "path": "models/m.sql",
+                    "patch_text": "@@ ... @@\n-select 1\n+select 1 -- remediation\n",
+                    "notes": []
+                })
+                .to_string(),
+            ]),
+        });
+        let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+        let dbt: Arc<dyn DbtProvider> = Arc::new(MockDbtProvider {
+            calls: Mutex::new(0),
+        });
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+
+        let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
+            Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope, keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        ctx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
+        ctx.set_capability(Arc::new(crate::ctx_ext::DbtCap(dbt)));
+
+        let tool = DbtValidateTool {
+            datasets: None,
+            catalog: None,
+        };
+        let obs = tool
+            .call(
+                serde_json::json!({"project_name":"data_engineer","build":false}),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            obs.get("ok").and_then(|v| v.as_bool()),
+            Some(true),
+            "expected dbt_validate ok after one remediation retry; got: {}",
+            serde_json::to_string_pretty(&obs).unwrap_or_default()
+        );
+        // Repair report should exist (best-effort)
+        let _r: Option<crate::dbt_repair::repair_loop::RepairReport> = obs
+            .get("repair_report")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+    }
+}

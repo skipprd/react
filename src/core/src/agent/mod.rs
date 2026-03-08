@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::capability::CapabilityMap;
 use crate::keyspace::Keyspace;
-use crate::providers::VectorStore;
+use crate::provider_traits::VectorStore;
 use crate::schema_registry::{AgentStepTypeV1, AgentStepV1, SchemaId};
 use crate::scope::RequestScope;
 use crate::session::{

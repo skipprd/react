@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use react_core::resolved_config as rc;
 use react_core::suite::SuiteCtx;
-use react_module_storage::{LocalFileStorageAdapter, S3StorageAdapter};
+use react_module_storage_local::LocalFileStorageAdapter;
+use react_module_storage_s3::S3StorageAdapter;
 
-use crate::providers::{DefaultKeyspace, EnvSecretsProvider, LocalKeyspace};
+use crate::wiring::{DefaultKeyspace, EnvSecretsProvider, LocalKeyspace};
 
 pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, String> {
     let (storage, keyspace, lance_uri_prefix) = if cfg.storage.mode == rc::StorageMode::Local {
@@ -21,7 +22,7 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
         let keyspace = Arc::new(LocalKeyspace::new(root));
         (
             storage,
-            keyspace as Arc<dyn crate::providers::Keyspace>,
+            keyspace as Arc<dyn crate::wiring::Keyspace>,
             lance_prefix,
         )
     } else {
@@ -34,7 +35,7 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
         let keyspace = Arc::new(DefaultKeyspace::new(b.clone()));
         (
             storage,
-            keyspace as Arc<dyn crate::providers::Keyspace>,
+            keyspace as Arc<dyn crate::wiring::Keyspace>,
             lance_prefix,
         )
     };
@@ -45,7 +46,7 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
     let mut sctx = SuiteCtx::new(storage, secrets, llm, cfg.scope.clone(), keyspace.clone());
     sctx.set_resolved_config(Some(Arc::new(cfg.clone())));
 
-    crate::suite_wiring::data_engineer::wire_providers(&mut sctx, &keyspace, &lance_uri_prefix)
+    crate::wiring::data_engineer::wire_providers(&mut sctx, &keyspace, &lance_uri_prefix)
         .await?;
 
     Ok(sctx)

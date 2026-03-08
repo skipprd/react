@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::providers::RequestScope;
+use crate::wiring::RequestScope;
 use react_core::resolved_config as rc;
 use rc::{LlmProvider, StorageMode};
 
@@ -178,7 +178,7 @@ const DEFAULT_LOCAL_STORAGE_PATH: &str = "./.react";
 /// (keyed by `suite_id` from the config file) so adding a new suite does not
 /// require changing this function.
 fn resolve_suite_providers(providers_yaml: serde_json::Value) -> Result<serde_json::Value, String> {
-    react_suites::data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
+    react_suite_data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
 }
 
 pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<ReactResolvedConfig, String> {

@@ -5,10 +5,11 @@ use std::sync::Arc;
 use crate::capability::CapabilityMap;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::llm::{DynLlm, NullModel};
-use crate::providers::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
+use crate::provider_traits::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
-use crate::storage::{InMemoryStorageAdapter, StorageAdapter};
+use crate::error::CoreError;
+use crate::storage::StorageAdapter;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -202,10 +203,40 @@ impl SuiteCtxBuilder {
     }
 }
 
+/// No-op storage used only for the `SuiteCtx` default (test convenience).
+/// Real adapters live in `modules/adaptors/storage-*` crates.
+#[derive(Default)]
+struct NullStorageAdapter;
+
+#[async_trait]
+impl StorageAdapter for NullStorageAdapter {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: get_json('{}')", key)))
+    }
+    async fn put_json(&self, key: &str, _value: &Value) -> Result<(), CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: put_json('{}')", key)))
+    }
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: get_bytes('{}')", key)))
+    }
+    async fn put_bytes(&self, key: &str, _bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: put_bytes('{}')", key)))
+    }
+    async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: delete_object('{}')", key)))
+    }
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: head_etag('{}')", key)))
+    }
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+        Err(CoreError::Storage(format!("NullStorageAdapter: list_prefix('{}')", prefix)))
+    }
+}
+
 impl Default for SuiteCtx {
     fn default() -> Self {
         Self {
-            storage: Arc::new(InMemoryStorageAdapter::default()),
+            storage: Arc::new(NullStorageAdapter),
             scope: RequestScope::parse("default", "default", "default")
                 .expect("default scope segments are safe"),
             keyspace: Arc::new(DefaultKeyspace::new("unset".to_string())),

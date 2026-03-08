@@ -1,0 +1,12 @@
+[package]
+name = "react-module-storage-memory"
+version = "0.0.0-git"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.77"
+serde_json = "1.0.85"
+react-core = { path = "../../../core" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

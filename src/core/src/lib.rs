@@ -15,7 +15,7 @@ pub mod helpers;
 pub mod keyspace;
 pub mod llm;
 pub mod llm_observability;
-pub mod providers;
+pub mod provider_traits;
 pub mod resolved_config;
 pub mod schema_registry;
 pub mod scope;
@@ -24,6 +24,9 @@ pub mod storage;
 pub mod suite;
 pub mod tools;
 pub mod workflow;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use error::{CoreError, CoreResult};
 

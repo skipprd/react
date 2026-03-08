@@ -1,5 +1,5 @@
 use super::*;
-use crate::providers::{DefaultKeyspace, RequestScope};
+use crate::wiring::{DefaultKeyspace, RequestScope};
 use crate::ws::conn_state::{derive_thread_context, normalize_agent_new, normalize_agent_open};
 use crate::ws::history::{build_history, compute_unread_for_log};
 use crate::ws::thread_state::ws_thread_state_snapshot_from_core;
@@ -12,8 +12,8 @@ use react_core::session::{
     Observation, ThreadLog, ThreadState as CoreThreadState, ThreadStep, ThreadStore,
     ToolObservation,
 };
-use react_core::providers::NullSecretsProvider;
-use react_core::storage::InMemoryStorageAdapter;
+use react_core::provider_traits::NullSecretsProvider;
+use react_module_storage_memory::InMemoryStorageAdapter;
 use serde_json::json;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -423,7 +423,10 @@ async fn suites_request_requires_cid_and_v() {
         scope,
         keyspace,
     );
-    let reg = Arc::new(react_suites::default_registry());
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx, None);
 
     // Missing required fields should fail strict parsing.
@@ -443,7 +446,10 @@ async fn delete_request_requires_cid_and_v() {
         scope,
         keyspace,
     );
-    let reg = Arc::new(react_suites::default_registry());
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx, None);
 
     let bad = json!({"type":"delete","thread_id":"not-a-uuid"}).to_string();
@@ -517,7 +523,10 @@ async fn plans_request_returns_latest_plan_and_model_when_present() {
         scope.clone(),
         keyspace.clone(),
     );
-    let reg = Arc::new(react_suites::default_registry());
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
 
     let thread_id = uuid::Uuid::new_v4().to_string();
@@ -589,7 +598,10 @@ async fn plans_request_includes_checklist_and_omits_notes() {
         scope.clone(),
         keyspace.clone(),
     );
-    let reg = Arc::new(react_suites::default_registry());
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
 
     let thread_id = uuid::Uuid::new_v4().to_string();
@@ -693,7 +705,10 @@ async fn plans_request_surfaces_parse_error_snapshot_for_corrupt_plan_json() {
         scope.clone(),
         keyspace.clone(),
     );
-    let reg = Arc::new(react_suites::default_registry());
+    let mut reg = react_core::suite::SuiteRegistry::new();
+    reg.register(react_suite_data_engineer::DataEngineerSuite);
+    reg.register(react_suite_kb::KbSuite);
+    let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
 
     let thread_id = uuid::Uuid::new_v4().to_string();

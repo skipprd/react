@@ -5926,8 +5926,11 @@ dependencies = [
  "react-module-provider-dbt",
  "react-module-provider-postgres",
  "react-module-provider-vector-lance",
- "react-module-storage",
- "react-suites",
+ "react-module-storage-local",
+ "react-module-storage-memory",
+ "react-module-storage-s3",
+ "react-suite-data-engineer",
+ "react-suite-kb",
  "regex",
  "serde",
  "serde_derive",
@@ -5977,7 +5980,7 @@ dependencies = [
  "aws-sdk-athena",
  "aws-sdk-glue",
  "react-core",
- "react-suites",
+ "react-suite-data-engineer",
  "serde_json",
  "tokio",
  "tracing",
@@ -5990,7 +5993,7 @@ dependencies = [
  "async-trait",
  "gcp-bigquery-client",
  "react-core",
- "react-suites",
+ "react-suite-data-engineer",
  "serde_json",
  "tokio",
  "tracing",
@@ -6004,7 +6007,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "react-core",
- "react-suites",
+ "react-suite-data-engineer",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -6019,7 +6022,7 @@ version = "0.0.0-git"
 dependencies = [
  "async-trait",
  "react-core",
- "react-suites",
+ "react-suite-data-engineer",
  "serde_json",
  "serde_yaml",
  "tempfile",
@@ -6033,7 +6036,7 @@ dependencies = [
  "async-trait",
  "futures",
  "react-core",
- "react-suites",
+ "react-suite-data-engineer",
  "serde_json",
  "tokio",
  "tokio-postgres",
@@ -6054,7 +6057,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "react-module-storage"
+name = "react-module-storage-local"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "react-core",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "react-module-storage-memory"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "react-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "react-module-storage-s3"
 version = "0.0.0-git"
 dependencies = [
  "async-trait",
@@ -6065,7 +6089,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "react-suites"
+name = "react-suite-data-engineer"
 version = "0.0.0-git"
 dependencies = [
  "async-trait",
@@ -6075,6 +6099,7 @@ dependencies = [
  "hex",
  "once_cell",
  "react-core",
+ "react-module-storage-memory",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -6084,6 +6109,19 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "walkdir",
+]
+
+[[package]]
+name = "react-suite-kb"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "react-core",
+ "react-suite-data-engineer",
+ "serde_json",
+ "tokio",
  "walkdir",
 ]
 
