@@ -25,7 +25,7 @@ fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<Pa
     let mut parts: Vec<PartInput> = Vec::new();
     for (i, m) in req.messages.iter().enumerate() {
         core_msgs.push(CoreChatMessage {
-            role: react_core::llm::ChatRole::from(m.role.as_str()),
+            role: react_core::llm::ChatRole::try_from(m.role.as_str()).unwrap_or(react_core::llm::ChatRole::User),
             content: m.content.clone(),
         });
         parts.push(PartInput {
@@ -52,6 +52,8 @@ struct MemoEntry {
 const CHAT_MEMO_MAX_ENTRIES: usize = 256;
 const CHAT_MEMO_TTL_SECS: u64 = 120;
 
+// Known limitation: process-global singleton.  Once `LlmRouter` is owned by
+// `RuntimeContext`, this should become an instance field on the router.
 static CHAT_MEMO: OnceCell<DashMap<String, MemoEntry>> = OnceCell::new();
 fn chat_memo() -> &'static DashMap<String, MemoEntry> {
     CHAT_MEMO.get_or_init(DashMap::new)
@@ -143,6 +145,8 @@ impl Drop for InflightPermit<'_> {
     }
 }
 
+// Known limitation: process-global singleton.  Should become an instance field
+// on `LlmRouter` when it moves into `RuntimeContext`.
 static LLM_INFLIGHT_LIMITER: OnceCell<InflightLimiter> = OnceCell::new();
 
 fn llm_inflight_limiter() -> &'static InflightLimiter {
@@ -221,7 +225,7 @@ impl LlmRouter {
                 .messages
                 .iter()
                 .map(|m| crate::llm::ChatMessage {
-                    role: react_core::llm::ChatRole::from(m.role.as_str()),
+                    role: react_core::llm::ChatRole::try_from(m.role.as_str()).unwrap_or(react_core::llm::ChatRole::User),
                     content: m.content.clone(),
                 })
                 .collect();

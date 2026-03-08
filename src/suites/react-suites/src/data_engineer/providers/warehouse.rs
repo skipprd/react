@@ -5,6 +5,9 @@ use super::query::{QueryProvider, QueryResult};
 use super::catalog_types::DatasetStats;
 use super::stats::DatasetFieldStats;
 
+// TODO(item-67): All provider traits return `Result<..., String>`. Replace with a
+// typed error enum (e.g. `ProviderError { kind, message, source }`) to enable
+// programmatic error handling and avoid string matching on error messages.
 pub trait WarehouseNaming: Send + Sync {
     fn kind(&self) -> crate::data_engineer::de_config::WarehouseKind;
 
@@ -131,6 +134,11 @@ fn contains_identifier_reference(haystack: &str, ident: &str) -> bool {
     false
 }
 
+// NOTE(item-62): Provider constructors differ by necessity:
+// - Athena: `async from_settings()` / `async from_env()` (AWS SDK init is async)
+// - BigQuery: `async from_settings() -> Result` (GCP client can fail)
+// - Postgres: `from_settings()` (sync; connection is deferred to first query)
+// These differences reflect underlying SDK requirements, not an inconsistency.
 pub trait WarehouseProvider: QueryProvider + DatasetCatalogProvider + WarehouseNaming {}
 impl<T> WarehouseProvider for T where T: QueryProvider + DatasetCatalogProvider + WarehouseNaming {}
 

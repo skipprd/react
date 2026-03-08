@@ -194,7 +194,7 @@ pub fn extract_missing_columns_from_dbt_errors(errors: &[String]) -> Vec<String>
 }
 
 fn dbt_storage_key(ctx: &AgentCtx, rel_path: &str) -> String {
-    let base = ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]);
+    let base = ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]);
     let base = base.trim_end_matches('/').to_string() + "/";
     format!("{}{}", base, rel_path.trim_start_matches('/'))
 }
@@ -223,13 +223,13 @@ async fn schema_columns_for_fqn(ctx: &AgentCtx, fqn: &str) -> Option<RelationFac
 pub async fn load_manifest_index(ctx: &AgentCtx) -> BTreeMap<String, (String, String)> {
     let mut out: BTreeMap<String, (String, String)> = BTreeMap::new();
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
     let key = format!("{}target/manifest.json", base);
-    let Ok(bytes) = ctx.storage.get_bytes(&key).await else {
+    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
         return out;
     };
     let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
@@ -288,13 +288,13 @@ pub async fn load_manifest_index(ctx: &AgentCtx) -> BTreeMap<String, (String, St
 pub async fn load_manifest_source_index(ctx: &AgentCtx) -> BTreeMap<(String, String), String> {
     let mut out: BTreeMap<(String, String), String> = BTreeMap::new();
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
     let key = format!("{}target/manifest.json", base);
-    let Ok(bytes) = ctx.storage.get_bytes(&key).await else {
+    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
         return out;
     };
     let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
@@ -345,7 +345,7 @@ pub async fn load_manifest_source_index(ctx: &AgentCtx) -> BTreeMap<(String, Str
 
 async fn read_dbt_file_text(ctx: &AgentCtx, rel_path: &str, max_bytes: usize) -> Option<String> {
     let key = dbt_storage_key(ctx, rel_path);
-    let Ok(bytes) = ctx.storage.get_bytes(&key).await else {
+    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
         return None;
     };
     let s = String::from_utf8_lossy(&bytes).to_string();
@@ -507,11 +507,7 @@ mod tests {
         Arc::new(config::ReactResolvedConfig {
             server: config::ServerResolved { port: 1 },
             storage: config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
         })
@@ -605,31 +601,14 @@ mod tests {
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>, query: Arc<dyn QueryProvider>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm: Arc::new(NullModel::new()),
-            storage,
-            scope,
-            keyspace,
-            vector: None,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut actx = react_core::agent::AgentCtxBuilder::new(Arc::new(NullModel::new()), storage, scope, keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query)));
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default()))));
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(Arc::new(NoopDbtProvider))));
@@ -658,8 +637,8 @@ mod tests {
 
         // Seed manifest.json that maps ref('stg_dep') to a concrete relation.
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string()
             + "/";

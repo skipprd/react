@@ -183,7 +183,7 @@ impl Tool for StagingModelTool {
         let plan_opt = plan::load_cleanse_plan(ctx).await;
 
         // Ensure minimal dbt project exists before writing artifacts.
-        if let Err(e) = dbt.ensure_minimal_project(&ctx.scope).await {
+        if let Err(e) = dbt.ensure_minimal_project(ctx.scope()).await {
             return Ok(serde_json::json!({
                 "ok": false,
                 "batch_failure_kind": "unknown",
@@ -258,13 +258,13 @@ impl Tool for StagingModelTool {
         // Ensure models/schema.yml exists. We only "seed" it when missing.
         // For existing schema.yml, avoid applying no-op patches (diff parsers may reject header-only diffs).
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let schema_rel = project_fs::MODELS_SCHEMA_YML.to_string();
         let schema_key = format!("{}/{}", base, schema_rel);
-        let existing_schema: Option<String> = match ctx.storage.get_bytes(&schema_key).await {
+        let existing_schema: Option<String> = match ctx.storage().get_bytes(&schema_key).await {
             Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
             Err(_) => None,
         };
@@ -296,7 +296,7 @@ impl Tool for StagingModelTool {
                 }
             };
             if let Err(e) = ctx
-                .storage
+                .storage()
                 .put_bytes(&schema_key, outcome.content.as_bytes(), "text/yaml")
                 .await
             {
@@ -356,7 +356,7 @@ impl Tool for StagingModelTool {
                     }
                 };
                 if let Err(e) = ctx
-                    .storage
+                    .storage()
                     .put_bytes(&schema_key, outcome.content.as_bytes(), "text/yaml")
                     .await
                 {
@@ -389,7 +389,7 @@ impl Tool for StagingModelTool {
         let staging_prefix = format!("{}/models/staging/", base);
         let mut staging_files: Vec<(String, String)> = Vec::new(); // (rel_path, content)
         let mut unreadable_staging_rel_paths: Vec<String> = Vec::new();
-        if let Ok(keys) = ctx.storage.list_prefix(&staging_prefix).await {
+        if let Ok(keys) = ctx.storage().list_prefix(&staging_prefix).await {
             for k in keys {
                 if !k.ends_with(".sql") {
                     continue;
@@ -402,7 +402,7 @@ impl Tool for StagingModelTool {
                     .strip_prefix(&(base.clone() + "/"))
                     .unwrap_or(k.as_str())
                     .to_string();
-                match ctx.storage.get_bytes(&k).await {
+                match ctx.storage().get_bytes(&k).await {
                     Ok(bytes) => {
                         let content = String::from_utf8_lossy(&bytes).to_string();
                         staging_files.push((rel_path, content));
@@ -507,7 +507,7 @@ impl Tool for StagingModelTool {
                 }));
             }
             let existing_opt = ctx
-                .storage
+                .storage()
                 .get_bytes(&key)
                 .await
                 .ok()
@@ -525,7 +525,7 @@ impl Tool for StagingModelTool {
             )
             .await?;
             if let Err(e) = ctx
-                .storage
+                .storage()
                 .put_bytes(&key, outcome.content.as_bytes(), "text/sql")
                 .await
             {
@@ -603,7 +603,7 @@ impl Tool for StagingModelTool {
             );
 
             let existing_sql = ctx
-                .storage
+                .storage()
                 .get_bytes(&key)
                 .await
                 .ok()
@@ -987,11 +987,7 @@ mod tests {
 
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
@@ -1009,26 +1005,14 @@ mod tests {
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
         let query_prov: Arc<dyn crate::data_engineer::providers::QueryProvider> = Arc::new(MockQuery);
         let dbt_prov: Arc<dyn crate::data_engineer::providers::DbtProvider> = Arc::new(MockDbt);
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: Some("t1".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: Arc::new(react_core::llm::NullModel::new()),
-            storage: storage.clone(),
-            scope,
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(cfg),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(Arc::new(react_core::llm::NullModel::new()), storage.clone(), scope, keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .thread_id("t1".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(cfg))
+            .build();
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(query_prov)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt_prov)));
@@ -1053,7 +1037,7 @@ mod tests {
         // Ensure we didn't write schema.yml as a side effect.
         let schema_key = format!(
             "{}{}",
-            ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]),
+            ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]),
             crate::data_engineer::project_fs::MODELS_SCHEMA_YML
         );
         assert!(storage.get_bytes(&schema_key).await.is_err());
@@ -1210,11 +1194,7 @@ mod tests {
 
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
@@ -1241,26 +1221,14 @@ mod tests {
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(MockWarehouse);
         let dbt_prov: Arc<dyn crate::data_engineer::providers::DbtProvider> = Arc::new(MockDbt);
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: Some("t1".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(cfg),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .thread_id("t1".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(cfg))
+            .build();
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt_prov)));
 

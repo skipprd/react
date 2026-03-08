@@ -27,4 +27,5 @@ mod providers {
     pub use react_suites::data_engineer::providers::{QueryProvider, QueryResult};
 }
 
-include!("athena_impl.rs");
+mod athena_impl;
+pub use athena_impl::*;

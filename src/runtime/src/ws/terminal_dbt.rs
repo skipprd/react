@@ -2,6 +2,10 @@
 ///
 /// All dbt-validate label parsing, normalisation and sort-ranking lives here
 /// so that the main terminal module has no hardcoded dbt knowledge.
+///
+/// TODO: This is still runtime-level domain leakage — the dbt label vocabulary
+/// should be data-driven from the suite (e.g. via a `TerminalHints` trait) so
+/// the runtime has zero hardcoded knowledge of any particular suite's tool names.
 
 pub(super) const DBT_VALIDATE_TOOL_NAME: &str = "dbt_validate";
 

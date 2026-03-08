@@ -241,7 +241,7 @@ pub async fn llm_should_remediate_sql(
     ];
     let call_opts = LlmCallOptions {
         prompt_id: "data_engineer.dbt_should_remediate",
-        thread_id: ctx.thread_id.clone(),
+        thread_id: ctx.thread_id().clone(),
         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
         temperature: Some(0.0),
         top_p: Some(1.0),
@@ -264,12 +264,12 @@ pub async fn llm_should_remediate_sql(
 
 pub async fn list_sql_keys_for_scope(ctx: &AgentCtx) -> Result<Vec<String>, String> {
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
-    let keys = ctx.storage.list_prefix(&base).await.unwrap_or_default();
+    let keys = ctx.storage().list_prefix(&base).await.unwrap_or_default();
     let mut out: Vec<String> = Vec::new();
     for k in keys {
         if !k.ends_with(".sql") {
@@ -341,7 +341,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
         let mut chars: usize = 0;
         while idx < keys.len() {
             let k = &keys[idx];
-            let bytes = ctx.storage.get_bytes(k).await.unwrap_or_default();
+            let bytes = ctx.storage().get_bytes(k).await.unwrap_or_default();
             let text = String::from_utf8_lossy(&bytes).to_string();
             let add = k.len() + text.len();
             if !batch.is_empty() && chars + add > max_chars_per_batch {
@@ -396,7 +396,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
         ];
         let call_opts = LlmCallOptions {
             prompt_id: "data_engineer.dbt_dialect_remediation",
-            thread_id: ctx.thread_id.clone(),
+            thread_id: ctx.thread_id().clone(),
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             temperature: Some(0.0),
             top_p: Some(1.0),
@@ -427,8 +427,8 @@ pub async fn remediate_dbt_sql_keys_with_llm(
                 continue;
             }
             let base = ctx
-                .keyspace
-                .scoped_prefix(&ctx.scope, &["dbt"])
+                .keyspace()
+                .scoped_prefix(ctx.scope(), &["dbt"])
                 .trim_end_matches('/')
                 .to_string();
             let rel = ch
@@ -472,7 +472,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
                     4,
                     Some(LlmCallOptions {
                         prompt_id: "data_engineer.dbt_dialect_remediation_patch",
-                        thread_id: ctx.thread_id.clone(),
+                        thread_id: ctx.thread_id().clone(),
                         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                         max_output_tokens: None,
                         temperature: Some(0.0),
@@ -490,7 +490,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
                 ));
             }
 
-            ctx.storage
+            ctx.storage()
                 .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
                 .await
                 .map_err(|e| e.to_string())?;
@@ -720,8 +720,8 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
 
     // Only consider keys under dbt prefix and never in target/_versions.
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     keys.retain(|k| {
@@ -734,7 +734,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     for rel in crate::data_engineer::project_fs::CORE_PROJECT_CONTEXT_FILES.iter() {
         let k = format!("{}/{}", base, rel);
         if !keys.iter().any(|x| x == &k) {
-            if ctx.storage.get_bytes(&k).await.is_ok() {
+            if ctx.storage().get_bytes(&k).await.is_ok() {
                 keys.push(k);
             }
         }
@@ -759,7 +759,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     let mut content_by_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     for k in keys.iter() {
-        let bytes = ctx.storage.get_bytes(k).await.unwrap_or_default();
+        let bytes = ctx.storage().get_bytes(k).await.unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes).to_string();
         if text.trim().is_empty() {
             continue;
@@ -902,7 +902,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     ];
     let call_opts = LlmCallOptions {
         prompt_id: "data_engineer.dbt_grounded_repair_plan",
-        thread_id: ctx.thread_id.clone(),
+        thread_id: ctx.thread_id().clone(),
         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
         temperature: Some(0.0),
         top_p: Some(1.0),
@@ -978,7 +978,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
             4,
             Some(LlmCallOptions {
                 prompt_id: "data_engineer.dbt_grounded_repair_patch",
-                thread_id: ctx.thread_id.clone(),
+                thread_id: ctx.thread_id().clone(),
                 expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                 max_output_tokens: None,
                 temperature: Some(0.0),
@@ -997,7 +997,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
             ));
         }
 
-        ctx.storage
+        ctx.storage()
             .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
             .await
             .map_err(|e| e.to_string())?;
@@ -1137,7 +1137,7 @@ pub async fn remediate_unresolved_columns_with_llm(
     let mut content_by_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     for k in keys.iter() {
-        let bytes = ctx.storage.get_bytes(k).await.unwrap_or_default();
+        let bytes = ctx.storage().get_bytes(k).await.unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes).to_string();
         if text.trim().is_empty() {
             continue;
@@ -1289,7 +1289,7 @@ pub async fn remediate_unresolved_columns_with_llm(
     ];
     let call_opts = LlmCallOptions {
         prompt_id: "data_engineer.dbt_resolve_missing_columns",
-        thread_id: ctx.thread_id.clone(),
+        thread_id: ctx.thread_id().clone(),
         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
         temperature: Some(0.0),
         top_p: Some(1.0),
@@ -1325,8 +1325,8 @@ pub async fn remediate_unresolved_columns_with_llm(
             continue;
         }
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let rel = ch
@@ -1371,7 +1371,7 @@ pub async fn remediate_unresolved_columns_with_llm(
             4,
             Some(LlmCallOptions {
                 prompt_id: "data_engineer.dbt_resolve_missing_columns_patch",
-                thread_id: ctx.thread_id.clone(),
+                thread_id: ctx.thread_id().clone(),
                 expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                 max_output_tokens: None,
                 temperature: Some(0.0),
@@ -1389,7 +1389,7 @@ pub async fn remediate_unresolved_columns_with_llm(
             ));
         }
 
-        ctx.storage
+        ctx.storage()
             .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
             .await
             .map_err(|e| e.to_string())?;
@@ -1451,11 +1451,7 @@ mod tests {
         Arc::new(ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -1467,34 +1463,17 @@ mod tests {
     }
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>, llm: Arc<dyn LargeLanguageModel>) -> AgentCtx {
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg_athena()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg_athena()))
+            .build();
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         actx
     }
@@ -1538,8 +1517,8 @@ mod tests {
         let llm: Arc<dyn LargeLanguageModel> = Arc::new(MockLlm::default());
         let ctx = make_ctx(storage.clone(), llm);
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         storage

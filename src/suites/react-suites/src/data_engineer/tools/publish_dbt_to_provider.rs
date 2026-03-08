@@ -105,11 +105,11 @@ impl Tool for PublishDbtToProviderTool {
         }
 
         // Fetch manifest.json from storage (uploaded by validate_project when compile succeeds)
-        let base = ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]);
+        let base = ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]);
         let base = base.trim_end_matches('/').to_string() + "/";
         let manifest_key = format!("{}target/manifest.json", base);
         let manifest_bytes = ctx
-            .storage
+            .storage()
             .get_bytes(&manifest_key)
             .await
             .map_err(|e| format!("failed to fetch manifest.json: {}", e))?;
@@ -124,9 +124,9 @@ impl Tool for PublishDbtToProviderTool {
         // Determine last published digest (if any) from typed execution state.
         let mut last_published_digest: Option<String> = None;
         let mut pending_plan_digest: Option<String> = None;
-        let tid = ctx.thread_id.clone().unwrap_or_default();
+        let tid = ctx.thread_id().clone().unwrap_or_default();
         if !tid.is_empty() {
-            if let Some(store) = ctx.thread_store.as_ref() {
+            if let Some(store) = ctx.thread_store().as_ref() {
                 let es = state_manager::load_execution_state_strict(store, &tid)
                     .await
                     .map_err(|e| {
@@ -153,7 +153,7 @@ impl Tool for PublishDbtToProviderTool {
         // Always require approval before any dbt build/publish run.
         if !confirm {
             if !tid.is_empty() {
-                if let Some(store) = ctx.thread_store.as_ref() {
+                if let Some(store) = ctx.thread_store().as_ref() {
                     state_manager::mutate_execution_state(store, &tid, |es| {
                         es.set_pending_publish_plan(plan_sha256.clone());
                     })
@@ -237,7 +237,7 @@ impl Tool for PublishDbtToProviderTool {
         }
 
         // Best-effort: cache published relation list in-memory for ask-mode prelude.
-        if let Some(tid) = ctx.thread_id.as_deref() {
+        if let Some(tid) = ctx.thread_id().as_deref() {
             if !tid.trim().is_empty() {
                 let providers = crate::data_engineer::de_config::de_config_from_resolved(cfg);
                 let wh_container = providers.as_ref().map(|p| p.warehouse.container.as_str()).unwrap_or("");
@@ -261,7 +261,7 @@ impl Tool for PublishDbtToProviderTool {
 
         emit_trace(ctx, "publish finished");
         if !tid.is_empty() {
-            if let Some(store) = ctx.thread_store.as_ref() {
+            if let Some(store) = ctx.thread_store().as_ref() {
                 state_manager::mutate_execution_state(store, &tid, |es| {
                     es.mark_publish_complete(plan_sha256.clone());
                 })
@@ -406,10 +406,10 @@ fn extract_relations(m: &Manifest) -> Vec<PublishedRelation> {
 }
 
 fn resolved_config(ctx: &AgentCtx) -> Result<&ReactResolvedConfig, String> {
-    ctx.resolved_config
+    ctx.resolved_config()
         .as_ref()
         .map(|c| c.as_ref())
-        .ok_or_else(|| "resolved_config missing (server must inject resolved YAML config into AgentCtx.resolved_config)".to_string())
+        .ok_or_else(|| "resolved_config missing (server must inject resolved YAML config into AgentCtx.resolved_config())".to_string())
 }
 
 #[cfg(test)]
@@ -438,11 +438,7 @@ mod tests {
         let cfg = react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -535,11 +531,7 @@ mod tests {
     async fn publish_always_requires_approval_before_build() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let dbt: Arc<dyn DbtProvider> = Arc::new(MockDbtProvider {
             storage: storage.clone(),
             keyspace: keyspace.clone(),
@@ -560,26 +552,20 @@ mod tests {
 
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
-        let mut ctx = react_core::agent::AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: Some("tid".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("model".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm: Arc::new(react_core::llm::NullModel::new()),
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            Arc::new(react_core::llm::NullModel::new()),
             storage,
             scope,
             keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(cfg.clone()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id("tid".to_string())
+        .agent_name("model".to_string())
+        .resolved_config(Some(cfg.clone()))
+        .build();
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));
 

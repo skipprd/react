@@ -22,8 +22,8 @@ pub struct ReplaceListEdit {
 
 pub fn join_storage_key(ctx: &AgentCtx, rel: &str) -> String {
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     format!("{}/{}", base, rel)
@@ -37,7 +37,7 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
     };
     let key_prefix = join_storage_key(ctx, &rel_prefix.trim_start_matches('/'));
     let mut keys = ctx
-        .storage
+        .storage()
         .list_prefix(&key_prefix)
         .await
         .unwrap_or_default();
@@ -47,8 +47,8 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
         let rel = k
             .strip_prefix(
                 &(ctx
-                    .keyspace
-                    .scoped_prefix(&ctx.scope, &["dbt"])
+                    .keyspace()
+                    .scoped_prefix(ctx.scope(), &["dbt"])
                     .trim_end_matches('/')
                     .to_string()
                     + "/"),
@@ -63,7 +63,7 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
 pub async fn get_file(ctx: &AgentCtx, path: &str, max_chars: usize) -> Result<Value, String> {
     let rel = normalize_rel_path(path)?;
     let key = join_storage_key(ctx, &rel);
-    match ctx.storage.get_bytes(&key).await {
+    match ctx.storage().get_bytes(&key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
             let base_sha256 = {
@@ -131,7 +131,7 @@ pub async fn remove_file(
     let rel = normalize_rel_path(path)?;
     let key = join_storage_key(ctx, &rel);
 
-    let existing = ctx.storage.get_bytes(&key).await.ok();
+    let existing = ctx.storage().get_bytes(&key).await.ok();
     let existed = existing.is_some();
     let base_sha256 = existing
         .as_ref()
@@ -148,7 +148,7 @@ pub async fn remove_file(
     }
 
     if existed {
-        ctx.storage.delete_object(&key).await.map_err(|e| e.to_string())?;
+        ctx.storage().delete_object(&key).await.map_err(|e| e.to_string())?;
     }
 
     Ok(serde_json::json!({
@@ -180,7 +180,7 @@ pub async fn move_file(
     let to_key = join_storage_key(ctx, &to_rel);
 
     let bytes = ctx
-        .storage
+        .storage()
         .get_bytes(&from_key)
         .await
         .map_err(|_| format!("not found: {}", from_rel))?;
@@ -194,12 +194,12 @@ pub async fn move_file(
         }
     }
 
-    if ctx.storage.get_bytes(&to_key).await.is_ok() {
+    if ctx.storage().get_bytes(&to_key).await.is_ok() {
         return Err(format!("destination already exists: {}", to_rel));
     }
 
-    ctx.storage.put_bytes(&to_key, &bytes, "text/plain").await.map_err(|e| e.to_string())?;
-    ctx.storage.delete_object(&from_key).await.map_err(|e| e.to_string())?;
+    ctx.storage().put_bytes(&to_key, &bytes, "text/plain").await.map_err(|e| e.to_string())?;
+    ctx.storage().delete_object(&from_key).await.map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "ok": true,
@@ -255,7 +255,7 @@ pub(crate) mod test_helpers {
     use react_core::llm::{ChatMessage, LargeLanguageModel};
     use crate::data_engineer::providers::{DatasetId, QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
-    use react_core::storage::{InMemoryStorageAdapter, StorageAdapter};
+    use react_core::storage::StorageAdapter;
     use std::collections::HashMap;
     pub use std::sync::Arc;
 
@@ -310,11 +310,7 @@ pub(crate) mod test_helpers {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -430,33 +426,16 @@ pub(crate) mod test_helpers {
         query: Option<Arc<dyn QueryProvider>>,
     ) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: Arc::new(DummyLlm::default()),
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(Arc::new(DummyLlm::default()), storage, scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         if let Some(q) = query {
             actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::QueryCap(q)));

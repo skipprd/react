@@ -156,9 +156,9 @@ impl Tool for GoldModelTool {
         // default authoring instructions (and merge with any explicit item.instructions overrides).
         let plan_opt = plan::load_model_plan(ctx).await;
         let global_semantic_context = ctx
-            .storage
-            .get_json(&ctx.keyspace.scoped_key(
-                &ctx.scope,
+            .storage()
+            .get_json(&ctx.keyspace().scoped_key(
+                ctx.scope(),
                 &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
             ))
             .await
@@ -166,8 +166,8 @@ impl Tool for GoldModelTool {
             .unwrap_or(serde_json::Value::Null);
 
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let query = crate::data_engineer::ctx_ext::actx_warehouse(ctx)
@@ -210,12 +210,12 @@ impl Tool for GoldModelTool {
             let core_rel = gold_model_rel_path("core", name);
             let marts_rel = gold_model_rel_path("marts", name);
             let core_exists = ctx
-                .storage
+                .storage()
                 .get_bytes(&format!("{}/{}", base, core_rel))
                 .await
                 .is_ok();
             let marts_exists = ctx
-                .storage
+                .storage()
                 .get_bytes(&format!("{}/{}", base, marts_rel))
                 .await
                 .is_ok();
@@ -247,7 +247,7 @@ impl Tool for GoldModelTool {
 
             // Load the inputs to ground the LLM in actual silver SQL.
             let max_fetch_concurrency = 3usize;
-            let storage = ctx.storage.clone();
+            let storage = ctx.storage().clone();
             let query2 = query.clone();
             let target_container2 = target_container.clone();
             let silver_ns2 = silver_ns.clone();
@@ -383,7 +383,7 @@ impl Tool for GoldModelTool {
                 "plan_expected_model_path": plan_expected_model_path,
                 "inputs": input_blocks,
                 "existing_model_sql": ctx
-                    .storage
+                    .storage()
                     .get_bytes(&format!("{}/{}", base, rel_path))
                     .await
                     .ok()
@@ -481,7 +481,7 @@ impl Tool for GoldModelTool {
             let rel_path_for_hint = rel_path.clone();
             let name_for_hint = name.to_string();
             let existing_sql = ctx
-                .storage
+                .storage()
                 .get_bytes(&format!("{}/{}", base, rel_path))
                 .await
                 .ok()
@@ -669,11 +669,7 @@ mod tests {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -686,33 +682,16 @@ mod tests {
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>, llm: Arc<dyn LargeLanguageModel>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(MockWarehouse::default());
-        let mut actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         actx
     }
@@ -966,7 +945,7 @@ mod tests {
         });
 
         let mut ctx = make_ctx(storage.clone(), llm);
-        ctx.thread_id = Some("t1".to_string());
+        ctx.set_thread_id(Some("t1".to_string()));
 
         // Seed an approved model plan with invariants/checklist for this model.
         let plan_key = crate::data_engineer::plan::new_model_plan_key(&ctx);

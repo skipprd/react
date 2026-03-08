@@ -229,7 +229,7 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         .unwrap_or_else(|| tid.clone());
 
     // Determine exit code from durable, materialized state.
-    let store = ThreadStore::new(ctx.storage.clone(), ctx.scope.clone(), ctx.keyspace.clone());
+    let store = ThreadStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
     let st = store.get_thread_state(&thread_id).await.ok();
     if st.is_none() && !saw_final {
         return Ok((2, thread_id));

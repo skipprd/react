@@ -121,8 +121,8 @@ impl AgentPolicy for SqlValidatedPolicy {
         thread_id: &str,
         complete_env: &CompleteEnvelope,
     ) -> Result<Option<RunOutcome>, String> {
-        let is_authoring = matches!(ctx.agent_name.as_deref(), Some("model") | Some("cleanse"));
-        let is_ask = matches!(ctx.agent_name.as_deref(), Some("ask"));
+        let is_authoring = matches!(ctx.agent_name().as_deref(), Some("model") | Some("cleanse"));
+        let is_ask = matches!(ctx.agent_name().as_deref(), Some("ask"));
 
         // For DBT-authoring agents, require successful dbt_validate before allowing completion.
         //
@@ -238,7 +238,7 @@ impl AgentPolicy for SqlValidatedPolicy {
             };
             if let Some(store) = store {
                 let agent = ctx
-                    .agent_name
+                    .agent_name()
                     .clone()
                     .unwrap_or_else(|| "unknown".to_string());
                 let _ = store
@@ -308,7 +308,7 @@ impl AgentPolicy for SqlValidatedPolicy {
             .unwrap_or(false);
         if let Some(store) = store {
             let agent = ctx
-                .agent_name
+                .agent_name()
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
             let _ = store
@@ -353,7 +353,7 @@ impl AgentPolicy for SqlValidatedPolicy {
         };
         if let Some(store) = store {
             let agent = ctx
-                .agent_name
+                .agent_name()
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
             let _ = store
@@ -453,11 +453,7 @@ mod tests {
     async fn model_final_is_rejected_after_failed_dbt_validate() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let store = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
         // Use a unique thread id to avoid cross-test cache collisions.
         let tid = format!(
@@ -523,26 +519,14 @@ mod tests {
             )
             .await;
 
-        let ctx = react_core::agent::AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: Some(tid.clone()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("model".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: Arc::new(react_core::llm::NullModel::new()),
-            storage,
-            scope,
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: Some(store.clone()),
-            exec_ctx: None,
-            resolved_config: None,
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(Arc::new(react_core::llm::NullModel::new()), storage, scope, keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .thread_id(tid.clone())
+            .agent_name("model".to_string())
+            .thread_store(store.clone())
+            .build();
 
         let policy = SqlValidatedPolicy::default();
         let mut transcript: Vec<String> = Vec::new();

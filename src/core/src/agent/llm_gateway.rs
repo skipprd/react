@@ -1,8 +1,16 @@
+use crate::error::CoreError;
 use crate::llm::{ChatMessage, ChatRole, LlmCallOptions};
 use crate::llm_observability;
 use crate::session::{LlmStepStatus, Observation, ThreadStep};
 
 use super::AgentCtx;
+
+struct ObservabilityContext {
+    call_id: Option<u64>,
+    phase: String,
+    prompt_hash: String,
+    parts_built: Option<llm_observability::BuiltParts>,
+}
 
 impl AgentCtx {
     /// Single entry point for all LLM chat calls.
@@ -14,70 +22,18 @@ impl AgentCtx {
         &self,
         messages: &[ChatMessage],
         options: &LlmCallOptions,
-    ) -> Result<String, String> {
-        let model = self.llm.clone();
+    ) -> Result<String, CoreError> {
         let thread_id_opt = self.thread_id.clone();
         let store_opt = self.thread_store.clone();
-        let agent = self
-            .agent_name
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
+        let agent = self.agent_name_or_default();
 
-        let obs_enabled = llm_observability::llm_calls_enabled() && thread_id_opt.is_some();
-        let (call_id_opt, phase, prompt_hash, parts_built) = if obs_enabled {
-            let thread_id = thread_id_opt.as_ref().unwrap();
-            let call_id = llm_observability::next_call_id(thread_id);
-            let prompt_hash = llm_observability::prompt_hash_for_messages(messages);
-
-            let phase =
-                if let (Some(store), Some(tid)) = (store_opt.as_ref(), thread_id_opt.as_ref()) {
-                    match store.get(tid).await {
-                        Ok(log) => {
-                            let mut found = "suite_llm".to_string();
-                            for step in log.steps.iter().rev() {
-                                if let ThreadStep::Phase { phase, .. } = step {
-                                    let t = phase.trim();
-                                    if !t.is_empty() {
-                                        found = t.to_string();
-                                        break;
-                                    }
-                                }
-                            }
-                            found
-                        }
-                        Err(_) => "suite_llm".to_string(),
-                    }
-                } else {
-                    "suite_llm".to_string()
-                };
-
-            let inputs: Vec<llm_observability::PartInput> = messages
-                .iter()
-                .enumerate()
-                .map(|(i, m)| llm_observability::PartInput {
-                    name: format!("{}.{}", m.role, i),
-                    text: m.content.clone(),
-                })
-                .collect();
-            let built = llm_observability::build_parts_for_thread(thread_id, &inputs);
-
-            tracing::debug!(
-                "LLM_CALL thread_id={} call_id={} agent={} phase={} prompt_id={}",
-                thread_id,
-                call_id,
-                agent,
-                phase,
-                options.prompt_id
-            );
-
-            (Some(call_id), phase, prompt_hash, Some(built))
-        } else {
-            (None, "suite_llm".to_string(), String::new(), None)
-        };
+        let obs_ctx = self
+            .prepare_observability(messages, options, thread_id_opt.as_deref(), store_opt.as_ref(), &agent)
+            .await;
 
         self.emit_llm_start_step(
-            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
-            &phase, &agent,
+            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
+            &obs_ctx.phase, &agent,
         ).await;
 
         let mut options = options.clone();
@@ -85,8 +41,30 @@ impl AgentCtx {
             options.thread_id = thread_id_opt.clone();
         }
 
+        let res = self.invoke_llm(messages, &options).await;
+
+        self.emit_llm_end_step(
+            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
+            &obs_ctx.phase, &agent, &res,
+        ).await;
+
+        self.record_llm_observation(
+            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
+            obs_ctx.parts_built, &obs_ctx.phase, &agent, &obs_ctx.prompt_hash, &res,
+        ).await;
+
+        res
+    }
+
+    async fn invoke_llm(
+        &self,
+        messages: &[ChatMessage],
+        options: &LlmCallOptions,
+    ) -> Result<String, CoreError> {
+        let model = self.llm.clone();
         let messages_owned = messages.to_vec();
-        let res = if let Some(timeout) = options.timeout_secs {
+        let options = options.clone();
+        if let Some(timeout) = options.timeout_secs {
             match tokio::time::timeout(
                 std::time::Duration::from_secs(timeout),
                 tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options)),
@@ -94,28 +72,88 @@ impl AgentCtx {
             .await
             {
                 Ok(join_result) => join_result
-                    .map_err(|e| format!("LLM execution failed: {}", e))?
-                    .map_err(|e| format!("LLM request failed: {}", e)),
-                Err(_) => Err(format!("LLM call timed out after {}s", timeout)),
+                    .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
+                    .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e))),
+                Err(_) => Err(CoreError::Agent(format!("LLM call timed out after {}s", timeout))),
             }
         } else {
             tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options))
                 .await
-                .map_err(|e| format!("LLM execution failed: {}", e))?
-                .map_err(|e| format!("LLM request failed: {}", e))
+                .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
+                .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e)))
+        }
+    }
+
+    async fn prepare_observability(
+        &self,
+        messages: &[ChatMessage],
+        options: &LlmCallOptions,
+        thread_id: Option<&str>,
+        store: Option<&crate::session::ThreadStore>,
+        agent: &str,
+    ) -> ObservabilityContext {
+        let obs_enabled = llm_observability::llm_calls_enabled() && thread_id.is_some();
+        if !obs_enabled {
+            return ObservabilityContext {
+                call_id: None,
+                phase: "suite_llm".to_string(),
+                prompt_hash: String::new(),
+                parts_built: None,
+            };
+        }
+        let tid = thread_id.unwrap();
+        let call_id = llm_observability::next_call_id(tid);
+        let prompt_hash = llm_observability::prompt_hash_for_messages(messages);
+
+        let phase = if let Some(store) = store {
+            match store.get(tid).await {
+                Ok(log) => {
+                    let mut found = "suite_llm".to_string();
+                    for step in log.steps.iter().rev() {
+                        if let ThreadStep::Phase { phase, .. } = step {
+                            let t = phase.trim();
+                            if !t.is_empty() {
+                                found = t.to_string();
+                                break;
+                            }
+                        }
+                    }
+                    found
+                }
+                Err(_) => "suite_llm".to_string(),
+            }
+        } else {
+            "suite_llm".to_string()
         };
 
-        self.emit_llm_end_step(
-            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
-            &phase, &agent, &res,
-        ).await;
+        let inputs: Vec<llm_observability::PartInput> = messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| llm_observability::PartInput {
+                name: format!("{}.{}", m.role, i),
+                text: m.content.clone(),
+            })
+            .collect();
+        let built = llm_observability::build_parts_for_thread(tid, &inputs);
 
-        self.record_llm_observation(
-            call_id_opt, thread_id_opt.as_deref(), store_opt.as_ref(),
-            parts_built, &phase, &agent, &prompt_hash, &res,
-        ).await;
+        tracing::debug!(
+            "LLM_CALL thread_id={} call_id={} agent={} phase={} prompt_id={}",
+            tid, call_id, agent, phase, options.prompt_id
+        );
 
-        res
+        ObservabilityContext {
+            call_id: Some(call_id),
+            phase,
+            prompt_hash,
+            parts_built: Some(built),
+        }
+    }
+
+    fn resolved_model_name(&self) -> String {
+        self.resolved_config
+            .as_ref()
+            .and_then(|c| c.llm.chat_model.clone())
+            .unwrap_or_else(|| "unknown".to_string())
     }
 
     async fn emit_llm_start_step(
@@ -126,15 +164,14 @@ impl AgentCtx {
         phase: &str,
         agent: &str,
     ) {
-        if let (Some(call_id), Some(thread_id), Some(store)) =
-            (call_id_opt, thread_id, store_opt)
-        {
+        if let (Some(call_id), Some(tid), Some(store)) = (call_id_opt, thread_id, store_opt) {
+            let model = self.resolved_model_name();
             let _ = store
                 .append_step(
-                    thread_id,
+                    tid,
                     ThreadStep::LlmStart {
                         call_id,
-                        model: Some("unknown".to_string()),
+                        model: Some(model),
                         phase: phase.to_string(),
                         ctx: self.exec_ctx.clone(),
                         ts: chrono::Utc::now().to_rfc3339(),
@@ -152,32 +189,27 @@ impl AgentCtx {
         store_opt: Option<&crate::session::ThreadStore>,
         phase: &str,
         agent: &str,
-        res: &Result<String, String>,
+        res: &Result<String, CoreError>,
     ) {
-        if let (Some(call_id), Some(thread_id), Some(store)) =
-            (call_id_opt, thread_id, store_opt)
-        {
+        if let (Some(call_id), Some(tid), Some(store)) = (call_id_opt, thread_id, store_opt) {
+            let model = self.resolved_model_name();
             let (ok, response_raw) = match res.as_ref() {
-                Ok(txt) => (true, txt.as_str()),
-                Err(e) => (false, e.as_str()),
+                Ok(txt) => (true, txt.clone()),
+                Err(e) => (false, e.to_string()),
             };
             let _ = store
                 .append_step(
-                    thread_id,
+                    tid,
                     ThreadStep::LlmEnd {
                         call_id,
-                        model: Some("unknown".to_string()),
+                        model: Some(model),
                         phase: phase.to_string(),
                         status: if ok {
                             LlmStepStatus::Ok
                         } else {
                             LlmStepStatus::Failed
                         },
-                        error: if ok {
-                            None
-                        } else {
-                            Some(response_raw.to_string())
-                        },
+                        error: if ok { None } else { Some(response_raw) },
                         ctx: self.exec_ctx.clone(),
                         ts: chrono::Utc::now().to_rfc3339(),
                         agent: agent.to_string(),
@@ -196,14 +228,19 @@ impl AgentCtx {
         phase: &str,
         agent: &str,
         prompt_hash: &str,
-        res: &Result<String, String>,
+        res: &Result<String, CoreError>,
     ) {
         if let (Some(call_id), Some(thread_id), Some(store), Some(built)) =
             (call_id_opt, thread_id, store_opt, parts_built)
         {
+            let model = self.resolved_model_name();
+            let err_string;
             let (ok, response_raw) = match res.as_ref() {
                 Ok(txt) => (true, txt.as_str()),
-                Err(e) => (false, e.as_str()),
+                Err(e) => {
+                    err_string = e.to_string();
+                    (false, err_string.as_str())
+                }
             };
 
             let response_hash = llm_observability::sha256_hex_str(response_raw);
@@ -219,7 +256,7 @@ impl AgentCtx {
                     thread_id,
                     ThreadStep::LlmCall {
                         call_id,
-                        model: "unknown".to_string(),
+                        model,
                         phase: phase.to_string(),
                         prompt_hash: prompt_hash.to_string(),
                         parts: built.parts,
@@ -244,7 +281,7 @@ impl AgentCtx {
         &self,
         messages: &[ChatMessage],
         options: &LlmCallOptions,
-    ) -> Result<T, String> {
+    ) -> Result<T, CoreError> {
         let raw = self.llm_chat(messages, options).await?;
 
         if let Ok(v) = serde_json::from_str::<T>(&raw) {
@@ -264,16 +301,16 @@ impl AgentCtx {
         });
         let raw2 = self.llm_chat(&retry_messages, options).await?;
         serde_json::from_str::<T>(&raw2).map_err(|e2| {
-            format!(
+            CoreError::Agent(format!(
                 "{}: expected JSON, got parse error: {} (first_error: {})",
                 options.prompt_id, e2, first_err
-            )
+            ))
         })
     }
 
     /// Embed texts via the underlying LLM provider.
-    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        self.llm.embed(texts)
+    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, CoreError> {
+        self.llm.embed(texts).map_err(CoreError::generic)
     }
 }
 

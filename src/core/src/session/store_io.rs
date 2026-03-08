@@ -5,10 +5,9 @@ use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
 
-const CACHE_TTL_SECS: u64 = 5;
-
 use super::{
     CacheEntry, ControlStateEnvelope, ThreadLog, ThreadState, ThreadStep, ThreadStore,
+    ThreadStoreConfig,
     CONTROL_STATE_ENVELOPE_SCHEMA_VERSION, THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
 };
 
@@ -24,12 +23,26 @@ impl ThreadStore {
         scope: crate::scope::RequestScope,
         keyspace: Arc<dyn crate::keyspace::Keyspace>,
     ) -> Self {
+        Self::with_config(storage, scope, keyspace, ThreadStoreConfig::default())
+    }
+
+    pub fn with_config(
+        storage: Arc<dyn crate::storage::StorageAdapter>,
+        scope: crate::scope::RequestScope,
+        keyspace: Arc<dyn crate::keyspace::Keyspace>,
+        config: ThreadStoreConfig,
+    ) -> Self {
         Self {
             storage,
             scope,
             keyspace,
             cache: Arc::new(dashmap::DashMap::new()),
+            config,
         }
+    }
+
+    pub fn config(&self) -> &ThreadStoreConfig {
+        &self.config
     }
 
     pub(crate) fn key(&self, thread_id: &str) -> CoreResult<String> {
@@ -53,10 +66,6 @@ impl ThreadStore {
         )
     }
 
-    fn cache_key_for(&self, key: &str) -> String {
-        key.to_string()
-    }
-
     fn ensure_thread_log_schema(log: &ThreadLog) -> CoreResult<()> {
         if log.schema_version != THREAD_SCHEMA_VERSION {
             return Err(CoreError::Schema(format!(
@@ -68,9 +77,18 @@ impl ThreadStore {
     }
 
     async fn load_thread_log_for_write(&self, key: &str) -> CoreResult<ThreadLog> {
-        let cache_key = self.cache_key_for(key);
-        let log = if let Some(entry) = self.cache.get(&cache_key) {
-            entry.log.clone()
+        let log = if let Some(entry) = self.cache.get(key) {
+            if entry.ts.elapsed().as_secs() < self.config.cache_ttl_secs {
+                entry.log.clone()
+            } else {
+                drop(entry);
+                if let Ok(v) = self.storage.get_json(key).await {
+                    serde_json::from_value::<ThreadLog>(v)
+                        .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
+                } else {
+                    ThreadLog::default()
+                }
+            }
         } else if let Ok(v) = self.storage.get_json(key).await {
             serde_json::from_value::<ThreadLog>(v)
                 .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
@@ -83,7 +101,6 @@ impl ThreadStore {
 
     pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         log.steps.push(step.clone());
         let step_count = log.steps.len();
@@ -91,7 +108,7 @@ impl ThreadStore {
             .map_err(|e| CoreError::Session(format!("append_step('{}'): failed to serialize thread log: {}", thread_id, e)))?;
         self.storage.put_json(&key, &val).await?;
         self.cache.insert(
-            cache_key,
+            key.clone(),
             CacheEntry {
                 log,
                 ts: Instant::now(),
@@ -260,7 +277,7 @@ impl ThreadStore {
         &self,
         thread_id: &str,
         suite_id: &str,
-        mutate: impl FnOnce(Option<Value>) -> Result<Value, String>,
+        mutate: impl FnOnce(Option<Value>) -> CoreResult<Value>,
     ) -> CoreResult<Value> {
         let current = self.load_control_state_payload(thread_id, suite_id).await?;
         let next = mutate(current)?;
@@ -297,21 +314,21 @@ impl ThreadStore {
         &self,
         thread_id: &str,
         suite_id: &str,
-        mutate: impl FnOnce(Option<T>) -> Result<T, String>,
+        mutate: impl FnOnce(Option<T>) -> CoreResult<T>,
     ) -> CoreResult<T> {
         let mut typed_next: Option<T> = None;
         self.mutate_control_state_payload(thread_id, suite_id, |current_raw| {
             let current = match current_raw {
                 Some(raw) => Some(
                     serde_json::from_value::<T>(raw)
-                        .map_err(|e| format!("failed to parse typed control state payload: {e}"))?,
+                        .map_err(|e| CoreError::Session(format!("failed to parse typed control state payload: {e}")))?,
                 ),
                 None => None,
             };
             let next = mutate(current)?;
             typed_next = Some(next);
             serde_json::to_value(typed_next.as_ref().expect("typed next set"))
-                .map_err(|e| format!("failed to serialize typed control state payload: {e}"))
+                .map_err(|e| CoreError::Session(format!("failed to serialize typed control state payload: {e}")))
         })
         .await?;
         typed_next.ok_or_else(|| CoreError::Session("typed control-state mutation produced no value".to_string()))
@@ -319,14 +336,13 @@ impl ThreadStore {
 
     pub async fn get_thread_events_from_log(&self, thread_id: &str) -> CoreResult<Vec<super::ThreadEvent>> {
         let log = self.get(thread_id).await?;
-        Ok(super::build_thread_events_from_log(&log, 200))
+        Ok(super::build_thread_events_from_log(&log, self.config.max_events))
     }
 
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
         let key = self.key(thread_id)?;
-        let cache_key = self.cache_key_for(&key);
-        if let Some(entry) = self.cache.get(&cache_key) {
-            if entry.ts.elapsed().as_secs() < CACHE_TTL_SECS {
+        if let Some(entry) = self.cache.get(&key) {
+            if entry.ts.elapsed().as_secs() < self.config.cache_ttl_secs {
                 return Ok(entry.log.clone());
             }
         }
@@ -339,7 +355,7 @@ impl ThreadStore {
             .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?;
         Self::ensure_thread_log_schema(&log)?;
         self.cache.insert(
-            cache_key,
+            key.clone(),
             CacheEntry {
                 log: log.clone(),
                 ts: Instant::now(),
@@ -357,6 +373,9 @@ impl ThreadStore {
                     .strip_prefix(&prefix)
                     .and_then(|s| s.strip_suffix(".json"))
                 {
+                    if name.contains('.') {
+                        continue;
+                    }
                     out.push(name.to_string());
                 }
             }
@@ -367,7 +386,6 @@ impl ThreadStore {
 
     pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let cache_key = self.cache_key_for(&key);
         let state_key = self.state_key(thread_id)?;
         let thread_prefix = format!(
             "{}/{}.",
@@ -381,13 +399,12 @@ impl ThreadStore {
                 let _ = self.storage.delete_object(&k).await;
             }
         }
-        self.cache.remove(&cache_key);
+        self.cache.remove(&key);
         Ok(())
     }
 
     pub async fn set_title_if_absent(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         if log.title.is_none() || log.title.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             log.title = Some(title.to_string());
@@ -395,7 +412,7 @@ impl ThreadStore {
                 .map_err(|e| CoreError::Session(format!("set_title_if_absent('{}'): failed to serialize: {}", thread_id, e)))?;
             self.storage.put_json(&key, &val).await?;
             self.cache.insert(
-                cache_key,
+                key.clone(),
                 CacheEntry {
                     log,
                     ts: Instant::now(),
@@ -407,7 +424,6 @@ impl ThreadStore {
 
     pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let cache_key = self.cache_key_for(&key);
         let mut log = self.load_thread_log_for_write(&key).await?;
         if !log.title_locked {
             log.title = Some(title.to_string());
@@ -416,7 +432,7 @@ impl ThreadStore {
                 .map_err(|e| CoreError::Session(format!("lock_title('{}'): failed to serialize: {}", thread_id, e)))?;
             self.storage.put_json(&key, &val).await?;
             self.cache.insert(
-                cache_key,
+                key.clone(),
                 CacheEntry {
                     log,
                     ts: Instant::now(),

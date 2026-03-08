@@ -101,10 +101,6 @@ pub(super) fn ws_final_result_from_typed_final(
     }
 }
 
-pub(super) fn map_plan_kind(plan_kind: Option<react_core::session::ExecutionPlanKind>) -> Option<String> {
-    plan_kind.map(|k| k.0)
-}
-
 pub(super) fn map_thread_event_kind(event_kind: react_core::session::ThreadEventKind) -> api::ThreadEventKind {
     match event_kind {
         react_core::session::ThreadEventKind::ToolStart => api::ThreadEventKind::ToolStart,
@@ -125,10 +121,10 @@ pub(super) fn map_tool_event_status(status: Option<react_core::session::ThreadEv
 
 pub(super) fn map_exec_ctx(c: &react_core::session::ExecutionContext) -> api::ExecutionContext {
     let mut out = api::ExecutionContext::new();
-    out.plan_kind = map_plan_kind(c.plan_kind.clone());
-    out.plan_key = c.plan_key.clone();
-    out.workgroup_id = c.workgroup_id.clone();
-    out.task_id = c.task_id.clone();
-    out.checklist_item_id = c.checklist_item_id.clone();
+    out.plan_kind = c.get_str("plan_kind").map(|s| s.to_string());
+    out.plan_key = c.get_str("plan_key").map(|s| s.to_string());
+    out.workgroup_id = c.get_str("workgroup_id").map(|s| s.to_string());
+    out.task_id = c.get_str("task_id").map(|s| s.to_string());
+    out.checklist_item_id = c.get_str("checklist_item_id").map(|s| s.to_string());
     out
 }

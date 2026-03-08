@@ -140,6 +140,9 @@ impl Default for ChecklistItemStatus {
     }
 }
 
+// TODO(item-91): Convert ChecklistEvidence.kind from bare String to a typed enum once all
+// concrete kind values are catalogued. Values are currently passed as free-form strings via
+// plan_progress::make_checklist_evidence.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChecklistEvidence {
@@ -193,6 +196,9 @@ pub struct PlanWorkGroup {
     pub depends_on_group_ids: Option<Vec<String>>,
 }
 
+// TODO(item-90): Convert MutationReasonCode from a string newtype to an enum with known
+// variants + `Other(String)` fallback once the concrete reason codes are stabilized.
+// Currently only constructed via deserialization; audit JSON payloads for known values first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct MutationReasonCode(pub String);

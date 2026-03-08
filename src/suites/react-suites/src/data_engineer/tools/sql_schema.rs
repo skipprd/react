@@ -37,7 +37,7 @@ impl Tool for SqlSchemaTool {
                 }
             };
             if let Some(cat) = self.catalog.as_ref() {
-                if let Ok(Some(c)) = cat.read_catalog(&ctx.scope, &canonical).await {
+                if let Ok(Some(c)) = cat.read_catalog(ctx.scope(), &canonical).await {
                     let cols: Vec<Value> = c
                         .fields
                         .iter()

@@ -1,5 +1,11 @@
 use super::*;
 
+/// External-facing interaction modes for the data_engineer suite.
+///
+/// The suite README lists five agent *types* (ask, review, agent, plan, validate),
+/// but plan/validate/author/publish are internal phases driven by the `Agent` mode's
+/// phase loop (see `execute_phase`). Only these three represent distinct entry points
+/// that callers can select via `dispatch_agent`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum AgentMode {
     Ask,
@@ -214,7 +220,8 @@ impl DataEngineerSuite {
                     timeout_secs: None,
                 },
             )
-            .await,
+            .await
+            .map_err(|e| e.to_string()),
         )
     }
 
@@ -256,7 +263,8 @@ impl DataEngineerSuite {
                     timeout_secs: None,
                 },
             )
-            .await,
+            .await
+            .map_err(|e| e.to_string()),
         )
     }
 
@@ -269,30 +277,27 @@ impl DataEngineerSuite {
         per_step_timeout: u64,
     ) -> AgentCtx {
         let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
         );
-        let mut actx = AgentCtx {
-            top_k: env_util::DEFAULT_TOP_K,
-            per_step_timeout_secs: per_step_timeout,
-            max_steps,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some(agent_name.to_string()),
-            policy,
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: sctx.resolved_config.clone(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+                sctx.llm().clone(),
+                sctx.storage().clone(),
+                sctx.scope().clone(),
+                sctx.keyspace().clone(),
+                policy,
+            )
+            .top_k(env_util::DEFAULT_TOP_K)
+            .per_step_timeout_secs(per_step_timeout)
+            .max_steps(max_steps)
+            .thread_id(thread_id)
+            .trace_tx(sctx.trace_tx().clone())
+            .agent_name(agent_name)
+            .vector(sctx.vector().clone())
+            .thread_store(thread_store)
+            .resolved_config(sctx.resolved_config().clone())
+            .build();
         crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
         actx
     }
@@ -347,9 +352,9 @@ impl DataEngineerSuite {
         use control_flow::{DerivedGuardState, Phase};
         if let Err(e) = Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await {
             let thread_store = ThreadStore::new(
-                sctx.storage.clone(),
-                sctx.scope.clone(),
-                sctx.keyspace.clone(),
+                sctx.storage().clone(),
+                sctx.scope().clone(),
+                sctx.keyspace().clone(),
             );
             let reason = format!(
                 "catalog bootstrap metadata gate failed before planning:\n{}",
@@ -378,9 +383,9 @@ impl DataEngineerSuite {
         let max_replan_backtracks: usize = control_flow::replan_backtrack_counter_cap();
 
         let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
         );
 
         let mut out_frames: Vec<FlowFrame> = Vec::new();

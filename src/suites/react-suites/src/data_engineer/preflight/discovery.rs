@@ -24,7 +24,7 @@ pub async fn run_discovery(
     } else {
         limits.top_k_datasets
     };
-    let vector = match sctx.vector.as_ref() {
+    let vector = match sctx.vector().as_ref() {
         Some(v) => v,
         None => {
             return DiscoveryBundle {
@@ -44,7 +44,7 @@ pub async fn run_discovery(
 
     // Query within the current ReAct project scope.
     let mut all: Vec<(String, f32)> = Vec::new();
-    if let Ok(hits) = vector.query(&sctx.scope, &vec, k, Some("dataset")).await {
+    if let Ok(hits) = vector.query(sctx.scope(), &vec, k, Some("dataset")).await {
         for h in hits {
             all.push((h.item.entity_id, h.score));
         }
@@ -77,8 +77,8 @@ pub async fn run_discovery_cached(
     };
     let qhash = react_core::llm_observability::sha256_hex_str(question);
     let root = sctx
-        .keyspace
-        .threads_prefix(&sctx.scope)
+        .keyspace()
+        .threads_prefix(sctx.scope())
         .trim_end_matches("/threads")
         .trim_end_matches('/')
         .to_string();
@@ -87,7 +87,7 @@ pub async fn run_discovery_cached(
         root, thread_id, qhash, k
     );
 
-    if let Ok(v) = sctx.storage.get_json(&key).await {
+    if let Ok(v) = sctx.storage().get_json(&key).await {
         if let Some(arr) = v.get("datasets").and_then(|x| x.as_array()) {
             let mut out: Vec<(String, f32)> = Vec::new();
             for it in arr {
@@ -119,6 +119,6 @@ pub async fn run_discovery_cached(
         })).collect::<Vec<_>>(),
         "ts": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = sctx.storage.put_json(&key, &payload).await;
+    let _ = sctx.storage().put_json(&key, &payload).await;
     bundle
 }

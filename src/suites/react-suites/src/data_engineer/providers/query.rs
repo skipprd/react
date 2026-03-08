@@ -8,6 +8,9 @@ pub struct QueryResult {
     pub meta: Option<Value>,
 }
 
+// NOTE(item-61): Error strings from providers should follow the format
+// `"{provider}: {detail}: {source_err}"` (e.g. `"athena: query failed: timeout"`).
+// Existing providers are partially consistent; new code should follow this pattern.
 #[async_trait]
 pub trait QueryProvider: Send + Sync {
     async fn query(&self, sql: &str) -> Result<QueryResult, String>;

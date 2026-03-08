@@ -5,22 +5,12 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-fn env_truthy(key: &str) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|v| {
-            let vv = v.trim().to_lowercase();
-            vv == "1" || vv == "true" || vv == "yes"
-        })
-        .unwrap_or(false)
-}
-
 pub fn llm_calls_enabled() -> bool {
-    env_truthy("REACT_LOG_LLM_CALLS") || env_truthy("REACT_LOG_THREAD_STEPS")
+    crate::env_truthy("REACT_LOG_LLM_CALLS") || crate::env_truthy("REACT_LOG_THREAD_STEPS")
 }
 
 pub fn llm_response_text_enabled() -> bool {
-    env_truthy("REACT_LOG_LLM_RESPONSE_TEXT") || env_truthy("REACT_LOG_THREAD_STEPS")
+    crate::env_truthy("REACT_LOG_LLM_RESPONSE_TEXT") || crate::env_truthy("REACT_LOG_THREAD_STEPS")
 }
 
 fn sha256_hex_bytes(bytes: &[u8]) -> String {

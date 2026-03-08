@@ -8,6 +8,12 @@ use super::providers::{
     CatalogProvider, DatasetCatalogProvider, DbtProvider, QueryProvider, WarehouseProvider,
 };
 
+// TODO(items-83-85): The capability newtypes, cap_accessors macro, wire_sctx_capabilities,
+// and copy_capabilities_to_actx are used by sibling suites (e.g. `kb`). Extract them into a
+// shared top-level module (e.g. `crate::shared_caps`) so suites don't reach into
+// `data_engineer` internals. This also requires relocating the provider traits from
+// `data_engineer::providers` and `ProvidersResolved` from `data_engineer::de_config`.
+//
 // Adding a new provider requires changes in 5 places:
 //   1. Cap struct definition below
 //   2. cap_accessors! macro invocation (generates sctx_* and actx_* fns)
@@ -23,11 +29,9 @@ pub struct ProvidersCfgCap(pub ProvidersResolved);
 
 macro_rules! cap_accessors {
     ($cap:ident, $ret:ty, $sctx_fn:ident, $actx_fn:ident) => {
-        #[allow(dead_code)]
         pub(crate) fn $sctx_fn(ctx: &SuiteCtx) -> Option<$ret> {
             ctx.capability::<$cap>().map(|c| c.0.clone())
         }
-        #[allow(dead_code)]
         pub(crate) fn $actx_fn(ctx: &AgentCtx) -> Option<$ret> {
             ctx.capability::<$cap>().map(|c| c.0.clone())
         }

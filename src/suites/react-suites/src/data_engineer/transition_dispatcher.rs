@@ -145,6 +145,10 @@ pub async fn apply_phase_directive(
     }
 }
 
+// TODO(item-102): Some guardrail tests below overlap with tests_mod.rs (e.g. source-scanning
+// tests like `all_phase_executors_use_phase_contract_transition_seam` and
+// `run_agent_source_enforces_kernel_transition_and_guard_paths`). Consolidate into a single
+// location to avoid drift.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,11 +160,7 @@ mod tests {
     #[tokio::test]
     async fn validate_pass_to_review_resets_counter() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-validate-pass-reset";
@@ -194,11 +194,7 @@ mod tests {
     #[tokio::test]
     async fn validate_pass_to_author_increments_loopback_counter() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-validate-pass-loopback";
@@ -229,11 +225,7 @@ mod tests {
     #[tokio::test]
     async fn entering_model_plan_resets_manifest_and_bootstrap_state() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-model-plan-reset-state";
@@ -275,11 +267,7 @@ mod tests {
     #[tokio::test]
     async fn apply_phase_directive_block_appends_guard() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-phase-directive-block";
@@ -309,11 +297,7 @@ mod tests {
     #[tokio::test]
     async fn apply_phase_directive_annotate_keeps_backtrack_counter() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-phase-directive-annotate";
@@ -348,11 +332,7 @@ mod tests {
     #[tokio::test]
     async fn loopback_counter_saturates_at_cap() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-loopback-cap";
@@ -385,11 +365,7 @@ mod tests {
     #[tokio::test]
     async fn apply_phase_directive_transition_is_handled() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-phase-directive-transition";
@@ -421,11 +397,7 @@ mod tests {
     #[tokio::test]
     async fn preturn_ladder_stop_fallback_can_be_applied_as_block_directive() {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-preturn-ladder-stop-fallback";

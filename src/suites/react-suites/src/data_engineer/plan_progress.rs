@@ -1128,7 +1128,7 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
         if name == "apply_next_cleanse_batch" {
             let checklist_item_id = step_ctx
                 .as_ref()
-                .and_then(|c| c.checklist_item_id.as_deref())
+                .and_then(|c| c.get_str("checklist_item_id"))
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| CHECKLIST_SQL_MODEL.to_string());
@@ -1392,7 +1392,7 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
                 stems.dedup();
                 let sql_checklist_item_id = step_ctx
                     .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
+                    .and_then(|c| c.get_str("checklist_item_id"))
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| CHECKLIST_SQL_MODEL.to_string());
@@ -1441,7 +1441,7 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
                 if touched_schema_yml {
                     let Some(schema_checklist_item_id) = step_ctx
                         .as_ref()
-                        .and_then(|c| c.checklist_item_id.as_deref())
+                        .and_then(|c| c.get_str("checklist_item_id"))
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                     else {
@@ -1636,7 +1636,7 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
         if name == "apply_next_model_batch" {
             let checklist_item_id = step_ctx
                 .as_ref()
-                .and_then(|c| c.checklist_item_id.as_deref())
+                .and_then(|c| c.get_str("checklist_item_id"))
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| CHECKLIST_SQL_MODEL.to_string());
@@ -2010,7 +2010,7 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
                 if ok && touched_models_schema_yml {
                     let Some(schema_checklist_item_id) = step_ctx
                         .as_ref()
-                        .and_then(|c| c.checklist_item_id.as_deref())
+                        .and_then(|c| c.get_str("checklist_item_id"))
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                     else {
@@ -2107,7 +2107,7 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
 
                 let Some(schema_checklist_item_id) = step_ctx
                     .as_ref()
-                    .and_then(|c| c.checklist_item_id.as_deref())
+                    .and_then(|c| c.get_str("checklist_item_id"))
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                 else {
@@ -2828,13 +2828,14 @@ mod tests {
                     "attempted_dataset_ids":["a.b.c"],
                     "succeeded_dataset_ids":["a.b.c"]
                 }),
-                Some(ExecutionContext {
-                    plan_kind: Some(react_core::session::ExecutionPlanKind::new("cleanse")),
-                    plan_key: Some("k".to_string()),
-                    workgroup_id: Some("wg".to_string()),
-                    task_id: Some("a.b.c".to_string()),
-                    checklist_item_id: Some("time_derivatives".to_string()),
-                    data: std::collections::BTreeMap::new(),
+                Some({
+                    let mut ctx = ExecutionContext::default();
+                    ctx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+                    ctx.set("plan_key", serde_json::Value::String("k".to_string()));
+                    ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
+                    ctx.set("task_id", serde_json::Value::String("a.b.c".to_string()));
+                    ctx.set("checklist_item_id", serde_json::Value::String("time_derivatives".to_string()));
+                    ctx
                 }),
             )],
             ..Default::default()
@@ -2896,13 +2897,14 @@ mod tests {
                     "attempted_dataset_ids":["a.b.c"],
                     "succeeded_dataset_ids":["a.b.c"]
                 }),
-                Some(ExecutionContext {
-                    plan_kind: Some(react_core::session::ExecutionPlanKind::new("cleanse")),
-                    plan_key: Some("k".to_string()),
-                    workgroup_id: Some("wg".to_string()),
-                    task_id: Some("a.b.c".to_string()),
-                    checklist_item_id: Some("collision_id_contract".to_string()),
-                    data: std::collections::BTreeMap::new(),
+                Some({
+                    let mut ctx = ExecutionContext::default();
+                    ctx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+                    ctx.set("plan_key", serde_json::Value::String("k".to_string()));
+                    ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
+                    ctx.set("task_id", serde_json::Value::String("a.b.c".to_string()));
+                    ctx.set("checklist_item_id", serde_json::Value::String("collision_id_contract".to_string()));
+                    ctx
                 }),
             )],
             ..Default::default()
@@ -2959,13 +2961,14 @@ mod tests {
                     "patch_text": "@@ ... @@\n+version: 2\n+\n+models:\n+  - name: dim_customers\n+    columns:\n+      - name: customer_id\n+sources:\n+  - name: test_raw\n"
                 }),
                 serde_json::json!({"ok": true}),
-                Some(ExecutionContext {
-                    plan_kind: Some(react_core::session::ExecutionPlanKind::new("model")),
-                    plan_key: Some("k".to_string()),
-                    workgroup_id: Some("wg".to_string()),
-                    task_id: Some("dim_customers".to_string()),
-                    checklist_item_id: Some(CHECKLIST_SCHEMA_CONTRACT.to_string()),
-                    data: std::collections::BTreeMap::new(),
+                Some({
+                    let mut ctx = ExecutionContext::default();
+                    ctx.set("plan_kind", serde_json::Value::String("model".to_string()));
+                    ctx.set("plan_key", serde_json::Value::String("k".to_string()));
+                    ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
+                    ctx.set("task_id", serde_json::Value::String("dim_customers".to_string()));
+                    ctx.set("checklist_item_id", serde_json::Value::String(CHECKLIST_SCHEMA_CONTRACT.to_string()));
+                    ctx
                 }),
             )],
             ..Default::default()

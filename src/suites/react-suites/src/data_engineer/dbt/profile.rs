@@ -121,7 +121,7 @@ pub fn generate_profiles_yml(
 
             // dbt-athena-adapter typical output keys: type, s3_staging_dir, region_name, database, schema, work_group, catalog_name
             let mut out = String::new();
-            out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
+            out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
@@ -150,7 +150,7 @@ pub fn generate_profiles_yml(
                 ));
             }
             Ok(GeneratedProfiles {
-                profile_name,
+                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
                 active,
@@ -179,7 +179,7 @@ pub fn generate_profiles_yml(
             let pass = "{{ env_var('PGPASSWORD', '') }}";
             let port = "{{ env_var('PGPORT', '5432') | int }}";
             let mut out = String::new();
-            out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
+            out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
@@ -194,7 +194,7 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name,
+                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
                 active,
@@ -229,7 +229,7 @@ pub fn generate_profiles_yml(
                 .and_then(|v| v.as_str())
                 .unwrap_or("{{ env_var('SNOWFLAKE_ROLE') }}");
             let mut out = String::new();
-            out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
+            out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
@@ -251,7 +251,7 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name,
+                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
                 active,
@@ -281,7 +281,7 @@ pub fn generate_profiles_yml(
                 .and_then(|v| v.as_str())
                 .unwrap_or("{{ env_var('BIGQUERY_LOCATION', 'US') }}");
             let mut out = String::new();
-            out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
+            out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
@@ -300,7 +300,7 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name,
+                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
                 active,
@@ -325,7 +325,7 @@ pub fn generate_profiles_yml(
                 providers.dbt.naming.target_schema.trim().to_string()
             };
             let mut out = String::new();
-            out.push_str(&format!("{}:\n", yaml_escape_key(&profile_name)));
+            out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
@@ -344,7 +344,7 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name,
+                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
                 active,
@@ -361,7 +361,7 @@ fn derive_scope_db_name(cfg: &ReactResolvedConfig) -> String {
     //
     // This keeps warehouse names short and predictable (e.g. "example_silver2"),
     // while still allowing overrides via providers.dbt.naming.target_schema.
-    sanitize_ident(&cfg.scope.project_id)
+    sanitize_ident(cfg.scope.project_id.as_str())
 }
 
 fn sanitize_ident(s: &str) -> String {
@@ -413,11 +413,7 @@ mod tests {
         let cfg = ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {} },

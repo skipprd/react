@@ -27,8 +27,8 @@ async fn list_artifacts(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
     let limit = args.get("limit").and_then(|x| x.as_u64()).unwrap_or(20) as usize;
     let mut items: Vec<Value> = Vec::new();
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let kinds: &[(&str, &str, &str)] =
@@ -40,7 +40,7 @@ async fn list_artifacts(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
             }
         }
         let prefix = format!("{}/{}/", base, dir_name);
-        let keys = ctx.storage.list_prefix(&prefix).await.unwrap_or_default();
+        let keys = ctx.storage().list_prefix(&prefix).await.unwrap_or_default();
         for k in keys {
             if k.contains("/_versions/") {
                 continue;
@@ -98,12 +98,12 @@ async fn get_artifact(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         return Err("path must target models/*.sql or metrics/*.yaml".to_string());
     };
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, rel_path);
-    match ctx.storage.get_bytes(&key).await {
+    match ctx.storage().get_bytes(&key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
             Ok(serde_json::json!({"ok": true, "kind": kind, "path": rel_path, "key": key, "content": text}))

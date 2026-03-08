@@ -19,6 +19,9 @@ pub struct PostgresSettings {
     pub max_concurrency: usize,
 }
 
+// TODO(item-59): Add connection pooling (e.g. deadpool-postgres or bb8) and TLS
+// support (e.g. tokio-postgres-rustls). Currently each query opens a new TCP
+// connection with NoTls, which is unsuitable for production workloads.
 #[derive(Clone)]
 pub struct PostgresProvider {
     inner: Arc<Inner>,
@@ -134,40 +137,18 @@ impl PostgresProvider {
     }
 
     fn parse_dataset_id(&self, s: &str) -> Result<DatasetId, String> {
-        let raw = s.trim().trim_matches('"').trim_matches('`');
-        if raw.is_empty() {
-            return Err("dataset id is empty".to_string());
-        }
-        let parts: Vec<&str> = raw.split('.').collect();
-        match parts.len() {
-            3 => Ok(DatasetId {
-                catalog: parts[0].to_string(),
-                database: parts[1].to_string(),
-                table: parts[2].to_string(),
-            }),
-            2 => Ok(DatasetId {
-                catalog: self.dbname()?,
-                database: parts[0].to_string(),
-                table: parts[1].to_string(),
-            }),
-            1 => {
-                let schema = self
-                    .inner
-                    .settings
-                    .default_schema
-                    .clone()
-                    .or_else(|| std::env::var("PGSCHEMA").ok())
-                    .unwrap_or_else(|| "public".to_string());
-                Ok(DatasetId {
-                    catalog: self.dbname()?,
-                    database: schema,
-                    table: parts[0].to_string(),
-                })
-            }
-            _ => Err(
-                "dataset id must be <database>.<schema>.<table> (or <schema>.<table>)".to_string(),
-            ),
-        }
+        let default_schema = self
+            .inner
+            .settings
+            .default_schema
+            .clone()
+            .or_else(|| std::env::var("PGSCHEMA").ok())
+            .unwrap_or_else(|| "public".to_string());
+        react_suites::data_engineer::providers::warehouse_utils::parse_fqn_common(
+            s,
+            &self.dbname()?,
+            Some(&default_schema),
+        )
     }
 
     fn quote_ident_pg(ident: &str) -> String {
@@ -213,15 +194,14 @@ impl QueryProvider for PostgresProvider {
                 for r in &rows {
                     let mut v: Vec<String> = Vec::new();
                     for (i, col) in r.columns().iter().enumerate() {
-                        let _ = col; // reserved for future typing-specific coercions
+                        let _ = col;
+                        // TODO(item-71): The try_get fallback chain (String -> &str -> "")
+                        // silently converts all non-text types to empty strings. Use
+                        // postgres type OIDs to handle int, float, bool, timestamp, etc.
                         let s: String = r
                             .try_get::<usize, String>(i)
                             .or_else(|_| r.try_get::<usize, &str>(i).map(|s| s.to_string()))
-                            .unwrap_or_else(|_| {
-                                // Best-effort: nulls and non-string types become empty string here.
-                                // Suites treat QueryResult as display/debug only.
-                                "".to_string()
-                            });
+                            .unwrap_or_else(|_| "".to_string());
                         v.push(s);
                     }
                     out_rows.push(v);
@@ -308,7 +288,7 @@ impl DatasetCatalogProvider for PostgresProvider {
         _dataset: &DatasetId,
         _max_fields: usize,
     ) -> Result<(DatasetFieldStats, DatasetStats), String> {
-        Err("postgres stats not implemented".to_string())
+        Err("postgres: get_dataset_stats not yet implemented; per-field stats collection requires dialect-specific SQL generation".to_string())
     }
 
     fn max_concurrency(&self) -> usize {

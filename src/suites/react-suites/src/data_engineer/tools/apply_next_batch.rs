@@ -210,9 +210,9 @@ impl Tool for ApplyNextCleanseBatchTool {
         // Use explicit exec context (workgroup/checklist) when present so we can mark the correct
         // checklist item complete and avoid infinite loops on secondary SQL checklist items.
         let checklist_item_id = ctx
-            .exec_ctx
+            .exec_ctx()
             .as_ref()
-            .and_then(|c| c.checklist_item_id.as_ref())
+            .and_then(|c| c.get_str("checklist_item_id"))
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| plan::CHECKLIST_SQL_MODEL.to_string());
@@ -510,9 +510,9 @@ impl Tool for ApplyNextModelBatchTool {
         // Use explicit exec context (workgroup/checklist) when present so we can mark the correct
         // checklist item complete and avoid infinite loops on secondary SQL checklist items.
         let checklist_item_id = ctx
-            .exec_ctx
+            .exec_ctx()
             .as_ref()
-            .and_then(|c| c.checklist_item_id.as_ref())
+            .and_then(|c| c.get_str("checklist_item_id"))
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| plan::CHECKLIST_SQL_MODEL.to_string());
@@ -734,11 +734,7 @@ mod tests {
                 bucket: None,
                 path: None,
             },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "test_raw", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -757,30 +753,14 @@ mod tests {
         });
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage,
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, RequestScope::parse("t", "w", "p").expect("valid test scope"), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id(thread_id.to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         actx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         actx
     }
@@ -848,7 +828,7 @@ mod tests {
     async fn seed_model_plan(ctx: &AgentCtx, sql_done: bool, schema_done: bool, locked: bool) {
         let stg_rel = "models/staging/stg_test_raw_raw_customers.sql";
         let stg_key = crate::data_engineer::project_fs::join_storage_key(ctx, stg_rel);
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &stg_key,
                 b"select 1 as customer_id, 'x' as email",

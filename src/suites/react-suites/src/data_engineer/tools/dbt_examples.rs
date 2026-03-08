@@ -22,27 +22,27 @@ impl Tool for SearchDbtExamplesTool {
         if query.is_empty() {
             return Ok(serde_json::json!({"ok": true, "examples": []}));
         }
-        if ctx.vector.is_none() {
+        if ctx.vector().is_none() {
             return Ok(serde_json::json!({
                 "ok": true,
                 "examples": [],
-                "warning": "vector provider missing; enable providers.vector.enabled to use dbt examples search"
+                "warning": "vector provider missing; enable providers.vector().enabled to use dbt examples search"
             }));
         }
         let k = args.get("k").and_then(|x| x.as_u64()).unwrap_or(8) as usize;
         // Ensure examples synced at least once (non-blocking if already done)
         crate::data_engineer::dbt::examples::ensure_synced_once(
-            ctx.storage.clone(),
-            ctx.scope.clone(),
-            ctx.llm.clone(),
-            ctx.vector.clone(),
+            ctx.storage().clone(),
+            ctx.scope().clone(),
+            ctx.llm().clone(),
+            ctx.vector().clone(),
         )
         .await;
         let embed_chars = query.len();
         let results = crate::data_engineer::dbt::examples::search_examples(
-            ctx.scope.clone(),
-            ctx.llm.clone(),
-            ctx.vector.clone(),
+            ctx.scope().clone(),
+            ctx.llm().clone(),
+            ctx.vector().clone(),
             &query,
             k,
         )

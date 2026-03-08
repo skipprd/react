@@ -19,6 +19,6 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 schemars = { version = "1.2.1", features = ["derive"] }
 
-react-core = { path = "../../core" }
+react-core = { path = "../../core", features = ["progress"] }
 diffy = "0.4.2"
 hex = "0.4.3"

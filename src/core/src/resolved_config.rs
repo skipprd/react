@@ -55,26 +55,18 @@ impl Default for LlmProvider {
     }
 }
 
-impl LlmProvider {
-    pub fn from_config_str(s: &str) -> Result<Self, ConfigParseError> {
-        Self::from_str(s)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ConfigParseError {
-    InvalidLlmProvider { value: String },
+pub struct ConfigParseError {
+    pub value: String,
 }
 
 impl fmt::Display for ConfigParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidLlmProvider { value } => write!(
-                f,
-                "unsupported llm provider '{}' (expected one of: NULL, OPENAI_COMPAT, OPENAI, HTTP, LLAMA_CPP)",
-                value
-            ),
-        }
+        write!(
+            f,
+            "unsupported llm provider '{}' (expected one of: NULL, OPENAI_COMPAT, OPENAI, HTTP, LLAMA_CPP)",
+            self.value
+        )
     }
 }
 
@@ -91,7 +83,7 @@ impl FromStr for LlmProvider {
             "HTTP" => Ok(Self::Http),
             "LLAMA_CPP" => Ok(Self::LlamaCpp),
             "NULL" => Ok(Self::Null),
-            _ => Err(ConfigParseError::InvalidLlmProvider {
+            _ => Err(ConfigParseError {
                 value: raw.to_string(),
             }),
         }

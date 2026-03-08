@@ -4,10 +4,76 @@ use serde_json::Value;
 
 use crate::scope::RequestScope;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChunkKind {
+    Entity,
+    Field,
+    Doc,
+    Other(String),
+}
+
+impl ChunkKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Entity => "entity",
+            Self::Field => "field",
+            Self::Doc => "doc",
+            Self::Other(s) => s.as_str(),
+        }
+    }
+}
+
+impl std::fmt::Display for ChunkKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for ChunkKind {
+    fn from(s: &str) -> Self {
+        match s {
+            "entity" => Self::Entity,
+            "field" => Self::Field,
+            "doc" => Self::Doc,
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+impl From<String> for ChunkKind {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "entity" => Self::Entity,
+            "field" => Self::Field,
+            "doc" => Self::Doc,
+            _ => Self::Other(s),
+        }
+    }
+}
+
+impl Serialize for ChunkKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ChunkKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(ChunkKind::from(s))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VectorChunk {
     pub id: String,
-    pub kind: String, // entity|field|doc
+    pub kind: ChunkKind,
     pub entity_id: String,
     pub field: Option<String>,
     pub text: String,

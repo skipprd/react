@@ -1,6 +1,9 @@
 use crate::lance_store::{Chunk, LanceDbStore, ScoredChunk};
 use serde_json::Value;
 
+// TODO(item-82): GlobalLanceDbStore largely duplicates LanceDbStore query logic.
+// Consider consolidating by delegating `query()` to `LanceDbStore::query()` with
+// scope=None, or extracting a shared query-result-parsing helper.
 pub struct GlobalLanceDbStore {
     uri: String,
 }

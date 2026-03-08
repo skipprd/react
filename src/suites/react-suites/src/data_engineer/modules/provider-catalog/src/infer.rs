@@ -1,27 +1,12 @@
 use crate::stats_from_catalog::dataset_field_stats_from_catalog_json;
 use crate::types::{SemanticField, SemanticFieldRole, SemanticModel};
+use crate::utils::classify_field;
 use react_suites::data_engineer::providers::DatasetFieldStats;
 use react_core::keyspace::encode_key_component;
 use react_core::keyspace::Keyspace;
 use react_core::scope::RequestScope;
 use react_core::storage::StorageAdapter;
 use std::sync::Arc;
-
-fn classify_field(
-    _name: &str,
-    stats: Option<&react_core::discover::stats::FieldStats>,
-) -> SemanticFieldRole {
-    if let Some(s) = stats {
-        if s.min_numeric.is_some() || s.max_numeric.is_some() {
-            return SemanticFieldRole::Metric;
-        }
-        if s.max_len.unwrap_or(0) > 64 {
-            return SemanticFieldRole::FreeText;
-        }
-        return SemanticFieldRole::Categorical;
-    }
-    SemanticFieldRole::Categorical
-}
 
 pub async fn infer_semantic_model_async(
     storage: Arc<dyn StorageAdapter>,

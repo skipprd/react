@@ -1,6 +1,30 @@
 use super::*;
 use crate::data_engineer::control_flow::Phase;
 
+fn append_validate_fail_facts(
+    snapshot: &mut serde_json::Value,
+    facts_bundle: &impl serde::Serialize,
+    max_entries: usize,
+) {
+    if snapshot.is_null() {
+        *snapshot = serde_json::json!({});
+    }
+    if let Some(obj) = snapshot.as_object_mut() {
+        let arr = obj
+            .entry("validate_fail_facts")
+            .or_insert_with(|| serde_json::Value::Array(vec![]));
+        if let Some(a) = arr.as_array_mut() {
+            a.push(
+                serde_json::to_value(facts_bundle)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            while a.len() > max_entries {
+                a.remove(0);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ValidatePassTransition {
     ToAuthoring,
@@ -527,23 +551,7 @@ if phase == Phase::CleanseValidate {
     if let Some(mut p) =
         crate::data_engineer::plan::load_cleanse_plan(&actx).await
     {
-        if p.project_snapshot.is_null() {
-            p.project_snapshot = serde_json::json!({});
-        }
-        if let Some(obj) = p.project_snapshot.as_object_mut() {
-            let arr = obj
-                .entry("validate_fail_facts")
-                .or_insert_with(|| serde_json::Value::Array(vec![]));
-            if let Some(a) = arr.as_array_mut() {
-                a.push(
-                    serde_json::to_value(&facts_bundle)
-                        .unwrap_or(serde_json::Value::Null),
-                );
-                while a.len() > 5 {
-                    a.remove(0);
-                }
-            }
-        }
+        append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
         crate::data_engineer::plan::save_cleanse_plan(&actx, &p)
             .await
             .map_err(|e| {
@@ -556,23 +564,7 @@ if phase == Phase::CleanseValidate {
     if let Some(mut p) =
         crate::data_engineer::plan::load_model_plan(&actx).await
     {
-        if p.project_snapshot.is_null() {
-            p.project_snapshot = serde_json::json!({});
-        }
-        if let Some(obj) = p.project_snapshot.as_object_mut() {
-            let arr = obj
-                .entry("validate_fail_facts")
-                .or_insert_with(|| serde_json::Value::Array(vec![]));
-            if let Some(a) = arr.as_array_mut() {
-                a.push(
-                    serde_json::to_value(&facts_bundle)
-                        .unwrap_or(serde_json::Value::Null),
-                );
-                while a.len() > 5 {
-                    a.remove(0);
-                }
-            }
-        }
+        append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
         crate::data_engineer::plan::save_model_plan(&actx, &p)
             .await
             .map_err(|e| {

@@ -132,11 +132,7 @@ mod tests {
 
     fn test_store() -> ThreadStore {
         let storage = Arc::new(InMemoryStorageAdapter::default());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
         ThreadStore::new(storage, scope, keyspace)
     }

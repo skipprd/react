@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::data_engineer::{authoring_ir, plan_types::OutputFieldSpec, project_fs, sql_first};
 
 pub(crate) fn emit_trace(ctx: &AgentCtx, line: impl Into<String>) {
-    if let Some(tx) = ctx.trace_tx.as_ref() {
+    if let Some(tx) = ctx.trace_tx().as_ref() {
         let _ = tx.send(line.into());
     }
 }
@@ -111,7 +111,7 @@ where
     )
     .await?;
 
-    ctx.storage
+    ctx.storage()
         .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/sql")
         .await
         .map_err(|e| format!("failed to write model {rel_path}: {e}"))?;

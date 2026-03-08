@@ -64,7 +64,7 @@ impl Tool for SqlStatsTool {
         // Probe policy: table/field must resolve from canonical catalog or provider schema.
         let mut known_fields: Option<Vec<String>> = None;
         if let Some(cat) = self.catalog.as_ref() {
-            if let Ok(Some(c)) = cat.read_catalog(&ctx.scope, &table).await {
+            if let Ok(Some(c)) = cat.read_catalog(ctx.scope(), &table).await {
                 let cols: Vec<String> = c.fields.iter().map(|f| f.name.clone()).collect();
                 if !cols.is_empty() {
                     known_fields = Some(cols);
@@ -109,7 +109,7 @@ impl Tool for SqlStatsTool {
         let mut max_len: Option<u64> = None;
         let mut nulls: u64 = 0;
         if let Some(cat) = self.catalog.as_ref() {
-            if let Ok(Some(c)) = cat.read_catalog(&ctx.scope, &table).await {
+            if let Ok(Some(c)) = cat.read_catalog(ctx.scope(), &table).await {
                 for f in c.fields.iter() {
                     if f.name == field {
                         if let Some(st) = f.stats.as_ref() {

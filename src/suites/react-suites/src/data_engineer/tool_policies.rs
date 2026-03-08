@@ -91,7 +91,7 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
         let run = args.get("run").and_then(|v| v.as_bool()).unwrap_or(false);
         let runtime_validate = build || run;
         if let (Some(store), Some(tid)) =
-            (ctx.thread_store.as_ref(), ctx.thread_id.as_deref())
+            (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
             let guard = crate::data_engineer::progress_controller::ExecutionState::load(
                 store, tid,
@@ -179,8 +179,8 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
         }
         // Deterministic repair ladder enforcement (hard cutover).
         if let (Some(store), Some(thread_id), Some(want)) = (
-            ctx.thread_store.as_ref(),
-            ctx.thread_id.as_deref(),
+            ctx.thread_store().as_ref(),
+            ctx.thread_id().as_deref(),
             self.single_target_path.as_ref(),
         ) {
             if is_repair_mutation {
@@ -256,8 +256,8 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
 
         // Update repair state after the attempt (best-effort, but should fail fast if persistence breaks).
         if let (Some(store), Some(thread_id), Some(want)) = (
-            ctx.thread_store.as_ref(),
-            ctx.thread_id.as_deref(),
+            ctx.thread_store().as_ref(),
+            ctx.thread_id().as_deref(),
             self.single_target_path.as_ref(),
         ) {
             if is_repair_mutation {
@@ -317,7 +317,7 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
             .unwrap_or("")
             .to_string();
         if let (Some(store), Some(thread_id)) =
-            (ctx.thread_store.as_ref(), ctx.thread_id.as_deref())
+            (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
             let mut es = crate::data_engineer::progress_controller::ExecutionState::load(
                 store, thread_id,

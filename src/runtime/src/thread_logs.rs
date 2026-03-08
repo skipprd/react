@@ -32,9 +32,9 @@ impl RunThreadLogs {
     pub fn new_local(root_dir: impl Into<PathBuf>, scope: RequestScope) -> Result<Self, String> {
         let root_dir: PathBuf = root_dir.into();
         let logs_dir = root_dir
-            .join(scope.tenant.trim())
-            .join(scope.workspace.trim())
-            .join(scope.project_id.trim())
+            .join(scope.tenant.as_str().trim())
+            .join(scope.workspace.as_str().trim())
+            .join(scope.project_id.as_str().trim())
             .join("logs");
         std::fs::create_dir_all(&logs_dir).map_err(|e| e.to_string())?;
 
@@ -192,11 +192,7 @@ mod tests {
         let tmp =
             std::env::temp_dir().join(format!("react-thread-logs-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).expect("mkdir");
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let logs = RunThreadLogs::new_local(tmp.clone(), scope.clone()).expect("new_local");
         let ks = DefaultKeyspace::new("b".to_string());
         logs.bind_thread_id(&ks, "123").expect("bind");

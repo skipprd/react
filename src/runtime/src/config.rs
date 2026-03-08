@@ -173,7 +173,10 @@ const DEFAULT_SERVER_PORT: u16 = 8787;
 const DEFAULT_LOCAL_STORAGE_PATH: &str = "./.react";
 
 /// Suite-specific provider resolution. Currently dispatches to data_engineer.
-/// When multi-suite support is needed, this becomes a registry lookup by suite_id.
+///
+/// TODO: Replace this hard-coded dispatch with a proper suite registry lookup
+/// (keyed by `suite_id` from the config file) so adding a new suite does not
+/// require changing this function.
 fn resolve_suite_providers(providers_yaml: serde_json::Value) -> Result<serde_json::Value, String> {
     react_suites::data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
 }
@@ -259,7 +262,7 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
         let llmf = file.llm.unwrap_or_default();
         let llm_provider_raw = getenv_nonempty("LLM_PROVIDER").or(llmf.provider);
         let provider = match llm_provider_raw {
-            Some(raw) => LlmProvider::from_config_str(&raw).map_err(|e| e.to_string())?,
+            Some(raw) => raw.parse::<LlmProvider>().map_err(|e| e.to_string())?,
             None => LlmProvider::default(),
         };
         let llm = LlmResolved {
@@ -294,11 +297,8 @@ pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<React
                 bucket: bucket.clone(),
                 path: path.clone(),
             },
-            scope: RequestScope {
-                tenant,
-                workspace,
-                project_id,
-            },
+            scope: RequestScope::parse(tenant, workspace, project_id)
+                .map_err(|e| e.to_string())?,
             llm,
             suite_config: providers,
         };

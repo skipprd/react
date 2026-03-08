@@ -9,14 +9,17 @@ pub(super) fn bind_execution_context(
     plan_key: String,
     next_item: Option<NextWorkItemCtx>,
 ) {
-    actx.exec_ctx = Some(react_core::session::ExecutionContext {
-        plan_kind: Some(track.execution_plan_kind()),
-        plan_key: Some(plan_key),
-        workgroup_id: next_item.as_ref().map(|x| x.workgroup_id.clone()),
-        task_id: next_item.as_ref().map(|x| x.task_id.clone()),
-        checklist_item_id: next_item.as_ref().map(|x| x.checklist_item_id.clone()),
-        data: std::collections::BTreeMap::new(),
-    });
+    actx.set_exec_ctx(Some({
+        let mut ctx = react_core::session::ExecutionContext::default();
+        ctx.set("plan_kind", serde_json::Value::String(track.execution_plan_kind().0));
+        ctx.set("plan_key", serde_json::Value::String(plan_key));
+        if let Some(ref x) = next_item {
+            ctx.set("workgroup_id", serde_json::Value::String(x.workgroup_id.clone()));
+            ctx.set("task_id", serde_json::Value::String(x.task_id.clone()));
+            ctx.set("checklist_item_id", serde_json::Value::String(x.checklist_item_id.clone()));
+        }
+        ctx
+    }));
 }
 
 pub(super) fn collect_expected_paths<T>(

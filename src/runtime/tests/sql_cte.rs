@@ -1,4 +1,4 @@
-use react_core::agent::{AgentCtx, DefaultPolicy};
+use react_core::agent::{AgentCtxBuilder, DefaultPolicy};
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::NullModel;
 use react_suites::data_engineer::providers::{QueryProvider, QueryResult};
@@ -44,30 +44,18 @@ FROM x
 LIMIT 1
 "#;
     let args = json!({ "sql": sql });
-    let actx = AgentCtx {
-        top_k: 10,
-        per_step_timeout_secs: 5,
-        max_steps: 1,
-        thread_id: None,
-        progress_tx: None,
-        pre_step_tx: None,
-        trace_tx: None,
-        agent_name: Some("test".to_string()),
-        policy: std::sync::Arc::new(DefaultPolicy),
-        llm: std::sync::Arc::new(NullModel::new()),
-        storage: std::sync::Arc::new(InMemoryStorageAdapter::default()),
-        scope: RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        },
-        keyspace: std::sync::Arc::new(DefaultKeyspace::new("b".into())),
-        vector: None,
-        thread_store: None,
-        exec_ctx: None,
-        resolved_config: None,
-        capabilities: Default::default(),
-    };
+    let actx = AgentCtxBuilder::new(
+        std::sync::Arc::new(NullModel::new()),
+        std::sync::Arc::new(InMemoryStorageAdapter::default()),
+        RequestScope::parse("t", "w", "p").expect("valid test scope"),
+        std::sync::Arc::new(DefaultKeyspace::new("b".into())),
+        std::sync::Arc::new(DefaultPolicy),
+    )
+    .top_k(10)
+    .per_step_timeout_secs(5)
+    .max_steps(1)
+    .agent_name("test".to_string())
+    .build();
     let res = tool.call(args, &actx).await.expect("tool call");
     assert!(
         res.get("ok").and_then(|x| x.as_bool()).unwrap_or(false),

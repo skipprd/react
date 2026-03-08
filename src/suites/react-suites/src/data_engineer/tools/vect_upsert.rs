@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
-use react_core::providers::VectorChunk;
+use react_core::providers::{ChunkKind, VectorChunk};
 use react_core::tools::Tool;
 
 pub struct VectUpsertTool;
@@ -37,11 +37,11 @@ impl Tool for VectUpsertTool {
         let epoch = chrono::Utc::now().timestamp() as u64;
         let mut items: Vec<VectorChunk> = Vec::new();
         for (i, v) in arr.iter().enumerate() {
-            let kind = v
-                .get("kind")
-                .and_then(|x| x.as_str())
-                .unwrap_or("doc")
-                .to_string();
+            let kind = ChunkKind::from(
+                v.get("kind")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("doc"),
+            );
             let dataset_id = v
                 .get("dataset_id")
                 .and_then(|x| x.as_str())
@@ -66,10 +66,10 @@ impl Tool for VectUpsertTool {
             });
         }
         let vector = ctx
-            .vector
+            .vector()
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
-        vector.upsert(&ctx.scope, &items).await?;
+        vector.upsert(ctx.scope(), &items).await?;
         Ok(serde_json::json!({"ok": true, "count": items.len()}))
     }
 }

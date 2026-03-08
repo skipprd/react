@@ -341,15 +341,15 @@ async fn llm_json(
         timeout_secs: None,
     });
     opts.expected_format = LlmExpectedFormat::JsonObject;
-    actx.llm_chat_json::<Value>(&messages, &opts).await
+    actx.llm_chat_json::<Value>(&messages, &opts).await.map_err(|e| e.to_string())
 }
 
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {
-    let key = sctx.keyspace.scoped_key(
-        &sctx.scope,
+    let key = sctx.keyspace().scoped_key(
+        sctx.scope(),
         &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
     );
-    actx.storage
+    actx.storage()
         .get_json(&key)
         .await
         .ok()
@@ -646,30 +646,27 @@ pub async fn run_batched_review(
 ) -> Result<Vec<FlowFrame>, String> {
     // AgentCtx for deterministic storage reads/writes and thread store appends.
     let thread_store = ThreadStore::new(
-        sctx.storage.clone(),
-        sctx.scope.clone(),
-        sctx.keyspace.clone(),
+        sctx.storage().clone(),
+        sctx.scope().clone(),
+        sctx.keyspace().clone(),
     );
-    let mut actx = AgentCtx {
-        top_k: 1,
-        per_step_timeout_secs: 10,
-        max_steps: 1,
-        thread_id: Some(thread_id.to_string()),
-        progress_tx: None,
-        pre_step_tx: None,
-        trace_tx: sctx.trace_tx.clone(),
-        agent_name: Some("review".to_string()),
-        policy: Arc::new(react_core::agent::DefaultPolicy),
-        llm: sctx.llm.clone(),
-        storage: sctx.storage.clone(),
-        scope: sctx.scope.clone(),
-        keyspace: sctx.keyspace.clone(),
-        vector: sctx.vector.clone(),
-        capabilities: react_core::capability::CapabilityMap::default(),
-        thread_store: Some(thread_store.clone()),
-        exec_ctx: None,
-        resolved_config: sctx.resolved_config.clone(),
-    };
+    let mut actx = react_core::agent::AgentCtxBuilder::new(
+        sctx.llm().clone(),
+        sctx.storage().clone(),
+        sctx.scope().clone(),
+        sctx.keyspace().clone(),
+        Arc::new(react_core::agent::DefaultPolicy),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(10)
+    .max_steps(1)
+    .thread_id(thread_id.to_string())
+    .trace_tx(sctx.trace_tx().clone())
+    .agent_name("review")
+    .vector(sctx.vector().clone())
+    .thread_store(thread_store.clone())
+    .resolved_config(sctx.resolved_config().clone())
+    .build();
     crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
     // Determine which plan (if any) to use for batching + persistence target.
@@ -1004,8 +1001,8 @@ pub async fn run_batched_review(
     let review_key = {
         // Store alongside other thread-scoped artifacts (plans/, dbt/, etc), not under dbt/.
         let root = actx
-            .keyspace
-            .threads_prefix(&actx.scope)
+            .keyspace()
+            .threads_prefix(actx.scope())
             .trim_end_matches("/threads")
             .trim_end_matches('/')
             .to_string();
@@ -1013,7 +1010,7 @@ pub async fn run_batched_review(
         let sha8 = review_sha256.chars().take(8).collect::<String>();
         format!("{}/reviews/{}/{}_{}.txt", root, thread_id, ts, sha8)
     };
-    sctx.storage
+    sctx.storage()
         .put_bytes(&review_key, final_review_text.as_bytes(), "text/plain")
         .await
         .map_err(|e| format!("failed to persist final review artifact: {e}"))?;
@@ -1137,11 +1134,7 @@ mod tests {
         storage: Arc<dyn react_core::storage::StorageAdapter>,
         llm: Arc<dyn react_core::llm::LargeLanguageModel>,
     ) -> SuiteCtx {
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         SuiteCtx::new(
             storage,
@@ -1171,31 +1164,19 @@ mod tests {
         let sctx = make_suite_ctx(storage.clone(), llm);
 
         // Seed a minimal dbt project and a cleanse plan with 2 batches.
-        let actx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: Some("tid".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            capabilities: react_core::capability::CapabilityMap::default(),
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: None,
-        };
+        let actx = react_core::agent::AgentCtxBuilder::new(sctx.llm().clone(), sctx.storage().clone(), sctx.scope().clone(), sctx.keyspace().clone(), Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .thread_id("tid".to_string())
+            .agent_name("test".to_string())
+            .vector(sctx.vector().clone())
+            .build();
 
         // dbt files
         let base = actx
-            .keyspace
-            .scoped_prefix(&actx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(actx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let put = |rel: &str, content: &str| {
@@ -1377,7 +1358,7 @@ mod tests {
 
         // Thread log step should store review by reference (not the full text).
         let thread_store =
-            ThreadStore::new(storage.clone(), sctx.scope.clone(), sctx.keyspace.clone());
+            ThreadStore::new(storage.clone(), sctx.scope().clone(), sctx.keyspace().clone());
         let log = thread_store.get("tid").await.expect("thread log");
         let last = log.steps.last().cloned().expect("step");
         match last {
@@ -1421,11 +1402,7 @@ mod tests {
             Arc::new(InMemoryStorageAdapter::default());
 
         // Seed global semantic context.
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let gkey = keyspace.scoped_key(
             &scope,

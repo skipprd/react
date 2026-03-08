@@ -5,29 +5,29 @@ pub(super) struct CatalogBootstrapOutcome {
     pub(super) metadata_complete: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum BootstrapStatus {
+    Ready,
+    BestEffort,
+    Pending,
+}
+
+impl BootstrapStatus {
+    fn is_usable(self) -> bool {
+        matches!(self, Self::Ready | Self::BestEffort)
+    }
+}
+
 impl DataEngineerSuite {
     pub(super) async fn ensure_catalog_bootstrap_semaphored(
         thread_id: &str,
         sctx: &SuiteCtx,
     ) -> Result<(), String> {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        #[serde(rename_all = "snake_case")]
-        enum BootstrapStatus {
-            Ready,
-            BestEffort,
-            Pending,
-        }
-
-        impl BootstrapStatus {
-            fn is_usable(self) -> bool {
-                matches!(self, Self::Ready | Self::BestEffort)
-            }
-        }
-
         let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
         );
         if let Ok(st) = thread_store.get_thread_state(thread_id).await {
             if let Some(cat) = st.bootstrap.extensions.get("catalog") {
@@ -98,6 +98,9 @@ impl DataEngineerSuite {
 
     /// Hard cutover: refresh canonical catalog state on every run.
     ///
+    // TODO(item-99): ensure_catalog_bootstrap is ~220 lines. Extract sub-functions for:
+    // (a) provider capability resolution, (b) catalog refresh dispatch, (c) metadata gate
+    // checks (schemas, tables, sample data), (d) outcome assembly.
     /// This builds/refreshes warehouse-backed catalog artifacts and then enforces that required
     /// metadata exists so planning can treat catalog as canonical.
     pub(super) async fn ensure_catalog_bootstrap(sctx: &SuiteCtx) -> Result<CatalogBootstrapOutcome, String> {
@@ -121,8 +124,8 @@ impl DataEngineerSuite {
         }
 
         // Also detect whether the global semantic context exists.
-        let global_key = sctx.keyspace.scoped_key(
-            &sctx.scope,
+        let global_key = sctx.keyspace().scoped_key(
+            sctx.scope(),
             &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
         );
         tracing::info!(
@@ -130,14 +133,14 @@ impl DataEngineerSuite {
             dss.len()
         );
         let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
-        cat.build_all_with_progress(&sctx.scope, datasets.as_ref(), &empty, None)
+        cat.build_all_with_progress(sctx.scope(), datasets.as_ref(), &empty, None)
             .await
             .map_err(|e| format!("catalog bootstrap failed while building catalogs: {e}"))?;
 
         // Mandatory metadata completion pass.
         let all: std::collections::HashSet<String> = dss.iter().map(|ds| ds.fqn()).collect();
         let enrich_report = cat
-            .run_llm_enrichment_all(&sctx.scope, &all)
+            .run_llm_enrichment_all(sctx.scope(), &all)
             .await
             .map_err(|e| format!("catalog bootstrap failed while enriching metadata: {e}"))?;
         tracing::info!(
@@ -154,7 +157,7 @@ impl DataEngineerSuite {
             let mut errs: Vec<String> = Vec::new();
             for ds in dss.iter() {
                 let id = ds.fqn();
-                let Some(c) = cat.read_catalog(&sctx.scope, &id).await.map_err(|e| {
+                let Some(c) = cat.read_catalog(sctx.scope(), &id).await.map_err(|e| {
                     format!("catalog bootstrap failed while reading catalog for {id}: {e}")
                 })?
                 else {
@@ -185,7 +188,7 @@ impl DataEngineerSuite {
                     ));
                 }
             }
-            let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
+            let gctx = sctx.storage().get_json(&global_key).await.ok().and_then(|v| {
                 serde_json::from_value::<
                     crate::data_engineer::providers::GlobalSemanticContext,
                 >(v)
@@ -214,7 +217,7 @@ impl DataEngineerSuite {
             // Deterministic catalog description repair.
             for ds in dss.iter() {
                 let id = ds.fqn();
-                let Some(mut c) = cat.read_catalog(&sctx.scope, &id).await.map_err(|e| {
+                let Some(mut c) = cat.read_catalog(sctx.scope(), &id).await.map_err(|e| {
                     format!("catalog bootstrap failed while reading catalog for {id}: {e}")
                 })?
                 else {
@@ -258,13 +261,13 @@ impl DataEngineerSuite {
                     }
                 }
                 if changed {
-                    cat.write_catalog(&sctx.scope, &id, &c)
+                    cat.write_catalog(sctx.scope(), &id, &c)
                         .await
                         .map_err(|e| format!("catalog bootstrap failed while writing {id}: {e}"))?;
                 }
             }
             // Deterministic global semantic context repair.
-            let gctx = sctx.storage.get_json(&global_key).await.ok().and_then(|v| {
+            let gctx = sctx.storage().get_json(&global_key).await.ok().and_then(|v| {
                 serde_json::from_value::<
                     crate::data_engineer::providers::GlobalSemanticContext,
                 >(v)
@@ -305,7 +308,7 @@ impl DataEngineerSuite {
                 };
                 let value = serde_json::to_value(default_global)
                     .map_err(|e| format!("catalog bootstrap failed while encoding global semantic context defaults: {e}"))?;
-                sctx.storage
+                sctx.storage()
                     .put_json(&global_key, &value)
                     .await
                     .map_err(|e| format!("catalog bootstrap failed while writing global semantic context defaults: {e}"))?;

@@ -173,7 +173,7 @@ pub async fn llm_draft_sql_json(
     ];
     let opts = LlmCallOptions {
         prompt_id,
-        thread_id: ctx.thread_id.clone(),
+        thread_id: ctx.thread_id().clone(),
         expected_format: LlmExpectedFormat::JsonObject,
         temperature: Some(temperature),
         top_p: Some(1.0),
@@ -181,7 +181,7 @@ pub async fn llm_draft_sql_json(
         reasoning_effort: None,
         timeout_secs: None,
     };
-    let raw = ctx.llm_chat(&messages, &opts).await?;
+    let raw = ctx.llm_chat(&messages, &opts).await.map_err(|e| e.to_string())?;
     let payload: SqlFirstDraftPayload = parse_json_object_lenient(&raw)?;
     let sql = payload.sql.trim().to_string();
     if sql.is_empty() {

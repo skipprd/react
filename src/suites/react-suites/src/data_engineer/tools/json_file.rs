@@ -34,7 +34,7 @@ async fn get_item(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
 
     let rel = crate::data_engineer::project_fs::normalize_rel_path(path)?;
     let key = crate::data_engineer::project_fs::join_storage_key(ctx, &rel);
-    let bytes = match ctx.storage.get_bytes(&key).await {
+    let bytes = match ctx.storage().get_bytes(&key).await {
         Ok(b) => b,
         Err(e) => {
             return Ok(
@@ -89,7 +89,7 @@ async fn query(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
 
     let rel = crate::data_engineer::project_fs::normalize_rel_path(path)?;
     let key = crate::data_engineer::project_fs::join_storage_key(ctx, &rel);
-    let bytes = match ctx.storage.get_bytes(&key).await {
+    let bytes = match ctx.storage().get_bytes(&key).await {
         Ok(b) => b,
         Err(e) => {
             return Ok(

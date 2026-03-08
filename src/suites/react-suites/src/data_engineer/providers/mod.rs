@@ -4,7 +4,9 @@ pub mod dataset_catalog;
 pub mod dbt;
 pub mod query;
 pub mod stats;
+pub mod type_parse;
 pub mod warehouse;
+pub mod warehouse_utils;
 
 /// Default max in-flight concurrency for warehouse/query providers.
 pub const DEFAULT_MAX_CONCURRENCY: usize = 15;

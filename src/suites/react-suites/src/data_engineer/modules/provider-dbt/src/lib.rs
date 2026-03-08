@@ -9,25 +9,5 @@ mod providers {
     pub use react_core::scope::RequestScope;
 }
 
-mod ws {
-    pub mod terminal {
-        #[derive(Clone, Debug)]
-        pub enum TerminalEvent {
-            #[allow(dead_code)]
-            SubprocessProgress { label: String, detail: String },
-        }
-
-        #[derive(Clone)]
-        pub struct TerminalSink;
-
-        pub fn sink() -> Option<&'static TerminalSink> {
-            None
-        }
-
-        impl TerminalSink {
-            pub fn emit(&self, _ev: TerminalEvent) {}
-        }
-    }
-}
-
-include!("dbt_impl.rs");
+pub mod dbt_impl;
+pub use dbt_impl::*;

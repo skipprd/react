@@ -59,7 +59,7 @@ pub struct PatchBaseState {
 pub async fn read_patch_base_state(ctx: &AgentCtx, rel_path: &str) -> PatchBaseState {
     let key = project_fs::join_storage_key(ctx, rel_path);
     let existing_opt = ctx
-        .storage
+        .storage()
         .get_bytes(&key)
         .await
         .ok()
@@ -346,13 +346,13 @@ pub async fn llm_patch_loop_single_file(
     let enforce_analyst_notes_contract = sys_prompt.contains("ANALYST_NOTES_CONTRACT_V1");
 
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, expected_rel_path);
     let existing_opt = ctx
-        .storage
+        .storage()
         .get_bytes(&key)
         .await
         .ok()
@@ -426,7 +426,7 @@ pub async fn llm_patch_loop_single_file(
         let resp_text = match resp {
             Ok(t) => t,
             Err(e) => {
-                if !bumped_output_budget && e.contains("max_output_tokens") {
+                if !bumped_output_budget && e.to_string().contains("max_output_tokens") {
                     if let Some(current) = call_opts.max_output_tokens {
                         let bumped = current.saturating_mul(2).min(8000);
                         if bumped > current {
@@ -659,11 +659,7 @@ mod tests {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": {
@@ -747,32 +743,16 @@ mod tests {
                 .to_string(),
             ]),
         });
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>

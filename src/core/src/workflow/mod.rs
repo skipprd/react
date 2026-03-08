@@ -26,11 +26,7 @@ pub enum PhaseDirective<P, R, G> {
     },
 }
 
-pub trait TypedReasonDetail: Serialize {}
-
-impl<T: Serialize> TypedReasonDetail for T {}
-
-pub fn reason_detail_value<T: TypedReasonDetail>(detail: &T) -> Value {
+pub fn reason_detail_value(detail: &impl Serialize) -> Value {
     serde_json::to_value(detail).unwrap_or(Value::Null)
 }
 

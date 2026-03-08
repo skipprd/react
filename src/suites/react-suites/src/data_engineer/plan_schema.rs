@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub fn strict_schema_for<T: JsonSchema>() -> Result<Value, String> {
-    react_core::schema_registry::strict_json_schema_for::<T>()
+    react_core::schema_registry::strict_json_schema_for::<T>().map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

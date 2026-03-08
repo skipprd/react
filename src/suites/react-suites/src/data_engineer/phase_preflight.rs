@@ -17,15 +17,15 @@ impl DataEngineerSuite {
         };
         {
             let dbt = dbt;
-            if let Err(e) = dbt.ensure_minimal_project(&sctx.scope).await {
-                let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
+            if let Err(e) = dbt.ensure_minimal_project(sctx.scope()).await {
+                let key = sctx.keyspace().scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
                 return Err(format!(
                     "failed to create the dbt project in storage. expected file: {key}. error: {e}. this is usually an s3 permission/prefix issue."
                 ));
             }
         }
-        let key = sctx.keyspace.scoped_key(&sctx.scope, &["dbt", "dbt_project.yml"]);
-        match sctx.storage.head_etag(&key).await {
+        let key = sctx.keyspace().scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
+        match sctx.storage().head_etag(&key).await {
             Ok(Some(_)) => {}
             Ok(None) => {
                 return Err(format!(

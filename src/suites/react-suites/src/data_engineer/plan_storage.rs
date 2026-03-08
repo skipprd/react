@@ -7,7 +7,7 @@ use crate::data_engineer::plan_grounding::{
 use crate::data_engineer::plan_types::*;
 
 fn thread_dir(ctx: &AgentCtx) -> String {
-    ctx.thread_id
+    ctx.thread_id()
         .as_deref()
         .unwrap_or("no_thread")
         .trim()
@@ -20,8 +20,8 @@ fn utc_timestamp_compact() -> String {
 
 fn plans_thread_prefix(ctx: &AgentCtx) -> String {
     let root = ctx
-        .keyspace
-        .threads_prefix(&ctx.scope)
+        .keyspace()
+        .threads_prefix(ctx.scope())
         .trim_end_matches("/threads")
         .trim_end_matches('/')
         .to_string();
@@ -41,7 +41,7 @@ pub fn new_model_plan_key(ctx: &AgentCtx) -> String {
 
 async fn list_plan_keys(ctx: &AgentCtx, suffix: &str) -> Vec<String> {
     let pref = plans_thread_prefix(ctx);
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.retain(|k| k.ends_with(suffix));
     keys.sort();
     keys
@@ -60,7 +60,7 @@ pub async fn newest_plan_key_any(ctx: &AgentCtx, suffix: &str) -> Option<String>
 async fn oldest_active_cleanse_plan_key(ctx: &AgentCtx) -> Option<String> {
     let keys = list_plan_keys(ctx, "_cleanse.json").await;
     for k in keys {
-        if let Ok(bytes) = ctx.storage.get_bytes(&k).await {
+        if let Ok(bytes) = ctx.storage().get_bytes(&k).await {
             if let Ok(p) = serde_json::from_slice::<CleansePlan>(&bytes) {
                 if !p.status.is_terminal() {
                     return Some(k);
@@ -74,7 +74,7 @@ async fn oldest_active_cleanse_plan_key(ctx: &AgentCtx) -> Option<String> {
 async fn oldest_active_model_plan_key(ctx: &AgentCtx) -> Option<String> {
     let keys = list_plan_keys(ctx, "_model.json").await;
     for k in keys {
-        if let Ok(bytes) = ctx.storage.get_bytes(&k).await {
+        if let Ok(bytes) = ctx.storage().get_bytes(&k).await {
             if let Ok(p) = serde_json::from_slice::<ModelPlan>(&bytes) {
                 if !p.status.is_terminal() {
                     return Some(k);
@@ -103,7 +103,7 @@ pub async fn load_cleanse_plan_any(ctx: &AgentCtx) -> Option<CleansePlan> {
 }
 
 pub async fn load_cleanse_plan_by_key(ctx: &AgentCtx, key: &str) -> Option<CleansePlan> {
-    let bytes = ctx.storage.get_bytes(key).await.ok()?;
+    let bytes = ctx.storage().get_bytes(key).await.ok()?;
     let mut p = serde_json::from_slice::<CleansePlan>(&bytes).ok()?;
     if p.plan_key.trim().is_empty() {
         p.plan_key = key.to_string();
@@ -123,7 +123,7 @@ pub async fn save_cleanse_plan(ctx: &AgentCtx, plan: &CleansePlan) -> Result<(),
     }
     let candidate = PersistableCleansePlan::try_from(plan.clone())?.into_inner();
     let bytes = serde_json::to_vec_pretty(&candidate).map_err(|e| e.to_string())?;
-    ctx.storage
+    ctx.storage()
         .put_bytes(&candidate.plan_key, &bytes, "application/json")
         .await
         .map_err(|e| e.to_string())
@@ -160,7 +160,7 @@ pub async fn load_model_plan_any(ctx: &AgentCtx) -> Option<ModelPlan> {
 }
 
 pub async fn load_model_plan_by_key(ctx: &AgentCtx, key: &str) -> Option<ModelPlan> {
-    let bytes = ctx.storage.get_bytes(key).await.ok()?;
+    let bytes = ctx.storage().get_bytes(key).await.ok()?;
     let mut p = serde_json::from_slice::<ModelPlan>(&bytes).ok()?;
     if p.plan_key.trim().is_empty() {
         p.plan_key = key.to_string();
@@ -175,7 +175,7 @@ pub async fn save_model_plan(ctx: &AgentCtx, plan: &ModelPlan) -> Result<(), Str
     }
     let candidate = PersistableModelPlan::try_from(plan.clone())?.into_inner();
     let bytes = serde_json::to_vec_pretty(&candidate).map_err(|e| e.to_string())?;
-    ctx.storage
+    ctx.storage()
         .put_bytes(&candidate.plan_key, &bytes, "application/json")
         .await
         .map_err(|e| e.to_string())

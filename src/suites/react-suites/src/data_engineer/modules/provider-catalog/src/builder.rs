@@ -1,7 +1,7 @@
 use tracing::{debug, info};
 
 use crate::types::{DataCatalog, SemanticField, SemanticFieldRole};
-use crate::utils::to_stats_lite;
+use crate::utils::{classify_field, to_stats_lite};
 
 pub struct CatalogBuilder;
 
@@ -11,21 +11,6 @@ impl CatalogBuilder {
         ns_stats: Option<react_suites::data_engineer::providers::DatasetFieldStats>,
         dataset_stats: Option<crate::types::DatasetStats>,
     ) -> DataCatalog {
-        fn classify_field(
-            _name: &str,
-            stats: Option<&react_core::discover::stats::FieldStats>,
-        ) -> SemanticFieldRole {
-            if let Some(s) = stats {
-                if s.min_numeric.is_some() || s.max_numeric.is_some() {
-                    return SemanticFieldRole::Metric;
-                }
-                if s.max_len.unwrap_or(0) > 64 {
-                    return SemanticFieldRole::FreeText;
-                }
-                return SemanticFieldRole::Categorical;
-            }
-            SemanticFieldRole::Categorical
-        }
         let (semantic_fields, semantic_dims, semantic_metrics): (
             Vec<SemanticField>,
             Vec<String>,

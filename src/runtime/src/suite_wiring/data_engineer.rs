@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use react_core::suite::SuiteCtx;
-use react_module_provider_athena::{AthenaQueryProvider, AthenaSettings};
+use react_module_provider_athena::{AthenaProvider, AthenaSettings};
 use react_module_provider_bigquery::{BigQueryProvider, BigQuerySettings};
 use react_module_provider_catalog::DefaultCatalogProvider;
 use react_module_provider_dbt::{DbtProjectProvider, DbtRunnerConfig, DbtRunnerMode};
@@ -74,13 +74,18 @@ fn resolve_athena_settings(providers: &de_cfg::ProvidersResolved) -> AthenaSetti
 }
 
 /// Wire all data_engineer-specific providers onto the SuiteCtx.
+///
+/// This module is intentionally coupled to the `data_engineer` suite: it is the
+/// runtime-side wiring that connects resolved config to concrete provider
+/// implementations.  Each suite gets its own `suite_wiring` submodule per the
+/// application architecture.
 pub(crate) async fn wire_providers(
     sctx: &mut SuiteCtx,
     keyspace: &Arc<dyn Keyspace>,
     lance_uri_prefix: &str,
 ) -> Result<(), String> {
     let cfg = sctx
-        .resolved_config
+        .resolved_config()
         .as_ref()
         .expect("resolved_config must be set before wire_providers");
     let providers = de_cfg::de_config_from_resolved(cfg).unwrap_or_default();
@@ -90,7 +95,7 @@ pub(crate) async fn wire_providers(
         WarehouseKind::Athena => {
             apply_aws_region_fallback(&providers.warehouse.extras);
             let athena = Arc::new(
-                AthenaQueryProvider::from_settings(resolve_athena_settings(&providers)).await,
+                AthenaProvider::from_settings(resolve_athena_settings(&providers)).await,
             );
             sctx.set_capability(Arc::new(WarehouseCap(athena.clone())));
             sctx.set_capability(Arc::new(QueryCap(athena.clone())));
@@ -140,9 +145,9 @@ pub(crate) async fn wire_providers(
     if providers.catalog.enabled {
         let cat = Arc::new(
             DefaultCatalogProvider::new(
-                sctx.storage.clone(),
+                sctx.storage().clone(),
                 keyspace.clone(),
-                sctx.llm.clone(),
+                sctx.llm().clone(),
                 30,
                 6,
             )
@@ -152,11 +157,11 @@ pub(crate) async fn wire_providers(
     }
 
     if providers.vector.enabled {
-        sctx.vector = Some(Arc::new(LanceVectorStore::new(
+        sctx.set_vector(Some(Arc::new(LanceVectorStore::new(
             keyspace.clone(),
-            sctx.scope.clone(),
+            sctx.scope().clone(),
             lance_uri_prefix.to_string(),
-        )));
+        ))));
     }
 
     if providers.dbt.enabled {
@@ -170,7 +175,7 @@ pub(crate) async fn wire_providers(
             docker_mount_aws_dir: providers.dbt.docker_mount_aws_dir,
         };
         sctx.set_capability(Arc::new(DbtCap(Arc::new(DbtProjectProvider::new(
-            sctx.storage.clone(),
+            sctx.storage().clone(),
             keyspace.clone(),
             runner,
         )))));

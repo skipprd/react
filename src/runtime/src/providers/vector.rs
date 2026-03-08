@@ -45,7 +45,7 @@ impl VectorStore for LanceVectorStore {
             .cloned()
             .map(|c| Chunk {
                 id: c.id,
-                kind: c.kind,
+                kind: c.kind.to_string(),
                 dataset_id: c.entity_id,
                 field: c.field,
                 text: c.text,
@@ -73,7 +73,7 @@ impl VectorStore for LanceVectorStore {
             .map(|s| ScoredVectorChunk {
                 item: VectorChunk {
                     id: s.item.id,
-                    kind: s.item.kind,
+                    kind: react_core::providers::ChunkKind::from(s.item.kind),
                     entity_id: s.item.dataset_id,
                     field: s.item.field,
                     text: s.item.text,

@@ -83,7 +83,7 @@ impl Agent {
         Self::trim_transcript_for_prompt(transcript);
 
         // Enforce a best-effort max prompt size budget by dropping tail lines.
-        let max_prompt_chars = crate::error_context::estimate_max_prompt_chars(ctx).max(1024);
+        let max_prompt_chars = crate::error_context::estimate_max_prompt_chars().max(1024);
         loop {
             let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum::<usize>()
                 + output_contract_line.chars().count()

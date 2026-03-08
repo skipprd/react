@@ -13,9 +13,9 @@ use tracing_subscriber::prelude::*;
 
 fn bind_runtime_scope_preference(scope: &react_core::scope::RequestScope) {
     react::runtime_settings::set_scope_preference(
-        scope.tenant.clone(),
-        scope.workspace.clone(),
-        scope.project_id.clone(),
+        scope.tenant.as_str().to_string(),
+        scope.workspace.as_str().to_string(),
+        scope.project_id.as_str().to_string(),
     );
 }
 
@@ -721,7 +721,7 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
-            let keyspace = suite_ctx.keyspace.clone();
+            let keyspace = suite_ctx.keyspace().clone();
 
             let requested_thread_id = thread_id.clone();
 
@@ -732,8 +732,8 @@ async fn main() {
             }
 
             // Clone before moving `suite_ctx` into the run future.
-            let storage_for_logs = suite_ctx.storage.clone();
-            let keyspace_for_logs = suite_ctx.keyspace.clone();
+            let storage_for_logs = suite_ctx.storage().clone();
+            let keyspace_for_logs = suite_ctx.keyspace().clone();
 
             // Bind the run log to the real thread_id as soon as it is observed so the
             // file appears as `logs/{thread_id}.log` during the run (local mode rename).

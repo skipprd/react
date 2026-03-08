@@ -193,13 +193,7 @@ fn current_millis() -> u64 {
 }
 
 fn stats_histogram_enabled() -> bool {
-    std::env::var("STATS_HISTOGRAM_ENABLED")
-        .ok()
-        .map(|v| {
-            let vv = v.trim().to_lowercase();
-            vv == "1" || vv == "true" || vv == "yes"
-        })
-        .unwrap_or(false)
+    crate::env_truthy("STATS_HISTOGRAM_ENABLED")
 }
 
 #[cfg(test)]

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::agent::AgentCtx;
 use crate::session::ToolObservation;
 
 const MIN_EXCERPT_CHARS: usize = 256;
@@ -30,7 +29,7 @@ pub fn render_failure_context(observation: &ToolObservation, max_chars: usize) -
 /// - `LLM_MAX_PROMPT_CHARS` (explicit override)
 /// - `LLM_CONTEXT_LENGTH` (tokens) * 4, minus a safety margin
 /// - default: 32_000 chars
-pub fn estimate_max_prompt_chars(_ctx: &AgentCtx) -> usize {
+pub fn estimate_max_prompt_chars() -> usize {
     if let Ok(v) = std::env::var("LLM_MAX_PROMPT_CHARS") {
         if let Ok(n) = v.trim().parse::<usize>() {
             if n >= 1024 {
@@ -79,22 +78,7 @@ pub fn excerpt_by_keywords(text: &str, max_chars: usize, patterns: &[&str]) -> S
         ranges.push((lines.len() - tail_n, lines.len()));
     }
 
-    // Merge overlaps deterministically.
-    ranges.sort_by_key(|(s, e)| (*s, *e));
-    let mut merged: Vec<(usize, usize)> = Vec::new();
-    for (s, e) in ranges {
-        if s >= e {
-            continue;
-        }
-        if let Some((ms, me)) = merged.last_mut() {
-            if s <= *me {
-                *me = (*me).max(e);
-                *ms = (*ms).min(s);
-                continue;
-            }
-        }
-        merged.push((s, e));
-    }
+    let merged = merge_overlapping_ranges(ranges);
 
     // Build output until we hit budget.
     let mut out = String::new();
@@ -273,6 +257,25 @@ fn extract_common_string_fields(
         }
         _ => {}
     }
+}
+
+fn merge_overlapping_ranges(mut ranges: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    ranges.sort_by_key(|(s, e)| (*s, *e));
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (s, e) in ranges {
+        if s >= e {
+            continue;
+        }
+        if let Some((ms, me)) = merged.last_mut() {
+            if s <= *me {
+                *me = (*me).max(e);
+                *ms = (*ms).min(s);
+                continue;
+            }
+        }
+        merged.push((s, e));
+    }
+    merged
 }
 
 fn trim_to_chars(s: &str, max_chars: usize) -> String {

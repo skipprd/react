@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// TODO(item-68): Replace `kind: String` with `ChunkKind` enum from
+// `react_core::providers::vector::ChunkKind` for type safety. Requires adding
+// react-core as a dependency and verifying LanceDB arrow schema compatibility.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Chunk {
     pub id: String,
@@ -13,12 +16,19 @@ pub struct Chunk {
     pub epoch: u64,
 }
 
+// TODO(item-70): ScoredChunk returns empty `vector` and `meta` from query results
+// because Arrow deserialization doesn't reconstruct these fields. Either populate
+// them from the batch or document that they are intentionally empty for scored results.
 #[derive(Clone, Debug)]
 pub struct ScoredChunk {
     pub item: Chunk,
     pub score: f32,
 }
 
+// TODO(item-57): Implement the `VectorStore` trait from `react_core::providers::vector`
+// so LanceDbStore can be used generically through the trait interface. Requires
+// adding react-core as a dependency and adapting method signatures (scope parameter,
+// VectorChunk vs Chunk types).
 pub struct LanceDbStore {
     uri: String,
 }

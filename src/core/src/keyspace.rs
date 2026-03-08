@@ -1,6 +1,10 @@
 use crate::error::CoreError;
 use crate::scope::{ensure_safe_scope_segment, RequestScope};
 
+fn ks_err(e: CoreError) -> CoreError {
+    CoreError::Keyspace(e.to_string())
+}
+
 /// Percent-encode non-alphanumeric characters (except `-`, `_`, `.`) so that
 /// arbitrary identifiers (e.g. `entity.group.item`) can be used as path segments.
 pub fn encode_key_component(s: &str) -> String {
@@ -27,13 +31,11 @@ pub trait Keyspace: Send + Sync {
         self.scoped_prefix(scope, &["threads"])
     }
     fn thread_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
-        ensure_safe_scope_segment("thread_id", thread_id)
-            .map_err(|e| CoreError::Keyspace(e))?;
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["threads", &format!("{}.json", thread_id)]))
     }
     fn thread_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
-        ensure_safe_scope_segment("thread_id", thread_id)
-            .map_err(|e| CoreError::Keyspace(e))?;
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["state", thread_id, "state.json"]))
     }
     fn thread_artifact_key(
@@ -42,10 +44,8 @@ pub trait Keyspace: Send + Sync {
         thread_id: &str,
         artifact_id: &str,
     ) -> Result<String, CoreError> {
-        ensure_safe_scope_segment("thread_id", thread_id)
-            .map_err(|e| CoreError::Keyspace(e))?;
-        ensure_safe_scope_segment("artifact_id", artifact_id)
-            .map_err(|e| CoreError::Keyspace(e))?;
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
+        ensure_safe_scope_segment("artifact_id", artifact_id).map_err(ks_err)?;
         Ok(self.scoped_key(
             scope,
             &["threads", &format!("{}.{}.json", thread_id, artifact_id)],
@@ -55,8 +55,7 @@ pub trait Keyspace: Send + Sync {
         self.scoped_prefix(scope, &["logs"])
     }
     fn thread_log_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
-        ensure_safe_scope_segment("thread_id", thread_id)
-            .map_err(|e| CoreError::Keyspace(e))?;
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["logs", &format!("{}.log", thread_id)]))
     }
 }
@@ -96,16 +95,13 @@ impl Keyspace for DefaultKeyspace {
 
 /// Local filesystem keyspace.
 ///
-/// Same key layout as DefaultKeyspace. Consumers that need file:// URIs
-/// (e.g. an embedded DB) should build them from `root_dir` directly.
+/// Same key layout as DefaultKeyspace.
 #[derive(Clone, Debug)]
-pub struct LocalKeyspace {
-    pub root_dir: String,
-}
+pub struct LocalKeyspace;
 
 impl LocalKeyspace {
-    pub fn new(root_dir: String) -> Self {
-        Self { root_dir }
+    pub fn new(_root_dir: String) -> Self {
+        Self
     }
 }
 
@@ -126,11 +122,7 @@ mod tests {
     #[test]
     fn keyspace_rejects_bad_segments() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         assert!(ks.thread_key(&scope, "../x").is_err());
         assert!(ks.thread_key(&scope, "a/b").is_err());
         assert!(ks.thread_key(&scope, "").is_err());
@@ -142,11 +134,7 @@ mod tests {
     #[test]
     fn keyspace_builds_thread_key() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_key(&scope, "123").unwrap();
         assert_eq!(k, "t/w/p/threads/123.json");
     }
@@ -154,11 +142,7 @@ mod tests {
     #[test]
     fn keyspace_builds_thread_state_key() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_state_key(&scope, "123").unwrap();
         assert_eq!(k, "t/w/p/state/123/state.json");
     }
@@ -166,11 +150,7 @@ mod tests {
     #[test]
     fn keyspace_builds_thread_log_key() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_log_key(&scope, "123").unwrap();
         assert_eq!(k, "t/w/p/logs/123.log");
     }
@@ -178,11 +158,7 @@ mod tests {
     #[test]
     fn keyspace_builds_thread_artifact_key() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_artifact_key(&scope, "123", "control").unwrap();
         assert_eq!(k, "t/w/p/threads/123.control.json");
     }
@@ -190,11 +166,7 @@ mod tests {
     #[test]
     fn scoped_key_builds_arbitrary_path() {
         let ks = DefaultKeyspace::new("b".to_string());
-        let scope = RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         assert_eq!(
             ks.scoped_key(&scope, &["section_a", "mydb.yaml"]),
             "t/w/p/section_a/mydb.yaml"

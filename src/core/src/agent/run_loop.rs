@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tracing::info;
 
+use crate::error::CoreError;
 use crate::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 use crate::schema_registry::SchemaId;
 use crate::session::{ThreadStep, ToolObservation, ToolStepStatus};
@@ -12,8 +13,11 @@ use super::{
     RunOutcomeNonInteractive, StepBoundaryReason,
 };
 
-fn is_retriable_parse_error(e: &str) -> bool {
-    e.starts_with("invalid JSON from model:") || e.contains("validation error:")
+fn is_retriable_parse_error(e: &CoreError) -> bool {
+    let s = e.to_string();
+    s.starts_with("invalid JSON from model:") || s.contains("validation error:")
+        || s.starts_with("agent error: invalid JSON from model:")
+        || s.starts_with("agent error: agent.step.v1") || s.starts_with("schema error:")
 }
 
 fn build_retry_transcript(transcript: &[String], tail: Option<usize>) -> Vec<String> {
@@ -44,7 +48,7 @@ impl Agent {
         ctx: &AgentCtx,
         prompt: String,
         llm_options: LlmCallOptions,
-    ) -> Result<String, String> {
+    ) -> Result<String, CoreError> {
         let messages = vec![ChatMessage {
             role: ChatRole::User,
             content: prompt,
@@ -59,7 +63,7 @@ impl Agent {
         tools_card: &str,
         question: &str,
         llm_options: LlmCallOptions,
-    ) -> Result<RunOutcomeNonInteractive, String> {
+    ) -> Result<RunOutcomeNonInteractive, CoreError> {
         let mut non_interactive_ctx = ctx.clone();
         non_interactive_ctx.policy = Arc::new(NonInteractivePolicyAdapter {
             inner: ctx.policy.clone(),
@@ -95,8 +99,7 @@ impl Agent {
         tools_card: &str,
         question: &str,
         llm_options: LlmCallOptions,
-    ) -> Result<RunOutcome, String> {
-        // Agent steps are a strict JSON Schema contract: enforce provider JSON mode and validate.
+    ) -> Result<RunOutcome, CoreError> {
         let mut llm_options = llm_options;
         llm_options.expected_format = LlmExpectedFormat::JsonSchema(SchemaId::AgentStepV1);
 
@@ -108,7 +111,6 @@ impl Agent {
             SchemaId::AgentStepV1.name()
         );
 
-        // Transcript is plain-text lines the model sees.
         let mut transcript: Vec<String> = Vec::new();
         Self::transcript_add(
             &mut transcript,
@@ -121,7 +123,6 @@ impl Agent {
             &ctx.trace_tx,
         );
 
-        // Suite/policy may inject extra context.
         for l in ctx.policy.prelude_lines(ctx, store, &tid) {
             Self::transcript_add(&mut transcript, l, &ctx.trace_tx);
         }
@@ -140,79 +141,22 @@ impl Agent {
                 let _ = tx.send(format!("step {}", step_idx + 1));
             }
 
-            // Ask model for next action.
             let prompt = Self::prompt_from_transcript(ctx, &mut transcript, &output_contract_line);
             let mut raw = Self::llm_chat_once(ctx, prompt, llm_options.clone()).await?;
-            // If the provider returned a deterministic error payload as "text", do not enter the
-            // invalid-JSON repair ladder (it only wastes tokens and repeats the same failure).
             if raw.trim_start().starts_with("LLM_ERROR:") {
-                return Err(raw.trim().to_string());
+                return Err(CoreError::Agent(raw.trim().to_string()));
             }
-            let step = match Self::parse_agent_step(&raw) {
-                Ok(v) => v,
-                Err(e) => {
-                    // Defense in depth: if the model output is invalid JSON or fails schema validation,
-                    // retry with a minimal prompt so we don't amplify prompt bloat.
-                    if !is_retriable_parse_error(&e) {
-                        return Err(e);
-                    }
-
-                    let resp_hash = crate::llm_observability::sha256_hex_str(&raw);
-                    let err_label = if e.contains("validation error:") {
-                        "schema_validation_failed"
-                    } else {
-                        "invalid_json_from_model"
-                    };
-                    Self::transcript_add(
-                        &mut transcript,
-                        format!(
-                            "Observation: {}",
-                            serde_json::json!({
-                                "ok": false,
-                                "error": err_label,
-                                "detail": e,
-                                "response_hash": resp_hash,
-                                "bytes": raw.as_bytes().len(),
-                            })
-                        ),
-                        &ctx.trace_tx,
-                    );
-
-                    let mut keep = build_retry_transcript(&transcript, Some(12));
-                    keep.push(format!(
-                        "User: IMPORTANT: Your previous response did not match schema {}. Error: {}. Return ONLY one JSON object that matches the schema.",
-                        SchemaId::AgentStepV1.name(),
-                        e
-                    ));
-                    let retry_prompt = format!("{}\n{}", keep.join("\n"), output_contract_line);
-                    raw = Self::llm_chat_once(ctx, retry_prompt, llm_options.clone()).await?;
-                    match Self::parse_agent_step(&raw) {
-                        Ok(v) => v,
-                        Err(e2) => {
-                            if !is_retriable_parse_error(&e2) {
-                                return Err(e2);
-                            }
-                            let mut keep2 = build_retry_transcript(&transcript, None);
-                            keep2.push(format!(
-                                "User: Return ONLY one JSON object matching schema {}. Error: {}.",
-                                SchemaId::AgentStepV1.name(),
-                                e2
-                            ));
-                            let retry_prompt2 =
-                                format!("{}\n{}", keep2.join("\n"), output_contract_line);
-                            raw = Self::llm_chat_once(ctx, retry_prompt2, llm_options.clone())
-                                .await?;
-                            Self::parse_agent_step(&raw)?
-                        }
-                    }
-                }
-            };
+            let step = Self::parse_with_retry(
+                ctx, &mut raw, &mut transcript, &output_contract_line, &llm_options,
+            )
+            .await?;
             let (action_name, args) = match step {
                 ParsedStep::Complete { complete_env: env } => {
                     if let Some(outcome) = ctx
                         .policy
                         .handle_complete(tools, ctx, &mut transcript, store, &tid, &env)
-                        .await?
+                        .await
+                        .map_err(CoreError::generic)?
                     {
                         return Ok(outcome);
                     }
@@ -227,7 +171,6 @@ impl Agent {
             )
             .await;
 
-            // Policy may turn this tool into an interrupt.
             if let Some((kind, prompt)) = ctx
                 .policy
                 .interrupt_for_action(action_name_str, &args, &raw_obs)
@@ -247,6 +190,7 @@ impl Agent {
         ctx.policy
             .fallback(tools, ctx, &mut transcript, store, &tid)
             .await
+            .map_err(CoreError::generic)
     }
 
     async fn execute_tool_call(
@@ -265,10 +209,7 @@ impl Agent {
             .max(1);
 
         let tool_id = uuid::Uuid::new_v4().to_string();
-        let agent = ctx
-            .agent_name
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
+        let agent = ctx.agent_name_or_default();
         let clean_name = ctx.policy.clean_tool_name(action_name, args);
         if let Some(store) = store {
             let _ = store
@@ -353,7 +294,7 @@ impl Agent {
                 &ctx.trace_tx,
             );
         } else {
-            let max_prompt_chars = crate::error_context::estimate_max_prompt_chars(ctx);
+            let max_prompt_chars = crate::error_context::estimate_max_prompt_chars();
             let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum();
             let remaining = max_prompt_chars.saturating_sub(used_chars).max(256);
             let rendered =
@@ -366,6 +307,70 @@ impl Agent {
                 ),
                 &ctx.trace_tx,
             );
+        }
+    }
+
+    async fn parse_with_retry(
+        ctx: &AgentCtx,
+        raw: &mut String,
+        transcript: &mut Vec<String>,
+        output_contract_line: &str,
+        llm_options: &LlmCallOptions,
+    ) -> Result<ParsedStep, CoreError> {
+        match Self::parse_agent_step(raw) {
+            Ok(v) => return Ok(v),
+            Err(e) if !is_retriable_parse_error(&e) => return Err(e),
+            Err(e) => {
+                let e_str = e.to_string();
+
+                let resp_hash = crate::llm_observability::sha256_hex_str(raw);
+                let err_label = if e_str.contains("validation error:") {
+                    "schema_validation_failed"
+                } else {
+                    "invalid_json_from_model"
+                };
+                Self::transcript_add(
+                    transcript,
+                    format!(
+                        "Observation: {}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": err_label,
+                            "detail": e_str,
+                            "response_hash": resp_hash,
+                            "bytes": raw.as_bytes().len(),
+                        })
+                    ),
+                    &ctx.trace_tx,
+                );
+
+                let mut keep = build_retry_transcript(transcript, Some(12));
+                keep.push(format!(
+                    "User: IMPORTANT: Your previous response did not match schema {}. Error: {}. Return ONLY one JSON object that matches the schema.",
+                    SchemaId::AgentStepV1.name(),
+                    e_str
+                ));
+                let retry_prompt = format!("{}\n{}", keep.join("\n"), output_contract_line);
+                *raw = Self::llm_chat_once(ctx, retry_prompt, llm_options.clone()).await?;
+                match Self::parse_agent_step(raw) {
+                    Ok(v) => return Ok(v),
+                    Err(e2) if !is_retriable_parse_error(&e2) => return Err(e2),
+                    Err(e2) => {
+                        let e2_str = e2.to_string();
+                        let mut keep2 = build_retry_transcript(transcript, None);
+                        keep2.push(format!(
+                            "User: Return ONLY one JSON object matching schema {}. Error: {}.",
+                            SchemaId::AgentStepV1.name(),
+                            e2_str
+                        ));
+                        let retry_prompt2 =
+                            format!("{}\n{}", keep2.join("\n"), output_contract_line);
+                        *raw = Self::llm_chat_once(ctx, retry_prompt2, llm_options.clone())
+                            .await?;
+                        Self::parse_agent_step(raw)
+                    }
+                }
+            }
         }
     }
 }

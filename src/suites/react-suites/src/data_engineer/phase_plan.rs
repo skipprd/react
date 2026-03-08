@@ -140,9 +140,9 @@ async fn run_plan_bootstrap(
     };
 
     let tool_timeout = |name: &str| {
-        actx.policy
+        actx.policy()
             .timeout_for_tool(name)
-            .unwrap_or(actx.per_step_timeout_secs)
+            .unwrap_or(actx.per_step_timeout_secs())
     };
     let files_tool_timeout = tool_timeout("file");
     let sql_schema_timeout = tool_timeout("sql_schema");
@@ -273,6 +273,9 @@ async fn run_plan_bootstrap(
 }
 
 impl DataEngineerSuite {
+    // TODO(item-97): execute_plan_phase is ~750 lines. Extract helpers for: (a) discovery
+    // probe orchestration, (b) design memo pipeline (generate/critique/revise), (c) skeleton
+    // extraction + validation, (d) enrichment orchestration, (e) plan persistence + approval.
     pub(super) async fn execute_plan_phase(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -524,11 +527,11 @@ if !is_cleanse {
 // CRITICAL: global_semantic_context is intended for GOLD model planning only,
 // not for SILVER/cleanse planning.
 if !is_cleanse {
-    let global_key = sctx.keyspace.scoped_key(
-        &sctx.scope,
+    let global_key = sctx.keyspace().scoped_key(
+        sctx.scope(),
         &["semantic", &format!("{}.yaml", encode_key_component(crate::data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
     );
-    if let Ok(v) = sctx.storage.get_json(&global_key).await {
+    if let Ok(v) = sctx.storage().get_json(&global_key).await {
         q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
         q.push_str(
             &serde_json::to_string_pretty(&v)
@@ -654,8 +657,8 @@ match Agent::run_until_block_non_interactive(
             plan.progress.last_applied_step_idx = thread_state_step_count;
             // Capture a cheap snapshot for “current project as-is” provenance.
             plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace.scoped_prefix(&actx.scope, &["dbt"]),
-                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.scoped_key(&actx.scope, &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+                "dbt_prefix": actx.keyspace().scoped_prefix(actx.scope(), &["dbt"]),
+                "dbt_project_yml_etag": actx.storage().head_etag(&actx.keyspace().scoped_key(actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
                 "plan_design_memo": Self::excerpt(&design_memo, 12_000),
                 "plan_design_critique": {
                     "ok": design_critique.ok,
@@ -890,8 +893,8 @@ match Agent::run_until_block_non_interactive(
             // historical log and accidentally mark tasks done from prior cycles.
             plan.progress.last_applied_step_idx = thread_state_step_count;
             plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace.scoped_prefix(&actx.scope, &["dbt"]),
-                "dbt_project_yml_etag": actx.storage.head_etag(&actx.keyspace.scoped_key(&actx.scope, &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+                "dbt_prefix": actx.keyspace().scoped_prefix(actx.scope(), &["dbt"]),
+                "dbt_project_yml_etag": actx.storage().head_etag(&actx.keyspace().scoped_key(actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
                 "plan_design_memo": Self::excerpt(&design_memo, 12_000),
                 "plan_design_critique": {
                     "ok": design_critique.ok,
@@ -1027,7 +1030,7 @@ match Agent::run_until_block_non_interactive(
         // Deterministic single-step handoff: return to outer controller loop.
         return Ok(PhaseExecutorOutcome::StayInPhase);
     }
-    Err(e) => return Err(e),
+    Err(e) => return Err(e.to_string()),
 }
                 
     }

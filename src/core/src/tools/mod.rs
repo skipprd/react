@@ -29,4 +29,20 @@ impl ToolRegistry {
             None => Err(format!("unknown tool '{}'", name)),
         }
     }
+
+    pub fn names(&self) -> Vec<&str> {
+        self.tools.keys().copied().collect()
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.tools.contains_key(name)
+    }
+
+    pub fn len(&self) -> usize {
+        self.tools.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
 }

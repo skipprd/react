@@ -24,16 +24,10 @@ pub enum CoreError {
     Keyspace(String),
 }
 
+impl CoreError {
+    pub fn generic(msg: impl Into<String>) -> Self {
+        CoreError::Generic(msg.into())
+    }
+}
+
 pub type CoreResult<T> = Result<T, CoreError>;
-
-impl From<String> for CoreError {
-    fn from(s: String) -> Self {
-        CoreError::Generic(s)
-    }
-}
-
-impl From<&str> for CoreError {
-    fn from(s: &str) -> Self {
-        CoreError::Generic(s.to_string())
-    }
-}

@@ -71,16 +71,16 @@ pub enum FlowFrame {
 /// Context passed to suites.
 #[derive(Clone)]
 pub struct SuiteCtx {
-    pub storage: Arc<dyn StorageAdapter>,
-    pub scope: RequestScope,
-    pub keyspace: Arc<dyn Keyspace>,
-    pub secrets: Arc<dyn SecretsProvider>,
-    pub llm: DynLlm,
-    pub resolved_config: Option<Arc<ReactResolvedConfig>>,
-    pub trace_tx: Option<UnboundedSender<String>>,
-    pub vector: Option<Arc<dyn VectorStore>>,
-    pub state: Option<Arc<dyn StateStore>>,
-    pub capabilities: CapabilityMap,
+    storage: Arc<dyn StorageAdapter>,
+    scope: RequestScope,
+    keyspace: Arc<dyn Keyspace>,
+    secrets: Arc<dyn SecretsProvider>,
+    llm: DynLlm,
+    resolved_config: Option<Arc<ReactResolvedConfig>>,
+    trace_tx: Option<UnboundedSender<String>>,
+    vector: Option<Arc<dyn VectorStore>>,
+    state: Option<Arc<dyn StateStore>>,
+    capabilities: CapabilityMap,
 }
 
 impl std::fmt::Debug for SuiteCtx {
@@ -111,8 +111,26 @@ impl SuiteCtx {
         }
     }
 
-    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        self.llm.embed(texts)
+    // ── Accessors ──────────────────────────────────────────────
+    pub fn storage(&self) -> &Arc<dyn StorageAdapter> { &self.storage }
+    pub fn scope(&self) -> &RequestScope { &self.scope }
+    pub fn keyspace(&self) -> &Arc<dyn Keyspace> { &self.keyspace }
+    pub fn secrets(&self) -> &Arc<dyn SecretsProvider> { &self.secrets }
+    pub fn llm(&self) -> &DynLlm { &self.llm }
+    pub fn resolved_config(&self) -> &Option<Arc<ReactResolvedConfig>> { &self.resolved_config }
+    pub fn trace_tx(&self) -> &Option<UnboundedSender<String>> { &self.trace_tx }
+    pub fn vector(&self) -> &Option<Arc<dyn VectorStore>> { &self.vector }
+    pub fn state(&self) -> &Option<Arc<dyn StateStore>> { &self.state }
+    pub fn capabilities_ref(&self) -> &CapabilityMap { &self.capabilities }
+
+    // ── Setters ────────────────────────────────────────────────
+    pub fn set_resolved_config(&mut self, v: Option<Arc<ReactResolvedConfig>>) { self.resolved_config = v; }
+    pub fn set_trace_tx(&mut self, v: Option<UnboundedSender<String>>) { self.trace_tx = v; }
+    pub fn set_vector(&mut self, v: Option<Arc<dyn VectorStore>>) { self.vector = v; }
+    pub fn set_state(&mut self, v: Option<Arc<dyn StateStore>>) { self.state = v; }
+
+    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
+        self.llm.embed(texts).map_err(crate::CoreError::generic)
     }
 
     /// Retrieve a suite-specific capability by concrete type.
@@ -126,15 +144,70 @@ impl SuiteCtx {
     }
 }
 
+// ── Builder ────────────────────────────────────────────────────
+pub struct SuiteCtxBuilder {
+    storage: Arc<dyn StorageAdapter>,
+    scope: RequestScope,
+    keyspace: Arc<dyn Keyspace>,
+    secrets: Arc<dyn SecretsProvider>,
+    llm: DynLlm,
+    resolved_config: Option<Arc<ReactResolvedConfig>>,
+    trace_tx: Option<UnboundedSender<String>>,
+    vector: Option<Arc<dyn VectorStore>>,
+    state: Option<Arc<dyn StateStore>>,
+    capabilities: CapabilityMap,
+}
+
+impl SuiteCtxBuilder {
+    pub fn new(
+        storage: Arc<dyn StorageAdapter>,
+        secrets: Arc<dyn SecretsProvider>,
+        llm: DynLlm,
+        scope: RequestScope,
+        keyspace: Arc<dyn Keyspace>,
+    ) -> Self {
+        Self {
+            storage,
+            scope,
+            keyspace,
+            secrets,
+            llm,
+            resolved_config: None,
+            trace_tx: None,
+            vector: None,
+            state: None,
+            capabilities: CapabilityMap::default(),
+        }
+    }
+
+    pub fn resolved_config(mut self, v: Option<Arc<ReactResolvedConfig>>) -> Self { self.resolved_config = v; self }
+    pub fn trace_tx(mut self, v: Option<UnboundedSender<String>>) -> Self { self.trace_tx = v; self }
+    pub fn vector(mut self, v: Option<Arc<dyn VectorStore>>) -> Self { self.vector = v; self }
+    pub fn state(mut self, v: Option<Arc<dyn StateStore>>) -> Self { self.state = v; self }
+    pub fn capabilities(mut self, v: CapabilityMap) -> Self { self.capabilities = v; self }
+
+    pub fn build(self) -> SuiteCtx {
+        SuiteCtx {
+            storage: self.storage,
+            scope: self.scope,
+            keyspace: self.keyspace,
+            secrets: self.secrets,
+            llm: self.llm,
+            resolved_config: self.resolved_config,
+            trace_tx: self.trace_tx,
+            vector: self.vector,
+            state: self.state,
+            capabilities: self.capabilities,
+        }
+    }
+}
+
 impl Default for SuiteCtx {
     fn default() -> Self {
         Self {
             storage: Arc::new(InMemoryStorageAdapter::default()),
-            scope: RequestScope {
-                tenant: "default".to_string(),
-                workspace: "default".to_string(),
-                project_id: "default".to_string(),
-            },
+            scope: RequestScope::parse("default", "default", "default")
+                .expect("default scope segments are safe"),
             keyspace: Arc::new(DefaultKeyspace::new("unset".to_string())),
             secrets: Arc::new(NullSecretsProvider::default()),
             llm: Arc::new(NullModel::new()),

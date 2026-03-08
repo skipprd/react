@@ -63,6 +63,21 @@ pub struct LlmCallOptions {
     pub timeout_secs: Option<u64>,
 }
 
+impl Default for LlmCallOptions {
+    fn default() -> Self {
+        Self {
+            prompt_id: "",
+            thread_id: None,
+            expected_format: LlmExpectedFormat::default(),
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            reasoning_effort: None,
+            timeout_secs: None,
+        }
+    }
+}
+
 /// High-level abstraction for large language models used by the ReAct runtime.
 /// Implementations may be local (llama.cpp) or remote (OpenAI-compatible HTTP).
 pub trait LargeLanguageModel: Send + Sync {
@@ -88,12 +103,15 @@ impl std::fmt::Display for ChatRole {
     }
 }
 
-impl From<&str> for ChatRole {
-    fn from(s: &str) -> Self {
+impl TryFrom<&str> for ChatRole {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s {
-            "system" => Self::System,
-            "assistant" => Self::Assistant,
-            _ => Self::User,
+            "system" => Ok(Self::System),
+            "user" => Ok(Self::User),
+            "assistant" => Ok(Self::Assistant),
+            other => Err(format!("unknown ChatRole: '{}'", other)),
         }
     }
 }

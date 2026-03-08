@@ -22,17 +22,11 @@ use react_suites::data_engineer::providers::{
     WarehouseNaming, has_obvious_same_select_alias_reuse,
 };
 
+use react_suites::data_engineer::providers::warehouse_utils;
+
 const DEFAULT_BIGQUERY_MAX_CONCURRENCY: usize = 15;
 const BIGQUERY_MAX_CONCURRENCY_CAP: usize = 20;
 const DEFAULT_BIGQUERY_DISCOVERY_CACHE_TTL_SECS: u64 = 120;
-
-fn clamp_bigquery_concurrency(n: usize) -> usize {
-    n.max(1).min(BIGQUERY_MAX_CONCURRENCY_CAP)
-}
-
-fn clamp_cache_ttl_secs(n: u64) -> u64 {
-    n.max(5).min(3600)
-}
 
 fn cell_to_string(cell: &TableCell) -> String {
     cell.value
@@ -113,16 +107,21 @@ impl BigQueryProvider {
             .await
             .map_err(|e| format!("BigQuery client init failed: {}", e))?;
 
-        let max = clamp_bigquery_concurrency(if settings.max_concurrency == 0 {
-            DEFAULT_BIGQUERY_MAX_CONCURRENCY
-        } else {
-            settings.max_concurrency
-        });
-        let ttl_secs = clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
-            DEFAULT_BIGQUERY_DISCOVERY_CACHE_TTL_SECS
-        } else {
-            settings.discovery_cache_ttl_secs
-        });
+        let max = warehouse_utils::clamp_concurrency(
+            if settings.max_concurrency == 0 {
+                DEFAULT_BIGQUERY_MAX_CONCURRENCY
+            } else {
+                settings.max_concurrency
+            },
+            BIGQUERY_MAX_CONCURRENCY_CAP,
+        );
+        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
+            if settings.discovery_cache_ttl_secs == 0 {
+                DEFAULT_BIGQUERY_DISCOVERY_CACHE_TTL_SECS
+            } else {
+                settings.discovery_cache_ttl_secs
+            },
+        );
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -322,32 +321,11 @@ impl WarehouseNaming for BigQueryProvider {
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {
-        let raw = dataset_fqn.trim().trim_matches('"').trim_matches('`');
-        if raw.is_empty() {
-            return Err("dataset id is empty".to_string());
-        }
-        let parts: Vec<&str> = raw.split('.').collect();
-        match parts.len() {
-            3 => Ok(DatasetId {
-                catalog: parts[0].to_string(),
-                database: parts[1].to_string(),
-                table: parts[2].to_string(),
-            }),
-            2 => Ok(DatasetId {
-                catalog: self.inner.project.clone(),
-                database: parts[0].to_string(),
-                table: parts[1].to_string(),
-            }),
-            1 => Ok(DatasetId {
-                catalog: self.inner.project.clone(),
-                database: self.inner.dataset.clone(),
-                table: parts[0].to_string(),
-            }),
-            _ => Err(
-                "dataset id must be <project>.<dataset>.<table> (or <dataset>.<table> or <table>)"
-                    .to_string(),
-            ),
-        }
+        react_suites::data_engineer::providers::warehouse_utils::parse_fqn_common(
+            dataset_fqn,
+            &self.inner.project,
+            Some(&self.inner.dataset),
+        )
     }
 
     fn quote_ident(&self, ident: &str) -> String {
@@ -452,10 +430,8 @@ impl DatasetCatalogProvider for BigQueryProvider {
             .unwrap_or(0);
 
         let mut ns_stats = DatasetFieldStats::new(&dataset.fqn());
-        let mut attempted: usize = 0;
 
         for (name, ty) in cols.into_iter().take(max_fields) {
-            attempted += 1;
             let expr = Self::quote_ident(&name);
             let ty_lc = ty.trim().to_lowercase();
             let is_complex = ty_lc.starts_with("array<") || ty_lc.starts_with("struct<");
@@ -526,7 +502,6 @@ impl DatasetCatalogProvider for BigQueryProvider {
 
         let mut ds_stats = DatasetStats::default();
         ds_stats.approx_total_rows = total_rows;
-        let _ = attempted;
         Ok((ns_stats, ds_stats))
     }
 

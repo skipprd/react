@@ -98,10 +98,7 @@ impl CatalogProvider for DefaultCatalogProvider {
     ) -> Result<(), String> {
         let canonical = Self::canonical_dataset_id(dataset_id)?;
         let key = self.keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(&canonical))]);
-        let yaml = serde_yaml::to_string(catalog).map_err(|e| e.to_string())?;
-        let value =
-            serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
-        let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+        let json_equiv = utils::yaml_to_json_value(catalog)?;
         self.storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
         Ok(())
     }

@@ -54,7 +54,7 @@ pub async fn search_examples(
     // Note: current VectorStore API doesn't support server-side filtering.
     // We upsert `kind="dbt_example"` and filter client-side.
     let mut hits = vector.query(&scope, &v, k * 3, None).await?;
-    hits.retain(|h| h.item.kind == "dbt_example");
+    hits.retain(|h| h.item.kind == react_core::providers::ChunkKind::Other("dbt_example".to_string()));
     hits.truncate(k.max(1));
     Ok(hits)
 }
@@ -166,7 +166,7 @@ async fn sync_from_local(
         let id = format!("dbt_example:{}:{}", project, sha256_bytes(rel.as_bytes()));
         chunks.push(VectorChunk {
             id,
-            kind: "dbt_example".to_string(),
+            kind: react_core::providers::ChunkKind::Other("dbt_example".to_string()),
             entity_id: project.clone(),
             field: Some(rel.clone()),
             text,

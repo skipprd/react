@@ -26,3 +26,14 @@ pub mod tools;
 pub mod workflow;
 
 pub use error::{CoreError, CoreResult};
+
+/// Check whether an environment variable is set to a truthy value (`1`, `true`, or `yes`).
+pub fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| {
+            let vv = v.trim().to_lowercase();
+            vv == "1" || vv == "true" || vv == "yes"
+        })
+        .unwrap_or(false)
+}

@@ -46,9 +46,9 @@ impl ConnState {
     }
     pub fn thread_store(&self) -> ThreadStore {
         ThreadStore::new(
-            self.suite_ctx.storage.clone(),
-            self.suite_ctx.scope.clone(),
-            self.suite_ctx.keyspace.clone(),
+            self.suite_ctx.storage().clone(),
+            self.suite_ctx.scope().clone(),
+            self.suite_ctx.keyspace().clone(),
         )
     }
     pub fn next_seq(&mut self) -> i32 {

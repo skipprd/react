@@ -12,14 +12,13 @@ use crate::providers::dataset_catalog_provider::{DatasetCatalogProvider, Dataset
 use crate::providers::{QueryProvider, QueryResult};
 use crate::providers::warehouse::WarehouseNaming;
 
+use react_suites::data_engineer::providers::warehouse_utils::{clamp_concurrency, clamp_cache_ttl_secs};
+
 const DEFAULT_ATHENA_MAX_CONCURRENCY: usize = 15;
 const ATHENA_MAX_CONCURRENCY_CAP: usize = 20;
-fn clamp_athena_concurrency(n: usize) -> usize {
-    n.max(1).min(ATHENA_MAX_CONCURRENCY_CAP)
-}
 
 #[derive(Clone)]
-pub struct AthenaQueryProvider {
+pub struct AthenaProvider {
     inner: Arc<Inner>,
 }
 
@@ -56,15 +55,18 @@ struct Cache {
     schema_by_fqn: HashMap<String, (Instant, Vec<(String, String)>)>,
 }
 
-impl AthenaQueryProvider {
+impl AthenaProvider {
     /// Create from explicit settings using the standard AWS credential chain.
     pub async fn from_settings(settings: AthenaSettings) -> Self {
-        let ttl_secs = settings.discovery_cache_ttl_secs.max(5).min(3600);
-        let max_concurrency = clamp_athena_concurrency(if settings.max_concurrency == 0 {
-            DEFAULT_ATHENA_MAX_CONCURRENCY
-        } else {
-            settings.max_concurrency
-        });
+        let ttl_secs = clamp_cache_ttl_secs(settings.discovery_cache_ttl_secs);
+        let max_concurrency = clamp_concurrency(
+            if settings.max_concurrency == 0 {
+                DEFAULT_ATHENA_MAX_CONCURRENCY
+            } else {
+                settings.max_concurrency
+            },
+            ATHENA_MAX_CONCURRENCY_CAP,
+        );
         let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
             .await;
@@ -120,41 +122,6 @@ impl AthenaQueryProvider {
             discovery_cache_ttl_secs: ttl_secs,
         })
         .await
-    }
-
-    fn parse_dataset_id(&self, s: &str) -> Result<DatasetId, String> {
-        let raw = s.trim();
-        if raw.is_empty() {
-            return Err("dataset id is empty".to_string());
-        }
-
-        // Allow quoted identifiers in input, but keep parsing simple.
-        let cleaned = raw.trim_matches('"').trim_matches('`');
-        let parts: Vec<&str> = cleaned.split('.').collect();
-        match parts.len() {
-            3 => Ok(DatasetId {
-                catalog: parts[0].to_string(),
-                database: parts[1].to_string(),
-                table: parts[2].to_string(),
-            }),
-            2 => Ok(DatasetId {
-                catalog: self.inner.default_catalog.clone(),
-                database: parts[0].to_string(),
-                table: parts[1].to_string(),
-            }),
-            1 => {
-                let db = self.inner.source_schema.clone().ok_or_else(|| {
-                    "dataset id missing database; set ATHENA_SOURCE_SCHEMA or use <db>.<table>"
-                        .to_string()
-                })?;
-                Ok(DatasetId {
-                    catalog: self.inner.default_catalog.clone(),
-                    database: db,
-                    table: parts[0].to_string(),
-                })
-            }
-            _ => Err("dataset id must be <catalog>.<db>.<table> (or <db>.<table>)".to_string()),
-        }
     }
 
     fn quote_ident(ident: &str) -> String {
@@ -410,49 +377,21 @@ impl AthenaQueryProvider {
     }
 }
 
-impl WarehouseNaming for AthenaQueryProvider {
+impl WarehouseNaming for AthenaProvider {
     fn kind(&self) -> react_suites::data_engineer::de_config::WarehouseKind {
         react_suites::data_engineer::de_config::WarehouseKind::Athena
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {
-        let raw = dataset_fqn.trim().trim_matches('"').trim_matches('`');
-        if raw.is_empty() {
-            return Err("dataset id is empty".to_string());
-        }
-        let parts: Vec<&str> = raw.split('.').collect();
-        match parts.len() {
-            3 => Ok(DatasetId {
-                catalog: parts[0].to_string(),
-                database: parts[1].to_string(),
-                table: parts[2].to_string(),
-            }),
-            2 => Ok(DatasetId {
-                catalog: self.inner.default_catalog.clone(),
-                database: parts[0].to_string(),
-                table: parts[1].to_string(),
-            }),
-            1 => {
-                let db = self
-                    .inner
-                    .source_schema
-                    .clone()
-                    .ok_or_else(|| "athena dataset id must be <catalog>.<database>.<table> (or configure source_schema)".to_string())?;
-                Ok(DatasetId {
-                    catalog: self.inner.default_catalog.clone(),
-                    database: db,
-                    table: parts[0].to_string(),
-                })
-            }
-            _ => Err(
-                "athena dataset id must be <catalog>.<database>.<table> (or <database>.<table>)"
-                    .to_string(),
-            ),
-        }
+        react_suites::data_engineer::providers::warehouse_utils::parse_fqn_common(
+            dataset_fqn,
+            &self.inner.default_catalog,
+            self.inner.source_schema.as_deref(),
+        )
     }
 
     fn quote_ident(&self, ident: &str) -> String {
-        format!("\"{}\"", ident.replace('"', "\"\""))
+        Self::quote_ident(ident)
     }
 
     fn sql_prompt_rules(&self) -> Vec<&'static str> {
@@ -492,7 +431,7 @@ impl WarehouseNaming for AthenaQueryProvider {
 }
 
 #[async_trait]
-impl QueryProvider for AthenaQueryProvider {
+impl QueryProvider for AthenaProvider {
     async fn query(&self, sql: &str) -> Result<QueryResult, String> {
         // Global throttle: cap in-flight Athena queries to avoid soft-limit failures and reduce timeouts.
         let _permit = self
@@ -503,6 +442,9 @@ impl QueryProvider for AthenaQueryProvider {
             .await
             .map_err(|_| "athena query limiter closed".to_string())?;
 
+        // TODO(item-69): Extract query-kind classification into a shared utility.
+        // The magic-string matching below is fragile and duplicated conceptually
+        // across providers. A QueryKind enum or explicit parameter would be cleaner.
         let kind = if sql.contains("COUNT(1) AS __cnt") {
             "row_count"
         } else if sql.contains(" AS __distinct") || sql.contains(" AS __nulls") {
@@ -540,12 +482,12 @@ impl QueryProvider for AthenaQueryProvider {
     }
 
     async fn schema(&self, dataset_fqn: &str) -> Result<Vec<(String, String)>, String> {
-        let ds = self.parse_dataset_id(dataset_fqn)?;
+        let ds = self.parse_dataset_fqn(dataset_fqn)?;
         self.cached_schema(&ds).await
     }
 
     async fn sample(&self, dataset_fqn: &str, limit: usize) -> Result<Vec<Vec<String>>, String> {
-        let ds = self.parse_dataset_id(dataset_fqn)?;
+        let ds = self.parse_dataset_fqn(dataset_fqn)?;
         let lim = limit.max(1).min(5000);
         let sql = format!(
             "SELECT * FROM {} LIMIT {}",
@@ -562,7 +504,7 @@ impl QueryProvider for AthenaQueryProvider {
 }
 
 #[async_trait]
-impl DatasetCatalogProvider for AthenaQueryProvider {
+impl DatasetCatalogProvider for AthenaProvider {
     async fn list_datasets(&self) -> Result<Vec<DatasetId>, String> {
         let dbs = self.cached_databases().await?;
         let mut out: Vec<DatasetId> = Vec::new();
@@ -625,8 +567,8 @@ impl DatasetCatalogProvider for AthenaQueryProvider {
         let qr_cnt = self.query(&count_sql).await?;
         let total_rows: u64 = qr_cnt
             .rows
-            .get(0)
-            .and_then(|r| r.get(0))
+            .first()
+            .and_then(|r| r.first())
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
 
@@ -752,7 +694,7 @@ impl DatasetCatalogProvider for AthenaQueryProvider {
             };
             executed += 1;
             succeeded += 1;
-            let row = qr.rows.get(0).cloned().unwrap_or_default();
+            let row = qr.rows.first().cloned().unwrap_or_default();
             let mut fs = crate::discover::stats::FieldStats::default();
             fs.total = total_rows;
             fs.nulls = row.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);

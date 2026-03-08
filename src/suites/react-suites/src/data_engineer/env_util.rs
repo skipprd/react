@@ -99,56 +99,80 @@ pub mod env_keys {
 // ---------------------------------------------------------------------------
 
 pub fn max_phase_steps() -> usize {
-    env_usize(env_keys::AGENT_MAX_PHASE_STEPS)
-        .unwrap_or(DEFAULT_MAX_PHASE_STEPS)
-        .max(MIN_PHASE_STEPS)
-        .min(MAX_PHASE_STEPS)
+    static CACHE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_usize(env_keys::AGENT_MAX_PHASE_STEPS)
+            .unwrap_or(DEFAULT_MAX_PHASE_STEPS)
+            .max(MIN_PHASE_STEPS)
+            .min(MAX_PHASE_STEPS)
+    })
 }
 
 pub fn max_replan_backtracks() -> usize {
-    env_usize(env_keys::AGENT_MAX_REPLAN_BACKTRACKS)
-        .unwrap_or(DEFAULT_MAX_REPLAN_BACKTRACKS)
-        .max(MIN_REPLAN_BACKTRACKS)
-        .min(MAX_REPLAN_BACKTRACKS)
+    static CACHE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_usize(env_keys::AGENT_MAX_REPLAN_BACKTRACKS)
+            .unwrap_or(DEFAULT_MAX_REPLAN_BACKTRACKS)
+            .max(MIN_REPLAN_BACKTRACKS)
+            .min(MAX_REPLAN_BACKTRACKS)
+    })
 }
 
 pub fn max_publish_retries() -> usize {
-    env_usize(env_keys::AGENT_MAX_PUBLISH_RETRIES)
-        .unwrap_or(DEFAULT_MAX_PUBLISH_RETRIES)
-        .max(1)
-        .min(12)
+    static CACHE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_usize(env_keys::AGENT_MAX_PUBLISH_RETRIES)
+            .unwrap_or(DEFAULT_MAX_PUBLISH_RETRIES)
+            .max(1)
+            .min(12)
+    })
 }
 
 pub fn plan_enrich_chunk_size() -> usize {
-    env_usize(env_keys::LLM_PLAN_ENRICH_CHUNK_SIZE)
-        .unwrap_or(DEFAULT_PLAN_ENRICH_CHUNK_SIZE)
-        .clamp(MIN_PLAN_ENRICH_CHUNK_SIZE, MAX_PLAN_ENRICH_CHUNK_SIZE)
+    static CACHE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_usize(env_keys::LLM_PLAN_ENRICH_CHUNK_SIZE)
+            .unwrap_or(DEFAULT_PLAN_ENRICH_CHUNK_SIZE)
+            .clamp(MIN_PLAN_ENRICH_CHUNK_SIZE, MAX_PLAN_ENRICH_CHUNK_SIZE)
+    })
 }
 
 pub fn model_plan_min_score() -> i32 {
-    std::env::var(env_keys::LLM_MODEL_PLAN_MIN_SCORE)
-        .ok()
-        .and_then(|s| s.parse::<i32>().ok())
-        .map(|p| p.clamp(MIN_MODEL_PLAN_SCORE, MAX_MODEL_PLAN_SCORE))
-        .unwrap_or(DEFAULT_MODEL_PLAN_MIN_SCORE)
+    static CACHE: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::env::var(env_keys::LLM_MODEL_PLAN_MIN_SCORE)
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok())
+            .map(|p| p.clamp(MIN_MODEL_PLAN_SCORE, MAX_MODEL_PLAN_SCORE))
+            .unwrap_or(DEFAULT_MODEL_PLAN_MIN_SCORE)
+    })
 }
 
 pub fn headless_mode_enabled() -> bool {
-    env_bool_truthy(env_keys::REACT_HEADLESS).unwrap_or(false)
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_bool_truthy(env_keys::REACT_HEADLESS).unwrap_or(false)
+    })
 }
 
 pub fn catalog_bootstrap_timeout_secs() -> u64 {
-    env_u32(env_keys::DE_CATALOG_BOOTSTRAP_TIMEOUT_SECS)
-        .unwrap_or(DEFAULT_CATALOG_BOOTSTRAP_TIMEOUT_SECS as u32)
-        .max(30)
-        .min(1800) as u64
+    static CACHE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        env_u32(env_keys::DE_CATALOG_BOOTSTRAP_TIMEOUT_SECS)
+            .unwrap_or(DEFAULT_CATALOG_BOOTSTRAP_TIMEOUT_SECS as u32)
+            .max(30)
+            .min(1800) as u64
+    })
 }
 
 pub fn dbt_allow_compile_only_complete() -> bool {
-    std::env::var(env_keys::DBT_ALLOW_COMPILE_ONLY_COMPLETE)
-        .ok()
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::env::var(env_keys::DBT_ALLOW_COMPILE_ONLY_COMPLETE)
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
 }
 
 pub fn sql_first_max_output_tokens(default: u32) -> u32 {

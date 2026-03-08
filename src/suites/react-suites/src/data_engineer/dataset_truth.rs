@@ -170,15 +170,15 @@ pub fn is_ref_only_gold_input(input: &str) -> bool {
 pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedStagingModelSet {
     let mut out = GroundedStagingModelSet::default();
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string()
         + "/";
 
     // 1) models/staging/*.sql
     let staging_prefix = format!("{}models/staging/", base);
-    let keys = match ctx.storage.list_prefix(&staging_prefix).await {
+    let keys = match ctx.storage().list_prefix(&staging_prefix).await {
         Ok(k) => k,
         Err(e) => {
             tracing::warn!(
@@ -206,7 +206,7 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
 
     // 2) target/manifest.json (best-effort enrichment)
     let manifest_key = format!("{}target/manifest.json", base);
-    if let Ok(bytes) = ctx.storage.get_bytes(&manifest_key).await {
+    if let Ok(bytes) = ctx.storage().get_bytes(&manifest_key).await {
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
             if let Some(nodes) = v.get("nodes").and_then(|n| n.as_object()) {
                 for (_uid, node) in nodes.iter() {

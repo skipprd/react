@@ -31,10 +31,10 @@ pub(crate) fn classify_schema_batch_failure_kind(msg: &str) -> BatchFailureKind 
 }
 
 pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -> Result<(), String> {
-    let Some(thread_store) = ctx.thread_store.as_ref() else {
+    let Some(thread_store) = ctx.thread_store().as_ref() else {
         return Ok(());
     };
-    let Some(thread_id) = ctx.thread_id.as_deref() else {
+    let Some(thread_id) = ctx.thread_id().as_deref() else {
         return Ok(());
     };
     state_manager::apply_execution_event(thread_store, thread_id, event)

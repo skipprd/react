@@ -203,7 +203,7 @@ pub async fn apply_patch(
     let rel = normalize_rel_path(path)?;
     let key = super::join_storage_key(ctx, &rel);
     let existing = ctx
-        .storage
+        .storage()
         .get_bytes(&key)
         .await
         .ok()
@@ -986,7 +986,7 @@ packages:
         let ctx = make_ctx(storage.clone(), None);
         let rel = "macros/helpers.sql";
         let key = join_storage_key(&ctx, rel);
-        ctx.storage
+        ctx.storage()
             .put_bytes(&key, b"select 1\n", "text/sql")
             .await
             .expect("seed");
@@ -1021,7 +1021,7 @@ packages:
         let rel = "macros/helpers.sql";
         let key = join_storage_key(&ctx, rel);
         let seed = "fn x() {\n    if ok {\n        return 1;\n    }\n}\n";
-        ctx.storage
+        ctx.storage()
             .put_bytes(&key, seed.as_bytes(), "text/sql")
             .await
             .expect("seed");
@@ -1083,7 +1083,7 @@ packages:
         let ctx = make_ctx(storage.clone(), None);
         let rel = "models/core/x.sql";
         let key = join_storage_key(&ctx, rel);
-        ctx.storage
+        ctx.storage()
             .put_bytes(&key, b"select 1\n", "text/sql")
             .await
             .expect("seed");
@@ -1109,7 +1109,7 @@ packages:
         let ctx = make_ctx(storage.clone(), None);
         let rel = "models/core/x.sql";
         let key = join_storage_key(&ctx, rel);
-        ctx.storage
+        ctx.storage()
             .put_bytes(&key, b"select 1\n", "text/sql")
             .await
             .expect("seed");

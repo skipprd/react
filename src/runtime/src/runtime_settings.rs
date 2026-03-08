@@ -4,6 +4,9 @@ use std::sync::{Arc, OnceLock};
 
 use crate::runtime_context::RuntimeContext;
 
+// Known limitation: process-global singleton. The long-term plan is to thread
+// `RuntimeContext` through all call-sites and remove this static.  For now,
+// `build_runtime_context()` below bridges the two worlds.
 static RESOLVED_CONFIG: OnceCell<ReactResolvedConfig> = OnceCell::new();
 
 pub fn bind_resolved_config(cfg: &ReactResolvedConfig) {

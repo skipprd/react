@@ -9,4 +9,4 @@ pub mod vector;
 
 pub use secrets::{NullSecretsProvider, SecretsProvider};
 pub use state::StateStore;
-pub use vector::{ScoredVectorChunk, VectorChunk, VectorStore};
+pub use vector::{ChunkKind, ScoredVectorChunk, VectorChunk, VectorStore};

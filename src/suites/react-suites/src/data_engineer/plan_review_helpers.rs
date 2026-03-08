@@ -179,8 +179,8 @@ impl DataEngineerSuite {
     }
     pub(super) async fn has_any_gold_model_sql(actx: &AgentCtx) -> bool {
         let base = actx
-            .keyspace
-            .scoped_prefix(&actx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(actx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let prefixes = [
@@ -188,7 +188,7 @@ impl DataEngineerSuite {
             format!("{}/models/marts/", base),
         ];
         for pref in prefixes.iter() {
-            if let Ok(keys) = actx.storage.list_prefix(pref).await {
+            if let Ok(keys) = actx.storage().list_prefix(pref).await {
                 for k in keys {
                     if !k.ends_with(".sql") {
                         continue;

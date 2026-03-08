@@ -101,7 +101,7 @@ impl Tool for KbIngestDirTool {
         }
 
         let vector = ctx
-            .vector
+            .vector()
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
 
@@ -147,7 +147,7 @@ impl Tool for KbIngestDirTool {
                 let doc_text = format!("file: {}\n\n{}", rel, part);
                 chunks.push(VectorChunk {
                     id: format!("doc:{}:{}:{}", dataset_id, rel, i),
-                    kind: "doc".to_string(),
+                    kind: react_core::providers::ChunkKind::Doc,
                     entity_id: dataset_id.clone(),
                     field: None,
                     text: doc_text,
@@ -173,7 +173,7 @@ impl Tool for KbIngestDirTool {
             idx = end;
         }
 
-        vector.upsert(&ctx.scope, &chunks).await?;
+        vector.upsert(ctx.scope(), &chunks).await?;
 
         Ok(serde_json::json!({
             "ok": true,

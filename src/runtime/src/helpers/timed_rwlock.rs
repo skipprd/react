@@ -12,6 +12,9 @@ static PROFILE_PERFORMANCE: LazyLock<bool> = LazyLock::new(|| {
 });
 
 static WAITING_ON: LazyLock<DashMap<String, Instant>> = LazyLock::new(DashMap::new);
+// Known limitation: process-global singleton for lock-contention profiling.
+// Acceptable for diagnostics; consider injecting via a `Profiler` context if
+// multi-instance testing becomes necessary.
 pub static TOTAL_WAIT_TIMES: LazyLock<DashMap<String, AtomicU64>> = LazyLock::new(DashMap::new);
 
 pub struct TimedRwLock<T> {

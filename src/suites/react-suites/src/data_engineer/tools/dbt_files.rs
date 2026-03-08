@@ -38,7 +38,7 @@ fn select_terms_from_paths(paths: &[String]) -> Vec<String> {
 }
 
 async fn was_recently_removed_in_repair(ctx: &AgentCtx, rel_path: &str) -> bool {
-    let (Some(store), Some(thread_id)) = (ctx.thread_store.as_ref(), ctx.thread_id.as_deref()) else {
+    let (Some(store), Some(thread_id)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref()) else {
         return false;
     };
     let want = project_fs::normalize_rel_path(rel_path)
@@ -306,7 +306,7 @@ pub(crate) async fn validate_staging_schema_ymls(
             } else {
                 // Fall back to existing staging SQL in storage.
                 let key = project_fs::join_storage_key(ctx, &sql_rel);
-                let bytes = ctx.storage.get_bytes(&key).await.map_err(|_| {
+                let bytes = ctx.storage().get_bytes(&key).await.map_err(|_| {
                     format!(
                         "cannot validate {}: missing staging model SQL {} (for model '{}')",
                         rel, sql_rel, model_name
@@ -565,7 +565,7 @@ impl Tool for FilesTool {
                     project_fs::remove_file(ctx, &parsed.path, parsed.expected_sha256.as_deref())
                         .await?;
                 if let (Some(store), Some(thread_id)) =
-                    (ctx.thread_store.as_ref(), ctx.thread_id.as_deref())
+                    (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
                 {
                     let paths = vec![parsed.path.clone()];
                     let select_terms = select_terms_from_paths(&paths);
@@ -599,7 +599,7 @@ impl Tool for FilesTool {
                 )
                 .await?;
                 if let (Some(store), Some(thread_id)) =
-                    (ctx.thread_store.as_ref(), ctx.thread_id.as_deref())
+                    (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
                 {
                     let paths = vec![parsed.to.clone()];
                     let select_terms = select_terms_from_paths(&paths);
@@ -692,7 +692,7 @@ impl Tool for FilesTool {
                 // the sibling staging SQL output (prevents COLUMN_NOT_FOUND runtime errors).
                 validate_staging_schema_ymls(ctx, std::slice::from_ref(&outcome)).await?;
 
-                ctx.storage
+                ctx.storage()
                     .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/plain")
                     .await
                     .map_err(|e| e.to_string())?;
@@ -706,7 +706,7 @@ impl Tool for FilesTool {
                     rewrites_json.push(serde_json::json!({ "from": from, "to": to }));
                     if from != to {
                         let old_key = project_fs::join_storage_key(ctx, from);
-                        let _ = ctx.storage.delete_object(&old_key).await;
+                        let _ = ctx.storage().delete_object(&old_key).await;
                     }
                 }
 
@@ -737,7 +737,7 @@ impl Tool for FilesTool {
                     }]
                 });
                 if let (Some(store), Some(thread_id)) =
-                    (ctx.thread_store.as_ref(), ctx.thread_id.as_deref())
+                    (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
                 {
                     let paths = vec![outcome.rel_path.clone()];
                     let select_terms = select_terms_from_paths(&paths);
@@ -780,11 +780,7 @@ mod tests {
         Arc::new(config::ReactResolvedConfig {
             server: config::ServerResolved { port: 1 },
             storage: config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
         })
@@ -792,31 +788,14 @@ mod tests {
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm: Arc::new(NullModel::new()),
-            storage,
-            scope,
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        }
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        react_core::agent::AgentCtxBuilder::new(Arc::new(NullModel::new()), storage, scope, keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build()
     }
 
     #[tokio::test]
@@ -933,7 +912,7 @@ mod tests {
         let mut ctx = make_ctx(storage.clone());
         let store = ThreadStore::new(
             storage,
-            ctx.scope.clone(),
+            ctx.scope().clone(),
             Arc::new(DefaultKeyspace::new("b".to_string())),
         );
         let tid = "tid-hard-mutation-files-get-blocked".to_string();
@@ -957,8 +936,8 @@ mod tests {
         state_manager::replace_execution_state(&store, &tid, es)
             .await
             .expect("seed execution state");
-        ctx.thread_store = Some(store);
-        ctx.thread_id = Some(tid);
+        ctx.set_thread_store(Some(store));
+        ctx.set_thread_id(Some(tid));
 
         let tool = DbtFilesTool { datasets: None };
         let err = tool
@@ -980,7 +959,7 @@ mod tests {
         let mut ctx = make_ctx(storage.clone());
         let store = ThreadStore::new(
             storage,
-            ctx.scope.clone(),
+            ctx.scope().clone(),
             Arc::new(DefaultKeyspace::new("b".to_string())),
         );
         let tid = "tid-hard-mutation-files-list-allowed".to_string();
@@ -1004,8 +983,8 @@ mod tests {
         state_manager::replace_execution_state(&store, &tid, es)
             .await
             .expect("seed execution state");
-        ctx.thread_store = Some(store);
-        ctx.thread_id = Some(tid);
+        ctx.set_thread_store(Some(store));
+        ctx.set_thread_id(Some(tid));
 
         let tool = DbtFilesTool { datasets: None };
         let out = tool

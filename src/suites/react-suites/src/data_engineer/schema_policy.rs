@@ -75,12 +75,12 @@ async fn collect_sql_model_name_collisions(
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     let limit = limit.max(1).min(2000);
     let base =     ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/", base);
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.sort();
     let mut by_stem: HashMap<String, Vec<String>> = HashMap::new();
     for key in keys.into_iter().filter(|k| k.ends_with(".sql")).take(limit) {
@@ -124,16 +124,16 @@ async fn collect_staging_model_names_from_ymls(
 ) -> Result<HashSet<String>, String> {
     let limit = limit.max(1).min(500);
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.sort();
     let mut out: HashSet<String> = HashSet::new();
     for k in keys.into_iter().filter(|k| k.ends_with(".yml")).take(limit) {
-        let bytes = match ctx.storage.get_bytes(&k).await {
+        let bytes = match ctx.storage().get_bytes(&k).await {
             Ok(b) => b,
             Err(_) => continue,
         };
@@ -540,11 +540,11 @@ pub async fn normalize_schema_artifacts_for_validate(
     let mut notes: Vec<String> = Vec::new();
     let schema_rel = project_fs::MODELS_SCHEMA_YML;
     let schema_key = project_fs::join_storage_key(ctx, schema_rel);
-    if let Ok(bytes) = ctx.storage.get_bytes(&schema_key).await {
+    if let Ok(bytes) = ctx.storage().get_bytes(&schema_key).await {
         let text = String::from_utf8_lossy(&bytes).to_string();
         let (normalized, mut warn) = normalize_model_yaml_doc_for_dedupe(&text, schema_rel)?;
         if normalized != text {
-            ctx.storage
+            ctx.storage()
                 .put_bytes(&schema_key, normalized.as_bytes(), "text/yaml")
                 .await
                 .map_err(|e| format!("failed to write {schema_rel}: {e}"))?;
@@ -556,26 +556,26 @@ pub async fn normalize_schema_artifacts_for_validate(
     }
 
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.sort();
     for key in keys.into_iter().filter(|k| k.ends_with(".yml")) {
         let rel = key
             .strip_prefix(&(base.clone() + "/"))
             .unwrap_or(key.as_str())
             .to_string();
-        let bytes = match ctx.storage.get_bytes(&key).await {
+        let bytes = match ctx.storage().get_bytes(&key).await {
             Ok(b) => b,
             Err(_) => continue,
         };
         let text = String::from_utf8_lossy(&bytes).to_string();
         let (normalized, mut warn) = normalize_model_yaml_doc_for_dedupe(&text, &rel)?;
         if normalized != text {
-            ctx.storage
+            ctx.storage()
                 .put_bytes(&key, normalized.as_bytes(), "text/yaml")
                 .await
                 .map_err(|e| format!("failed to write {rel}: {e}"))?;
@@ -606,7 +606,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
     }
 
     let key = project_fs::join_storage_key(ctx, project_fs::MODELS_SCHEMA_YML);
-    let schema_map: Option<serde_yaml::Mapping> = match ctx.storage.get_bytes(&key).await {
+    let schema_map: Option<serde_yaml::Mapping> = match ctx.storage().get_bytes(&key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
             let root: YamlValue = serde_yaml::from_str(&text)
@@ -680,12 +680,12 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
     // Staging schema guards: parse each staging YAML and ensure declared columns exist
     // in the corresponding staging SQL output.
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.sort();
     for key in keys.into_iter().filter(|k| k.ends_with(".yml")) {
         let rel = key
@@ -693,7 +693,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
             .unwrap_or(key.as_str())
             .to_string();
         let bytes = ctx
-            .storage
+            .storage()
             .get_bytes(&key)
             .await
             .map_err(|e| format!("failed to read {rel}: {e}"))?;
@@ -718,7 +718,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
             }
             let sql_rel = format!("models/staging/{name}.sql");
             let sql_key = project_fs::join_storage_key(ctx, &sql_rel);
-            let sql_bytes = ctx.storage.get_bytes(&sql_key).await.map_err(|_| {
+            let sql_bytes = ctx.storage().get_bytes(&sql_key).await.map_err(|_| {
                 format!("cannot validate {rel}: missing staging SQL {sql_rel} for model '{name}'")
             })?;
             let sql_text = String::from_utf8_lossy(&sql_bytes).to_string();
@@ -775,30 +775,13 @@ mod tests {
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("t".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: Arc::new(DummyLlm::default()),
-            storage,
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: None,
-        }
+        react_core::agent::AgentCtxBuilder::new(Arc::new(DummyLlm::default()), storage, RequestScope::parse("t", "w", "p").expect("valid test scope"), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("t".to_string())
+            .agent_name("test".to_string())
+            .build()
     }
 
     #[test]
@@ -818,7 +801,7 @@ mod tests {
         let ctx = make_ctx(storage.clone());
 
         let schema_key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &schema_key,
                 b"version: 2\nmodels:\n  - name: dim_customers\n    columns: []\n",
@@ -829,7 +812,7 @@ mod tests {
 
         let stg_key =
             project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_customers.yml");
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &stg_key,
                 b"version: 2\nmodels:\n  - name: dim_customers\n    columns: []\n",
@@ -847,7 +830,7 @@ mod tests {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let ctx = make_ctx(storage.clone());
         let schema_key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &schema_key,
                 b"version: 2\nmodels:\n  - name: dim_orders\n    tests:\n      - not_null\n    columns:\n      - name: order_id\n        tests:\n          - not_null\n  - name: dim_orders\n    tests:\n      - not_null\n    columns:\n      - name: order_id\n        tests:\n          - not_null\n      - name: customer_id\n        tests:\n          - not_null\n",
@@ -862,7 +845,7 @@ mod tests {
         assert!(!notes.is_empty());
 
         let got =
-            String::from_utf8_lossy(&ctx.storage.get_bytes(&schema_key).await.unwrap()).to_string();
+            String::from_utf8_lossy(&ctx.storage().get_bytes(&schema_key).await.unwrap()).to_string();
         // Only one model stanza remains.
         assert_eq!(got.matches("name: dim_orders").count(), 1);
         assert!(got.contains("customer_id"));
@@ -875,7 +858,7 @@ mod tests {
 
         let sql_key =
             project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.sql");
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &sql_key,
                 b"select 1 as order_id, 'x' as placed_at_raw",
@@ -885,7 +868,7 @@ mod tests {
             .unwrap();
         let yml_key =
             project_fs::join_storage_key(&ctx, "models/staging/stg_test_raw_raw_orders.yml");
-        ctx.storage
+        ctx.storage()
             .put_bytes(
                 &yml_key,
                 b"version: 2\nmodels:\n  - name: stg_test_raw_raw_orders\n    columns:\n      - name: order_id\n      - name: missing_col\n",
@@ -905,12 +888,12 @@ mod tests {
         let ctx = make_ctx(storage.clone());
 
         let marts_key = project_fs::join_storage_key(&ctx, "models/marts/fct_orders.sql");
-        ctx.storage
+        ctx.storage()
             .put_bytes(&marts_key, b"select 1 as id", "text/sql")
             .await
             .unwrap();
         let core_key = project_fs::join_storage_key(&ctx, "models/core/fct_orders.sql");
-        ctx.storage
+        ctx.storage()
             .put_bytes(&core_key, b"select 2 as id", "text/sql")
             .await
             .unwrap();

@@ -198,18 +198,18 @@ async fn postprocess_schema_yml(
 
     {
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string()
             + "/";
         let staging_prefix = format!("{}models/staging/", base);
-        if let Ok(keys) = ctx.storage.list_prefix(&staging_prefix).await {
+        if let Ok(keys) = ctx.storage().list_prefix(&staging_prefix).await {
             for k in keys {
                 if !k.ends_with(".sql") || k.contains("/_versions/") {
                     continue;
                 }
-                if let Ok(bytes) = ctx.storage.get_bytes(&k).await {
+                if let Ok(bytes) = ctx.storage().get_bytes(&k).await {
                     let sql = String::from_utf8_lossy(&bytes).to_string();
                     for (schema, table) in
                         crate::data_engineer::naming::extract_source_calls(&sql).into_iter()

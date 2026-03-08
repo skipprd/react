@@ -22,7 +22,7 @@ pub async fn replace_file_content(
 ) -> Result<project_fs::PatchOutcome, String> {
     let key = project_fs::join_storage_key(ctx, rel_path);
     let existing = ctx
-        .storage
+        .storage()
         .get_bytes(&key)
         .await
         .ok()
@@ -44,7 +44,7 @@ pub async fn replace_file_content(
         project_fs::PatchApplyKind::UnifiedDiff,
     )
     .await?;
-    ctx.storage
+    ctx.storage()
         .put_bytes(&out.key, out.content.as_bytes(), content_type)
         .await
         .map_err(|e| e.to_string())?;
@@ -66,7 +66,7 @@ pub async fn apply_hunks_patch(
         &base_state,
     )
     .await?;
-    ctx.storage
+    ctx.storage()
         .put_bytes(&out.key, out.content.as_bytes(), "text/plain")
         .await
         .map_err(|e| e.to_string())?;

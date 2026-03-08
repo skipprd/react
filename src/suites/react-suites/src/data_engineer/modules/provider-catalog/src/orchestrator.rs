@@ -1,3 +1,6 @@
+// TODO(item-77): This file (~450 lines) handles dataset discovery, stats collection,
+// schema flattening, and catalog building in one orchestration flow. Consider splitting
+// into discovery, stats collection, and catalog assembly phases.
 use std::collections::HashSet;
 
 use futures_util::stream::{self, StreamExt};

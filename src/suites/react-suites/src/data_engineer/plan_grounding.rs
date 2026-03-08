@@ -31,7 +31,7 @@ pub fn ensure_expected_model_paths_cleanse(ctx: Option<&AgentCtx>, plan: &mut Cl
                 t.dataset_id, from, canonical
             );
             tracing::warn!("{}", msg);
-            if let Some(tx) = ctx.and_then(|c| c.trace_tx.as_ref()) {
+            if let Some(tx) = ctx.and_then(|c| c.trace_tx().as_ref()) {
                 let _ = tx.send(msg);
             }
             t.expected_model_path = Some(canonical);

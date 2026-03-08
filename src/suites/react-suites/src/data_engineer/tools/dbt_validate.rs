@@ -35,10 +35,10 @@ async fn derive_select_terms(ctx: &AgentCtx, args: &Value) -> Vec<String> {
         out.dedup();
         return out;
     }
-    let Some(thread_id) = ctx.thread_id.as_deref() else {
+    let Some(thread_id) = ctx.thread_id().as_deref() else {
         return vec![];
     };
-    let Some(store) = ctx.thread_store.as_ref() else {
+    let Some(store) = ctx.thread_store().as_ref() else {
         return vec![];
     };
     let st = match crate::data_engineer::state_manager::load_execution_state_strict(store, thread_id)
@@ -89,9 +89,9 @@ async fn probe_compiled_model_sql(
     _project_name: &str,
     select_terms: &[String],
 ) -> Result<serde_json::Value, String> {
-    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace.scoped_prefix(&ctx.scope, &["dbt"]));
+    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]));
     let mut keys = ctx
-        .storage
+        .storage()
         .list_prefix(&compiled_prefix)
         .await
         .unwrap_or_default();
@@ -116,7 +116,7 @@ async fn probe_compiled_model_sql(
     let mut failures: Vec<serde_json::Value> = Vec::new();
     let mut probed = 0usize;
     for key in keys.iter() {
-        let bytes = match ctx.storage.get_bytes(key).await {
+        let bytes = match ctx.storage().get_bytes(key).await {
             Ok(b) => b,
             Err(e) => {
                 failures.push(serde_json::json!({
@@ -621,11 +621,7 @@ mod tests {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "src", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
@@ -670,34 +666,17 @@ mod tests {
         let dbt: Arc<dyn DbtProvider> = Arc::new(MockDbtProvider {
             calls: Mutex::new(0),
         });
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
         let warehouse: Arc<dyn crate::data_engineer::providers::WarehouseProvider> =
             Arc::new(crate::data_engineer::providers::warehouse::NullWarehouseProvider::default());
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope,
-            keyspace,
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope, keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::data_engineer::ctx_ext::DbtCap(dbt)));
 

@@ -16,11 +16,7 @@ async fn provider_write_semantic_uses_keyspace_key_and_roundtrips() {
     let llm: Arc<dyn LargeLanguageModel> = Arc::new(NullModel::new());
     let provider = DefaultCatalogProvider::new(storage.clone(), keyspace.clone(), llm, 0, 8);
 
-    let scope = RequestScope {
-        tenant: "t".into(),
-        workspace: "w".into(),
-        project_id: "p".into(),
-    };
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
     let ns = "AwsDataCatalog.db.events";
     let sem = SemanticModel {
         dataset_id: ns.into(),
@@ -51,11 +47,7 @@ async fn provider_write_catalog_uses_keyspace_key_and_roundtrips() {
     let llm: Arc<dyn LargeLanguageModel> = Arc::new(NullModel::new());
     let provider = DefaultCatalogProvider::new(storage.clone(), keyspace.clone(), llm, 0, 8);
 
-    let scope = RequestScope {
-        tenant: "t".into(),
-        workspace: "w".into(),
-        project_id: "p".into(),
-    };
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
     let ns = "AwsDataCatalog.db.events";
     let cat = DataCatalog {
         dataset_id: ns.into(),
@@ -130,11 +122,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
         ]),
     });
 
-    let scope = RequestScope {
-        tenant: "t".into(),
-        workspace: "w".into(),
-        project_id: "p".into(),
-    };
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
     // Seed two dataset catalogs (minimal fields/description) so the global pass has inputs.
     for ds in ["AwsDataCatalog.db.orders", "AwsDataCatalog.db.customers"] {

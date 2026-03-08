@@ -43,7 +43,7 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
     let llm = crate::llm::create_llm(&crate::llm::config_from_resolved(cfg));
 
     let mut sctx = SuiteCtx::new(storage, secrets, llm, cfg.scope.clone(), keyspace.clone());
-    sctx.resolved_config = Some(Arc::new(cfg.clone()));
+    sctx.set_resolved_config(Some(Arc::new(cfg.clone())));
 
     crate::suite_wiring::data_engineer::wire_providers(&mut sctx, &keyspace, &lance_uri_prefix)
         .await?;

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use react_core::agent::{Agent, AgentCtx, DefaultPolicy, InterruptKind, RunOutcome};
+use react_core::agent::{Agent, DefaultPolicy, InterruptKind, RunOutcome};
 use react_core::session::ThreadStore;
 use react_core::tools::ToolRegistry;
 
@@ -29,7 +29,7 @@ impl KbSuite {
         registry.register(tools::kb_search::KbSearchTool);
 
         // Vector provider is required for kb suite.
-        if sctx.vector.is_none() {
+        if sctx.vector().is_none() {
             return Err("vector provider missing".to_string());
         }
         Ok(registry)
@@ -44,31 +44,27 @@ impl KbSuite {
         let tools_card = prompts::tool_card();
         let registry = Self::build_tools(sctx)?;
         let thread_store = ThreadStore::new(
-            sctx.storage.clone(),
-            sctx.scope.clone(),
-            sctx.keyspace.clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
         );
 
-        let mut actx = AgentCtx {
-            top_k: 20,
-            per_step_timeout_secs: 30,
-            max_steps: 30,
-            thread_id: Some(thread_id.to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: sctx.trace_tx.clone(),
-            agent_name: Some("kb".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm: sctx.llm.clone(),
-            storage: sctx.storage.clone(),
-            scope: sctx.scope.clone(),
-            keyspace: sctx.keyspace.clone(),
-            vector: sctx.vector.clone(),
-            thread_store: Some(thread_store),
-            exec_ctx: None,
-            resolved_config: None,
-            capabilities: react_core::capability::CapabilityMap::default(),
-        };
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            sctx.llm().clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(20)
+        .per_step_timeout_secs(30)
+        .max_steps(30)
+        .thread_id(thread_id.to_string())
+        .trace_tx(sctx.trace_tx().clone())
+        .agent_name("kb")
+        .vector(sctx.vector().clone())
+        .thread_store(thread_store)
+        .build();
         crate::data_engineer::copy_capabilities_to_actx(sctx, &mut actx);
 
         match Agent::run_until_block(&registry, &actx, sys, tools_card, question, {
@@ -123,7 +119,7 @@ impl KbSuite {
                 }),
                 prompt,
             }]),
-            Err(e) => Err(e),
+            Err(e) => Err(e.to_string()),
         }
     }
 }

@@ -162,7 +162,11 @@ pub(crate) fn apply_step_to_state(st: &mut ThreadState, _step_idx: usize, step: 
         ThreadStep::GuardBlock { reason, ts, .. } => {
             block_current_phase(st, reason, ts);
         }
-        _ => {}
+        ThreadStep::User { .. } => {}
+        ThreadStep::LlmCall { .. } => {}
+        ThreadStep::ArtifactFocus { .. } => {}
+        ThreadStep::ArtifactSaved { .. } => {}
+        ThreadStep::ReviewResponse { .. } => {}
     }
 }
 

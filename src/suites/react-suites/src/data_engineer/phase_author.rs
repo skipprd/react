@@ -340,9 +340,9 @@ fn build_missing_target_repair_abort_reason(
 }
 
 fn resolve_checklist_item_id(actx: &AgentCtx) -> String {
-    actx.exec_ctx
+    actx.exec_ctx()
         .as_ref()
-        .and_then(|c| c.checklist_item_id.as_deref())
+        .and_then(|c| c.get_str("checklist_item_id"))
         .unwrap_or(crate::data_engineer::plan::CHECKLIST_SCHEMA_CONTRACT)
         .trim()
         .to_string()
@@ -431,6 +431,12 @@ fn extract_validate_fail_context(
 }
 
 impl DataEngineerSuite {
+    // TODO(items-87,96): execute_author_phase is ~1200 lines with symmetric cleanse/model
+    // branches. Extract shared helpers: (a) plan-load-or-redirect, (b) next-batch routing,
+    // (c) repair-mode context assembly, (d) facts grounding, (e) post-run invariant checks.
+    // build_repair_mode_context and build_schema_checklist_context (item-89) are already
+    // standalone functions; the remaining duplication is in the calling patterns that differ
+    // only by plan type (CleansePlan vs ModelPlan).
     pub(super) async fn execute_author_phase(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -477,26 +483,23 @@ let sys = crate::data_engineer::prompts::with_time_context(if is_cleanse {
 let authoring_ctx = crate::data_engineer::authoring_driver::AuthoringCtx {
     phase,
 };
-let mut actx = AgentCtx {
-    top_k: 30,
-    per_step_timeout_secs: 10,
-    max_steps: 1,
-    thread_id: Some(thread_id.to_string()),
-    progress_tx: None,
-    pre_step_tx: None,
-    trace_tx: sctx.trace_tx.clone(),
-    agent_name: Some(crate::data_engineer::env_util::DEFAULT_AGENT_NAME.to_string()),
-    policy: std::sync::Arc::new(InterruptOnlyPolicy),
-    llm: sctx.llm.clone(),
-    storage: sctx.storage.clone(),
-    scope: sctx.scope.clone(),
-    keyspace: sctx.keyspace.clone(),
-    vector: sctx.vector.clone(),
-    capabilities: react_core::capability::CapabilityMap::default(),
-    thread_store: Some(thread_store.clone()),
-    exec_ctx: None,
-    resolved_config: sctx.resolved_config.clone(),
-};
+let mut actx = react_core::agent::AgentCtxBuilder::new(
+    sctx.llm().clone(),
+    sctx.storage().clone(),
+    sctx.scope().clone(),
+    sctx.keyspace().clone(),
+    std::sync::Arc::new(InterruptOnlyPolicy),
+)
+.top_k(30)
+.per_step_timeout_secs(10)
+.max_steps(1)
+.thread_id(thread_id.to_string())
+.trace_tx(sctx.trace_tx().clone())
+.agent_name(crate::data_engineer::env_util::DEFAULT_AGENT_NAME)
+.vector(sctx.vector().clone())
+.thread_store(thread_store.clone())
+.resolved_config(sctx.resolved_config().clone())
+.build();
 crate::data_engineer::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
 
 // Plan-driven batching: load the approved plan, update progress from the thread log,
@@ -873,7 +876,7 @@ let (plan_context, plan_state): (String, PlanState) =
                         &actx,
                         crate::data_engineer::project_fs::MODELS_SCHEMA_YML,
                     );
-                    if let Ok(bytes) = actx.storage.get_bytes(&key).await {
+                    if let Ok(bytes) = actx.storage().get_bytes(&key).await {
                         let content =
                             String::from_utf8_lossy(&bytes).to_string();
                         if let Ok(vy) =
@@ -1051,12 +1054,12 @@ if !is_cleanse {
     // Ground gold authoring with the current silver inventory so the agent
     // can reliably build marts from existing stg_* models (no guessing).
     let base = actx
-        .keyspace
-        .scoped_prefix(&actx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(actx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/models/staging/", base);
-    if let Ok(keys) = actx.storage.list_prefix(&pref).await {
+    if let Ok(keys) = actx.storage().list_prefix(&pref).await {
         let mut rels: Vec<String> = keys
             .into_iter()
             .filter(|k| k.ends_with(".sql") && !k.contains("/_versions/"))
@@ -1200,12 +1203,12 @@ if hard_mutation_repair_mode && !repair_ctx.failed_models.is_empty() {
         let file = file.trim();
         if !file.is_empty() && file != "(unknown file)" {
             let base = actx
-                .keyspace
-                .scoped_prefix(&actx.scope, &["dbt"])
+                .keyspace()
+                .scoped_prefix(actx.scope(), &["dbt"])
                 .trim_end_matches('/')
                 .to_string();
             let key = format!("{}/{}", base, file);
-            if let Ok(bytes) = actx.storage.get_bytes(&key).await {
+            if let Ok(bytes) = actx.storage().get_bytes(&key).await {
                 let content = String::from_utf8_lossy(&bytes).to_string();
                 let fence_lang = if file.ends_with(".yml") || file.ends_with(".yaml") {
                     "yaml"
@@ -1249,7 +1252,7 @@ if execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchI
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
     {
-        if let Ok(bytes) = actx.storage.get_bytes(&key).await {
+        if let Ok(bytes) = actx.storage().get_bytes(&key).await {
             let txt = String::from_utf8_lossy(&bytes).to_string();
             if !txt.trim().is_empty() {
                 q.push_str("\n\nPRIOR REVIEW FEEDBACK (must address by editing implementation; do NOT change the approved plan/spec):\n");
@@ -1318,13 +1321,13 @@ if hard_mutation_repair_mode
     let mut target_read_error: Option<String> = None;
     if !target.is_empty() {
     let base = actx
-        .keyspace
-        .scoped_prefix(&actx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(actx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, target);
         target_storage_key = Some(key.clone());
-        match actx.storage.get_bytes(&key).await {
+        match actx.storage().get_bytes(&key).await {
             Ok(bytes) => {
                 target_exists = true;
                 content = String::from_utf8_lossy(&bytes).to_string();
@@ -1623,7 +1626,7 @@ match Agent::run_until_block_non_interactive(
         }
         return Ok(PhaseExecutorOutcome::StayInPhase);
     }
-    Err(e) => return Err(e),
+    Err(e) => return Err(e.to_string()),
 }
                 
     }

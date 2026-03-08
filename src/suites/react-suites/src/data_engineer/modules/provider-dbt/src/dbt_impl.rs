@@ -1,3 +1,9 @@
+// TODO(item-78): This file (~1500 lines) covers DBT project management, command
+// execution, result parsing, progress tracking, and Docker runner support. Consider
+// decomposing into:
+//   - dbt_runner.rs (host + docker command execution)
+//   - dbt_parsing.rs (manifest/result JSON parsing, failure classification)
+//   - dbt_progress.rs (progress state machine)
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -6,7 +12,6 @@ use std::{io::BufRead, process::Stdio};
 use crate::adapters::storage::StorageAdapter;
 use crate::providers::{Keyspace, RequestScope};
 
-use crate::ws::terminal::{self, TerminalEvent};
 use react_suites::data_engineer::providers::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
 
 #[derive(Clone)]
@@ -632,7 +637,7 @@ fn extract_item_kind_and_name(rest: &str) -> Option<(String, String)> {
                 break;
             }
         }
-    } else if toks.get(0).map(|s| *s) == Some("relationships") {
+    } else if toks.first().map(|s| *s) == Some("relationships") {
         kind = Some("test".to_string());
         name = Some(toks[0].to_string());
     }
@@ -798,14 +803,7 @@ fn run_spawned_cmd_labeled(
             err_buf.push('\n');
         } else {
             if let Some(p) = prog.as_mut() {
-                if let Some(detail) = p.consume_line(&line) {
-                    if let Some(s) = terminal::sink() {
-                        s.emit(TerminalEvent::SubprocessProgress {
-                            label: label.to_string(),
-                            detail,
-                        });
-                    }
-                }
+                let _ = p.consume_line(&line);
             }
             if should_log_dbt_info_line(&line) {
                 tracing::info!(
@@ -1036,12 +1034,12 @@ impl DbtProjectProvider {
             None
         };
 
-        let rendered = render_dbt_project_yaml(project_name, &scope.project_id);
+        let rendered = render_dbt_project_yaml(project_name, scope.project_id.as_str());
         let existing_text = existing
             .as_ref()
             .map(|b| String::from_utf8_lossy(b).to_string());
         let base = existing_text.as_deref().unwrap_or(&rendered);
-        let sanitized = sanitize_dbt_project_yaml(base, &scope.project_id);
+        let sanitized = sanitize_dbt_project_yaml(base, scope.project_id.as_str());
         if existing.is_none() || sanitized.changed {
             self.storage
                 .put_bytes(&project_key, sanitized.text.as_bytes(), "text/yaml")
@@ -1057,11 +1055,11 @@ impl DbtProjectProvider {
         proj_path: &Path,
     ) -> Result<(), String> {
         if !proj_path.exists() {
-            let rendered = render_dbt_project_yaml(project_name, &scope.project_id);
+            let rendered = render_dbt_project_yaml(project_name, scope.project_id.as_str());
             write_file(proj_path, rendered.as_bytes())?;
         }
         let raw = std::fs::read_to_string(proj_path).unwrap_or_default();
-        let sanitized = sanitize_dbt_project_yaml(&raw, &scope.project_id);
+        let sanitized = sanitize_dbt_project_yaml(&raw, scope.project_id.as_str());
         if sanitized.changed {
             write_file(proj_path, sanitized.text.as_bytes())?;
             // Best-effort persistence back to storage for future runs.
@@ -1156,7 +1154,7 @@ impl DbtProjectProvider {
 #[async_trait]
 impl DbtProvider for DbtProjectProvider {
     async fn ensure_minimal_project(&self, scope: &RequestScope) -> Result<(), String> {
-        let name = format!("{}_project", scope.project_id.replace('/', "_"));
+        let name = format!("{}_project", scope.project_id.as_str().replace('/', "_"));
         self.ensure_storage_project_yaml(scope, &name).await
     }
 

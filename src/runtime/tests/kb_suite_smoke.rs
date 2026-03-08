@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use react_core::agent::{
-    Agent, AgentCtx, AgentPolicy, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
+    Agent, AgentCtxBuilder, AgentPolicy, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
 };
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
@@ -85,30 +85,18 @@ async fn agent_default_policy_accepts_typed_complete() {
     let llm = Arc::new(FixedJsonModel {
         out: r#"{"type":"complete","name":null,"args":null,"complete":{"kind":"kb","payload":"{\"answer\":\"hello\"}","display":null}} "#.to_string(),
     });
-    let ctx = AgentCtx {
-        top_k: 1,
-        per_step_timeout_secs: 1,
-        max_steps: 1,
-        thread_id: None,
-        progress_tx: None,
-        pre_step_tx: None,
-        trace_tx: None,
-        agent_name: Some("test".to_string()),
-        policy: Arc::new(DefaultPolicy),
+    let ctx = AgentCtxBuilder::new(
         llm,
-        storage: Arc::new(InMemoryStorageAdapter::default()),
-        scope: RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        },
-        keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        vector: None,
-        thread_store: None,
-        exec_ctx: None,
-        resolved_config: None,
-        capabilities: Default::default(),
-    };
+        Arc::new(InMemoryStorageAdapter::default()),
+        RequestScope::parse("t", "w", "p").expect("valid test scope"),
+        Arc::new(DefaultKeyspace::new("b".into())),
+        Arc::new(DefaultPolicy),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(1)
+    .max_steps(1)
+    .agent_name("test".to_string())
+    .build();
     let reg = ToolRegistry::new();
     let out = Agent::run_until_block(
         &reg,
@@ -146,30 +134,18 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
     let llm = Arc::new(FixedJsonModel {
         out: r#"{"type":"tool","name":"ask_user","args":"{}","complete":null} "#.to_string(),
     });
-    let ctx = AgentCtx {
-        top_k: 1,
-        per_step_timeout_secs: 1,
-        max_steps: 1,
-        thread_id: None,
-        progress_tx: None,
-        pre_step_tx: None,
-        trace_tx: None,
-        agent_name: Some("test".to_string()),
-        policy: Arc::new(DefaultPolicy),
+    let ctx = AgentCtxBuilder::new(
         llm,
-        storage: Arc::new(InMemoryStorageAdapter::default()),
-        scope: RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        },
-        keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        vector: None,
-        thread_store: None,
-        exec_ctx: None,
-        resolved_config: None,
-        capabilities: Default::default(),
-    };
+        Arc::new(InMemoryStorageAdapter::default()),
+        RequestScope::parse("t", "w", "p").expect("valid test scope"),
+        Arc::new(DefaultKeyspace::new("b".into())),
+        Arc::new(DefaultPolicy),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(1)
+    .max_steps(1)
+    .agent_name("test".to_string())
+    .build();
     let mut reg = ToolRegistry::new();
     reg.register(AskUserTool);
     let out = Agent::run_until_block(
@@ -207,30 +183,18 @@ async fn agent_interrupts_only_when_policy_requests_it() {
     let llm = Arc::new(FixedJsonModel {
         out: r#"{"type":"tool","name":"ask_user","args":"{}","complete":null} "#.to_string(),
     });
-    let ctx = AgentCtx {
-        top_k: 1,
-        per_step_timeout_secs: 1,
-        max_steps: 1,
-        thread_id: None,
-        progress_tx: None,
-        pre_step_tx: None,
-        trace_tx: None,
-        agent_name: Some("test".to_string()),
-        policy: Arc::new(InterruptOnAskUser),
+    let ctx = AgentCtxBuilder::new(
         llm,
-        storage: Arc::new(InMemoryStorageAdapter::default()),
-        scope: RequestScope {
-            tenant: "t".into(),
-            workspace: "w".into(),
-            project_id: "p".into(),
-        },
-        keyspace: Arc::new(DefaultKeyspace::new("b".into())),
-        vector: None,
-        thread_store: None,
-        exec_ctx: None,
-        resolved_config: None,
-        capabilities: Default::default(),
-    };
+        Arc::new(InMemoryStorageAdapter::default()),
+        RequestScope::parse("t", "w", "p").expect("valid test scope"),
+        Arc::new(DefaultKeyspace::new("b".into())),
+        Arc::new(InterruptOnAskUser),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(1)
+    .max_steps(1)
+    .agent_name("test".to_string())
+    .build();
     let mut reg = ToolRegistry::new();
     reg.register(AskUserTool);
     let out = Agent::run_until_block(

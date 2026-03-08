@@ -164,6 +164,11 @@ impl DataEngineerSuite {
         )
     }
 
+    // TODO(item-86): enrich_cleanse_tasks and enrich_model_tasks below are near-identical
+    // (~165 lines each). Extract a generic `enrich_tasks<P: EnrichablePlan>(...)` function
+    // parameterized over the plan type, using a trait to abstract summarize, apply_items,
+    // system_prompt, schema_spec, prompt_ids, and unresolved-check. The apply_* methods
+    // can remain track-specific since model has extra inputs/goal logic.
     pub(super) async fn enrich_cleanse_tasks(
         ctx: &AgentCtx,
         planning_context: &str,
@@ -221,15 +226,15 @@ impl DataEngineerSuite {
                 &Self::planning_llm_options(
                     PlanningLlmProfile::EnrichmentReason,
                     "data_engineer.cleanse_plan_enrich_reason",
-                    ctx.thread_id.clone(),
+                    ctx.thread_id().clone(),
                 )?,
             )
-            .await?;
+            .await.map_err(|e| e.to_string())?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
                 "data_engineer.cleanse_plan_enrich",
-                ctx.thread_id.clone(),
+                ctx.thread_id().clone(),
             )?;
             opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
                 name: "suite.cleanse_plan_enrichment.v1".to_string(),
@@ -250,7 +255,7 @@ impl DataEngineerSuite {
                 ],
                 &opts,
             )
-            .await?;
+            .await.map_err(|e| e.to_string())?;
             let enrich = Self::parse_json_typed_strict::<
                 crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
             >(&raw)?;
@@ -295,7 +300,7 @@ impl DataEngineerSuite {
                     ],
                     &retry_opts,
                 )
-                .await?;
+                .await.map_err(|e| e.to_string())?;
                 let retry_enrich = Self::parse_json_typed_strict::<
                     crate::data_engineer::plan_schema::CleansePlanEnrichmentV1,
                 >(&retry_raw)?;
@@ -387,15 +392,15 @@ impl DataEngineerSuite {
                 &Self::planning_llm_options(
                     PlanningLlmProfile::EnrichmentReason,
                     "data_engineer.model_plan_enrich_reason",
-                    ctx.thread_id.clone(),
+                    ctx.thread_id().clone(),
                 )?,
             )
-            .await?;
+            .await.map_err(|e| e.to_string())?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
                 "data_engineer.model_plan_enrich",
-                ctx.thread_id.clone(),
+                ctx.thread_id().clone(),
             )?;
             opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
                 name: "suite.model_plan_enrichment.v1".to_string(),
@@ -416,7 +421,7 @@ impl DataEngineerSuite {
                 ],
                 &opts,
             )
-            .await?;
+            .await.map_err(|e| e.to_string())?;
             let enrich = Self::parse_json_typed_strict::<
                 crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
             >(&raw)?;
@@ -461,7 +466,7 @@ impl DataEngineerSuite {
                     ],
                     &retry_opts,
                 )
-                .await?;
+                .await.map_err(|e| e.to_string())?;
                 let retry_enrich = Self::parse_json_typed_strict::<
                     crate::data_engineer::plan_schema::ModelPlanEnrichmentV1,
                 >(&retry_raw)?;
@@ -515,9 +520,9 @@ impl DataEngineerSuite {
         let opts = Self::planning_llm_options(
             PlanningLlmProfile::DesignMemo,
             "data_engineer.plan_design_memo",
-            ctx.thread_id.clone(),
+            ctx.thread_id().clone(),
         )?;
-        ctx.llm
+        ctx.llm()
             .chat(
                 &[
                     ChatMessage {
@@ -549,7 +554,7 @@ impl DataEngineerSuite {
         let opts = Self::planning_llm_options(
             PlanningLlmProfile::DesignCritique,
             "data_engineer.plan_design_critique",
-            ctx.thread_id.clone(),
+            ctx.thread_id().clone(),
         )?;
         let sys = prompts::plan::plan_design_critique_system_prompt(kind);
         let user = format!(
@@ -570,7 +575,7 @@ impl DataEngineerSuite {
             ],
             &opts,
         )
-        .await?;
+        .await.map_err(|e| e.to_string())?;
         Self::parse_json_typed_strict::<crate::data_engineer::plan_schema::PlanDesignCritiqueV1>(&raw)
     }
 
@@ -597,7 +602,7 @@ impl DataEngineerSuite {
         let opts = Self::planning_llm_options(
             PlanningLlmProfile::DesignMemo,
             "data_engineer.plan_design_memo_revise",
-            ctx.thread_id.clone(),
+            ctx.thread_id().clone(),
         )?;
         ctx.llm_chat(
             &[
@@ -718,7 +723,7 @@ Apply these fixes in the output.",
         let mut opts = Self::planning_llm_options(
             PlanningLlmProfile::SkeletonOrCandidates,
             "data_engineer.model_plan_candidates",
-            ctx.thread_id.clone(),
+            ctx.thread_id().clone(),
         )?;
         opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
             name: "suite.model_plan_candidates.v1".to_string(),
@@ -746,7 +751,7 @@ Apply these fixes in the output.",
             ],
             &opts,
         )
-        .await?;
+        .await.map_err(|e| e.to_string())?;
         Self::parse_json_typed_strict::<crate::data_engineer::plan_schema::ModelPlanCandidatesV1>(&raw)
     }
 

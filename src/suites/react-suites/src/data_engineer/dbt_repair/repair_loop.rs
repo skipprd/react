@@ -24,13 +24,13 @@ fn errors_look_like_missing_dbt_utils(errors: &[String]) -> bool {
 async fn ensure_dbt_utils_package(ctx: &AgentCtx) -> Result<Option<RemediationDiff>, String> {
     // Returns Some(diff) if packages.yml was mutated.
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/packages.yml", base);
     let existing_opt = ctx
-        .storage
+        .storage()
         .get_bytes(&key)
         .await
         .ok()
@@ -110,7 +110,7 @@ async fn ensure_dbt_utils_package(ctx: &AgentCtx) -> Result<Option<RemediationDi
         crate::data_engineer::project_fs::PatchApplyKind::UnifiedDiff,
     )
     .await?;
-    ctx.storage
+    ctx.storage()
         .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/yaml")
         .await
         .map_err(|e| e.to_string())?;
@@ -196,8 +196,8 @@ fn extract_sql_rel_paths_from_dbt_errors(errors: &[String]) -> Vec<String> {
 
 fn storage_keys_for_rel_paths(ctx: &AgentCtx, rels: &[String]) -> Vec<String> {
     let base = ctx
-        .keyspace
-        .scoped_prefix(&ctx.scope, &["dbt"])
+        .keyspace()
+        .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
         .to_string();
     let mut out: Vec<String> = Vec::new();
@@ -233,7 +233,7 @@ pub async fn run_repair_loop(
 
     let max_it = max_iterations.max(1).min(25);
     for i in 0..max_it {
-        let res = dbt.validate_project(&ctx.scope, args).await?;
+        let res = dbt.validate_project(ctx.scope(), args).await?;
 
         report.iterations_run = i + 1;
         let unresolved_columns =
@@ -442,11 +442,7 @@ mod tests {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
         })
@@ -462,32 +458,15 @@ mod tests {
             ]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
 
         struct AlwaysFailDbt;
         #[async_trait]
@@ -567,32 +546,15 @@ mod tests {
             ]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
 
         struct CompileOkRunFailDbt;
         #[async_trait]
@@ -697,32 +659,15 @@ mod tests {
             ]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
         // Attach a thread store so llm_call steps can be persisted.
         let store = react_core::session::ThreadStore::new(
             storage.clone(),
@@ -730,8 +675,8 @@ mod tests {
             Arc::new(DefaultKeyspace::new("b".to_string())),
         );
         let mut ctx = ctx;
-        ctx.thread_id = Some("th1".to_string());
-        ctx.thread_store = Some(store);
+        ctx.set_thread_id(Some("th1".to_string()));
+        ctx.set_thread_store(Some(store));
 
         struct RunFailThenOkDbt {
             calls: Mutex<usize>,
@@ -824,7 +769,7 @@ mod tests {
         assert!(got.contains("\"context.session.id\""));
 
         // And we should have recorded at least one llm_call step in the persisted thread log.
-        let store = ctx.thread_store.as_ref().unwrap();
+        let store = ctx.thread_store().as_ref().unwrap();
         let log = store.get("th1").await.unwrap();
         assert!(
             log.steps
@@ -853,32 +798,15 @@ mod tests {
             ]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
 
         struct SqlFailureOnceDbt;
         #[async_trait]
@@ -968,32 +896,15 @@ mod tests {
             ]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage,
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
 
         struct SqlFailureOnceDbt;
         #[async_trait]
@@ -1071,32 +982,15 @@ mod tests {
             chat_responses: Mutex::new(vec![]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 1,
-            thread_id: None,
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
+        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(1)
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
 
         struct MissingMacroThenOkDbt {
             calls: Mutex<usize>,
@@ -1183,8 +1077,8 @@ mod tests {
 
         // packages.yml should now exist and include dbt_utils.
         let base = ctx
-            .keyspace
-            .scoped_prefix(&ctx.scope, &["dbt"])
+            .keyspace()
+            .scoped_prefix(ctx.scope(), &["dbt"])
             .trim_end_matches('/')
             .to_string();
         let key = format!("{}/packages.yml", base);

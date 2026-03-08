@@ -141,19 +141,19 @@ pub async fn load_latest_plans_ws(
     thread_id: &str,
 ) -> Vec<Value> {
     let base = ctx
-        .keyspace
-        .threads_prefix(&ctx.scope)
+        .keyspace()
+        .threads_prefix(ctx.scope())
         .trim_end_matches("/threads")
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/plans/{}/", base, thread_id.trim());
-    let mut keys = ctx.storage.list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
     keys.sort();
 
     let mut cleanse_active: Option<Value> = None;
     let mut newest_terminal_cleanse: Option<de_plan::CleansePlan> = None;
     for k in keys.iter().filter(|k| k.ends_with("_cleanse.json")) {
-        if let Ok(bytes) = ctx.storage.get_bytes(k).await {
+        if let Ok(bytes) = ctx.storage().get_bytes(k).await {
             match serde_json::from_slice::<de_plan::CleansePlan>(&bytes) {
                 Ok(mut p) => {
                     if p.plan_key.trim().is_empty() {
@@ -187,7 +187,7 @@ pub async fn load_latest_plans_ws(
     let mut model_active: Option<Value> = None;
     let mut newest_terminal_model: Option<de_plan::ModelPlan> = None;
     for k in keys.iter().filter(|k| k.ends_with("_model.json")) {
-        if let Ok(bytes) = ctx.storage.get_bytes(k).await {
+        if let Ok(bytes) = ctx.storage().get_bytes(k).await {
             match serde_json::from_slice::<de_plan::ModelPlan>(&bytes) {
                 Ok(mut p) => {
                     if p.plan_key.trim().is_empty() {

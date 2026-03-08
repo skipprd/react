@@ -1,3 +1,8 @@
+// TODO(item-76): This file (~500 lines) handles dataset enrichment, field enrichment,
+// and global semantic context enrichment. Consider decomposing into:
+//   - enrich_dataset.rs (dataset description LLM flow)
+//   - enrich_fields.rs (field descriptions, synonyms, PII/units)
+//   - enrich_global.rs (global semantic context aggregation)
 use react_core::keyspace::encode_key_component;
 use react_core::keyspace::Keyspace;
 use react_core::llm::{ChatMessage, ChatRole, LargeLanguageModel};
@@ -91,6 +96,9 @@ struct GlobalAssumptionGapCompile {
     suggested_probe: Option<String>,
 }
 
+// TODO(item-75): The timeout-wrapped spawn_blocking pattern below is repeated in
+// both `llm_reason_pass` and `llm_compile_pass_json`. Extract a shared helper like
+// `llm_call_with_timeout(llm, messages, opts, timeout_secs) -> Option<String>`.
 async fn llm_reason_pass(
     llm: Arc<dyn LargeLanguageModel>,
     prompt: String,
@@ -219,9 +227,7 @@ async fn write_global_semantic_context(
     ctx: &crate::types::GlobalSemanticContext,
 ) -> Result<(), String> {
     let key = global_semantic_key(keyspace, scope);
-    let yaml = serde_yaml::to_string(ctx).unwrap_or_else(|_| "".to_string());
-    let value = serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
-    let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+    let json_equiv = crate::utils::yaml_to_json_value(ctx)?;
     storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())
 }
 
@@ -872,11 +878,6 @@ Dataset: {ns}\nMissingFieldNames: {missing}\nReasoning notes:\n{memo}\n\nOutput 
                 ));
             }
 
-            let _items2 = fields
-                .iter()
-                .map(|n| format!("{{name: {}}}", n))
-                .collect::<Vec<String>>()
-                .join(", ");
             let compile_syn = format!(
                 "Compile field synonym output from notes into strict JSON only.\n\
 Return exactly {{\"synonymsByField\": {{\"<field>\": [\"a\",\"b\"]}}}}.\n\
@@ -917,11 +918,6 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
                 }
             }
 
-            let _items3 = fields
-                .iter()
-                .map(|n| format!("{{name: {}}}", n))
-                .collect::<Vec<String>>()
-                .join(", ");
             let compile_pu = format!(
                 "Compile field pii/units output from notes into strict JSON only.\n\
 Return exactly {{\"piiUnitsByField\": {{\"<field>\": {{\"pii\": \"none|low|medium|high\", \"units\": \"...|null\"}}}}}}.\n\
@@ -998,10 +994,7 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
             }
         }
 
-        let yaml = serde_yaml::to_string(&catalog).unwrap_or_else(|_| "".to_string());
-        let value =
-            serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
-        let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+        let json_equiv = crate::utils::yaml_to_json_value(&catalog)?;
         storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
     }
     Ok(true)

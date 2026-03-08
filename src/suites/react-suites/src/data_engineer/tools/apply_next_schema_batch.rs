@@ -342,7 +342,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             let yml_rel = format!("models/staging/{}.yml", model_name);
 
             let sql_key = project_fs::join_storage_key(ctx, &sql_rel);
-            let sql_text = match ctx.storage.get_bytes(&sql_key).await {
+            let sql_text = match ctx.storage().get_bytes(&sql_key).await {
                 Ok(b) => String::from_utf8_lossy(&b).to_string(),
                 Err(_) => {
                     failed.push(ds.clone());
@@ -381,7 +381,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         {
                             if rewritten_sql != sql_text {
                                 if let Err(write_err) = ctx
-                                    .storage
+                                    .storage()
                                     .put_bytes(&sql_key, rewritten_sql.as_bytes(), "text/sql")
                                     .await
                                 {
@@ -434,7 +434,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 6,
                 Some(LlmCallOptions {
                     prompt_id: "data_engineer.apply_next_schema_batch.staging_schema_patch",
-                    thread_id: ctx.thread_id.clone(),
+                    thread_id: ctx.thread_id().clone(),
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.05),
                     top_p: Some(1.0),
@@ -483,7 +483,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
 
             let yml_key = project_fs::join_storage_key(ctx, &yml_rel);
             if let Err(e) = ctx
-                .storage
+                .storage()
                 .put_bytes(&yml_key, outcome.content.as_bytes(), "text/yaml")
                 .await
             {
@@ -717,7 +717,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 let mut allowed = schema_policy::ModelAllowedColumns::default();
                 if let Some(ref rel) = t.expected_model_path {
                     let key_sql = project_fs::join_storage_key(ctx, rel);
-                    match ctx.storage.get_bytes(&key_sql).await {
+                    match ctx.storage().get_bytes(&key_sql).await {
                         Ok(b) => {
                             let sql_text = String::from_utf8_lossy(&b).to_string();
                             match files_tool::extract_final_select_output_columns(&sql_text) {
@@ -769,7 +769,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 6,
                 Some(LlmCallOptions {
                     prompt_id: "data_engineer.apply_next_schema_batch.models_schema_patch",
-                    thread_id: ctx.thread_id.clone(),
+                    thread_id: ctx.thread_id().clone(),
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.05),
                     top_p: Some(1.0),
@@ -817,7 +817,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
 
         let key = project_fs::join_storage_key(ctx, expected_rel);
         if let Err(e) = ctx
-            .storage
+            .storage()
             .put_bytes(&key, sanitized_text.as_bytes(), "text/yaml")
             .await
         {
@@ -989,11 +989,7 @@ mod tests {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
             storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
-            scope: RequestScope {
-                tenant: "t".to_string(),
-                workspace: "w".to_string(),
-                project_id: "p".to_string(),
-            },
+            scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
                 "warehouse": {
@@ -1034,32 +1030,16 @@ mod tests {
             }).to_string()]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1122,7 +1102,7 @@ mod tests {
         let sql_rel = "models/staging/stg_test_raw_raw_customers.sql";
         let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with source as (\n  select * from {{ source('test_raw','raw_customers') }}\n)\nselect * from source\n";
-        ctx.storage
+        ctx.storage()
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
             .await
             .unwrap();
@@ -1137,11 +1117,11 @@ mod tests {
 
         let yml_rel = "models/staging/stg_test_raw_raw_customers.yml";
         let yml_key = project_fs::join_storage_key(&ctx, yml_rel);
-        let got = ctx.storage.get_bytes(&yml_key).await.unwrap();
+        let got = ctx.storage().get_bytes(&yml_key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(got.contains("stg_test_raw_raw_customers"));
 
-        let healed_sql = ctx.storage.get_bytes(&sql_key).await.unwrap();
+        let healed_sql = ctx.storage().get_bytes(&sql_key).await.unwrap();
         let healed_sql = String::from_utf8_lossy(&healed_sql).to_string();
         assert!(
             healed_sql.contains("customer_id_raw") && healed_sql.contains("email_raw"),
@@ -1167,32 +1147,16 @@ mod tests {
             replies: Mutex::new(vec![]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid_lock".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid_lock".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1265,46 +1229,31 @@ mod tests {
             .to_string()]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid_ctx".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid_ctx".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
         )));
 
         let plan_key = plan::new_cleanse_plan_key(&ctx);
-        ctx.exec_ctx = Some(ExecutionContext {
-            plan_kind: Some(react_core::session::ExecutionPlanKind::new("cleanse")),
-            plan_key: Some(plan_key.clone()),
-            workgroup_id: Some("wg".to_string()),
-            task_id: Some("AwsDataCatalog.test_raw.raw_customers".to_string()),
-            checklist_item_id: Some(plan::CHECKLIST_SQL_MODEL.to_string()),
-            data: std::collections::BTreeMap::new(),
-        });
+        ctx.set_exec_ctx(Some({
+            let mut ectx = ExecutionContext::default();
+            ectx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+            ectx.set("plan_key", serde_json::Value::String(plan_key.clone()));
+            ectx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
+            ectx.set("task_id", serde_json::Value::String("AwsDataCatalog.test_raw.raw_customers".to_string()));
+            ectx.set("checklist_item_id", serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()));
+            ectx
+        }));
 
         let mut checklist = plan::canonical_task_checklist(TrackKind::Cleanse);
         if let Some(item) = checklist
@@ -1352,7 +1301,7 @@ mod tests {
         let sql_rel = "models/staging/stg_test_raw_raw_customers.sql";
         let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with source as (\n  select * from {{ source('test_raw','raw_customers') }}\n)\nselect\n  customer_id_raw,\n  email_raw\nfrom source\n";
-        ctx.storage
+        ctx.storage()
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
             .await
             .unwrap();
@@ -1392,32 +1341,16 @@ mod tests {
             }).to_string()]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid2".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid2".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1480,7 +1413,7 @@ mod tests {
         );
 
         let key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
-        let got = ctx.storage.get_bytes(&key).await.unwrap();
+        let got = ctx.storage().get_bytes(&key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(got.contains("dim_customers"));
     }
@@ -1492,32 +1425,16 @@ mod tests {
             replies: Mutex::new(vec![]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid_model_lock".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid_model_lock".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1594,52 +1511,37 @@ mod tests {
             .to_string()]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid_model_ctx".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid_model_ctx".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
         )));
 
         let plan_key = plan::new_model_plan_key(&ctx);
-        ctx.exec_ctx = Some(ExecutionContext {
-            plan_kind: Some(react_core::session::ExecutionPlanKind::new("model")),
-            plan_key: Some(plan_key.clone()),
-            workgroup_id: Some("wg".to_string()),
-            task_id: Some("dim_customers".to_string()),
-            checklist_item_id: Some(plan::CHECKLIST_SQL_MODEL.to_string()),
-            data: std::collections::BTreeMap::new(),
-        });
+        ctx.set_exec_ctx(Some({
+            let mut ectx = ExecutionContext::default();
+            ectx.set("plan_kind", serde_json::Value::String("model".to_string()));
+            ectx.set("plan_key", serde_json::Value::String(plan_key.clone()));
+            ectx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
+            ectx.set("task_id", serde_json::Value::String("dim_customers".to_string()));
+            ectx.set("checklist_item_id", serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()));
+            ectx
+        }));
 
         // Seed model SQL so allowed_columns can be derived (best-effort).
         let sql_rel = "models/marts/dim_customers.sql";
         let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with t as (\n  select 1 as customer_id, 'a@b.com' as email\n)\nselect\n  customer_id,\n  email\nfrom t\n";
-        ctx.storage
+        ctx.storage()
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
             .await
             .unwrap();
@@ -1726,32 +1628,16 @@ mod tests {
             saw_allowed_columns: Mutex::new(false),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid3".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm: llm.clone(),
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm.clone(), storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid3".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1761,7 +1647,7 @@ mod tests {
         let sql_rel = "models/marts/dim_customers.sql";
         let sql_key = project_fs::join_storage_key(&ctx, sql_rel);
         let sql = "with t as (\n  select 1 as customer_id, 'a@b.com' as email\n)\nselect\n  customer_id,\n  email\nfrom t\n";
-        ctx.storage
+        ctx.storage()
             .put_bytes(&sql_key, sql.as_bytes(), "text/sql")
             .await
             .unwrap();
@@ -1839,32 +1725,16 @@ mod tests {
             }).to_string()]),
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        let scope = RequestScope {
-            tenant: "t".to_string(),
-            workspace: "w".to_string(),
-            project_id: "p".to_string(),
-        };
-        let mut ctx = AgentCtx {
-            top_k: 1,
-            per_step_timeout_secs: 1,
-            max_steps: 2,
-            thread_id: Some("tid4".to_string()),
-            progress_tx: None,
-            pre_step_tx: None,
-            trace_tx: None,
-            agent_name: Some("test".to_string()),
-            policy: Arc::new(react_core::agent::DefaultPolicy),
-            llm,
-            storage: storage.clone(),
-            scope: scope.clone(),
-            keyspace,
-            capabilities: react_core::capability::CapabilityMap::default(),
-            vector: None,
-            thread_store: None,
-            exec_ctx: None,
-            resolved_config: Some(minimal_cfg()),
-        };
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config.as_ref().unwrap()).unwrap();
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
+            .top_k(1)
+            .per_step_timeout_secs(1)
+            .max_steps(2)
+            .thread_id("tid4".to_string())
+            .agent_name("test".to_string())
+            .resolved_config(Some(minimal_cfg()))
+            .build();
+        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::data_engineer::providers::WarehouseProvider>
@@ -1927,7 +1797,7 @@ mod tests {
         );
 
         let key = project_fs::join_storage_key(&ctx, project_fs::MODELS_SCHEMA_YML);
-        let got = ctx.storage.get_bytes(&key).await.unwrap();
+        let got = ctx.storage().get_bytes(&key).await.unwrap();
         let got = String::from_utf8_lossy(&got).to_string();
         assert!(!got.contains("stg_test_raw_raw_customers"));
         assert!(got.contains("dim_customers"));

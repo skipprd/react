@@ -8,18 +8,16 @@ use serde_json::Value;
 /// These IDs are the single source of truth across:
 /// - prompt contracts (what the LLM must emit)
 /// - provider adapters (transport-level schema when available)
-/// - runtime parsing/validation (fallback when transport can’t enforce)
+/// - runtime parsing/validation (fallback when transport can't enforce)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SchemaId {
     AgentStepV1,
-    PatchSingleFileV1,
 }
 
 impl SchemaId {
     pub fn name(&self) -> &'static str {
         match self {
             SchemaId::AgentStepV1 => "agent.step.v1",
-            SchemaId::PatchSingleFileV1 => "patch_protocol.single_file.v1",
         }
     }
 }
@@ -70,67 +68,18 @@ pub struct AgentStepV1 {
     pub complete: Option<CompleteEnvelopeV1>,
 }
 
-/// Patch protocol schema for a single expected file.
-///
-/// The suite enforces “EXACTLY ONE primitive” in logic, but this schema provides
-/// a provider-compatible contract and a validator target for fallback backends.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PatchSingleFileV1 {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replace_file: Option<PatchReplaceFileV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replace_range: Option<PatchReplaceRangeV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replace_list: Option<PatchReplaceListV1>,
-    #[serde(default)]
-    pub notes: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PatchReplaceFileV1 {
-    pub path: String,
-    pub new_text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PatchReplaceRangeV1 {
-    pub path: String,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub new_text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PatchReplaceListEditV1 {
-    pub start_line: usize,
-    pub end_line: usize,
-    pub new_text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PatchReplaceListV1 {
-    pub path: String,
-    pub edits: Vec<PatchReplaceListEditV1>,
-}
-
-fn schema_for_id(id: SchemaId) -> Result<Value, String> {
+fn schema_for_id(id: SchemaId) -> Result<Value, crate::CoreError> {
     let schema = match id {
         SchemaId::AgentStepV1 => schemars::schema_for!(AgentStepV1),
-        SchemaId::PatchSingleFileV1 => schemars::schema_for!(PatchSingleFileV1),
     };
     let root_v = serde_json::to_value(&schema)
-        .map_err(|e| format!("schema serialization failed for {:?}: {}", id, e))?;
+        .map_err(|e| crate::CoreError::Schema(format!("schema serialization failed for {:?}: {}", id, e)))?;
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
-pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, String> {
+pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, crate::CoreError> {
     let root_v = serde_json::to_value(schemars::schema_for!(T))
-        .map_err(|e| format!("schema serialization failed: {}", e))?;
+        .map_err(|e| crate::CoreError::Schema(format!("schema serialization failed: {}", e)))?;
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
@@ -142,12 +91,8 @@ pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, String> {
 /// OpenAI expects `text.format.schema` to be the schema itself (top-level `type:"object"`),
 /// not wrapped under `schema`.
 fn root_schema_json_to_json_schema_value(root_v: Value) -> Value {
-    // Schemars versions differ:
-    // - Some emit a wrapper: { "$schema": "...", "schema": { ... }, "definitions": { ... } }
-    // - Newer versions emit a full JSON Schema doc directly.
     let mut out = if let Some(schema_v) = root_v.get("schema") {
         let mut inner = schema_v.clone();
-        // Preserve root metadata / defs alongside the inner schema.
         for defs_key in ["definitions", "$defs"] {
             if let Some(defs) = root_v.get(defs_key) {
                 if defs.as_object().is_some_and(|m| !m.is_empty()) {
@@ -167,8 +112,6 @@ fn root_schema_json_to_json_schema_value(root_v: Value) -> Value {
         root_v
     };
 
-    // OpenAI requires the top-level schema be an object schema for structured output.
-    // Schemars sometimes emits `oneOf`/`anyOf` without an explicit `type`.
     if let Some(obj) = out.as_object_mut() {
         obj.entry("type".to_string())
             .or_insert_with(|| Value::String("object".to_string()));
@@ -184,60 +127,52 @@ fn root_schema_json_to_json_schema_value(root_v: Value) -> Value {
 /// - `required` MUST include *every* key present in `properties`
 /// - (Practically) `additionalProperties: false` is expected for strict schemas
 fn openai_structured_outputs_strictify_schema(v: &mut Value) {
-    fn visit(node: &mut Value) {
-        match node {
-            Value::Array(a) => {
-                for x in a.iter_mut() {
-                    visit(x);
-                }
+    match v {
+        Value::Array(a) => {
+            for x in a.iter_mut() {
+                openai_structured_outputs_strictify_schema(x);
             }
-            Value::Object(m) => {
-                // First recurse into all children so nested schemas (including $defs maps)
-                // are strictified too.
-                for v in m.values_mut() {
-                    visit(v);
-                }
-
-                // Then enforce object constraints when properties exist.
-                let props_keys: Option<Vec<String>> = m
-                    .get("properties")
-                    .and_then(|p| p.as_object())
-                    .map(|props| props.keys().cloned().collect());
-                if let Some(mut keys) = props_keys {
-                    // Ensure additionalProperties is false (strict).
-                    m.entry("additionalProperties".to_string())
-                        .or_insert(Value::Bool(false));
-
-                    keys.sort();
-
-                    let req = m
-                        .entry("required".to_string())
-                        .or_insert_with(|| Value::Array(Vec::new()));
-
-                    let mut req_keys: Vec<String> = req
-                        .as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    // Required must include *every* property key.
-                    for k in keys.iter() {
-                        if !req_keys.iter().any(|rk| rk == k) {
-                            req_keys.push(k.clone());
-                        }
-                    }
-                    req_keys.sort();
-                    req_keys.dedup();
-                    *req = Value::Array(req_keys.into_iter().map(Value::String).collect());
-                }
+        }
+        Value::Object(m) => {
+            for v in m.values_mut() {
+                openai_structured_outputs_strictify_schema(v);
             }
-            _ => {}
+            ensure_all_properties_required(m);
+        }
+        _ => {}
+    }
+}
+
+fn ensure_all_properties_required(m: &mut serde_json::Map<String, Value>) {
+    let prop_keys: Vec<String> = match m.get("properties").and_then(|p| p.as_object()) {
+        Some(props) => props.keys().cloned().collect(),
+        None => return,
+    };
+
+    m.entry("additionalProperties".to_string())
+        .or_insert(Value::Bool(false));
+
+    let req = m
+        .entry("required".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+
+    let mut req_set: Vec<String> = req
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for k in &prop_keys {
+        if !req_set.contains(k) {
+            req_set.push(k.clone());
         }
     }
-    visit(v);
+    req_set.sort();
+    req_set.dedup();
+    *req = Value::Array(req_set.into_iter().map(Value::String).collect());
 }
 
 static SCHEMAS: OnceCell<std::collections::HashMap<SchemaId, Value>> = OnceCell::new();
@@ -246,22 +181,17 @@ pub fn json_schema(id: SchemaId) -> Value {
         use std::collections::HashMap;
         let mut m: HashMap<SchemaId, Value> = HashMap::new();
         m.insert(SchemaId::AgentStepV1, schema_for_id(SchemaId::AgentStepV1).expect("AgentStepV1 schema init"));
-        m.insert(
-            SchemaId::PatchSingleFileV1,
-            schema_for_id(SchemaId::PatchSingleFileV1).expect("PatchSingleFileV1 schema init"),
-        );
         m
     });
     map.get(&id).cloned().unwrap_or_else(|| schema_for_id(id).expect("schema_for_id fallback"))
 }
 
-pub fn validate(id: SchemaId, instance: &Value) -> Result<(), String> {
+pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> {
     let schema_json = json_schema(id);
     let validator = jsonschema::validator_for(&schema_json)
-        .map_err(|e| format!("failed to compile {}: {}", id.name(), e))?;
+        .map_err(|e| crate::CoreError::Schema(format!("failed to compile {}: {}", id.name(), e)))?;
     if let Err(first) = validator.validate(instance) {
-        // Keep the first error concise; callers can decide whether to retry with more detail.
-        return Err(format!("{} validation error: {}", id.name(), first));
+        return Err(crate::CoreError::Schema(format!("{} validation error: {}", id.name(), first)));
     }
     Ok(())
 }
@@ -293,21 +223,19 @@ mod tests {
     fn agent_step_schema_rejects_legacy_action_envelope() {
         let legacy = serde_json::json!({ "action": "file", "args": { "op": "list" } });
         let err = validate(SchemaId::AgentStepV1, &legacy).expect_err("should reject legacy");
-        assert!(err.contains("validation error"), "err={err}");
+        assert!(err.to_string().contains("validation error"), "err={err}");
     }
 
     #[test]
     fn schema_documents_have_object_type_at_top_level() {
-        for id in [SchemaId::AgentStepV1, SchemaId::PatchSingleFileV1] {
-            let s = json_schema(id);
-            assert_eq!(
-                s.get("type").and_then(|v| v.as_str()),
-                Some("object"),
-                "schema {} must be a top-level object schema for OpenAI; schema={}",
-                id.name(),
-                s
-            );
-        }
+        let s = json_schema(SchemaId::AgentStepV1);
+        assert_eq!(
+            s.get("type").and_then(|v| v.as_str()),
+            Some("object"),
+            "schema {} must be a top-level object schema for OpenAI; schema={}",
+            SchemaId::AgentStepV1.name(),
+            s
+        );
     }
 
     #[test]

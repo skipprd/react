@@ -54,12 +54,12 @@ impl Tool for CatalogNoteTool {
             .get("preview")
             .and_then(|x| x.as_bool())
             .unwrap_or(false);
-        let thread_id = ctx.thread_id.clone().unwrap_or_default();
+        let thread_id = ctx.thread_id().clone().unwrap_or_default();
 
         // Resolve catalog key
-        let catalog_key = ctx.keyspace.scoped_key(&ctx.scope, &["catalog", &format!("{}.yaml", encode_key_component(&dataset_id))]);
+        let catalog_key = ctx.keyspace().scoped_key(ctx.scope(), &["catalog", &format!("{}.yaml", encode_key_component(&dataset_id))]);
         let mut catalog: Value = ctx
-            .storage
+            .storage()
             .get_json(&catalog_key)
             .await
             .map_err(|e| format!("get_json: {}", e))?;
@@ -217,14 +217,14 @@ impl Tool for CatalogNoteTool {
         }
 
         // Write back atomically
-        ctx.storage
+        ctx.storage()
             .put_json(&catalog_key, &catalog)
             .await
             .map_err(|e| format!("put_json: {}", e))?;
 
         // Upsert curated digest into embeddings as a doc
         let vector = ctx
-            .vector
+            .vector()
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
         let epoch = chrono::Utc::now().timestamp() as u64;
@@ -238,7 +238,7 @@ impl Tool for CatalogNoteTool {
             let id = format!("doc:{}:catalog_note", dataset_id);
             let chunk = react_core::providers::VectorChunk {
                 id,
-                kind: "doc".to_string(),
+                kind: react_core::providers::ChunkKind::Doc,
                 entity_id: dataset_id.clone(),
                 field: field_opt.clone(),
                 text: digest.clone(),
@@ -246,7 +246,7 @@ impl Tool for CatalogNoteTool {
                 meta: serde_json::json!({"scope":"catalog", "level": if field_opt.is_some() { "field" } else { "dataset" }, "tags": tags }),
                 epoch,
             };
-            if let Err(e) = vector.upsert(&ctx.scope, &[chunk]).await {
+            if let Err(e) = vector.upsert(ctx.scope(), &[chunk]).await {
                 // Non-fatal, but never silent.
                 warn!("catalog_note: vector upsert failed: {}", e);
             }

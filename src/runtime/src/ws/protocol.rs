@@ -791,9 +791,9 @@ async fn handle_delete_message(v: &Value, state: &mut ConnState) -> Result<Vec<S
         let store = state.thread_store();
         let _ = store.delete(&thread_id).await;
     }
-    if let Some(vs) = state.suite_ctx.vector.as_ref() {
+    if let Some(vs) = state.suite_ctx.vector().as_ref() {
         let _ = vs
-            .delete_thread_embeddings(&state.suite_ctx.scope, &thread_id)
+            .delete_thread_embeddings(&state.suite_ctx.scope(), &thread_id)
             .await;
     }
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
@@ -860,7 +860,7 @@ async fn emit_agent_frames(
                 {
                     let store = state.thread_store();
                     let title = synthesize_title(
-                        &state.suite_ctx.llm,
+                        &state.suite_ctx.llm(),
                         question,
                         &display_text,
                     )

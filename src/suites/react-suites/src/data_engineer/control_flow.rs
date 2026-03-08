@@ -135,26 +135,34 @@ impl Phase {
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
-        match s.trim().to_lowercase().as_str() {
-            "preflight" => Some(Phase::Preflight),
-            "cleanse_plan" => Some(Phase::CleansePlan),
-            "cleanse_author" => Some(Phase::CleanseAuthor),
-            "cleanse_validate" => Some(Phase::CleanseValidate),
-            "cleanse_review" => Some(Phase::CleanseReview),
-            "model_plan" => Some(Phase::ModelPlan),
-            "model_author" => Some(Phase::ModelAuthor),
-            "model_validate" => Some(Phase::ModelValidate),
-            "model_review" => Some(Phase::ModelReview),
-            "publish_await_approval" => Some(Phase::PublishAwaitApproval),
-            "publish" => Some(Phase::Publish),
-            "post_publish_review" => Some(Phase::PostPublishReview),
-            "done" => Some(Phase::Done),
-            _ => None,
-        }
+        s.parse().ok()
     }
 
     pub fn ordinal(&self) -> usize {
         ALL_PHASES.iter().position(|p| p == self).unwrap_or(0)
+    }
+}
+
+impl std::str::FromStr for Phase {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "preflight" => Ok(Phase::Preflight),
+            "cleanse_plan" => Ok(Phase::CleansePlan),
+            "cleanse_author" => Ok(Phase::CleanseAuthor),
+            "cleanse_validate" => Ok(Phase::CleanseValidate),
+            "cleanse_review" => Ok(Phase::CleanseReview),
+            "model_plan" => Ok(Phase::ModelPlan),
+            "model_author" => Ok(Phase::ModelAuthor),
+            "model_validate" => Ok(Phase::ModelValidate),
+            "model_review" => Ok(Phase::ModelReview),
+            "publish_await_approval" => Ok(Phase::PublishAwaitApproval),
+            "publish" => Ok(Phase::Publish),
+            "post_publish_review" => Ok(Phase::PostPublishReview),
+            "done" => Ok(Phase::Done),
+            _ => Err(format!("unknown phase: '{}'", s)),
+        }
     }
 }
 
@@ -327,16 +335,6 @@ impl DeterministicDbtValidateOnce {
         Self::run_inner(ctx, build, run, None, dataset_ids).await
     }
 
-    #[allow(dead_code)]
-    pub async fn run_targeted(
-        ctx: &AgentCtx,
-        select_terms: &[String],
-        build: bool,
-        run: bool,
-    ) -> Result<crate::data_engineer::controller_event::ValidateObservationContract, String> {
-        Self::run_inner(ctx, build, run, Some(select_terms), None).await
-    }
-
     async fn run_inner(
         ctx: &AgentCtx,
         build: bool,
@@ -361,7 +359,7 @@ impl DeterministicDbtValidateOnce {
 
         let res = dbt
             .validate_project(
-                &ctx.scope,
+                ctx.scope(),
                 &DbtValidateArgs {
                     project_name: crate::data_engineer::env_util::SUITE_PROJECT_NAME.to_string(),
                     profiles_dir: Some(profiles_dir),
@@ -489,6 +487,9 @@ pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
     }
 }
 
+// TODO(item-98): call_and_record_tool is ~150 lines. Extract sub-functions for:
+// (a) input validation / argument prep, (b) actual tool dispatch, (c) thread-log recording,
+// (d) post-call state mutation (mutation epoch bump, evidence recording).
 pub async fn call_and_record_tool(
     store: &ThreadStore,
     thread_id: &str,
@@ -512,7 +513,7 @@ pub async fn call_and_record_tool(
                 args: args.clone(),
                 status: ToolStepStatus::Running,
                 payload: None,
-                ctx: ctx.exec_ctx.clone(),
+                ctx: ctx.exec_ctx().clone(),
                 ts: ts_start,
                 agent: agent.clone(),
             },
@@ -627,7 +628,7 @@ pub async fn call_and_record_tool(
                 args,
                 status,
                 payload,
-                ctx: ctx.exec_ctx.clone(),
+                ctx: ctx.exec_ctx().clone(),
                 observation: obs,
                 ts: chrono::Utc::now().to_rfc3339(),
                 agent,

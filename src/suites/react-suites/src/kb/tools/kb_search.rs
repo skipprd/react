@@ -29,7 +29,7 @@ impl Tool for KbSearchTool {
         }
 
         let vector = ctx
-            .vector
+            .vector()
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
         let mut vecs = ctx
@@ -41,7 +41,7 @@ impl Tool for KbSearchTool {
         }
 
         // Limit to doc chunks. We also filter to dataset_id in post-processing.
-        let mut hits = vector.query(&ctx.scope, &qv, k * 5, Some("doc")).await?;
+        let mut hits = vector.query(ctx.scope(), &qv, k * 5, Some("doc")).await?;
         hits.retain(|h| h.item.entity_id == dataset_id);
         hits.sort_by(|a, b| {
             a.score

@@ -32,9 +32,7 @@ pub async fn write_semantic(
     semantic: &SemanticModel,
 ) -> Result<(), String> {
     let key = keyspace.scoped_key(scope, &["semantic", &format!("{}.yaml", encode_key_component(namespace))]);
-    let yaml = serde_yaml::to_string(semantic).map_err(|e| e.to_string())?;
-    let value = serde_yaml::from_str::<serde_yaml::Value>(&yaml).unwrap_or(serde_yaml::Value::Null);
-    let json_equiv = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+    let json_equiv = crate::utils::yaml_to_json_value(semantic)?;
     storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
     Ok(())
 }

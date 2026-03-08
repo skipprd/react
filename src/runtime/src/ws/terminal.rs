@@ -2,6 +2,11 @@
 //!
 //! Goal: show a concise, modern developer-focused view of what's happening:
 //! phases, current status, workgroups/tasks, and tool/LLM activity.
+//!
+//! **Complexity note** (~2 000 lines): this module handles event dispatch, TUI
+//! layout, span aggregation, plan rendering, and dbt-specific formatting in a
+//! single file.  It should be decomposed into sub-modules (e.g. `layout`,
+//! `spans`, `plan_view`, `render`) once the rendering API stabilises.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io;
@@ -48,6 +53,8 @@ pub struct TerminalSink {
     tx: std::sync::mpsc::Sender<TerminalEvent>,
 }
 
+// Known limitation: process-global singleton.  The terminal renderer should
+// eventually be owned by `RuntimeContext` and passed through the app explicitly.
 static SINK: OnceCell<TerminalSink> = OnceCell::new();
 
 pub fn enabled() -> bool {
@@ -1157,6 +1164,10 @@ fn summarize_plan_workgroups(
 
 /// Data-driven mapping from phase stage names to the workgroup kinds they cover.
 /// Adding a new stage→workgroup mapping is just adding a line to this constant.
+///
+/// TODO: This mapping is still hardcoded in the runtime.  It should be supplied
+/// by the suite via metadata (e.g. `SuiteManifest::phase_stage_workgroups`) so
+/// the terminal renderer is fully suite-agnostic.
 const PHASE_STAGE_WORKGROUP_MAP: &[(&str, &[api::PlanWorkGroupKind])] = &[
     ("author", &[api::PlanWorkGroupKind::AuthorSql, api::PlanWorkGroupKind::AuthorSchema]),
     ("validate", &[api::PlanWorkGroupKind::Validate]),
