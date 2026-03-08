@@ -709,7 +709,12 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        self.dispatch_agent(thread_id, question, agent_type, ctx).await
+        let _ = ctx.log_writer().ensure_preflight_phase_step(
+            thread_id, agent_type, Some(self.id()), self.initial_phase(),
+        ).await;
+        let frames = self.dispatch_agent(thread_id, question, agent_type, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_open(
@@ -719,7 +724,12 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        self.dispatch_agent(thread_id, question, agent_type, ctx).await
+        let _ = ctx.log_writer().ensure_preflight_phase_step(
+            thread_id, agent_type, Some(self.id()), self.initial_phase(),
+        ).await;
+        let frames = self.dispatch_agent(thread_id, question, agent_type, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_user(
@@ -729,7 +739,12 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        self.dispatch_agent(thread_id, text, agent_type, ctx).await
+        let _ = ctx.log_writer().ensure_preflight_phase_step(
+            thread_id, agent_type, Some(self.id()), self.initial_phase(),
+        ).await;
+        let frames = self.dispatch_agent(thread_id, text, agent_type, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 }
 

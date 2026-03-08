@@ -4,7 +4,7 @@ use crate::run::event_hub::EventHub;
 const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalSink};
-use react_core::session::{ControlStateStore, ThreadLog, ThreadLogReader, ThreadStep, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadLogReader, ThreadStep, ThreadStore};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};

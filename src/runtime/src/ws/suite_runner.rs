@@ -5,7 +5,7 @@ use super::thread_state::{
     phase_at_step_idx, phase_runs_from_steps,
     total_completed_runtime_ms, ws_thread_state_snapshot_from_core,
 };
-use super::util::{env_bool, now_iso, truncate_str, ws_log_out, DEFAULT_INITIAL_PHASE};
+use super::util::{env_bool, now_iso, truncate_str, ws_log_out};
 use crate::models as m;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::TerminalEvent;
@@ -123,34 +123,6 @@ async fn run_agent_with_processing_suite(
 
     let sctx2 = state.suite_ctx.clone();
 
-    {
-        let store = state.thread_store();
-        if let Ok(Some((step_idx, ts))) =
-            store.ensure_preflight_phase_step(thread_id, agent, Some(suite_id), DEFAULT_INITIAL_PHASE).await
-        {
-            let runs = vec![api::PhaseRun::new(ts.clone())];
-            let mut ev = api::PhaseResponse::new(
-                1,
-                api::phase_response::Type::Phase,
-                now_iso(),
-                state.next_seq(),
-                thread_id.to_string(),
-                step_idx as i32,
-                DEFAULT_INITIAL_PHASE.to_string(),
-                ts,
-                runs,
-                0,
-            );
-            ev.for_cid = Some(cid.to_string());
-            ev.reason_code = Some("preflight_start".to_string());
-            let s = serde_json::to_string(&api::ServerMessage::Phase(ev))
-                .map_err(|e| format!("JSON serialization failed: {e}"))?;
-            state.buffer_last(&s);
-            ws_log_out(&s);
-            let _ = write.send(Message::Text(s)).await;
-        }
-    }
-
     let suite = state
         .reg
         .get(suite_id)
@@ -181,7 +153,7 @@ async fn run_agent_with_processing_suite(
     };
 
     let mut agent_task = spawn_task(kind, question.to_string());
-    let mut auto_turns: usize = 0;
+    let mut _auto_turns: usize = 0;
 
     let mut plan_tick = tokio::time::interval(std::time::Duration::from_millis(800));
     plan_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -629,10 +601,6 @@ async fn run_agent_with_processing_suite(
                             if let Some(v) = meta {
                                 resp.meta = serde_json::from_value::<api::ReviewDecisionMeta>(v).ok();
                             }
-                            let meta_json = resp
-                                .meta
-                                .as_ref()
-                                .and_then(|m| serde_json::to_value(m).ok());
                             emit_ws(state, write, api::ServerMessage::Review(resp)).await;
 
                             {
@@ -656,40 +624,9 @@ async fn run_agent_with_processing_suite(
                                 }
                             }
 
-                            {
-                                let store = state.thread_store();
-                                let _ = store
-                                    .append_step(
-                                        thread_id,
-                                        ThreadStep::ReviewResponse {
-                                            text: text.clone(),
-                                            meta: meta_json,
-                                            observation: Observation::ok(),
-                                            ts: chrono::Utc::now().to_rfc3339(),
-                                            agent: agent.to_string(),
-                                        }
-                                    )
-                                    .await;
-                            }
                             continue;
                         }
                         AgentFrame::Final { kind, payload, display } => {
-                            {
-                                let store = state.thread_store();
-                                store.append_step_if_new(
-                                    thread_id,
-                                    ThreadStep::Complete {
-                                        kind: kind.clone(),
-                                        payload: payload.clone(),
-                                        display: display.clone(),
-                                        observation: Observation::ok(),
-                                        ts: chrono::Utc::now().to_rfc3339(),
-                                        agent: agent.to_string(),
-                                    },
-                                )
-                                .await;
-                            }
-
                             {
                                 let store = state.thread_store();
                                 if let Ok(st) = store.get_thread_state(thread_id).await {
@@ -731,20 +668,6 @@ async fn run_agent_with_processing_suite(
                             return Ok(());
                         }
                         AgentFrame::AwaitUser { prompt } => {
-                            {
-                                let store = state.thread_store();
-                                store.append_step_if_new(
-                                    thread_id,
-                                    ThreadStep::Interrupt {
-                                        kind: "await_user".to_string(),
-                                        prompt: prompt.clone(),
-                                        observation: Observation::ok(),
-                                        ts: chrono::Utc::now().to_rfc3339(),
-                                        agent: agent.to_string(),
-                                    },
-                                )
-                                .await;
-                            }
                             match interrupt_policy.on_await_user(&prompt).await {
                                 InterruptDecision::Reject { reason } => {
                                     if let Some(t) = state.term() {
@@ -779,23 +702,9 @@ async fn run_agent_with_processing_suite(
                             return Ok(());
                         }
                         AgentFrame::AwaitApproval { prompt } => {
-                            {
-                                let store = state.thread_store();
-                                store.append_step_if_new(
-                                    thread_id,
-                                    ThreadStep::Interrupt {
-                                        kind: "await_approval".to_string(),
-                                        prompt: prompt.clone(),
-                                        observation: Observation::ok(),
-                                        ts: chrono::Utc::now().to_rfc3339(),
-                                        agent: agent.to_string(),
-                                    },
-                                )
-                                .await;
-                            }
                             match interrupt_policy.on_await_approval(&prompt).await {
                                 InterruptDecision::AutoApprove => {
-                                    auto_turns += 1;
+                                    _auto_turns += 1;
                                     {
                                         let store = state.thread_store();
                                         let _ = store

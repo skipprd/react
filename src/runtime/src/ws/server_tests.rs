@@ -106,40 +106,46 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
 
     async fn handle_new(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Complete {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Complete {
             kind: react_core::suite::FlowKind::new("ask"),
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_open(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Complete {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Complete {
             kind: react_core::suite::FlowKind::new("ask"),
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_user(
         &self,
         thread_id: &str,
         _text: &str,
-        _agent_type: &str,
+        agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        // Emit a tool_start/tool_end pair into the durable thread log so WS can stream tool events.
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
         let store =
             ThreadStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
         let tool_id = "t1".to_string();
@@ -177,13 +183,14 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
             )
             .await;
 
-        // Sleep long enough for WS ticks (tool/state) to emit at least once.
         tokio::time::sleep(Duration::from_millis(650)).await;
-        Ok(vec![react_core::suite::FlowFrame::Complete {
+        let frames = vec![react_core::suite::FlowFrame::Complete {
             kind: react_core::suite::FlowKind::new("ask"),
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 }
 
@@ -201,41 +208,50 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
 
     async fn handle_new(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_open(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_user(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _text: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 }
 
@@ -253,41 +269,50 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
 
     async fn handle_new(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_open(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _question: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 
     async fn handle_user(
         &self,
-        _thread_id: &str,
+        thread_id: &str,
         _text: &str,
-        _agent_type: &str,
-        _ctx: &SuiteCtx,
+        agent_type: &str,
+        ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        Ok(vec![react_core::suite::FlowFrame::Interrupt {
+        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
-        }])
+        }];
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        Ok(frames)
     }
 }
 

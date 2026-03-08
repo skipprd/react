@@ -17,7 +17,7 @@ use super::terminal::TerminalEvent;
 use super::thread_state::{
     load_timeline_events, ws_thread_state_snapshot_from_core,
 };
-use super::util::{now_iso, truncate_title, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
+use super::util::{now_iso, truncate_title, DEFAULT_AGENT_TYPE};
 
 pub(super) async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
@@ -163,33 +163,6 @@ async fn handle_new_message(v: &Value, state: &mut ConnState) -> Result<Vec<Stri
             )
             .await;
     }
-    {
-        let store = state.thread_store();
-        if let Ok(Some((step_idx, ts))) =
-            store.ensure_preflight_phase_step(&thread_id, &agent, Some(&suite_id), DEFAULT_INITIAL_PHASE).await
-        {
-            let runs = vec![api::PhaseRun::new(ts.clone())];
-            let mut ev = api::PhaseResponse::new(
-                1,
-                api::phase_response::Type::Phase,
-                now_iso(),
-                state.next_seq(),
-                thread_id.clone(),
-                step_idx as i32,
-                DEFAULT_INITIAL_PHASE.to_string(),
-                ts,
-                runs,
-                0,
-            );
-            ev.for_cid = Some(cid.clone());
-            ev.reason_code = Some(
-                "preflight_start".to_string(),
-            );
-            let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
-            state.buffer_last(&s);
-            out.push(s);
-        }
-    }
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     out.push(serde_json::to_string(&api::ServerMessage::Ok(ok)).unwrap());
@@ -309,33 +282,6 @@ async fn handle_open_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
         .get(&thread_id)
         .cloned()
         .unwrap_or_else(|| requested_agent.clone());
-    {
-        let store = state.thread_store();
-        if let Ok(Some((step_idx, ts))) =
-            store.ensure_preflight_phase_step(&thread_id, &agent, Some(&suite_id), DEFAULT_INITIAL_PHASE).await
-        {
-            let runs = vec![api::PhaseRun::new(ts.clone())];
-            let mut ev = api::PhaseResponse::new(
-                1,
-                api::phase_response::Type::Phase,
-                now_iso(),
-                state.next_seq(),
-                thread_id.clone(),
-                step_idx as i32,
-                DEFAULT_INITIAL_PHASE.to_string(),
-                ts,
-                runs,
-                0,
-            );
-            ev.for_cid = Some(cid.clone());
-            ev.reason_code = Some(
-                "preflight_start".to_string(),
-            );
-            let s = serde_json::to_string(&api::ServerMessage::Phase(ev)).unwrap();
-            state.buffer_last(&s);
-            out.push(s);
-        }
-    }
     let frames = run_suite_and_frames(
         &thread_id,
         &question,
@@ -785,7 +731,7 @@ async fn emit_agent_frames(
     out: &mut Vec<String>,
     state: &mut ConnState,
     thread_id: &str,
-    agent: &str,
+    _agent: &str,
     question: &str,
     frames: Vec<AgentFrame>,
 ) {
@@ -809,23 +755,6 @@ async fn emit_agent_frames(
                 let s = serde_json::to_string(&resp).unwrap();
                 state.buffer_last(&s);
                 out.push(s);
-                {
-                    let store = state.thread_store();
-                    let meta_val: Option<Value> =
-                        rr.meta.as_ref().and_then(|m| serde_json::to_value(m).ok());
-                    let _ = store
-                        .append_step(
-                            thread_id,
-                            ThreadStep::ReviewResponse {
-                                text: text.clone(),
-                                meta: meta_val,
-                                observation: Observation::ok(),
-                                ts: chrono::Utc::now().to_rfc3339(),
-                                agent: agent.to_string(),
-                            },
-                        )
-                        .await;
-                }
             }
             AgentFrame::Final {
                 kind,
@@ -844,21 +773,6 @@ async fn emit_agent_frames(
                     )
                     .await;
                     let _ = store.lock_title(thread_id, &title).await;
-                }
-                {
-                    let store = state.thread_store();
-                    store.append_step_if_new(
-                        thread_id,
-                        ThreadStep::Complete {
-                            kind: kind.clone(),
-                            payload: payload.clone(),
-                            display: display.clone(),
-                            observation: Observation::ok(),
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            agent: agent.to_string(),
-                        },
-                    )
-                    .await;
                 }
                 let tseq = state.next_thread_seq(thread_id);
                 let final_result =
@@ -898,20 +812,6 @@ async fn emit_agent_frames(
                 let s = serde_json::to_string(&resp).unwrap();
                 state.buffer_last(&s);
                 out.push(s);
-                {
-                    let store = state.thread_store();
-                    store.append_step_if_new(
-                        thread_id,
-                        ThreadStep::Interrupt {
-                            kind: "await_user".to_string(),
-                            prompt,
-                            observation: Observation::ok(),
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            agent: agent.to_string(),
-                        },
-                    )
-                    .await;
-                }
             }
             AgentFrame::AwaitApproval { prompt } => {
                 let tseq = state.next_thread_seq(thread_id);
@@ -928,20 +828,6 @@ async fn emit_agent_frames(
                 let s = serde_json::to_string(&resp).unwrap();
                 state.buffer_last(&s);
                 out.push(s);
-                {
-                    let store = state.thread_store();
-                    store.append_step_if_new(
-                        thread_id,
-                        ThreadStep::Interrupt {
-                            kind: "await_approval".to_string(),
-                            prompt,
-                            observation: Observation::ok(),
-                            ts: chrono::Utc::now().to_rfc3339(),
-                            agent: agent.to_string(),
-                        },
-                    )
-                    .await;
-                }
             }
         }
     }

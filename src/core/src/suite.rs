@@ -8,7 +8,7 @@ use crate::llm::{DynLlm, NullModel};
 use crate::provider_traits::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
-use crate::session::{ControlStateStore, ThreadLogWriter, ThreadStore};
+use crate::session::{ControlStateStore, Observation, ThreadLogWriter, ThreadStep, ThreadStore};
 use crate::error::CoreError;
 use crate::storage::StorageAdapter;
 
@@ -156,6 +156,29 @@ impl SuiteCtx {
     pub fn set_capability<T: Send + Sync + 'static>(&mut self, val: Arc<T>) {
         self.capabilities.set(val);
     }
+
+    /// Record FlowFrames as ThreadSteps in the audit log before returning
+    /// them to the runtime. The runtime only observes and broadcasts;
+    /// the suite owns the write.
+    pub async fn record_flow_frames(
+        &self,
+        thread_id: &str,
+        agent_type: &str,
+        frames: &[FlowFrame],
+    ) {
+        let writer = self.log_writer();
+        for frame in frames {
+            let step = flow_frame_to_step(frame, agent_type);
+            match &step {
+                ThreadStep::Complete { .. } | ThreadStep::Interrupt { .. } => {
+                    writer.append_step_if_new(thread_id, step).await;
+                }
+                _ => {
+                    let _ = writer.append_step(thread_id, step).await;
+                }
+            }
+        }
+    }
 }
 
 // ── Builder ────────────────────────────────────────────────────
@@ -246,6 +269,44 @@ impl StorageAdapter for NullStorageAdapter {
     }
 }
 
+fn flow_frame_to_step(frame: &FlowFrame, agent_type: &str) -> ThreadStep {
+    let ts = chrono::Utc::now().to_rfc3339();
+    let agent = agent_type.to_string();
+    let obs = Observation::ok();
+    match frame {
+        FlowFrame::Complete { kind, payload, display } => ThreadStep::Complete {
+            kind: kind.0.clone(),
+            payload: payload.clone(),
+            display: display.clone(),
+            observation: obs,
+            ts,
+            agent,
+        },
+        FlowFrame::Review { text, meta } => ThreadStep::ReviewResponse {
+            text: text.clone(),
+            meta: meta.clone(),
+            observation: obs,
+            ts,
+            agent,
+        },
+        FlowFrame::Checkpoint { kind, payload, display } => ThreadStep::Checkpoint {
+            kind: kind.0.clone(),
+            payload: payload.clone(),
+            display: display.clone(),
+            observation: obs,
+            ts,
+            agent,
+        },
+        FlowFrame::Interrupt { kind, prompt } => ThreadStep::Interrupt {
+            kind: kind.0.clone(),
+            prompt: prompt.clone(),
+            observation: obs,
+            ts,
+            agent,
+        },
+    }
+}
+
 impl Default for SuiteCtx {
     fn default() -> Self {
         Self {
@@ -278,6 +339,10 @@ pub trait Suite: Send + Sync {
 
     fn default_agent_type(&self) -> &'static str {
         "ask"
+    }
+
+    fn initial_phase(&self) -> &'static str {
+        "preflight"
     }
 
     fn phase_order(&self, _agent_type: &str) -> Vec<String> {

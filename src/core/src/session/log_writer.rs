@@ -64,4 +64,20 @@ impl ThreadLogWriter {
     pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         self.store.lock_title(thread_id, title).await
     }
+
+    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
+        self.store.append_step_if_new(thread_id, step).await
+    }
+
+    pub async fn ensure_preflight_phase_step(
+        &self,
+        thread_id: &str,
+        agent: &str,
+        suite_id: Option<&str>,
+        initial_phase: &str,
+    ) -> CoreResult<Option<(usize, String)>> {
+        self.store
+            .ensure_preflight_phase_step(thread_id, agent, suite_id, initial_phase)
+            .await
+    }
 }
