@@ -216,11 +216,6 @@ impl ThreadStore {
             .await
     }
 
-    pub async fn get_thread_events_from_log(&self, thread_id: &str) -> CoreResult<Vec<super::ThreadEvent>> {
-        let log = self.get(thread_id).await?;
-        Ok(super::build_thread_events_from_log(&log, self.config.max_events))
-    }
-
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
         let key = self.key(thread_id)?;
         if let Some(entry) = self.cache.get(&key) {
