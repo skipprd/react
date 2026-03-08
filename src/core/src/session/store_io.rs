@@ -9,11 +9,6 @@ use super::{
     THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
 };
 
-#[derive(Clone, Copy)]
-enum ThreadLogViewCacheWriteMode {
-    Merge,
-    Replace,
-}
 
 impl ThreadStore {
     pub fn new(
@@ -149,17 +144,7 @@ impl ThreadStore {
         Ok(s)
     }
 
-    pub(crate) async fn put_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
-        self.write_thread_state(thread_id, state, ThreadLogViewCacheWriteMode::Merge)
-            .await
-    }
-
-    async fn write_thread_state(
-        &self,
-        thread_id: &str,
-        state: &ThreadLogViewCache,
-        mode: ThreadLogViewCacheWriteMode,
-    ) -> CoreResult<()> {
+    pub(crate) async fn save_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
         if state.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
             return Err(CoreError::Schema(format!(
                 "thread_state schema_version mismatch: expected {}, got {}",
@@ -172,48 +157,10 @@ impl ThreadStore {
                 thread_id, state.thread_id
             )));
         }
-        let next_state = match mode {
-            ThreadLogViewCacheWriteMode::Replace => state.clone(),
-            ThreadLogViewCacheWriteMode::Merge => {
-                let mut merged = self
-                    .get_thread_state(thread_id)
-                    .await
-                    .unwrap_or_else(|_| Self::new_thread_state(thread_id));
-                if let Some(v) = state.suite_id.clone() {
-                    merged.suite_id = Some(v);
-                }
-                if let Some(v) = state.agent_type.clone() {
-                    merged.agent_type = Some(v);
-                }
-                if let Some(v) = state.current_phase.clone() {
-                    merged.current_phase = Some(v);
-                }
-                merged.last_materialized_step_count = merged
-                    .last_materialized_step_count
-                    .max(state.last_materialized_step_count);
-                merged.total_runtime_ms = merged.total_runtime_ms.max(state.total_runtime_ms);
-                for (k, v) in state.items.iter() {
-                    merged.items.insert(k.clone(), v.clone());
-                }
-                merged
-            }
-        };
-        let mut merged_state = next_state;
-        merged_state.thread_state_schema_version = THREAD_STATE_SCHEMA_VERSION;
-        merged_state.thread_id = thread_id.to_string();
         let key = self.state_key(thread_id)?;
-        let v = serde_json::to_value(&merged_state)
-            .map_err(|e| CoreError::Session(format!("write_thread_state('{}'): failed to serialize: {}", thread_id, e)))?;
+        let v = serde_json::to_value(state)
+            .map_err(|e| CoreError::Session(format!("save_thread_state('{}'): failed to serialize: {}", thread_id, e)))?;
         self.storage.put_json(&key, &v).await
-    }
-
-    pub(crate) async fn put_thread_state_replace(
-        &self,
-        thread_id: &str,
-        state: &ThreadLogViewCache,
-    ) -> CoreResult<()> {
-        self.write_thread_state(thread_id, state, ThreadLogViewCacheWriteMode::Replace)
-            .await
     }
 
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {

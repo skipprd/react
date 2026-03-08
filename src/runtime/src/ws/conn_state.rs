@@ -94,24 +94,25 @@ pub(super) fn default_suite_id(reg: &SuiteRegistry) -> Option<String> {
 /// Resolution order:
 /// 1. In-memory session cache (fastest, populated by prior requests)
 /// 2. ControlStateStore (persistent, authoritative for suite_id)
-/// 3. Materialized view cache (has suite_id/agent_type from SwitchSuite/SwitchAgent steps)
+/// 3. ThreadLog via ThreadLogReader (scan SwitchSuite/SwitchAgent steps)
 /// 4. Defaults
+///
+/// Never reads from ViewCache — per the state hierarchy rule, the view cache
+/// is a disposable display projection and must never drive control flow.
 pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &str) -> (String, String) {
     let cached_suite = state.current_suite.get(thread_id).cloned();
     let cached_agent = state.current_agent.get(thread_id).cloned();
-    if cached_suite.is_some() && cached_agent.is_some() {
-        return (cached_suite.unwrap(), cached_agent.unwrap());
+    if let (Some(s), Some(a)) = (cached_suite.as_ref(), cached_agent.as_ref()) {
+        if !s.trim().is_empty() && !a.trim().is_empty() {
+            return (s.clone(), a.clone());
+        }
     }
 
     let mut suite_id = cached_suite.unwrap_or_default();
     let mut agent_type = cached_agent.unwrap_or_default();
 
     if suite_id.trim().is_empty() {
-        let control = ControlStateStore::new(
-            state.suite_ctx.storage().clone(),
-            state.suite_ctx.scope().clone(),
-            state.suite_ctx.keyspace().clone(),
-        );
+        let control = state.control_store();
         if let Ok(Some(sid)) = control.load_suite_id(thread_id).await {
             if !sid.trim().is_empty() {
                 suite_id = sid;
@@ -120,20 +121,19 @@ pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &st
     }
 
     if suite_id.trim().is_empty() || agent_type.trim().is_empty() {
-        let store = state.thread_store();
-        if let Ok(st) = store.get_thread_state(thread_id).await {
-            if suite_id.trim().is_empty() {
-                if let Some(ref sid) = st.suite_id {
-                    if !sid.trim().is_empty() {
-                        suite_id = sid.clone();
+        if let Ok(log) = state.log_reader().get_log(thread_id).await {
+            for step in log.steps.iter().rev() {
+                match step {
+                    ThreadStep::SwitchSuite { to, .. } if suite_id.trim().is_empty() && !to.trim().is_empty() => {
+                        suite_id = to.clone();
                     }
+                    ThreadStep::SwitchAgent { to, .. } if agent_type.trim().is_empty() && !to.trim().is_empty() => {
+                        agent_type = to.clone();
+                    }
+                    _ => {}
                 }
-            }
-            if agent_type.trim().is_empty() {
-                if let Some(ref at) = st.agent_type {
-                    if !at.trim().is_empty() {
-                        agent_type = at.clone();
-                    }
+                if !suite_id.trim().is_empty() && !agent_type.trim().is_empty() {
+                    break;
                 }
             }
         }

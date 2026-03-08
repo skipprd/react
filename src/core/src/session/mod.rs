@@ -56,12 +56,12 @@ pub(crate) struct CacheEntry {
 }
 
 mod materialization;
-mod projection;
-mod store_io;
+pub use materialization::apply_step_to_state;
 
-fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -> Vec<ThreadEvent> {
-    projection::build_thread_events_from_log(log, max_events)
-}
+mod projection;
+pub use projection::build_thread_events_from_log;
+
+mod store_io;
 
 #[async_trait::async_trait]
 impl ThreadLogReader for ThreadStore {

@@ -24,7 +24,6 @@ impl ThreadStore {
             .get_thread_state(thread_id)
             .await
             .unwrap_or_else(|_| Self::new_thread_state(thread_id));
-        let mut reset_snapshot = false;
         if state.last_materialized_step_count > want_step_count.saturating_sub(1) {
             return Err(CoreError::Session(format!(
                 "thread_state materialization mismatch: last_materialized_step_count={} want_step_count={}",
@@ -32,10 +31,7 @@ impl ThreadStore {
             )));
         }
         if state.last_materialized_step_count < want_step_count.saturating_sub(1) {
-            // Hard cutover: do not replay thread logs for state reconstruction.
-            // If a gap is detected, reset to an empty state snapshot and continue incrementally.
             state = Self::new_thread_state(thread_id);
-            reset_snapshot = true;
         }
         apply_step_to_state(&mut state, want_step_count.saturating_sub(1), step);
         state.thread_state_schema_version = THREAD_STATE_SCHEMA_VERSION;
@@ -47,11 +43,7 @@ impl ThreadStore {
             .filter(|it| it.kind == ThreadItemKind::Phase)
             .filter_map(|it| it.runtime_ms)
             .sum();
-        if reset_snapshot {
-            self.put_thread_state_replace(thread_id, &state).await?;
-        } else {
-            self.put_thread_state(thread_id, &state).await?;
-        }
+        self.save_thread_state(thread_id, &state).await?;
         Ok(())
     }
 }
@@ -67,7 +59,7 @@ fn duration_ms(start_ts: &str, end_ts: &str) -> Option<u64> {
     Some(ms as u64)
 }
 
-pub(crate) fn apply_step_to_state(st: &mut ThreadLogViewCache, _step_idx: usize, step: &ThreadStep) {
+pub fn apply_step_to_state(st: &mut ThreadLogViewCache, _step_idx: usize, step: &ThreadStep) {
     match step {
         ThreadStep::SwitchSuite { to, .. } => {
             if !to.trim().is_empty() {

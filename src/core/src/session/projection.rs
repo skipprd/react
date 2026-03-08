@@ -2,7 +2,7 @@ use super::{
     LlmStepStatus, ThreadEvent, ThreadEventKind, ThreadEventStatus, ThreadLog, ThreadStep, ToolStepStatus,
 };
 
-pub(crate) fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -> Vec<ThreadEvent> {
+pub fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -> Vec<ThreadEvent> {
     let paired_tool_ids: std::collections::HashSet<String> = {
         let mut starts: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut ends: std::collections::HashSet<String> = std::collections::HashSet::new();

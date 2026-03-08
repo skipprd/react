@@ -454,36 +454,37 @@ async fn get_thread_state_requires_explicit_state_file() {
 }
 
 #[tokio::test]
-async fn put_thread_state_merges_non_destructively() {
+async fn save_thread_state_replaces_fully() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
     let store = ThreadStore::new(storage, scope, keyspace);
-    let tid = "tid-merge";
+    let tid = "tid-replace";
 
-    let base = ThreadLogViewCache {
+    let first = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
         suite_id: Some("test_suite".to_string()),
+        current_phase: Some("plan".to_string()),
         ..ThreadLogViewCache::default()
     };
-    store.put_thread_state(tid, &base).await.unwrap();
+    store.save_thread_state(tid, &first).await.unwrap();
 
-    let patch = ThreadLogViewCache {
+    let second = ThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: tid.to_string(),
-        current_phase: Some("model_author".to_string()),
+        current_phase: Some("author".to_string()),
         ..ThreadLogViewCache::default()
     };
-    store.put_thread_state(tid, &patch).await.unwrap();
+    store.save_thread_state(tid, &second).await.unwrap();
 
     let got = store.get_thread_state(tid).await.unwrap();
-    assert_eq!(got.suite_id.as_deref(), Some("test_suite"));
-    assert_eq!(got.current_phase.as_deref(), Some("model_author"));
+    assert_eq!(got.suite_id, None, "save replaces fully — suite_id should be gone");
+    assert_eq!(got.current_phase.as_deref(), Some("author"));
 }
 
 #[tokio::test]
-async fn put_thread_state_rejects_schema_version_mismatch() {
+async fn save_thread_state_rejects_schema_version_mismatch() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -494,12 +495,12 @@ async fn put_thread_state_rejects_schema_version_mismatch() {
         thread_id: tid.to_string(),
         ..ThreadLogViewCache::default()
     };
-    let got = store.put_thread_state(tid, &st).await;
+    let got = store.save_thread_state(tid, &st).await;
     assert!(got.is_err(), "schema mismatches must fail");
 }
 
 #[tokio::test]
-async fn put_thread_state_rejects_thread_id_mismatch() {
+async fn save_thread_state_rejects_thread_id_mismatch() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -509,7 +510,7 @@ async fn put_thread_state_rejects_thread_id_mismatch() {
         thread_id: "other-thread".to_string(),
         ..ThreadLogViewCache::default()
     };
-    let got = store.put_thread_state("tid-id-check", &st).await;
+    let got = store.save_thread_state("tid-id-check", &st).await;
     assert!(got.is_err(), "thread_id mismatches must fail");
 }
 
@@ -541,7 +542,7 @@ async fn session_key_build_failures_are_hard_errors() {
         ..ThreadLogViewCache::default()
     };
     let write_err = store
-        .put_thread_state_replace(bad_tid, &state)
+        .save_thread_state(bad_tid, &state)
         .await
         .expect_err("invalid thread ids must fail state key construction");
     assert!(write_err.to_string().contains("failed to build thread state key"));
@@ -604,7 +605,7 @@ async fn materialization_gap_reset_clears_stale_state_items() {
         },
     );
     store
-        .put_thread_state_replace(tid, &stale)
+        .save_thread_state(tid, &stale)
         .await
         .expect("seed stale state");
 
