@@ -33,22 +33,11 @@ pub struct ModelPlanSkeletonV1 {
     pub batches: Vec<Vec<String>>,
 }
 
-// Re-export canonical plan types that now derive JsonSchema directly.
-// These aliases preserve backwards compatibility with existing V1 references.
-pub type FieldKindV1 = super::plan_types::FieldKind;
-pub type OutputFieldSpecV1 = super::plan_types::OutputFieldSpec;
-pub type CleanseImplementationSpecV1 = super::plan_types::CleanseImplementationSpec;
-pub type JoinTypeV1 = super::plan_types::JoinType;
-pub type CardinalityV1 = super::plan_types::Cardinality;
-pub type JoinSpecV1 = super::plan_types::JoinSpec;
-pub type MetricSpecV1 = super::plan_types::MetricSpec;
-pub type ModelImplementationSpecV1 = super::plan_types::ModelImplementationSpec;
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CleansePlanEnrichmentItemV1 {
     pub task_id: String,
-    pub implementation_spec: CleanseImplementationSpecV1,
+    pub implementation_spec: super::plan_types::CleanseImplementationSpec,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -61,7 +50,7 @@ pub struct CleansePlanEnrichmentV1 {
 #[serde(deny_unknown_fields)]
 pub struct ModelPlanEnrichmentItemV1 {
     pub task_id: String,
-    pub implementation_spec: ModelImplementationSpecV1,
+    pub implementation_spec: super::plan_types::ModelImplementationSpec,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

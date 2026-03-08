@@ -1,6 +1,6 @@
 use super::*;
 use crate::wiring::{DefaultKeyspace, RequestScope};
-use crate::ws::conn_state::{derive_thread_context, normalize_agent_new, normalize_agent_open};
+use crate::ws::conn_state::{normalize_agent_new, normalize_agent_open};
 use crate::ws::history::{build_history, compute_unread_for_log};
 use crate::ws::thread_state::ws_thread_state_snapshot_from_core;
 use crate::ws::util::DEFAULT_INITIAL_PHASE;
@@ -297,45 +297,6 @@ fn normalize_agent_includes_agent_and_review() {
     assert_eq!(normalize_agent_new(api::new_request::AgentType::Review), "review");
     assert_eq!(normalize_agent_open(api::open_request::AgentType::Agent), "agent");
     assert_eq!(normalize_agent_open(api::open_request::AgentType::Review), "review");
-}
-
-#[test]
-fn derive_thread_context_ignores_step_agent_labels() {
-    let log = ThreadLog {
-        steps: vec![
-            ThreadStep::SwitchSuite {
-                from: None,
-                to: "suite_x".to_string(),
-                observation: Observation::ok(),
-                ts: "t".to_string(),
-                agent: "agent".to_string(),
-            },
-            ThreadStep::SwitchAgent {
-                from: None,
-                to: "agent".to_string(),
-                observation: Observation::ok(),
-                ts: "t".to_string(),
-                agent: "agent".to_string(),
-            },
-            // Inner phase/tool steps may record agent labels like "test_agent" — these must NOT
-            // override the user-selected agent_type derived from switch_agent.
-            ThreadStep::ToolEnd {
-                tool_id: "t".to_string(),
-                name: "sql_schema".to_string(),
-                clean_name: "List tables".to_string(),
-                args: json!({}),
-                status: react_core::session::ToolStepStatus::Ok,
-                payload: None,
-                ctx: None,
-                observation: ToolObservation::normalize(json!({"ok": true})),
-                ts: "t".to_string(),
-                agent: "test_agent".to_string(),
-            },
-        ],
-        ..Default::default()
-    };
-    let (_suite, agent_type) = derive_thread_context(&log);
-    assert_eq!(agent_type, "agent");
 }
 
 #[test]
@@ -779,7 +740,7 @@ async fn open_emits_thread_state_frame() {
     // Seed empty thread log so process_open can load it.
     let thread_id = uuid::Uuid::new_v4().to_string();
     let store = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
-    // minimal steps so derive_thread_context has something (optional)
+    // minimal steps so resolve_thread_context has something (optional)
     let _ = store
         .append_step(
             &thread_id,

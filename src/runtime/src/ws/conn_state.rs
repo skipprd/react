@@ -85,47 +85,74 @@ impl ConnState {
     }
 }
 
-pub(super) fn derive_thread_context(log: &ThreadLog) -> (String, String) {
-    let mut suite_id = String::new();
-    let mut agent_type = DEFAULT_AGENT_TYPE.to_string();
-    for step in log.steps.iter() {
-        match step {
-            ThreadStep::SwitchSuite { to, .. } => {
-                if !to.trim().is_empty() {
-                    suite_id = to.to_string();
-                }
-            }
-            ThreadStep::SwitchAgent { to, .. } => {
-                if !to.trim().is_empty() {
-                    agent_type = to.to_string();
-                }
-            }
-            _ => {}
-        }
-    }
-    (suite_id, agent_type)
-}
-
 pub(super) fn default_suite_id(reg: &SuiteRegistry) -> Option<String> {
     reg.list_ids().into_iter().next().map(|s| s.to_string())
 }
 
-pub(super) async fn resolve_suite_id_for_thread(state: &mut ConnState, thread_id: &str) -> String {
-    if let Some(s) = state.current_suite.get(thread_id).cloned() {
-        return s;
+/// Single entry point for resolving the suite_id and agent_type of a thread.
+///
+/// Resolution order:
+/// 1. In-memory session cache (fastest, populated by prior requests)
+/// 2. ControlStateStore (persistent, authoritative for suite_id)
+/// 3. Materialized view cache (has suite_id/agent_type from SwitchSuite/SwitchAgent steps)
+/// 4. Defaults
+pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &str) -> (String, String) {
+    let cached_suite = state.current_suite.get(thread_id).cloned();
+    let cached_agent = state.current_agent.get(thread_id).cloned();
+    if cached_suite.is_some() && cached_agent.is_some() {
+        return (cached_suite.unwrap(), cached_agent.unwrap());
     }
-    let control = ControlStateStore::new(
-        state.suite_ctx.storage().clone(),
-        state.suite_ctx.scope().clone(),
-        state.suite_ctx.keyspace().clone(),
-    );
-    if let Ok(Some(sid)) = control.load_suite_id(thread_id).await {
-        if !sid.trim().is_empty() {
-            state.current_suite.insert(thread_id.to_string(), sid.clone());
-            return sid;
+
+    let mut suite_id = cached_suite.unwrap_or_default();
+    let mut agent_type = cached_agent.unwrap_or_default();
+
+    if suite_id.trim().is_empty() {
+        let control = ControlStateStore::new(
+            state.suite_ctx.storage().clone(),
+            state.suite_ctx.scope().clone(),
+            state.suite_ctx.keyspace().clone(),
+        );
+        if let Ok(Some(sid)) = control.load_suite_id(thread_id).await {
+            if !sid.trim().is_empty() {
+                suite_id = sid;
+            }
         }
     }
-    default_suite_id(&state.reg).unwrap_or_default()
+
+    if suite_id.trim().is_empty() || agent_type.trim().is_empty() {
+        let store = state.thread_store();
+        if let Ok(st) = store.get_thread_state(thread_id).await {
+            if suite_id.trim().is_empty() {
+                if let Some(ref sid) = st.suite_id {
+                    if !sid.trim().is_empty() {
+                        suite_id = sid.clone();
+                    }
+                }
+            }
+            if agent_type.trim().is_empty() {
+                if let Some(ref at) = st.agent_type {
+                    if !at.trim().is_empty() {
+                        agent_type = at.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    if suite_id.trim().is_empty() {
+        suite_id = default_suite_id(&state.reg).unwrap_or_default();
+    }
+    if agent_type.trim().is_empty() {
+        agent_type = DEFAULT_AGENT_TYPE.to_string();
+    }
+
+    state.current_suite.insert(thread_id.to_string(), suite_id.clone());
+    state.current_agent.insert(thread_id.to_string(), agent_type.clone());
+    (suite_id, agent_type)
+}
+
+pub(super) async fn resolve_suite_id_for_thread(state: &mut ConnState, thread_id: &str) -> String {
+    resolve_thread_context(state, thread_id).await.0
 }
 
 pub(super) fn build_suites_catalog(reg: &SuiteRegistry) -> Vec<api::SuitesResponseSuitesInner> {

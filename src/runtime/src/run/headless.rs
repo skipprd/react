@@ -257,27 +257,8 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         }
     }
 
-    // Fallback: check materialized view cache.
-    let st = store.get_thread_state(&thread_id).await.ok();
-    if st.is_none() && !saw_final {
+    if !saw_final {
         return Ok((2, thread_id));
-    }
-    if let Some(st) = st {
-        let any_failed = st
-            .items
-            .values()
-            .any(|it| it.status == ThreadItemStatus::Failed);
-        if any_failed && plain_progress {
-            let timeline_events = match store.get(&thread_id).await {
-                Ok(log) => react_view::build_thread_events_from_log(&log, 500),
-                Err(_) => Vec::new(),
-            };
-            if let Some(line) = summarize_failure_state(&st, &timeline_events) {
-                println!("{}", line);
-            }
-        }
-        let code = if any_failed { 1 } else { 0 };
-        return Ok((code, thread_id));
     }
     Ok((0, thread_id))
 }

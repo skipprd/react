@@ -6,9 +6,9 @@ use react_core::session::{Observation, ThreadStep};
 use uuid::Uuid;
 
 use super::conn_state::{
-    build_suites_catalog, default_suite_id, derive_thread_context, load_latest_plans,
-    normalize_agent_new, normalize_agent_open, resolve_suite_id_for_thread, synthesize_title,
-    ConnState,
+    build_suites_catalog, default_suite_id, load_latest_plans,
+    normalize_agent_new, normalize_agent_open, resolve_suite_id_for_thread,
+    resolve_thread_context, synthesize_title, ConnState,
 };
 use super::history::{build_history, compute_unread_for_log};
 use super::mapping::{final_display_text_from_payload, ws_final_result_from_typed_final};
@@ -44,16 +44,16 @@ async fn handle_list_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
     let mut out: Vec<String> = Vec::new();
     let _req: api::ListRequest =
         serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
-    let store = state.thread_store();
-    let ids = store.list().await;
+    let ids = {
+        let store = state.thread_store();
+        store.list().await
+    };
     let mut threads: Vec<api::ListResponseThreadsInner> = Vec::new();
     for tid in ids {
         let mut item = api::ListResponseThreadsInner::new(tid.clone());
+        let (suite_id, agent_type) = resolve_thread_context(state, &tid).await;
+        let store = state.thread_store();
         if let Ok(log) = store.get(&tid).await {
-            let (mut suite_id, agent_type) = derive_thread_context(&log);
-            if suite_id.trim().is_empty() {
-                suite_id = default_suite_id(&state.reg).unwrap_or_default();
-            }
             item.last_activity = log.steps.last().map(|s| s.ts().to_string());
             item.title = log.title.clone();
             item.suite_id = Some(suite_id);
@@ -256,12 +256,8 @@ async fn handle_open_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
     let requested_suite = req.suite_id.clone();
     let requested_agent = normalize_agent_open(req.agent_type);
 
+    let (current_suite, current_agent) = resolve_thread_context(state, &thread_id).await;
     let store = state.thread_store();
-    let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-    let (mut current_suite, current_agent) = derive_thread_context(&log);
-    if current_suite.trim().is_empty() {
-        current_suite = default_suite_id(&state.reg).unwrap_or_default();
-    }
     if current_suite != requested_suite {
         let _ = store
             .append_step(
@@ -480,24 +476,8 @@ async fn handle_user_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
     if uuid::Uuid::parse_str(&thread_id).is_err() {
         return Err("invalid thread_id".into());
     }
-    if !state.current_suite.contains_key(&thread_id)
-        || !state.current_agent.contains_key(&thread_id)
-    {
-        let store = state.thread_store();
-        let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-        let (mut suite_id, agent_type) = derive_thread_context(&log);
-        if suite_id.trim().is_empty() {
-            suite_id = default_suite_id(&state.reg).unwrap_or_default();
-        }
-        state.current_suite.insert(thread_id.clone(), suite_id);
-        state.current_agent.insert(thread_id.clone(), agent_type);
-    }
+    let (_suite_id, agent_label) = resolve_thread_context(state, &thread_id).await;
     let store = state.thread_store();
-    let agent_label = state
-        .current_agent
-        .get(&thread_id)
-        .cloned()
-        .unwrap_or_else(|| DEFAULT_AGENT_TYPE.to_string());
     let _ = store
         .append_step(
             &thread_id,
@@ -653,6 +633,7 @@ async fn handle_history_message(v: &Value, state: &mut ConnState) -> Result<Vec<
     if uuid::Uuid::parse_str(&thread_id).is_err() {
         return Err("invalid thread_id".into());
     }
+    let (suite_id, agent_type) = resolve_thread_context(state, &thread_id).await;
     let store = state.thread_store();
     let (messages, next_before) =
         build_history(&store, &thread_id, req.before_thread_seq, req.limit).await?;
@@ -665,10 +646,6 @@ async fn handle_history_message(v: &Value, state: &mut ConnState) -> Result<Vec<
         messages,
     );
     let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-    let (mut suite_id, agent_type) = derive_thread_context(&log);
-    if suite_id.trim().is_empty() {
-        suite_id = default_suite_id(&state.reg).unwrap_or_default();
-    }
     resp.title = log.title;
     resp.suite_id = Some(suite_id);
     resp.agent_type = Some(agent_type);

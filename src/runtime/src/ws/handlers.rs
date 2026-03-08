@@ -8,8 +8,8 @@ use react_core::session::{Observation, ThreadStep};
 use uuid::Uuid;
 
 use super::conn_state::{
-    default_suite_id, derive_thread_context, load_latest_plans, normalize_agent_new,
-    normalize_agent_open, ConnState,
+    load_latest_plans, normalize_agent_new,
+    normalize_agent_open, resolve_thread_context, ConnState,
 };
 use super::suite_runner::{run_suite_and_stream, SuiteRunKind};
 use super::thread_state::{
@@ -139,13 +139,8 @@ pub(super) async fn process_open(
     let requested_suite = req.suite_id.clone();
     let requested_agent = normalize_agent_open(req.agent_type);
 
-    // Derive current suite/agent from persisted thread log (durable across reconnects)
+    let (current_suite, current_agent) = resolve_thread_context(state, &thread_id).await;
     let store = state.thread_store();
-    let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-    let (mut current_suite, current_agent) = derive_thread_context(&log);
-    if current_suite.trim().is_empty() {
-        current_suite = default_suite_id(&state.reg).unwrap_or_default();
-    }
     if current_suite != requested_suite {
         let _ = store
             .append_step(
@@ -280,29 +275,7 @@ pub(super) async fn process_user(
         return Err("invalid thread_id".into());
     }
 
-    // Reconnect-safe: derive suite/agent from persisted history if not present in connection state
-    if !state.current_suite.contains_key(&thread_id)
-        || !state.current_agent.contains_key(&thread_id)
-    {
-        let store = state.thread_store();
-        let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-        let (mut suite_id, agent_type) = derive_thread_context(&log);
-        if suite_id.trim().is_empty() {
-            suite_id = default_suite_id(&state.reg).unwrap_or_default();
-        }
-        state.current_suite.insert(thread_id.clone(), suite_id);
-        state.current_agent.insert(thread_id.clone(), agent_type);
-    }
-    let suite_id = state
-        .current_suite
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "suite_id missing for thread".to_string())?;
-    let agent = state
-        .current_agent
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "agent_type missing for thread".to_string())?;
+    let (suite_id, agent) = resolve_thread_context(state, &thread_id).await;
 
     // ack
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
@@ -313,7 +286,6 @@ pub(super) async fn process_user(
         let _ = write.send(Message::Text(s)).await;
     }
 
-    // record user message
     {
         let store = state.thread_store();
         let _ = store
@@ -356,29 +328,7 @@ pub(super) async fn process_approve(
     if uuid::Uuid::parse_str(&thread_id).is_err() {
         return Err("invalid thread_id".into());
     }
-    // Reconnect-safe: derive suite/agent from persisted history if not present in connection state
-    if !state.current_suite.contains_key(&thread_id)
-        || !state.current_agent.contains_key(&thread_id)
-    {
-        let store = state.thread_store();
-        let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-        let (mut suite_id, agent_type) = derive_thread_context(&log);
-        if suite_id.trim().is_empty() {
-            suite_id = default_suite_id(&state.reg).unwrap_or_default();
-        }
-        state.current_suite.insert(thread_id.clone(), suite_id);
-        state.current_agent.insert(thread_id.clone(), agent_type);
-    }
-    let suite_id = state
-        .current_suite
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "suite_id missing for thread".to_string())?;
-    let agent = state
-        .current_agent
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "agent_type missing for thread".to_string())?;
+    let (suite_id, agent) = resolve_thread_context(state, &thread_id).await;
     // ack
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
@@ -387,7 +337,6 @@ pub(super) async fn process_approve(
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }
-    // append user=approve step
     {
         let store = state.thread_store();
         let _ = store
@@ -431,29 +380,7 @@ pub(super) async fn process_reject(
     if uuid::Uuid::parse_str(&thread_id).is_err() {
         return Err("invalid thread_id".into());
     }
-    // Reconnect-safe: derive suite/agent from persisted history if not present in connection state
-    if !state.current_suite.contains_key(&thread_id)
-        || !state.current_agent.contains_key(&thread_id)
-    {
-        let store = state.thread_store();
-        let log = store.get(&thread_id).await.map_err(|e| e.to_string())?;
-        let (mut suite_id, agent_type) = derive_thread_context(&log);
-        if suite_id.trim().is_empty() {
-            suite_id = default_suite_id(&state.reg).unwrap_or_default();
-        }
-        state.current_suite.insert(thread_id.clone(), suite_id);
-        state.current_agent.insert(thread_id.clone(), agent_type);
-    }
-    let suite_id = state
-        .current_suite
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "suite_id missing for thread".to_string())?;
-    let agent = state
-        .current_agent
-        .get(&thread_id)
-        .cloned()
-        .ok_or_else(|| "agent_type missing for thread".to_string())?;
+    let (suite_id, agent) = resolve_thread_context(state, &thread_id).await;
     // ack
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());

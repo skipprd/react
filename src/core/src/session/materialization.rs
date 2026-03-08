@@ -27,7 +27,7 @@ impl ThreadStore {
         let mut reset_snapshot = false;
         if state.last_materialized_step_count > want_step_count.saturating_sub(1) {
             return Err(CoreError::Session(format!(
-                "thread_state materialization mismatch: state_count={} want_step_count={}",
+                "thread_state materialization mismatch: last_materialized_step_count={} want_step_count={}",
                 state.last_materialized_step_count, want_step_count
             )));
         }
