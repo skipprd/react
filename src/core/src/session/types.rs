@@ -46,9 +46,6 @@ pub struct ThreadLogViewCache {
     pub suite_state: Option<Value>,
 }
 
-/// Backward-compatible alias during the migration.
-pub type ThreadState = ThreadLogViewCache;
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ThreadEvent {

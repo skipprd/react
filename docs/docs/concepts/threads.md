@@ -45,28 +45,41 @@ Threads are stored as JSON files via the `StorageAdapter` at keys determined by 
 
 The `ThreadStore` handles reading and writing thread steps. It uses the `StorageAdapter` (local file system or S3) so persistence is transparent to suites and the agent loop.
 
-## Thread state
+## State hierarchy
 
-In addition to the raw step log, a materialized `ThreadState` snapshot is maintained:
+Thread state is split into three tiers:
+
+### 1. ControlState (primary — source of truth)
+
+```
+{tenant}/{workspace}/{project_id}/state/{thread_id}/control.json
+```
+
+`ControlStateStore` holds the authoritative execution state: current phase, progress, suite_id. Suites own and mutate this exclusively. The system can function correctly with only this file intact.
+
+### 2. ThreadLog (secondary — audit log)
+
+The append-only step log described above. Read access is restricted to the `ThreadLogReader` trait (compile-time read-only guarantee). Write access is append-only via `ThreadLogWriter`.
+
+### 3. ThreadLogViewCache (tertiary — display projection)
 
 ```
 {tenant}/{workspace}/{project_id}/state/{thread_id}/state.json
 ```
 
-The thread state contains:
+A disposable, materialized projection of the ThreadLog for display purposes. Contains:
 
-- Current suite and agent type
-- Current phase
+- Current suite and agent type (for display)
+- Current phase (materialized from log)
 - Per-item status tracking (for multi-item plans)
 - Total runtime across phases
-- Bootstrap state (catalog readiness, etc.)
-- Suite-owned control state (opaque JSON)
+- Suite-owned display state (plan summaries, etc.)
 
-Thread state is updated incrementally as steps are appended.
+This cache can be fully rebuilt from the ThreadLog at any time. Materialization is non-fatal — if it fails, the log append still succeeds.
 
 ## Schema versioning
 
-Thread JSON files include a `schema_version` field (currently version 4). The thread state snapshot has its own version (currently version 2). Version checks allow safe forward migration.
+Thread JSON files include a `schema_version` field (currently version 4). The view cache snapshot has its own version (currently version 2). The control state envelope has its own version (currently version 1). Version checks enforce strict compatibility with no migration support.
 
 ## History and pagination
 

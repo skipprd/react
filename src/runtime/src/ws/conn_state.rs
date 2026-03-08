@@ -125,18 +125,6 @@ pub(super) async fn resolve_suite_id_for_thread(state: &mut ConnState, thread_id
             return sid;
         }
     }
-    if let Ok(log) = state.thread_store().get(thread_id).await {
-        let (mut suite_id, _agent_type) = derive_thread_context(&log);
-        if suite_id.trim().is_empty() {
-            suite_id = default_suite_id(&state.reg).unwrap_or_default();
-        }
-        if !suite_id.trim().is_empty() {
-            state
-                .current_suite
-                .insert(thread_id.to_string(), suite_id.clone());
-            return suite_id;
-        }
-    }
     default_suite_id(&state.reg).unwrap_or_default()
 }
 

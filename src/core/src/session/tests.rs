@@ -429,7 +429,7 @@ async fn list_returns_only_thread_logs_not_thread_state_snapshots() {
 }
 
 #[tokio::test]
-async fn get_thread_state_does_not_fallback_to_thread_log() {
+async fn get_thread_state_requires_explicit_state_file() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -450,7 +450,7 @@ async fn get_thread_state_does_not_fallback_to_thread_log() {
         .unwrap();
 
     let got = store.get_thread_state(tid).await;
-    assert!(got.is_err(), "thread state should not be reconstructed from logs");
+    assert!(got.is_err(), "get_thread_state must fail when no explicit state file exists");
 }
 
 #[tokio::test]
