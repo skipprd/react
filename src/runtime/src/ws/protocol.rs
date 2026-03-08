@@ -15,8 +15,7 @@ use super::mapping::{final_display_text_from_payload, ws_final_result_from_typed
 use super::suite_runner::{run_suite_and_frames, AgentFrame, SuiteRunKind};
 use super::terminal::TerminalEvent;
 use super::thread_state::{
-    append_step_if_new, ensure_preflight_phase_step, load_timeline_events,
-    ws_thread_state_snapshot_from_core,
+    load_timeline_events, ws_thread_state_snapshot_from_core,
 };
 use super::util::{now_iso, truncate_title, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 
@@ -167,7 +166,7 @@ async fn handle_new_message(v: &Value, state: &mut ConnState) -> Result<Vec<Stri
     {
         let store = state.thread_store();
         if let Ok(Some((step_idx, ts))) =
-            ensure_preflight_phase_step(&store, &thread_id, &agent, Some(&suite_id)).await
+            store.ensure_preflight_phase_step(&thread_id, &agent, Some(&suite_id), DEFAULT_INITIAL_PHASE).await
         {
             let runs = vec![api::PhaseRun::new(ts.clone())];
             let mut ev = api::PhaseResponse::new(
@@ -317,7 +316,7 @@ async fn handle_open_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
     {
         let store = state.thread_store();
         if let Ok(Some((step_idx, ts))) =
-            ensure_preflight_phase_step(&store, &thread_id, &agent, Some(&suite_id)).await
+            store.ensure_preflight_phase_step(&thread_id, &agent, Some(&suite_id), DEFAULT_INITIAL_PHASE).await
         {
             let runs = vec![api::PhaseRun::new(ts.clone())];
             let mut ev = api::PhaseResponse::new(
@@ -753,10 +752,12 @@ async fn handle_thread_state_message(v: &Value, state: &mut ConnState) -> Result
         return Err("invalid thread_id".into());
     }
 
+    let suite_id = resolve_suite_id_for_thread(state, &thread_id).await;
+    let plans = load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id).await;
     let store = state.thread_store();
     let st = store.get_thread_state(&thread_id).await.map_err(|e| e.to_string())?;
     let timeline_events = load_timeline_events(&store, &thread_id).await;
-    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
     if let Some(t) = state.term() {
         t.emit(TerminalEvent::ThreadState(snap.clone()));
     }
@@ -869,8 +870,7 @@ async fn emit_agent_frames(
                 }
                 {
                     let store = state.thread_store();
-                    append_step_if_new(
-                        &store,
+                    store.append_step_if_new(
                         thread_id,
                         ThreadStep::Complete {
                             kind: kind.clone(),
@@ -923,8 +923,7 @@ async fn emit_agent_frames(
                 out.push(s);
                 {
                     let store = state.thread_store();
-                    append_step_if_new(
-                        &store,
+                    store.append_step_if_new(
                         thread_id,
                         ThreadStep::Interrupt {
                             kind: "await_user".to_string(),
@@ -954,8 +953,7 @@ async fn emit_agent_frames(
                 out.push(s);
                 {
                     let store = state.thread_store();
-                    append_step_if_new(
-                        &store,
+                    store.append_step_if_new(
                         thread_id,
                         ThreadStep::Interrupt {
                             kind: "await_approval".to_string(),

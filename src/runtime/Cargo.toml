@@ -32,6 +32,7 @@ hex = "0.4.3"
 ureq = { version = "2", features = ["json"] }
 crossterm = "0.27"
 react-core = { path = "../core" }
+react-view = { path = "../view" }
 react-suite-data-engineer = { path = "../suites/data_engineer" }
 react-suite-kb = { path = "../suites/kb" }
 react-module-provider-vector-lance = { path = "../modules/providers/vector-lance" }

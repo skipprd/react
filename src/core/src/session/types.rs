@@ -41,9 +41,6 @@ pub struct ThreadLogViewCache {
     /// Per-item semaphore/state keyed by stable item ids.
     #[serde(default)]
     pub items: BTreeMap<String, ThreadItemState>,
-    /// Opaque suite-owned display state (plan summaries, etc). Tertiary.
-    #[serde(default)]
-    pub suite_state: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]

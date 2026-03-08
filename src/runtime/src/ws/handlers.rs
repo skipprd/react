@@ -13,7 +13,7 @@ use super::conn_state::{
 };
 use super::suite_runner::{run_suite_and_stream, SuiteRunKind};
 use super::thread_state::{
-    load_timeline_events, upsert_thread_state_from_plans, ws_thread_state_snapshot_from_core,
+    load_timeline_events, ws_thread_state_snapshot_from_core,
 };
 use super::util::{now_iso, truncate_title, ws_log_out};
 
@@ -204,10 +204,9 @@ pub(super) async fn process_open(
             &thread_id,
         )
         .await;
-        upsert_thread_state_from_plans(&store, &thread_id, &plans).await;
         if let Ok(st) = store.get_thread_state(&thread_id).await {
             let timeline_events = load_timeline_events(&store, &thread_id).await;
-            let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+            let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
             let mut resp = api::ThreadStateResponse::new(
                 1,
                 m::thread_state_response::Type::ThreadState,

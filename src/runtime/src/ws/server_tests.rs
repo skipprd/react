@@ -46,7 +46,7 @@ fn thread_state_snapshot_maps_ctx_from_core_event_field() {
         ..Default::default()
     }];
     let reg = react_core::suite::SuiteRegistry::new();
-    let snap = ws_thread_state_snapshot_from_core(&core, &timeline_events, &reg);
+    let snap = ws_thread_state_snapshot_from_core(&core, &timeline_events, &reg, &[]);
     let ctx = snap.events[0].ctx.as_ref().expect("ctx");
     assert_eq!(ctx.plan_kind, Some("test_plan_kind".to_string()));
     assert_eq!(ctx.plan_key.as_deref(), Some("p1"));

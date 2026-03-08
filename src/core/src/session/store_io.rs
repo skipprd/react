@@ -149,7 +149,7 @@ impl ThreadStore {
         Ok(s)
     }
 
-    pub async fn put_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
+    pub(crate) async fn put_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
         self.write_thread_state(thread_id, state, ThreadLogViewCacheWriteMode::Merge)
             .await
     }
@@ -194,9 +194,6 @@ impl ThreadStore {
                 merged.total_runtime_ms = merged.total_runtime_ms.max(state.total_runtime_ms);
                 for (k, v) in state.items.iter() {
                     merged.items.insert(k.clone(), v.clone());
-                }
-                if let Some(v) = state.suite_state.clone() {
-                    merged.suite_state = Some(v);
                 }
                 merged
             }
@@ -305,6 +302,78 @@ impl ThreadStore {
             );
         }
         Ok(())
+    }
+
+    /// Ensure a "preflight" Phase step exists at the beginning of the thread.
+    /// Returns `Some((step_idx, ts))` if the step was appended, `None` if one already existed.
+    /// Append a step only if it's not a duplicate of the last step in the log.
+    /// Deduplicates Interrupt and Complete steps by comparing payloads.
+    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
+        let is_dup = match self
+            .get(thread_id)
+            .await
+            .ok()
+            .and_then(|l| l.steps.last().cloned())
+        {
+            Some(ThreadStep::Interrupt { prompt: p1, .. }) => {
+                matches!(&step, ThreadStep::Interrupt { prompt: p2, .. } if p1 == *p2)
+            }
+            Some(ThreadStep::Complete {
+                kind: k1,
+                payload: pl1,
+                display: d1,
+                ..
+            }) => matches!(
+                &step,
+                ThreadStep::Complete { kind: k2, payload: pl2, display: d2, .. }
+                    if k1 == *k2 && pl1 == *pl2 && d1 == *d2
+            ),
+            _ => false,
+        };
+        if !is_dup {
+            let _ = self.append_step(thread_id, step).await;
+        }
+    }
+
+    pub async fn ensure_preflight_phase_step(
+        &self,
+        thread_id: &str,
+        agent: &str,
+        suite_id: Option<&str>,
+        initial_phase: &str,
+    ) -> CoreResult<Option<(usize, String)>> {
+        let log = self.get(thread_id).await.unwrap_or_default();
+        let already_has_phase = log.steps.iter().any(|s| matches!(s, ThreadStep::Phase { .. }));
+        if already_has_phase {
+            return Ok(None);
+        }
+        let step_idx = log.steps.len();
+        let ts = chrono::Utc::now().to_rfc3339();
+        let mut detail = serde_json::Map::new();
+        detail.insert("phase".to_string(), serde_json::json!(initial_phase));
+        if let Some(s) = suite_id {
+            if !s.trim().is_empty() {
+                detail.insert("suite_id".to_string(), serde_json::json!(s));
+            }
+        }
+        if !agent.trim().is_empty() {
+            detail.insert("agent".to_string(), serde_json::json!(agent));
+        }
+        let _ = self
+            .append_step(
+                thread_id,
+                ThreadStep::Phase {
+                    phase: initial_phase.to_string(),
+                    from_phase: None,
+                    reason_code: Some("preflight_start".to_string()),
+                    reason_detail: Some(serde_json::Value::Object(detail)),
+                    observation: super::Observation::ok(),
+                    ts: ts.clone(),
+                    agent: agent.to_string(),
+                },
+            )
+            .await;
+        Ok(Some((step_idx, ts)))
     }
 
     pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {

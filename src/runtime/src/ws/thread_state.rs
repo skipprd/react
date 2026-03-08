@@ -2,8 +2,8 @@ use super::mapping::{map_exec_ctx, map_thread_event_kind, map_tool_event_status}
 use super::util::{env_truthy, truncate_str, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 use crate::ws::api_gen::src::models as api;
 use react_core::session::{
-    Observation, ThreadItemError as CoreThreadItemError, ThreadItemKind as CoreThreadItemKind,
-    ThreadItemState as CoreThreadItemState, ThreadItemStatus as CoreThreadItemStatus,
+    ThreadItemState as CoreThreadItemState,
+    ThreadItemStatus as CoreThreadItemStatus,
     ThreadLogViewCache as CoreThreadLogViewCache, ThreadStep, ThreadStore,
 };
 use react_core::suite::SuiteRegistry;
@@ -13,6 +13,7 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     st: &CoreThreadLogViewCache,
     timeline_events: &[react_core::session::ThreadEvent],
     reg: &SuiteRegistry,
+    plans: &[api::PlanSnapshot],
 ) -> api::ThreadStateSnapshot {
     fn elapsed_ms_since(start_ts: &str) -> Option<i64> {
         let start = chrono::DateTime::parse_from_rfc3339(start_ts).ok()?;
@@ -53,6 +54,68 @@ pub(super) fn ws_thread_state_snapshot_from_core(
         }
         items.push(wi);
     }
+
+    fn map_task_status_to_item_status(s: api::PlanTaskStatus) -> CoreThreadItemStatus {
+        match s {
+            api::PlanTaskStatus::Pending => CoreThreadItemStatus::Queued,
+            api::PlanTaskStatus::InProgress => CoreThreadItemStatus::Running,
+            api::PlanTaskStatus::Done => CoreThreadItemStatus::Ok,
+            api::PlanTaskStatus::Blocked => CoreThreadItemStatus::Blocked,
+            api::PlanTaskStatus::NeedsUpdate => CoreThreadItemStatus::Blocked,
+        }
+    }
+
+    fn task_error_from_checklist(cl: &[api::PlanChecklistItem]) -> Option<String> {
+        let pick = cl.iter().find(|it| matches!(it.status,
+            api::PlanChecklistItemStatus::NeedsUpdate | api::PlanChecklistItemStatus::Blocked
+        ));
+        let it = pick?;
+        let details = it.details.as_deref().unwrap_or("").trim();
+        if details.is_empty() {
+            Some(it.label.clone())
+        } else {
+            Some(format!("{}: {}", it.label, details))
+        }
+    }
+
+    let mut plan_summaries: std::collections::HashMap<String, serde_json::Value> =
+        std::collections::HashMap::new();
+    for p in plans {
+        let kind = if p.plan_kind.trim().is_empty() { "plan" } else { &p.plan_kind };
+        let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        for t in p.tasks.iter() {
+            let k = format!("{:?}", t.status).to_lowercase();
+            *counts.entry(k).or_insert(0) += 1;
+        }
+        plan_summaries.insert(kind.to_string(), serde_json::json!({
+            "planKey": p.plan_key,
+            "status": format!("{:?}", p.status).to_lowercase(),
+            "taskCounts": counts,
+        }));
+
+        for t in p.tasks.iter() {
+            let item_id = format!("task:plan:{}:{}", p.plan_key, t.task_id);
+            let status = map_task_status_to_item_status(t.status);
+            let outputs = serde_json::json!({
+                "task_kind": t.task_kind,
+                "label": t.label,
+                "details": t.details,
+            });
+            let mut wi = api::ThreadStateItem::new(
+                item_id,
+                "task".to_string(),
+                status.as_str().to_string(),
+            );
+            wi.outputs = outputs.as_object().map(|obj| {
+                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            });
+            if let Some(err) = task_error_from_checklist(&t.checklist) {
+                wi.last_error = Some(api::ThreadStateItemError::new(err));
+            }
+            items.push(wi);
+        }
+    }
+
     items.sort_by(|a, b| a.item_id.cmp(&b.item_id));
 
     let mut total_runtime_ms: i64 = st.total_runtime_ms as i64;
@@ -119,161 +182,17 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     snap.suite_id = st.suite_id.clone();
     snap.agent_type = st.agent_type.clone();
     snap.current_phase = st.current_phase.clone();
-    if let Some(suite_state) = st.suite_state.as_ref().and_then(|v| v.as_object()) {
-        let mut hm: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
-        for (k, v) in suite_state.iter() {
-            hm.insert(k.clone(), v.clone());
-        }
-        if !hm.is_empty() {
-            snap.plan_summaries = Some(hm);
-        }
+    if !plan_summaries.is_empty() {
+        snap.plan_summaries = Some(plan_summaries);
     }
     snap
 }
 
 pub(super) async fn load_timeline_events(store: &ThreadStore, thread_id: &str) -> Vec<react_core::session::ThreadEvent> {
-    store
-        .get_thread_events_from_log(thread_id)
-        .await
-        .unwrap_or_default()
-}
-
-pub(super) async fn upsert_thread_state_from_plans(
-    store: &ThreadStore,
-    thread_id: &str,
-    plans: &[api::PlanSnapshot],
-) {
-    let mut st = match store.get_thread_state(thread_id).await {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-
-    fn summarize_plan(p: &api::PlanSnapshot) -> serde_json::Value {
-        let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
-        for t in p.tasks.iter() {
-            let st = t.status;
-            let k = format!("{:?}", st).to_lowercase();
-            *counts.entry(k).or_insert(0) += 1;
-        }
-        serde_json::json!({
-            "planKey": p.plan_key,
-            "status": format!("{:?}", p.status).to_lowercase(),
-            "taskCounts": counts,
-        })
+    match store.get(thread_id).await {
+        Ok(log) => react_view::build_thread_events_from_log(&log, 500),
+        Err(_) => Vec::new(),
     }
-
-    fn map_task_status_to_item_status(s: api::PlanTaskStatus) -> CoreThreadItemStatus {
-        match s {
-            api::PlanTaskStatus::Pending => CoreThreadItemStatus::Queued,
-            api::PlanTaskStatus::InProgress => CoreThreadItemStatus::Running,
-            api::PlanTaskStatus::Done => CoreThreadItemStatus::Ok,
-            api::PlanTaskStatus::Blocked => CoreThreadItemStatus::Blocked,
-            api::PlanTaskStatus::NeedsUpdate => CoreThreadItemStatus::Blocked,
-        }
-    }
-
-    fn task_error_from_checklist(items: &[api::PlanChecklistItem]) -> Option<String> {
-        let mut pick: Option<&api::PlanChecklistItem> = None;
-        for it in items.iter() {
-            match it.status {
-                api::PlanChecklistItemStatus::NeedsUpdate => {
-                    pick = Some(it);
-                    break;
-                }
-                api::PlanChecklistItemStatus::Blocked => {
-                    if pick.is_none() {
-                        pick = Some(it);
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(it) = pick else { return None };
-        let details = it.details.as_deref().unwrap_or("").trim();
-        if details.is_empty() {
-            Some(it.label.clone())
-        } else {
-            Some(format!("{}: {}", it.label, details))
-        }
-    }
-
-    for p in plans.iter() {
-        let kind = if p.plan_kind.trim().is_empty() {
-            "plan".to_string()
-        } else {
-            p.plan_kind.clone()
-        };
-        let suite_state = st
-            .suite_state
-            .get_or_insert_with(|| serde_json::json!({}));
-        if let Some(obj) = suite_state.as_object_mut() {
-            obj.insert(kind, summarize_plan(p));
-        }
-
-        for t in p.tasks.iter() {
-            let task_id = t.task_id.clone();
-            let status = t.status;
-            let checklist = t.checklist.clone();
-            let outputs = serde_json::json!({
-                "task_kind": t.task_kind,
-                "label": t.label,
-                "details": t.details,
-            });
-            let item_id = format!("task:plan:{}:{}", p.plan_key, task_id);
-            let ent = st
-                .items
-                .entry(item_id)
-                .or_insert_with(|| CoreThreadItemState {
-                    kind: CoreThreadItemKind::Task,
-                    status: CoreThreadItemStatus::Queued,
-                    started_at: None,
-                    finished_at: None,
-                    runtime_ms: None,
-                    last_error: None,
-                    outputs: None,
-                });
-            ent.kind = CoreThreadItemKind::Task;
-            ent.status = map_task_status_to_item_status(status);
-            ent.outputs = Some(outputs);
-            if let Some(err) = task_error_from_checklist(&checklist) {
-                ent.last_error = Some(CoreThreadItemError {
-                    summary: err,
-                    tool_step_idx: None,
-                    step_ts: None,
-                });
-            }
-        }
-    }
-
-    let _ = store.put_thread_state(thread_id, &st).await;
-}
-
-pub(super) async fn append_step_if_new(store: &ThreadStore, thread_id: &str, step: ThreadStep) {
-    let is_dup = match store
-        .get(thread_id)
-        .await
-        .ok()
-        .and_then(|l| l.steps.last().cloned())
-    {
-        Some(ThreadStep::Interrupt { prompt: p1, .. }) => {
-            matches!(&step, ThreadStep::Interrupt { prompt: p2, .. } if p1 == *p2)
-        }
-        Some(ThreadStep::Complete {
-            kind: k1,
-            payload: pl1,
-            display: d1,
-            ..
-        }) => matches!(
-            &step,
-            ThreadStep::Complete { kind: k2, payload: pl2, display: d2, .. }
-                if k1 == *k2 && pl1 == *pl2 && d1 == *d2
-        ),
-        _ => false,
-    };
-    if is_dup {
-        return;
-    }
-    let _ = store.append_step(thread_id, step).await;
 }
 
 pub(super) fn summarize_step(step: &ThreadStep) -> String {
@@ -298,49 +217,6 @@ pub(super) fn summarize_step(step: &ThreadStep) -> String {
     let raw = serde_json::to_string(step).unwrap_or_else(|_| "{\"type\":\"unknown\"}".to_string());
     let raw = truncate_str(&raw, 220);
     format!("ts={} agent={} step={}", step.ts(), agent, raw)
-}
-
-pub(super) async fn ensure_preflight_phase_step(
-    store: &ThreadStore,
-    thread_id: &str,
-    agent: &str,
-    suite_id: Option<&str>,
-) -> Result<Option<(usize, String)>, String> {
-    let log = store.get(thread_id).await.map_err(|e| e.to_string())?;
-    let already_has_phase = log
-        .steps
-        .iter()
-        .any(|s| matches!(s, ThreadStep::Phase { .. }));
-    if already_has_phase {
-        return Ok(None);
-    }
-    let step_idx = log.steps.len();
-    let ts = chrono::Utc::now().to_rfc3339();
-    let mut detail = serde_json::Map::new();
-    detail.insert("phase".to_string(), serde_json::json!(DEFAULT_INITIAL_PHASE));
-    if let Some(s) = suite_id {
-        if !s.trim().is_empty() {
-            detail.insert("suite_id".to_string(), serde_json::json!(s));
-        }
-    }
-    if !agent.trim().is_empty() {
-        detail.insert("agent".to_string(), serde_json::json!(agent));
-    }
-    let _ = store
-        .append_step(
-            thread_id,
-            ThreadStep::Phase {
-                phase: DEFAULT_INITIAL_PHASE.to_string(),
-                from_phase: None,
-                reason_code: Some("preflight_start".to_string()),
-                reason_detail: Some(serde_json::Value::Object(detail)),
-                observation: Observation::ok(),
-                ts: ts.clone(),
-                agent: agent.to_string(),
-            },
-        )
-        .await;
-    Ok(Some((step_idx, ts)))
 }
 
 pub(super) fn duration_ms(start_ts: &str, end_ts: &str) -> Option<i64> {

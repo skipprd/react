@@ -5931,6 +5931,7 @@ dependencies = [
  "react-module-storage-s3",
  "react-suite-data-engineer",
  "react-suite-kb",
+ "react-view",
  "regex",
  "serde",
  "serde_derive",
@@ -6123,6 +6124,16 @@ dependencies = [
  "serde_json",
  "tokio",
  "walkdir",
+]
+
+[[package]]
+name = "react-view"
+version = "0.0.0-git"
+dependencies = [
+ "chrono",
+ "react-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

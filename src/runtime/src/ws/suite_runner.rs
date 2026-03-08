@@ -1,9 +1,9 @@
 use super::conn_state::{ConnState, load_latest_plans};
 use super::mapping::{map_exec_ctx, ws_final_result_from_typed_final};
 use super::thread_state::{
-    append_step_if_new, ensure_preflight_phase_step, load_timeline_events,
-    log_thread_steps_if_enabled, phase_at_step_idx, phase_runs_from_steps,
-    total_completed_runtime_ms, upsert_thread_state_from_plans, ws_thread_state_snapshot_from_core,
+    load_timeline_events, log_thread_steps_if_enabled,
+    phase_at_step_idx, phase_runs_from_steps,
+    total_completed_runtime_ms, ws_thread_state_snapshot_from_core,
 };
 use super::util::{env_bool, now_iso, truncate_str, ws_log_out, DEFAULT_INITIAL_PHASE};
 use crate::models as m;
@@ -126,7 +126,7 @@ async fn run_agent_with_processing_suite(
     {
         let store = state.thread_store();
         if let Ok(Some((step_idx, ts))) =
-            ensure_preflight_phase_step(&store, thread_id, agent, Some(suite_id)).await
+            store.ensure_preflight_phase_step(thread_id, agent, Some(suite_id), DEFAULT_INITIAL_PHASE).await
         {
             let runs = vec![api::PhaseRun::new(ts.clone())];
             let mut ev = api::PhaseResponse::new(
@@ -186,6 +186,7 @@ async fn run_agent_with_processing_suite(
     let mut plan_tick = tokio::time::interval(std::time::Duration::from_millis(800));
     plan_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_plan_fp_by_kind: HashMap<String, String> = HashMap::new();
+    let mut last_plans: Vec<api::PlanSnapshot> = Vec::new();
 
     let mut last_emitted_step_idx: usize = match state.thread_store().get(thread_id).await {
         Ok(log) => log.steps.len(),
@@ -203,7 +204,6 @@ async fn run_agent_with_processing_suite(
     loop {
         tokio::select! {
             _ = plan_tick.tick() => {
-                let store = state.thread_store();
                 let plans =
                     load_latest_plans(state.reg.as_ref(), suite_id, &state.suite_ctx, thread_id)
                         .await;
@@ -344,7 +344,7 @@ async fn run_agent_with_processing_suite(
                         emit_ws(state, write, api::ServerMessage::Plans(pr)).await;
                     }
                 }
-                upsert_thread_state_from_plans(&store, thread_id, &plans).await;
+                last_plans = plans;
             }
             _ = tool_tick.tick() => {
                 let store = state.thread_store();
@@ -419,7 +419,7 @@ async fn run_agent_with_processing_suite(
                             emit_ws(state, write, api::ServerMessage::Phase(ev)).await;
                             if let Ok(st) = store.get_thread_state(thread_id).await {
                                 let timeline_events = load_timeline_events(&store, thread_id).await;
-                                let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+                                let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                 if let Some(t) = state.term() {
                                     t.emit(TerminalEvent::ThreadState(snap.clone()));
                                 }
@@ -565,7 +565,7 @@ async fn run_agent_with_processing_suite(
                     Err(_) => continue,
                 };
                 let timeline_events = load_timeline_events(&store, thread_id).await;
-                let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+                let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                 let phase_changed = snap.current_phase.as_ref() != last_sent_phase.as_ref();
                 let step_count_changed = Some(snap.last_materialized_step_count) != last_sent_step_count;
                 let snapshot_changed = last_state_sent.as_ref() != Some(&snap);
@@ -639,7 +639,7 @@ async fn run_agent_with_processing_suite(
                                 let store = state.thread_store();
                                 if let Ok(st) = store.get_thread_state(thread_id).await {
                                     let timeline_events = load_timeline_events(&store, thread_id).await;
-                                    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+                                    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {
                                         t.emit(TerminalEvent::ThreadState(snap.clone()));
                                     }
@@ -676,8 +676,7 @@ async fn run_agent_with_processing_suite(
                         AgentFrame::Final { kind, payload, display } => {
                             {
                                 let store = state.thread_store();
-                                append_step_if_new(
-                                    &store,
+                                store.append_step_if_new(
                                     thread_id,
                                     ThreadStep::Complete {
                                         kind: kind.clone(),
@@ -695,7 +694,7 @@ async fn run_agent_with_processing_suite(
                                 let store = state.thread_store();
                                 if let Ok(st) = store.get_thread_state(thread_id).await {
                                     let timeline_events = load_timeline_events(&store, thread_id).await;
-                                    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref());
+                                    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {
                                         t.emit(TerminalEvent::ThreadState(snap.clone()));
                                     }
@@ -734,8 +733,7 @@ async fn run_agent_with_processing_suite(
                         AgentFrame::AwaitUser { prompt } => {
                             {
                                 let store = state.thread_store();
-                                append_step_if_new(
-                                    &store,
+                                store.append_step_if_new(
                                     thread_id,
                                     ThreadStep::Interrupt {
                                         kind: "await_user".to_string(),
@@ -783,8 +781,7 @@ async fn run_agent_with_processing_suite(
                         AgentFrame::AwaitApproval { prompt } => {
                             {
                                 let store = state.thread_store();
-                                append_step_if_new(
-                                    &store,
+                                store.append_step_if_new(
                                     thread_id,
                                     ThreadStep::Interrupt {
                                         kind: "await_approval".to_string(),
