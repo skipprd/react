@@ -1,4 +1,5 @@
 use react_core::session::ControlStateStore;
+use react_core::CoreError;
 use tracing::warn;
 
 use crate::progress_controller::{
@@ -19,34 +20,32 @@ fn validate_loaded_state(parsed: &ExecutionState) -> Result<(), String> {
         .map_err(|e| format!("execution_state invariant check failed on load: {e}"))
 }
 
-pub async fn load_execution_state(control: &ControlStateStore, thread_id: &str) -> Option<ExecutionState> {
-    let parsed: ExecutionState = control
+pub async fn load_execution_state(
+    control: &ControlStateStore,
+    thread_id: &str,
+) -> Result<Option<ExecutionState>, String> {
+    let Some(parsed) = control
         .load::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID)
         .await
-        .ok()??;
+        .map_err(|e| format!("failed to load control state for execution_state: {e}"))?
+    else {
+        return Ok(None);
+    };
     if let Err(e) = validate_loaded_state(&parsed) {
         warn!(thread_id, error = %e, "dropping execution_state due to schema mismatch or corruption");
-        return None;
+        return Ok(None);
     }
-    Some(parsed)
+    Ok(Some(parsed))
 }
 
 pub async fn load_execution_state_strict(
     control: &ControlStateStore,
     thread_id: &str,
 ) -> Result<Option<ExecutionState>, String> {
-    let loaded = match control
+    let loaded = control
         .load::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID)
         .await
-    {
-        Ok(loaded) => loaded,
-        Err(e) if e.to_string().to_ascii_lowercase().contains("not found") => return Ok(None),
-        Err(e) => {
-            return Err(format!(
-                "failed to load control state for execution_state: {e}"
-            ))
-        }
-    };
+        .map_err(|e| format!("failed to load control state for execution_state: {e}"))?;
     let Some(parsed) = loaded else {
         return Ok(None);
     };
@@ -54,39 +53,24 @@ pub async fn load_execution_state_strict(
     Ok(Some(parsed))
 }
 
-async fn persist_execution_state(
-    control: &ControlStateStore,
-    thread_id: &str,
-    state: &ExecutionState,
-) -> Result<(), String> {
-    if state.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
-        return Err(format!(
-            "execution_state schema_version mismatch: expected {}, got {}",
-            EXECUTION_STATE_SCHEMA_VERSION, state.schema_version
-        ));
-    }
-    state
-        .validate_invariants()
-        .map_err(|e| format!("execution_state invariant check failed on save: {e}"))?;
-    control
-        .save(thread_id, DATA_ENGINEER_SUITE_ID, state)
-        .await
-        .map_err(|e| e.to_string())
-}
-
 pub async fn mutate_execution_state(
     control: &ControlStateStore,
     thread_id: &str,
     mutate: impl FnOnce(&mut ExecutionState),
 ) -> Result<ExecutionState, String> {
-    let mut st = load_execution_state_strict(control, thread_id)
-        .await?
-        .unwrap_or_else(ExecutionState::new);
-    mutate(&mut st);
-    st.validate_invariants()
-        .map_err(|e| format!("execution_state invariant check failed after mutation: {e}"))?;
-    persist_execution_state(control, thread_id, &st).await?;
-    Ok(st)
+    control
+        .mutate::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID, |current| {
+            let mut st = current.unwrap_or_else(ExecutionState::new);
+            mutate(&mut st);
+            st.validate_invariants().map_err(|e| {
+                CoreError::Session(format!(
+                    "execution_state invariant check failed after mutation: {e}"
+                ))
+            })?;
+            Ok(st)
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 pub async fn replace_execution_state(

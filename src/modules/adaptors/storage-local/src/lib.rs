@@ -2,10 +2,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 use react_core::error::CoreError;
-use react_core::storage::StorageAdapter;
+use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
 
 /// Local filesystem-backed storage adapter.
 ///
@@ -77,15 +76,13 @@ impl LocalFileStorageAdapter {
         }
     }
 
-    fn etag_for_metadata(meta: &std::fs::Metadata) -> String {
-        let len = meta.len();
-        let mt = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        format!("fs-etag-{}-{}", len, mt)
+    fn etag_for_bytes(bytes: &[u8]) -> String {
+        let mut hash: u64 = 1469598103934665603;
+        for b in bytes {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(1099511628211);
+        }
+        format!("fs-etag-{:016x}-{}", hash, bytes.len())
     }
 }
 
@@ -101,6 +98,63 @@ impl StorageAdapter for LocalFileStorageAdapter {
         let bytes = serde_json::to_vec_pretty(value)
             .map_err(|e| CoreError::Storage(format!("put_json('{}'): failed to serialize JSON: {}", key, e)))?;
         self.put_bytes(key, &bytes, "application/json").await
+    }
+
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let path = self.resolve_key(key)?;
+        let bytes = serde_json::to_vec_pretty(value).map_err(|e| {
+            CoreError::Storage(format!(
+                "put_json_if_etag_matches('{}'): failed to serialize JSON: {}",
+                key, e
+            ))
+        })?;
+        let key_owned = key.to_string();
+        let expected = expected_etag.map(|s| s.to_string());
+        tokio::task::spawn_blocking(move || {
+            let current_bytes = match std::fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => {
+                    return Err(CoreError::Storage(format!(
+                        "put_json_if_etag_matches('{}'): read current: {}",
+                        key_owned, e
+                    )))
+                }
+            };
+            let current_etag = current_bytes
+                .as_ref()
+                .map(|b| Self::etag_for_bytes(b));
+            if current_etag != expected {
+                return Ok(ConditionalWriteStatus::Conflict { current_etag });
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    CoreError::Storage(format!(
+                        "put_json_if_etag_matches('{}'): mkdir: {}",
+                        key_owned, e
+                    ))
+                })?;
+            }
+            std::fs::write(&path, &bytes).map_err(|e| {
+                CoreError::Storage(format!(
+                    "put_json_if_etag_matches('{}'): write: {}",
+                    key_owned, e
+                ))
+            })?;
+            Ok(ConditionalWriteStatus::Written)
+        })
+        .await
+        .map_err(|e| {
+            CoreError::Storage(format!(
+                "put_json_if_etag_matches('{}'): join error: {}",
+                key, e
+            ))
+        })?
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
@@ -145,8 +199,8 @@ impl StorageAdapter for LocalFileStorageAdapter {
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         let path = self.resolve_key(key)?;
         let key_owned = key.to_string();
-        tokio::task::spawn_blocking(move || match std::fs::metadata(&path) {
-            Ok(meta) => Ok(Some(Self::etag_for_metadata(&meta))),
+        tokio::task::spawn_blocking(move || match std::fs::read(&path) {
+            Ok(bytes) => Ok(Some(Self::etag_for_bytes(&bytes))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(CoreError::Storage(format!("head_etag('{}'): {}", key_owned, e))),
         })
@@ -230,6 +284,36 @@ mod tests {
         let st = LocalFileStorageAdapter::new(root.clone()).expect("new");
         assert!(st.put_bytes("../x", b"nope", "text/plain").await.is_err());
         assert!(st.get_bytes("../x").await.is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn conditional_write_respects_expected_etag() {
+        let root = temp_root();
+        let st = LocalFileStorageAdapter::new(root.clone()).expect("new");
+        let first = serde_json::json!({"v": 1});
+        let second = serde_json::json!({"v": 2});
+
+        let created = st
+            .put_json_if_etag_matches("a/state.json", &first, None)
+            .await
+            .expect("create");
+        assert_eq!(created, ConditionalWriteStatus::Written);
+
+        let etag = st.head_etag("a/state.json").await.expect("head");
+        let conflict = st
+            .put_json_if_etag_matches("a/state.json", &second, None)
+            .await
+            .expect("conflict");
+        assert_eq!(conflict, ConditionalWriteStatus::Conflict { current_etag: etag.clone() });
+
+        let updated = st
+            .put_json_if_etag_matches("a/state.json", &second, etag.as_deref())
+            .await
+            .expect("update");
+        assert_eq!(updated, ConditionalWriteStatus::Written);
+        assert_eq!(st.get_json("a/state.json").await.expect("get"), second);
+
         let _ = std::fs::remove_dir_all(root);
     }
 }

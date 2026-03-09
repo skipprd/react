@@ -237,6 +237,7 @@ let actx = Self::agent_tool_ctx(thread_id, sctx);
             thread_id,
         )
         .await
+        .map_err(|e| format!("failed to load execution state before validate: {e}"))?
         .unwrap_or_else(
             crate::progress_controller::ExecutionState::new,
         );

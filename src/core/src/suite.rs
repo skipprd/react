@@ -10,7 +10,7 @@ use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
 use crate::session::{ControlStateStore, Observation, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore};
 use crate::error::CoreError;
-use crate::storage::StorageAdapter;
+use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -284,6 +284,17 @@ impl StorageAdapter for NullStorageAdapter {
     }
     async fn put_json(&self, key: &str, _value: &Value) -> Result<(), CoreError> {
         Err(CoreError::Storage(format!("NullStorageAdapter: put_json('{}')", key)))
+    }
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        _value: &Value,
+        _expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: put_json_if_etag_matches('{}')",
+            key
+        )))
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         Err(CoreError::Storage(format!("NullStorageAdapter: get_bytes('{}')", key)))

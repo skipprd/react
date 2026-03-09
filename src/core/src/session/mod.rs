@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use crate::keyspace::Keyspace;
@@ -47,6 +47,15 @@ pub struct ThreadStore {
     keyspace: Arc<dyn Keyspace>,
     cache: Arc<DashMap<String, CacheEntry>>,
     config: ThreadStoreConfig,
+}
+
+pub(crate) fn session_write_lock(key: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: OnceLock<DashMap<String, Arc<tokio::sync::Mutex<()>>>> = OnceLock::new();
+    LOCKS
+        .get_or_init(DashMap::new)
+        .entry(key.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
 }
 
 #[derive(Clone)]

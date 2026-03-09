@@ -1,6 +1,194 @@
-# Remaining Issues — Plan Pipeline Audit
+# Remaining Issues
 
-Thread evidence: `3ac65b27`, `3a383d24` (both built SILVER successfully, both died in `model_plan` grounding).
+Only open items are listed here. The earlier cleanse/model plan-pipeline issues have been fixed and are intentionally omitted.
+
+The remaining work is grouped by priority and ordered to favor the simplest design simplifications first.
+
+---
+
+## P0 Critical
+
+### 1. Storage reads still collapse failure into absence
+
+**Files**: `src/core/src/session/store_io.rs`, `src/core/src/session/control_state.rs`
+
+This is the most dangerous remaining issue. Some read paths still blur these two cases:
+
+- the value is genuinely missing
+- storage failed to return the value
+
+That allows transient storage failure to be treated as `empty thread` or `no control state`, which can silently destroy continuity and cause the system to continue from bad premises.
+
+**Why this matters**
+- Breaks the design goal that failures must be observable, not reinterpreted as normal absence.
+- Makes data loss representable.
+- Undermines every higher-level retry/guard mechanism because the underlying state may already be wrong.
+
+**Best simplification**
+- Split `missing` from `read failed` in the API.
+- Keep transport/storage failure in `Result`.
+- Represent presence with a small enum.
+
+```rust
+enum LoadState<T> {
+    Missing,
+    Loaded(T),
+}
+
+fn load_thread_log(...) -> Result<LoadState<ThreadLog>, CoreError>;
+fn load_control_state(...) -> Result<LoadState<ExecutionState>, CoreError>;
+```
+
+**Compiler benefit**
+- Callers can no longer accidentally treat read failure as empty/default state.
+- Mutation helpers can require `Loaded(T)` and make `continue anyway` impossible.
+
+### 2. Read-modify-write races can still silently lose updates
+
+**Files**: `src/core/src/session/store_io.rs`, `src/core/src/session/control_state.rs`
+
+Even when reads succeed, the current mutation flow still permits lost updates via read-modify-write races.
+
+**Why this matters**
+- Thread steps or control-state transitions can be overwritten without an explicit error.
+- Violates the assumption that state transitions are durable and monotonic.
+
+**Best simplification**
+- Add versioned reads and conditional writes.
+- Make conflicts explicit instead of silent.
+
+```rust
+load(version) -> mutate -> save_if_version_matches(version)
+```
+
+**Compiler benefit**
+- Callers must handle `Conflict` explicitly instead of silently clobbering newer state.
+
+---
+
+## P1 High
+
+### 3. `StayInPhase` is still too weak and allows no-op loops
+
+**File**: `src/suites/data_engineer/src/phase_author.rs`
+
+There is still a path where authoring can return without tool calls or a committed transition and the controller loops back into the same phase. That is no longer a silent exception, but it is still a silent no-progress loop.
+
+**Why this matters**
+- Burns budget with no observable forward movement.
+- Makes `no progress` representable as ordinary control flow.
+
+**Best simplification**
+- Strengthen the phase outcome contract so `stay` must say why.
+
+```rust
+enum PhaseExecutorOutcome {
+    TransitionCommitted,
+    Return(Vec<FlowFrame>),
+    StayedWithProgress { detail: String },
+    StayedWaiting { reason: String },
+    Failed { reason: String },
+}
+```
+
+**Compiler benefit**
+- A phase can no longer return a vague `StayInPhase`.
+- Callers must handle `progress`, `waiting`, and `failed` separately.
+
+### 4. Run-loop stop reasons are not fully centralized or recorded
+
+**File**: `src/core/src/agent/run_loop.rs`
+
+The audit identified two remaining gaps:
+
+- rejected `Complete` actions can burn budget without a first-class stop record
+- step-limit exhaustion can exit without a clear terminal thread event
+
+**Why this matters**
+- Threads can end or stall without a complete causal record.
+- Observability remains partial at the most important control seam.
+
+**Best simplification**
+- Centralize all run-loop exits through one recorder.
+- Model stop reasons as a typed enum.
+
+```rust
+enum RunLoopStop {
+    RejectedComplete { reason: String },
+    StepLimitExceeded,
+    PolicyBlocked { reason: String },
+}
+```
+
+**Compiler benefit**
+- Every exit path must choose an explicit stop reason.
+- No more bare returns that bypass recording.
+
+### 5. Panic paths can still orphan tool observability
+
+**File**: `src/core/src/session/observed.rs`
+
+`run_observed` fixed the normal unmatched `ToolStart` problem, but panic/unwind paths can still leave partially written tool observability.
+
+**Why this matters**
+- The contract is still not total.
+- Tool activity can look incomplete in exactly the cases where the trace matters most.
+
+**Best simplification**
+- Either make observed execution unwind-safe with a guard/finalizer, or
+- explicitly record outer-boundary abort/failure as the canonical fallback.
+
+**Compiler benefit**
+- Less about the type system here, more about enforcing a single construction path where partial tool traces are impossible in normal control flow.
+
+---
+
+## P2 Medium
+
+### 6. Enrichment flow is still duplicated and can drift again
+
+**File**: `src/suites/data_engineer/src/enrichment.rs`
+
+The main remaining suite-level design smell is duplicated enrichment orchestration. The earlier ordering/grounding issues are fixed, but the two enrichment flows are still structurally near-identical.
+
+**Why this matters**
+- Future fixes can drift again.
+- Complexity remains higher than necessary.
+
+**Best simplification**
+- Extract a generic `enrich_tasks<T: EnrichablePlan>()`.
+- Keep only track-specific schema/spec application details in trait methods.
+
+```rust
+trait EnrichablePlan: PlanTask {
+    type Spec;
+    type EnrichmentItem;
+    fn apply_spec(task: &mut Self, spec: Self::Spec);
+    fn is_placeholder(task: &Self) -> bool;
+}
+```
+
+**Compiler benefit**
+- Shared control flow becomes single-source.
+- Divergence requires an explicit type-level choice instead of copy/paste drift.
+
+---
+
+## Priority Summary
+
+| Priority | Item | Simplest design move |
+|----------|------|----------------------|
+| **P0** | Storage reads collapse failure into absence | Typed load API: `Result<LoadState<T>, CoreError>` |
+| **P0** | Read-modify-write races lose updates | Versioned/CAS writes with explicit conflict handling |
+| **P1** | No-op phase stays are representable | Replace `StayInPhase` with typed stay outcomes |
+| **P1** | Run-loop exits are not centrally recorded | Single typed stop-reason recorder |
+| **P1** | Panic paths can orphan tool traces | Guard/finalizer or explicit outer abort record |
+| **P2** | Enrichment flow duplication | Generic `EnrichablePlan`-based orchestration |
+# Remaining Issues — Audit Follow-Up
+
+Primary thread evidence: `3ac65b27`, `3a383d24` (both built SILVER successfully, both died in `model_plan` grounding).
+
+Additional evidence comes from the broader core + data_engineer audit performed after the phase-execution fixes. That audit identified a separate class of remaining issues: storage read paths that silently degrade to "empty/not found", agent/run-loop budget burn with no terminal record, and panic/race paths that still violate the "make dead ends unrepresentable" goal.
 
 ---
 
@@ -104,19 +292,106 @@ Both `strict_model_grounding_errors` and `validate_model_plan_semantics` receive
 
 `enrich_cleanse_tasks` and `enrich_model_tasks` are ~165 lines each with near-identical structure (chunk → reason LLM → compile LLM → apply → retry → unresolved check). The TODO acknowledges this but the duplication persists. Any fix to one path (e.g. ordering, error handling, retry logic) must be manually replicated in the other.
 
-### I7: Prior audit items (from previous conversation)
+### I7: Storage read errors still collapse to "empty/not found" (CRITICAL)
 
-These were identified in the codebase-wide audit and remain open:
+These are the most dangerous non-plan issues from the broader audit because they destroy state while looking like ordinary absence.
 
-| ID | Severity | Issue | File |
-|----|----------|-------|------|
-| C1 | CRITICAL | Storage read error treated as "empty thread" — silent data destruction | `store_io.rs:66-71` |
-| C2 | CRITICAL | Storage read error treated as "no control state" — silent state loss | `control_state.rs:88` |
-| H1 | HIGH | `phase_author.rs:906` tight no-op loop when author agent returns with no tool calls | `phase_author.rs` |
-| H2 | HIGH | Rejected `Complete` action burns step budget silently | `run_loop.rs:154-163` |
-| H3 | HIGH | Step-limit exhaustion leaves no thread log record | `run_loop.rs:188-194` |
-| H4 | HIGH | Read-modify-write race in `store_io.rs` and `control_state.rs` | `store_io.rs`, `control_state.rs` |
-| H5 | HIGH | Panic in `observed.rs` leaves orphaned ToolStart | `observed.rs` |
+#### I7.1: Thread log load treats read failure as empty thread
+
+**File**: `src/core/src/session/store_io.rs`
+
+The audited code path in `load_thread_log_for_write` treats a storage read failure as if the thread log simply does not exist yet. That means a transient storage error can lead to the next write reconstructing the thread from an empty log, effectively discarding prior history.
+
+This is a direct violation of the design goal: failure should be observable and represented, not silently converted into "start over".
+
+**Construction fix**:
+- Split "missing key" from "storage read failed" in the type system.
+- Return a typed result like `enum LoadThreadResult { Missing, Loaded(ThreadLog) }` and keep transport/storage failures in `Result`.
+- Make thread mutation APIs require a successfully loaded log, so the compiler prevents "read failed, continue anyway".
+
+#### I7.2: Control-state load treats read failure as missing state
+
+**File**: `src/core/src/session/control_state.rs`
+
+The analogous control-state load path collapses storage failure into "no state present". A transient read error can therefore wipe execution-state continuity and drive incorrect retries, missing loop counters, or lost terminal status.
+
+**Construction fix**:
+- Same pattern as thread log loading: `Result<LoadControlState, CoreError>` where `LoadControlState` distinguishes `Missing` from `Loaded`.
+- Prohibit mutation/save helpers from accepting an implicit "default state" after a read failure.
+
+### I8: Author phase can stay in phase with no progress mechanism (HIGH)
+
+**File**: `src/suites/data_engineer/src/phase_author.rs`
+
+The audit found a path where authoring can return without tool calls or a committed transition, and the controller simply loops back into the same phase. This is not a silent exception anymore, but it is still a silent no-op loop: step budget burns while the system makes no observable progress.
+
+This is the same class of bug as the earlier validate/author runaway loops, but at a different seam.
+
+**Construction fix**:
+- Replace ambiguous `StayInPhase` returns with a typed outcome that distinguishes:
+  - `StayedWithProgress`
+  - `StayedAwaitingExternalCondition`
+  - `FailedNoProgress`
+- Require phase handlers to explicitly prove progress when returning a "stay" variant.
+- Add a no-progress counter at the phase seam so repeated no-op stays are impossible to ignore.
+
+### I9: Core run loop still burns budget on rejected `Complete` and step-limit exits (HIGH)
+
+**File**: `src/core/src/agent/run_loop.rs`
+
+The audit found two related issues:
+
+#### I9.1: Rejected `Complete` actions consume step budget without a terminal thread event
+
+When the agent emits `Complete` and policy rejects it, the run loop burns step budget and continues. The rejection is not represented as a first-class terminal or failure event in the thread log, so the thread appears to keep working while actually bouncing off policy.
+
+#### I9.2: Step-limit exhaustion stops execution without a terminal thread event
+
+When max-step budget is exhausted, the loop exits but there is no explicit terminal thread step recording "step_limit_exhausted". This leaves users and downstream logic with an incomplete causal record.
+
+**Construction fix**:
+- Introduce explicit terminal/nonterminal run-loop outcomes such as:
+  - `RunLoopStop::RejectedComplete { reason }`
+  - `RunLoopStop::StepLimitExceeded`
+  - `RunLoopStop::PolicyBlocked { reason }`
+- Require all loop exits to pass through one recorder that appends the terminal/nonterminal stop event before returning.
+- Remove any direct bare return from the loop body that bypasses this recorder.
+
+### I10: Read-modify-write races still allow lost updates (HIGH)
+
+**Files**: `src/core/src/session/store_io.rs`, `src/core/src/session/control_state.rs`
+
+The storage/control-state mutation flows still have read-modify-write windows where concurrent writers can overwrite each other's changes. Even when no exception occurs, the contract can silently lose thread steps or state transitions.
+
+This is not just a performance issue; it breaks the "every state transition is durable and observable" assumption.
+
+**Construction fix**:
+- Introduce compare-and-swap / etag-based writes or append-only event semantics.
+- Represent writes as `load(version) -> mutate -> save_if_version_matches(version)`.
+- Make mutation helpers return a conflict outcome that callers must handle explicitly.
+
+### I11: Panic paths can still leave observability half-written (HIGH)
+
+**File**: `src/core/src/session/observed.rs`
+
+`run_observed` centralized tool-call observability and fixed the normal unmatched `ToolStart` problem, but panic paths can still leave a `ToolStart` written without a corresponding `ToolEnd`.
+
+That means the happy-path contract is improved, but not yet total.
+
+**Construction fix**:
+- Make observed execution use a guard/finalizer pattern that writes an abnormal `ToolEnd` on unwind.
+- If unwind safety is intentionally unsupported, record that via explicit abort handling at the outer boundary so the thread still gains a terminal failure marker.
+
+### I12: Enrichment duplication remains an active drift risk (MEDIUM)
+
+**File**: `src/suites/data_engineer/src/enrichment.rs`
+
+This is now the main remaining cleanse/model drift point inside the plan pipeline. The order-of-operations bug was fixed in `phase_plan.rs`, but the near-identical `enrich_cleanse_tasks` / `enrich_model_tasks` functions still mean future fixes can diverge again.
+
+**Construction fix**:
+- Implement the already-documented `EnrichablePlan` trait extraction.
+- Make chunking, reason/compile/retry flow, unresolved detection, and snapshot event wiring generic.
+- Keep only the genuinely track-specific logic in small trait methods.
 
 ---
 
@@ -254,6 +529,67 @@ trait EnrichablePlan: PlanTask {
 
 Single generic `enrich_tasks<T: EnrichablePlan>()` function handles the chunk→reason→compile→apply→retry→unresolved loop for both plan types.
 
+### S6: Split "missing" from "read failed" in storage/control-state APIs
+
+**Problem**: The current read APIs permit callers to treat storage failure as absence, which makes silent state destruction representable.
+
+**Solution**:
+
+```rust
+enum LoadState<T> {
+    Missing,
+    Loaded(T),
+}
+
+fn load_control_state(...) -> Result<LoadState<ExecutionState>, CoreError>;
+fn load_thread_log(...) -> Result<LoadState<ThreadLog>, CoreError>;
+```
+
+Mutation helpers should only accept `Loaded(T)` and must explicitly branch on `Missing`. A transport/storage failure remains an `Err` and cannot be silently converted into an empty/default value.
+
+### S7: Make "stay in phase" require proof of progress
+
+**Problem**: `StayInPhase` is too weak; it allows no-op loops.
+
+**Solution**:
+
+```rust
+enum PhaseExecutorOutcome {
+    TransitionCommitted,
+    Return(Vec<FlowFrame>),
+    StayedWithProgress { detail: String },
+    StayedWaiting { reason: String },
+    Failed { reason: String },
+}
+```
+
+This forces every non-transition loopback to declare whether it made progress or is intentionally waiting. Repeated `StayedWaiting` without external change can then be guarded centrally.
+
+### S8: Centralize all run-loop stops through a recorded stop reason
+
+**Problem**: Rejected complete actions and step-limit exits still bypass a single explicit stop-event seam.
+
+**Solution**:
+- Introduce a single `record_run_loop_stop(...)` function in core.
+- Route all exits from `run_loop.rs` through it.
+- Model stop reasons as a typed enum so the compiler forces exhaustive handling.
+
+### S9: Add optimistic concurrency / CAS to thread and control-state writes
+
+**Problem**: Read-modify-write races are still representable.
+
+**Solution**:
+- Introduce versioned reads and conditional writes at the storage abstraction.
+- Surface write conflicts explicitly so callers must retry/reload rather than silently clobbering.
+
+### S10: Make observed tool execution unwind-safe or explicitly abort-recorded
+
+**Problem**: Panic/unwind paths still permit unmatched tool observability.
+
+**Solution**:
+- Either guarantee `ToolEnd` emission via a drop guard/finalizer, or
+- make unwind/abort produce a terminal failure marker at the outer boundary before the thread is abandoned.
+
 ---
 
 ## Priority Order
@@ -264,6 +600,10 @@ Single generic `enrich_tasks<T: EnrichablePlan>()` function handles the chunk→
 | **P0** | I4: `GroundedPlan::try_from` skips checks | S2: Require grounding context | **DONE** |
 | **P1** | I2: Model enriches before pruning | S3: Reorder pipeline (prune-then-enrich) | **DONE** |
 | **P1** | I3: `save_*_grounded` re-prunes | S4: Remove internal re-pruning | **DONE** |
-| **P2** | I6: Enrichment duplication | S5: `EnrichablePlan` trait | Open (TODO item-86) |
+| **P2** | I12: Enrichment duplication | S5: `EnrichablePlan` trait | Open (TODO item-86) |
 | **P2** | I5: No work_group reconciliation | Solved by S1 | **DONE** |
-| **P3** | I7: Prior audit items (C1, C2, H1-H5) | See previous audit | Open |
+| **P0** | I7: Storage reads collapse failure into absence | S6: typed load APIs | Open |
+| **P1** | I8: Author phase no-op stay loops | S7: typed stay-with-progress outcomes | Open |
+| **P1** | I9: Run-loop stop reasons not fully recorded | S8: central stop recorder | Open |
+| **P1** | I10: Read-modify-write races | S9: CAS/versioned writes | Open |
+| **P1** | I11: Panic paths can orphan tool observability | S10: unwind-safe observed execution | Open |

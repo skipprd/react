@@ -81,6 +81,7 @@ pub(crate) async fn check_subjective_retry_budget(
         thread_id,
     )
     .await
+    .map_err(|e| format!("failed to load execution state for subjective retry: {e}"))?
     .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     let retries = st.bump_subjective_retry(kind, cap);
     st.save(&thread_store.control_store(), thread_id)
@@ -104,6 +105,7 @@ pub(crate) async fn clear_subjective_retries_matching(
         thread_id,
     )
     .await
+    .map_err(|e| format!("failed to load execution state for retry reset: {e}"))?
     .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     st.clear_subjective_retries_matching(f);
     st.save(&thread_store.control_store(), thread_id)

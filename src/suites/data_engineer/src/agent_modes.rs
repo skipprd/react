@@ -472,6 +472,10 @@ impl DataEngineerSuite {
         if let Some(mut es) =
             crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
                 .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("failed to load execution state at budget exhaustion: {e}");
+                    None
+                })
         {
             budget_msg.push_str(&format!(
                 "\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
@@ -529,12 +533,18 @@ impl DataEngineerSuite {
                     GuardBlockKind::PhaseExecutionError,
                     &reason,
                 ).await;
-                if let Some(mut es) = crate::progress_controller::ExecutionState::load(
+                match crate::progress_controller::ExecutionState::load(
                     &thread_store.control_store(), thread_id,
                 ).await {
-                    es.mark_failed(&reason);
-                    if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
-                        tracing::error!("failed to persist mark_failed after phase error: {e}");
+                    Ok(Some(mut es)) => {
+                        es.mark_failed(&reason);
+                        if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
+                            tracing::error!("failed to persist mark_failed after phase error: {e}");
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::error!("failed to load execution state after phase error: {e}");
                     }
                 }
                 PhaseExecutorOutcome::Failed { reason }

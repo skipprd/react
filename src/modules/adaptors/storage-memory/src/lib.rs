@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::error::CoreError;
-use react_core::storage::StorageAdapter;
+use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
 
 #[derive(Clone, Default)]
 pub struct InMemoryStorageAdapter {
@@ -20,7 +20,12 @@ struct StoredObject {
 
 impl InMemoryStorageAdapter {
     fn next_etag(bytes: &[u8]) -> String {
-        format!("mem-etag-{}", bytes.len())
+        let mut hash: u64 = 1469598103934665603;
+        for b in bytes {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(1099511628211);
+        }
+        format!("mem-etag-{:016x}-{}", hash, bytes.len())
     }
 }
 
@@ -44,6 +49,39 @@ impl StorageAdapter for InMemoryStorageAdapter {
             ))
         })?;
         self.put_bytes(key, &bytes, "application/json").await
+    }
+
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let bytes = serde_json::to_vec(value).map_err(|e| {
+            CoreError::Storage(format!(
+                "put_json_if_etag_matches('{}'): failed to serialize JSON: {}",
+                key, e
+            ))
+        })?;
+        let mut g = self.inner.write().map_err(|_| {
+            CoreError::Storage(format!(
+                "put_json_if_etag_matches('{}'): storage lock poisoned",
+                key
+            ))
+        })?;
+        let current_etag = g.get(key).map(|o| o.etag.clone());
+        let expected = expected_etag.map(|s| s.to_string());
+        if current_etag != expected {
+            return Ok(ConditionalWriteStatus::Conflict { current_etag });
+        }
+        g.insert(
+            key.to_string(),
+            StoredObject {
+                bytes: bytes.clone(),
+                etag: Self::next_etag(&bytes),
+            },
+        );
+        Ok(ConditionalWriteStatus::Written)
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
@@ -137,5 +175,32 @@ mod tests {
         assert!(store.head_etag("x").await.unwrap().is_some());
         store.delete_object("x").await.unwrap();
         assert!(store.head_etag("x").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn conditional_write_respects_expected_etag() {
+        let store = InMemoryStorageAdapter::default();
+        let first = serde_json::json!({"v": 1});
+        let second = serde_json::json!({"v": 2});
+
+        let created = store
+            .put_json_if_etag_matches("k", &first, None)
+            .await
+            .unwrap();
+        assert_eq!(created, ConditionalWriteStatus::Written);
+
+        let etag = store.head_etag("k").await.unwrap();
+        let conflict = store
+            .put_json_if_etag_matches("k", &second, None)
+            .await
+            .unwrap();
+        assert_eq!(conflict, ConditionalWriteStatus::Conflict { current_etag: etag.clone() });
+
+        let updated = store
+            .put_json_if_etag_matches("k", &second, etag.as_deref())
+            .await
+            .unwrap();
+        assert_eq!(updated, ConditionalWriteStatus::Written);
+        assert_eq!(store.get_json("k").await.unwrap(), second);
     }
 }

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 pub use react_core::storage::StorageAdapter;
+use react_core::storage::ConditionalWriteStatus;
 use react_core::CoreError;
 
 #[derive(Clone)]
@@ -32,6 +33,38 @@ impl StorageAdapter for S3StorageAdapter {
         let bytes = serde_json::to_vec(value)
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         self.put_bytes(key, &bytes, "application/json").await
+    }
+
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let mut req = self
+            .client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .content_type("application/json")
+            .body(aws_sdk_s3::primitives::ByteStream::from(bytes));
+        req = match expected_etag {
+            Some(etag) => req.if_match(etag),
+            None => req.if_none_match("*"),
+        };
+        match req.send().await {
+            Ok(_) => Ok(ConditionalWriteStatus::Written),
+            Err(e) => {
+                let s = format!("{:?}", e);
+                if s.contains("PreconditionFailed") || s.contains("ConditionalRequestConflict") {
+                    let current_etag = self.head_etag(key).await?;
+                    return Ok(ConditionalWriteStatus::Conflict { current_etag });
+                }
+                Err(CoreError::Storage(s))
+            }
+        }
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {

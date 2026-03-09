@@ -97,6 +97,7 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
                 &store.control_store(), tid,
             )
             .await
+            .map_err(|e| format!("failed to load execution state for tool policy guard: {e}"))?
             .map(|st| {
                 crate::control_flow::derive_guard_state_from_execution_state(
                     &st,
@@ -188,6 +189,7 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                     &store.control_store(), thread_id,
                 )
                 .await
+                .map_err(|e| format!("failed to load execution state for deterministic repair ladder: {e}"))?
                 .unwrap_or_else(
                     crate::progress_controller::ExecutionState::new,
                 );
@@ -266,6 +268,7 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                         &store.control_store(), thread_id,
                     )
                     .await
+                    .map_err(|e| format!("failed to load execution state for repair persistence: {e}"))?
                     .unwrap_or_else(
                         crate::progress_controller::ExecutionState::new,
                     );
@@ -323,6 +326,7 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
                 &store.control_store(), thread_id,
             )
             .await
+            .map_err(|e| format!("failed to load execution state for probe-aware run_sql: {e}"))?
             .unwrap_or_else(
                 crate::progress_controller::ExecutionState::new,
             );

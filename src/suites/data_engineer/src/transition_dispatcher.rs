@@ -184,7 +184,10 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
+            .await
+            .expect("state should load")
+            .expect("state should exist");
         assert_eq!(
             got.phase.replan_backtracks, 0,
             "forward transitions must reset loopback counter"
@@ -218,7 +221,10 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
+            .await
+            .expect("state should load")
+            .expect("state should exist");
         assert_eq!(got.phase.replan_backtracks, 1);
     }
 
@@ -252,7 +258,10 @@ mod tests {
         .await
         .expect("transition should succeed");
 
-        let got = state_manager::load_execution_state(&store.control_store(), tid).await.expect("state should load");
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
+            .await
+            .expect("state should load")
+            .expect("state should exist");
         assert!(
             !got.manifest.plan_bootstrap.model_done,
             "model-plan bootstrap should reset on fresh model_plan entry"
@@ -325,7 +334,8 @@ mod tests {
 
         let got = state_manager::load_execution_state(&store.control_store(), tid)
             .await
-            .expect("state");
+            .expect("state")
+            .expect("state should exist");
         assert_eq!(got.phase.replan_backtracks, 2);
     }
 
@@ -358,7 +368,8 @@ mod tests {
 
         let got = state_manager::load_execution_state(&store.control_store(), tid)
             .await
-            .expect("state");
+            .expect("state")
+            .expect("state should exist");
         assert_eq!(got.phase.replan_backtracks, replan_backtrack_counter_cap());
     }
 

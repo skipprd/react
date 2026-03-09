@@ -156,12 +156,23 @@ impl DataEngineerSuite {
         has_proj: bool,
         has_models: bool,
     ) -> serde_json::Value {
-        let execution_state = crate::progress_controller::ExecutionState::load(
+        let execution_state = match crate::progress_controller::ExecutionState::load(
             &thread_store.control_store(),
             thread_id,
         )
         .await
-        .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+        {
+            Ok(Some(state)) => state,
+            Ok(None) => crate::progress_controller::ExecutionState::new(),
+            Err(e) => {
+                tracing::error!(
+                    thread_id = %thread_id,
+                    error = %e,
+                    "failed to load execution state for authoring completion detail"
+                );
+                crate::progress_controller::ExecutionState::new()
+            }
+        };
         let guard = control_flow::derive_guard_state_from_execution_state(&execution_state);
         crate::phase_reason_detail::to_value(
             &crate::phase_reason_detail::AuthoringCompleteReasonDetail {

@@ -377,7 +377,8 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
 
     let updated = crate::progress_controller::ExecutionState::load(&store.control_store(), "probe-thread")
         .await
-        .expect("state should load");
+        .expect("state should load")
+        .expect("state should exist");
     assert_eq!(updated.telemetry.probe.attempts_total, 0);
     assert_eq!(updated.telemetry.probe.meaningful_attempts, 0);
 }

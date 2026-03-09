@@ -5,6 +5,18 @@ use std::collections::BTreeMap;
 pub const THREAD_SCHEMA_VERSION: u32 = 4;
 pub const CONTROL_STATE_ENVELOPE_SCHEMA_VERSION: u32 = 1;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionedValue<T> {
+    pub etag: Option<String>,
+    pub value: T,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LoadState<T> {
+    Missing,
+    Loaded(VersionedValue<T>),
+}
+
 /// Generic thread-level control state envelope.
 ///
 /// Core owns this wrapper to provide a stable mutation contract while keeping

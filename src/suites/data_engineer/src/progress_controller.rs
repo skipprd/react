@@ -1518,7 +1518,7 @@ impl ExecutionState {
         });
     }
 
-    pub async fn load(control: &ControlStateStore, thread_id: &str) -> Option<Self> {
+    pub async fn load(control: &ControlStateStore, thread_id: &str) -> Result<Option<Self>, String> {
         crate::state_manager::load_execution_state(control, thread_id).await
     }
 

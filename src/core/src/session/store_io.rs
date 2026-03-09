@@ -2,8 +2,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
+use crate::storage::ConditionalWriteStatus;
 
-use super::{CacheEntry, Observation, ThreadLog, ThreadStep, ThreadStore, ThreadStoreConfig, THREAD_SCHEMA_VERSION};
+use super::{
+    session_write_lock, CacheEntry, LoadState, Observation, ThreadLog, ThreadStep, ThreadStore,
+    ThreadStoreConfig, VersionedValue, THREAD_SCHEMA_VERSION,
+};
 
 impl ThreadStore {
     pub fn new(
@@ -57,40 +61,75 @@ impl ThreadStore {
         Ok(())
     }
 
-    async fn load_thread_log_for_write(&self, key: &str) -> CoreResult<ThreadLog> {
+    async fn load_thread_log_for_write(&self, key: &str) -> CoreResult<LoadState<ThreadLog>> {
+        let current_etag = self.storage.head_etag(key).await?;
+        let Some(etag) = current_etag else {
+            return Ok(LoadState::Missing);
+        };
         let log = if let Some(entry) = self.cache.get(key) {
             if entry.ts.elapsed().as_secs() < self.config.cache_ttl_secs {
                 entry.log.clone()
             } else {
                 drop(entry);
-                if let Ok(v) = self.storage.get_json(key).await {
-                    serde_json::from_value::<ThreadLog>(v)
-                        .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
-                } else {
-                    ThreadLog::default()
-                }
+                let v = self.storage.get_json(key).await?;
+                serde_json::from_value::<ThreadLog>(v)
+                    .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
             }
-        } else if let Ok(v) = self.storage.get_json(key).await {
+        } else {
+            let v = self.storage.get_json(key).await?;
             serde_json::from_value::<ThreadLog>(v)
                 .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
-        } else {
-            ThreadLog::default()
         };
         Self::ensure_thread_log_schema(&log)?;
-        Ok(log)
+        Ok(LoadState::Loaded(VersionedValue {
+            etag: Some(etag),
+            value: log,
+        }))
+    }
+
+    async fn save_thread_log_if_etag_matches(
+        &self,
+        thread_id: &str,
+        key: &str,
+        log: &ThreadLog,
+        expected_etag: Option<&str>,
+    ) -> CoreResult<()> {
+        let expected = expected_etag.map(str::to_string);
+        let val = serde_json::to_value(log).map_err(|e| {
+            CoreError::Session(format!(
+                "thread_log('{}'): failed to serialize thread log: {}",
+                thread_id, e
+            ))
+        })?;
+        match self
+            .storage
+            .put_json_if_etag_matches(key, &val, expected_etag)
+            .await?
+        {
+            ConditionalWriteStatus::Written => Ok(()),
+            ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
+                "thread_log('{}'): write conflict detected (expected_etag={:?}, current_etag={:?})",
+                thread_id, expected, current_etag
+            ))),
+        }
     }
 
     pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let mut log = self.load_thread_log_for_write(&key).await?;
+        let lock = session_write_lock(&key);
+        let _guard = lock.lock().await;
+        let loaded = self.load_thread_log_for_write(&key).await?;
+        let expected_etag = match &loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(v) => v.etag.clone(),
+        };
+        let mut log = match loaded {
+            LoadState::Missing => ThreadLog::default(),
+            LoadState::Loaded(v) => v.value,
+        };
         log.steps.push(step);
-        let val = serde_json::to_value(&log).map_err(|e| {
-            CoreError::Session(format!(
-                "append_step('{}'): failed to serialize thread log: {}",
-                thread_id, e
-            ))
-        })?;
-        self.storage.put_json(&key, &val).await?;
+        self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+            .await?;
         self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         Ok(())
     }
@@ -132,7 +171,17 @@ impl ThreadStore {
         initial_phase: &str,
     ) -> CoreResult<Option<(usize, String)>> {
         let key = self.key(thread_id)?;
-        let mut log = self.load_thread_log_for_write(&key).await?;
+        let lock = session_write_lock(&key);
+        let _guard = lock.lock().await;
+        let loaded = self.load_thread_log_for_write(&key).await?;
+        let expected_etag = match &loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(v) => v.etag.clone(),
+        };
+        let mut log = match loaded {
+            LoadState::Missing => ThreadLog::default(),
+            LoadState::Loaded(v) => v.value,
+        };
         for (idx, step) in log.steps.iter().enumerate() {
             if let ThreadStep::Phase { phase, .. } = step {
                 return Ok(Some((idx, phase.clone())));
@@ -149,13 +198,8 @@ impl ThreadStore {
             agent: agent.to_string(),
         });
         let idx = log.steps.len().saturating_sub(1);
-        let val = serde_json::to_value(&log).map_err(|e| {
-            CoreError::Session(format!(
-                "ensure_preflight_phase_step('{}'): failed to serialize thread log: {}",
-                thread_id, e
-            ))
-        })?;
-        self.storage.put_json(&key, &val).await?;
+        self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+            .await?;
         self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         Ok(Some((idx, initial_phase.to_string())))
     }
@@ -221,16 +265,21 @@ impl ThreadStore {
 
     pub async fn set_title_if_absent(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let mut log = self.load_thread_log_for_write(&key).await?;
+        let lock = session_write_lock(&key);
+        let _guard = lock.lock().await;
+        let loaded = self.load_thread_log_for_write(&key).await?;
+        let expected_etag = match &loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(v) => v.etag.clone(),
+        };
+        let mut log = match loaded {
+            LoadState::Missing => ThreadLog::default(),
+            LoadState::Loaded(v) => v.value,
+        };
         if log.title.is_none() || log.title.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             log.title = Some(title.to_string());
-            let val = serde_json::to_value(&log).map_err(|e| {
-                CoreError::Session(format!(
-                    "set_title_if_absent('{}'): failed to serialize: {}",
-                    thread_id, e
-                ))
-            })?;
-            self.storage.put_json(&key, &val).await?;
+            self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+                .await?;
             self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         }
         Ok(())
@@ -238,14 +287,22 @@ impl ThreadStore {
 
     pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let mut log = self.load_thread_log_for_write(&key).await?;
+        let lock = session_write_lock(&key);
+        let _guard = lock.lock().await;
+        let loaded = self.load_thread_log_for_write(&key).await?;
+        let expected_etag = match &loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(v) => v.etag.clone(),
+        };
+        let mut log = match loaded {
+            LoadState::Missing => ThreadLog::default(),
+            LoadState::Loaded(v) => v.value,
+        };
         if !log.title_locked {
             log.title = Some(title.to_string());
             log.title_locked = true;
-            let val = serde_json::to_value(&log).map_err(|e| {
-                CoreError::Session(format!("lock_title('{}'): failed to serialize: {}", thread_id, e))
-            })?;
-            self.storage.put_json(&key, &val).await?;
+            self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+                .await?;
             self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         }
         Ok(())

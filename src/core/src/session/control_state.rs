@@ -5,9 +5,12 @@ use std::sync::Arc;
 use crate::error::{CoreError, CoreResult};
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
-use crate::storage::StorageAdapter;
+use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
-use super::{ControlStateEnvelope, CONTROL_STATE_ENVELOPE_SCHEMA_VERSION};
+use super::{
+    session_write_lock, ControlStateEnvelope, LoadState, VersionedValue,
+    CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
+};
 
 #[derive(Clone)]
 pub struct ControlStateStore {
@@ -81,12 +84,17 @@ impl ControlStateStore {
         })
     }
 
-    async fn load_raw(&self, thread_id: &str) -> CoreResult<Option<Value>> {
+    async fn load_raw(&self, thread_id: &str) -> CoreResult<LoadState<Value>> {
         let key = self.key(thread_id)?;
-        match self.storage.get_json(&key).await {
-            Ok(v) => Ok(Some(v)),
-            Err(_) => Ok(None),
-        }
+        let etag = self.storage.head_etag(&key).await?;
+        let Some(etag) = etag else {
+            return Ok(LoadState::Missing);
+        };
+        let value = self.storage.get_json(&key).await?;
+        Ok(LoadState::Loaded(VersionedValue {
+            etag: Some(etag),
+            value,
+        }))
     }
 
     async fn save_raw(&self, thread_id: &str, value: &Value) -> CoreResult<()> {
@@ -94,13 +102,35 @@ impl ControlStateStore {
         self.storage.put_json(&key, value).await
     }
 
+    async fn save_raw_if_etag_matches(
+        &self,
+        thread_id: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> CoreResult<()> {
+        let key = self.key(thread_id)?;
+        let expected = expected_etag.map(str::to_string);
+        match self
+            .storage
+            .put_json_if_etag_matches(&key, value, expected_etag)
+            .await?
+        {
+            ConditionalWriteStatus::Written => Ok(()),
+            ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
+                "control_state('{}'): write conflict detected (expected_etag={:?}, current_etag={:?})",
+                thread_id, expected, current_etag
+            ))),
+        }
+    }
+
     pub async fn load<T: DeserializeOwned>(
         &self,
         thread_id: &str,
         suite_id: &str,
     ) -> CoreResult<Option<T>> {
-        let Some(raw) = self.load_raw(thread_id).await? else {
-            return Ok(None);
+        let raw = match self.load_raw(thread_id).await? {
+            LoadState::Missing => return Ok(None),
+            LoadState::Loaded(raw) => raw.value,
         };
         let Some(payload) = Self::decode(&raw, suite_id) else {
             return Ok(None);
@@ -130,15 +160,40 @@ impl ControlStateStore {
         suite_id: &str,
         mutate: impl FnOnce(Option<T>) -> CoreResult<T>,
     ) -> CoreResult<T> {
-        let current = self.load::<T>(thread_id, suite_id).await?;
+        let key = self.key(thread_id)?;
+        let lock = session_write_lock(&key);
+        let _guard = lock.lock().await;
+        let loaded = self.load_raw(thread_id).await?;
+        let expected_etag = match &loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(raw) => raw.etag.clone(),
+        };
+        let current = match loaded {
+            LoadState::Missing => None,
+            LoadState::Loaded(raw) => {
+                let payload = Self::decode(&raw.value, suite_id);
+                match payload {
+                    Some(payload) => Some(serde_json::from_value::<T>(payload).map_err(|e| {
+                        CoreError::Session(format!("failed to parse control state payload: {e}"))
+                    })?),
+                    None => None,
+                }
+            }
+        };
         let next = mutate(current)?;
-        self.save(thread_id, suite_id, &next).await?;
+        let payload = serde_json::to_value(&next).map_err(|e| {
+            CoreError::Session(format!("failed to serialize control state payload: {e}"))
+        })?;
+        let envelope = Self::encode(suite_id, payload)?;
+        self.save_raw_if_etag_matches(thread_id, &envelope, expected_etag.as_deref())
+            .await?;
         Ok(next)
     }
 
     pub async fn load_suite_id(&self, thread_id: &str) -> CoreResult<Option<String>> {
-        let Some(raw) = self.load_raw(thread_id).await? else {
-            return Ok(None);
+        let raw = match self.load_raw(thread_id).await? {
+            LoadState::Missing => return Ok(None),
+            LoadState::Loaded(raw) => raw.value,
         };
         let env = serde_json::from_value::<ControlStateEnvelope>(raw).ok();
         Ok(env.map(|e| e.suite_id).filter(|s| !s.trim().is_empty()))

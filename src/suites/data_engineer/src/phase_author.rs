@@ -1298,6 +1298,7 @@ if hard_mutation_repair_mode
         thread_id,
     )
     .await
+    .map_err(|e| format!("failed to load execution state for deterministic repair mode: {e}"))?
     .unwrap_or_else(
         crate::progress_controller::ExecutionState::new,
     );

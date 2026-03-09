@@ -1,9 +1,94 @@
 use super::*;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::scope::RequestScope;
-use crate::storage::StorageAdapter;
+use crate::error::CoreError;
+use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 use crate::test_support::InMemoryStorageAdapter;
+use async_trait::async_trait;
+use serde_json::Value;
 use std::sync::Arc;
+use std::sync::Mutex;
+
+#[derive(Clone, Default)]
+struct SequencedJsonStorage {
+    head_responses: Arc<Mutex<Vec<Result<Option<String>, CoreError>>>>,
+    json_value: Arc<Mutex<Option<Value>>>,
+}
+
+#[async_trait]
+impl StorageAdapter for SequencedJsonStorage {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+        self.json_value
+            .lock()
+            .map_err(|_| CoreError::Storage(format!("get_json('{}'): lock poisoned", key)))?
+            .clone()
+            .ok_or_else(|| CoreError::Storage(format!("get_json('{}'): not found", key)))
+    }
+
+    async fn put_json(&self, _key: &str, value: &Value) -> Result<(), CoreError> {
+        *self
+            .json_value
+            .lock()
+            .map_err(|_| CoreError::Storage("put_json: lock poisoned".to_string()))? = Some(value.clone());
+        Ok(())
+    }
+
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let mut value_guard = self
+            .json_value
+            .lock()
+            .map_err(|_| CoreError::Storage("put_json_if_etag_matches: lock poisoned".to_string()))?;
+        let current_etag = value_guard.as_ref().map(|_| "stable".to_string());
+        let expected = expected_etag.map(str::to_string);
+        if current_etag != expected {
+            return Ok(ConditionalWriteStatus::Conflict { current_etag });
+        }
+        *value_guard = Some(value.clone());
+        if key.is_empty() {
+            return Err(CoreError::Storage(
+                "put_json_if_etag_matches: empty key".to_string(),
+            ));
+        }
+        Ok(ConditionalWriteStatus::Written)
+    }
+
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+        Err(CoreError::Storage(format!("get_bytes('{}'): unsupported in test", key)))
+    }
+
+    async fn put_bytes(&self, key: &str, _bytes: &[u8], _content_type: &str) -> Result<(), CoreError> {
+        Err(CoreError::Storage(format!("put_bytes('{}'): unsupported in test", key)))
+    }
+
+    async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
+        Ok(())
+    }
+
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+        let mut guard = self
+            .head_responses
+            .lock()
+            .map_err(|_| CoreError::Storage(format!("head_etag('{}'): lock poisoned", key)))?;
+        if guard.is_empty() {
+            return Ok(self
+                .json_value
+                .lock()
+                .map_err(|_| CoreError::Storage(format!("head_etag('{}'): json lock poisoned", key)))?
+                .as_ref()
+                .map(|_| "stable".to_string()));
+        }
+        guard.remove(0)
+    }
+
+    async fn list_prefix(&self, _prefix: &str) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+}
 
 #[test]
 fn tool_observation_normalizes_legacy_error_field_into_errors_array() {
@@ -117,4 +202,108 @@ async fn control_state_store_returns_none_for_wrong_suite() {
         .expect("save");
     let loaded: Option<serde_json::Value> = control.load(tid, "suite_b").await.expect("load");
     assert_eq!(loaded, None);
+}
+
+#[tokio::test]
+async fn append_step_propagates_read_failure_instead_of_defaulting() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![Err(CoreError::Storage(
+            "boom".to_string(),
+        ))])),
+        json_value: Arc::new(Mutex::new(None)),
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+
+    let err = store
+        .append_step(
+            "tid-read-failure",
+            ThreadStep::User {
+                text: "hi".to_string(),
+                observation: Observation::ok(),
+                ts: "t".to_string(),
+                agent: "agent".to_string(),
+            },
+        )
+        .await
+        .expect_err("read failure must not be treated as empty thread");
+    assert!(err.to_string().contains("boom"));
+}
+
+#[tokio::test]
+async fn control_state_load_propagates_read_failure_instead_of_none() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![Err(CoreError::Storage(
+            "boom".to_string(),
+        ))])),
+        json_value: Arc::new(Mutex::new(None)),
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let control = ControlStateStore::new(storage, scope, keyspace);
+
+    let err = control
+        .load::<serde_json::Value>("tid-control-read-failure", "suite")
+        .await
+        .expect_err("read failure must not be treated as missing control state");
+    assert!(err.to_string().contains("boom"));
+}
+
+#[tokio::test]
+async fn append_step_returns_conflict_when_etag_changes_during_write() {
+    let existing = serde_json::to_value(ThreadLog::default()).expect("thread log to json");
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![
+            Ok(Some("v1".to_string())),
+            Ok(Some("v2".to_string())),
+        ])),
+        json_value: Arc::new(Mutex::new(Some(existing))),
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+
+    let err = store
+        .append_step(
+            "tid-thread-conflict",
+            ThreadStep::User {
+                text: "hi".to_string(),
+                observation: Observation::ok(),
+                ts: "t".to_string(),
+                agent: "agent".to_string(),
+            },
+        )
+        .await
+        .expect_err("etag mismatch must surface as write conflict");
+    assert!(err.to_string().contains("write conflict"));
+}
+
+#[tokio::test]
+async fn control_state_mutate_returns_conflict_when_etag_changes_during_write() {
+    let envelope = serde_json::json!({
+        "schema_version": CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
+        "suite_id": "suite",
+        "payload": { "count": 1 }
+    });
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![
+            Ok(Some("v1".to_string())),
+            Ok(Some("v2".to_string())),
+        ])),
+        json_value: Arc::new(Mutex::new(Some(envelope))),
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let control = ControlStateStore::new(storage, scope, keyspace);
+
+    let err = control
+        .mutate::<serde_json::Value>("tid-control-conflict", "suite", |current| {
+            let mut next = current.unwrap_or_else(|| serde_json::json!({}));
+            next["count"] = serde_json::json!(2);
+            Ok(next)
+        })
+        .await
+        .expect_err("etag mismatch must surface as write conflict");
+    assert!(err.to_string().contains("write conflict"));
 }

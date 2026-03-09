@@ -5,13 +5,24 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::CoreError;
-use crate::storage::StorageAdapter;
+use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
 /// Minimal in-memory storage for core-internal tests only.
 /// External crates should use `react-module-storage-memory` instead.
 #[derive(Clone, Default)]
 pub(crate) struct InMemoryStorageAdapter {
     inner: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+}
+
+impl InMemoryStorageAdapter {
+    fn etag(bytes: &[u8]) -> String {
+        let mut hash: u64 = 1469598103934665603;
+        for b in bytes {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(1099511628211);
+        }
+        format!("mem-etag-{:016x}-{}", hash, bytes.len())
+    }
 }
 
 #[async_trait]
@@ -25,6 +36,23 @@ impl StorageAdapter for InMemoryStorageAdapter {
         let bytes = serde_json::to_vec(value)
             .map_err(|e| CoreError::Storage(format!("put_json('{}'): {}", key, e)))?;
         self.put_bytes(key, &bytes, "application/json").await
+    }
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::Storage(format!("put_json_if_etag_matches('{}'): {}", key, e)))?;
+        let mut g = self.inner.write().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let current_etag = g.get(key).map(|b| Self::etag(b));
+        let expected = expected_etag.map(|s| s.to_string());
+        if current_etag != expected {
+            return Ok(ConditionalWriteStatus::Conflict { current_etag });
+        }
+        g.insert(key.to_string(), bytes);
+        Ok(ConditionalWriteStatus::Written)
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
@@ -42,7 +70,7 @@ impl StorageAdapter for InMemoryStorageAdapter {
     }
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
-        Ok(g.get(key).map(|b| format!("mem-etag-{}", b.len())))
+        Ok(g.get(key).map(|b| Self::etag(b)))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
