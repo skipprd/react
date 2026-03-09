@@ -510,17 +510,15 @@ let errs: Vec<String> = obs
     } else {
         crate::progress_controller::ExecutionTier::Model
     };
-    let failing_models: Vec<
-        crate::progress_controller::FailedModelRef,
-    > = failing_targets
-        .iter()
-        .map(|t| crate::progress_controller::FailedModelRef {
-            name: t.node_id.clone(),
-            file: t.target_path.as_str().to_string(),
-            ..Default::default()
-        })
-        .collect();
-    let failure_class_state = failure_class;
+        let failing_models: Vec<crate::progress_controller::FailedModelRef> = failing_targets
+            .iter()
+            .map(|t| crate::progress_controller::FailedModelRef {
+                name: t.node_id.clone(),
+                file: t.target_path.as_str().to_string(),
+                ..Default::default()
+            })
+            .collect();
+        let failure_class_state = failure_class;
     let backlog = crate::progress_controller::repair_backlog_from_failed_models(
         failure_class_state,
         &failing_models,
@@ -692,4 +690,5 @@ mod tests {
             ValidatePassTransition::ToReview
         );
     }
+
 }

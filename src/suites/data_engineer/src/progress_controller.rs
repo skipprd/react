@@ -1782,6 +1782,17 @@ fn obs_like_bool(
     from.as_ref().and_then(pick)
 }
 
+fn sibling_sql_path(schema_path: &str) -> Option<String> {
+    let s = schema_path.trim();
+    if let Some(base) = s.strip_suffix(".yml") {
+        Some(format!("{}.sql", base))
+    } else if let Some(base) = s.strip_suffix(".yaml") {
+        Some(format!("{}.sql", base))
+    } else {
+        None
+    }
+}
+
 pub fn repair_backlog_from_failed_models(
     failure_class: FailureKind,
     failing_models: &[FailedModelRef],
@@ -1815,6 +1826,26 @@ pub fn repair_backlog_from_failed_models(
             | FailureKind::Unknown => false,
         })
         .collect();
+
+    if failure_class == FailureKind::SqlRuntime {
+        let siblings: Vec<RepairTarget> = out
+            .iter()
+            .filter_map(|t| match &t.path {
+                Some(RepairTargetPath::SchemaDoc(doc)) => {
+                    let sql = sibling_sql_path(doc.as_str())?;
+                    let sql_path = SqlModelPath::parse(sql).ok()?;
+                    Some(RepairTarget {
+                        model_name: t.model_name.clone(),
+                        path: Some(RepairTargetPath::SqlModel(sql_path)),
+                        error_class: None,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        out.extend(siblings);
+    }
+
     out.sort_by(|a, b| {
         a.path
             .as_ref()
@@ -1901,12 +1932,13 @@ pub fn gate_authoring_progress(state: &ExecutionState, phase: Phase) -> Result<(
         .as_ref()
         .map(|d| d.progress_made || d.target_hash_changed)
         .unwrap_or(false);
-    let has_mutation_receipt = state
-        .telemetry
-        .last_mutation_summary
-        .as_ref()
-        .is_some();
-    if last_validate_failed && !(mutation_progress || has_mutation_receipt) {
+    let mutation_epoch_advanced = state
+        .repair
+        .core()
+        .and_then(|core| core.repair_started_mutation_epoch)
+        .map(|start| state.repair.mutation_epoch > start)
+        .unwrap_or(false);
+    if last_validate_failed && !(mutation_progress || mutation_epoch_advanced) {
         return Err(
             "progress_gate_blocked: validation previously failed and no successful mutation has been recorded since that failure"
                 .to_string(),
@@ -2191,6 +2223,28 @@ mod tests {
     }
 
     #[test]
+    fn repair_backlog_derives_sibling_sql_for_schema_only_sql_runtime() {
+        let failing = vec![FailedModelRef {
+            name: "not_null_stg_orders_line_id".to_string(),
+            file: "models/staging/stg_orders.yml".to_string(),
+            ..Default::default()
+        }];
+        let backlog = repair_backlog_from_failed_models(FailureKind::SqlRuntime, &failing);
+        assert!(
+            backlog
+                .iter()
+                .any(|t| t.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.sql")),
+            "SqlRuntime with only .yml target should derive sibling .sql: {backlog:?}"
+        );
+        assert!(
+            backlog
+                .iter()
+                .any(|t| t.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.yml")),
+            "original .yml target should be preserved"
+        );
+    }
+
+    #[test]
     fn subjective_retry_per_kind_and_bounded() {
         let mut st = ExecutionState::new();
         assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 1);
@@ -2241,6 +2295,62 @@ mod tests {
             ..LastValidateState::default()
         });
         st.telemetry.probe.required = false;
+        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_ok());
+    }
+
+    #[test]
+    fn gate_authoring_progress_rejects_stale_mutation_receipts() {
+        let mut st = ExecutionState::new();
+        st.telemetry.last_validate = Some(LastValidateState {
+            ok: Some(false),
+            compile_ok: Some(true),
+            run_ok: Some(false),
+            ..LastValidateState::default()
+        });
+        st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
+            target_path: sql_model_path("models/marts/fct_orders.sql"),
+            core: RepairModeCore {
+                attempt_count: 1,
+                ladder_step: RepairLadderStep::PatchTarget,
+                repair_started_mutation_epoch: Some(4),
+                consecutive_noop_patches: 0,
+            },
+        });
+        st.repair.mutation_epoch = 4;
+        st.telemetry.last_mutation_summary = Some(LastMutationSummary {
+            op: MutationOp::Patch,
+            affected_paths: vec!["models/marts/fct_orders.sql".to_string()],
+            select_terms: vec![],
+            ts: Some(chrono::Utc::now().to_rfc3339()),
+        });
+        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_err());
+    }
+
+    #[test]
+    fn gate_authoring_progress_accepts_mutation_epoch_advance_after_failure() {
+        let mut st = ExecutionState::new();
+        st.telemetry.last_validate = Some(LastValidateState {
+            ok: Some(false),
+            compile_ok: Some(true),
+            run_ok: Some(false),
+            ..LastValidateState::default()
+        });
+        st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
+            target_path: sql_model_path("models/marts/fct_orders.sql"),
+            core: RepairModeCore {
+                attempt_count: 1,
+                ladder_step: RepairLadderStep::PatchTarget,
+                repair_started_mutation_epoch: Some(4),
+                consecutive_noop_patches: 0,
+            },
+        });
+        st.repair.mutation_epoch = 5;
+        st.telemetry.last_mutation_summary = Some(LastMutationSummary {
+            op: MutationOp::Patch,
+            affected_paths: vec!["models/marts/fct_orders.sql".to_string()],
+            select_terms: vec![],
+            ts: Some(chrono::Utc::now().to_rfc3339()),
+        });
         assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_ok());
     }
 

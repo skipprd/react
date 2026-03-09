@@ -567,20 +567,26 @@ impl Tool for FilesTool {
                 if let (Some(store), Some(thread_id)) =
                     (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
                 {
-                    let paths = vec![parsed.path.clone()];
-                    let select_terms = select_terms_from_paths(&paths);
-                    let _ = crate::state_manager::mutate_execution_state(
-                        &store.control_store(),
-                        thread_id,
-                        |es| {
-                            es.set_last_mutation_summary(
-                                crate::progress_controller::MutationOp::Remove,
-                                paths.clone(),
-                                select_terms.clone(),
-                            )
-                        },
-                    )
-                    .await;
+                    let mutated = out
+                        .get("mutated")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if mutated {
+                        let paths = vec![parsed.path.clone()];
+                        let select_terms = select_terms_from_paths(&paths);
+                        let _ = crate::state_manager::mutate_execution_state(
+                            &store.control_store(),
+                            thread_id,
+                            |es| {
+                                es.set_last_mutation_summary(
+                                    crate::progress_controller::MutationOp::Remove,
+                                    paths.clone(),
+                                    select_terms.clone(),
+                                )
+                            },
+                        )
+                        .await;
+                    }
                 }
                 Ok(out)
             }
@@ -840,6 +846,42 @@ mod tests {
 
         assert_eq!(obs.get("ok").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(obs.get("mutated").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    #[tokio::test]
+    async fn dbt_files_rm_missing_does_not_record_mutation_summary() {
+        let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
+        let mut ctx = make_ctx(storage.clone());
+        let store = ThreadStore::new(
+            storage,
+            ctx.scope().clone(),
+            Arc::new(DefaultKeyspace::new("b".to_string())),
+        );
+        let tid = "tid-rm-missing-no-mutation-summary".to_string();
+        state_manager::replace_execution_state(&store.control_store(), &tid, ExecutionState::new())
+            .await
+            .expect("seed execution state");
+        ctx.set_thread_store(Some(store.clone()));
+        ctx.set_thread_id(Some(tid.clone()));
+        let tool = DbtFilesTool { datasets: None };
+
+        let obs = tool
+            .call(
+                serde_json::json!({"op":"rm","path":"models/missing.sql"}),
+                &ctx,
+            )
+            .await
+            .expect("rm ok");
+
+        assert_eq!(obs.get("mutated").and_then(|v| v.as_bool()), Some(false));
+        let stored = state_manager::load_execution_state(&store.control_store(), &tid)
+            .await
+            .expect("load execution state")
+            .expect("execution state exists");
+        assert!(
+            stored.telemetry.last_mutation_summary.is_none(),
+            "missing rm should not look like authoring progress"
+        );
     }
 
     #[tokio::test]
