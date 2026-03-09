@@ -135,3 +135,58 @@ pub struct PlanDesignCritiqueV1 {
     #[serde(default)]
     pub fixes: Vec<PlanDesignFixV1>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn collect_ref_sibling_violations(v: &Value, path: &str, out: &mut Vec<String>) {
+        match v {
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    collect_ref_sibling_violations(item, &format!("{path}[{i}]"), out);
+                }
+            }
+            Value::Object(map) => {
+                if map.contains_key("$ref") && map.len() > 1 {
+                    let mut keys: Vec<String> = map.keys().cloned().collect();
+                    keys.sort();
+                    out.push(format!("{path}: {:?}", keys));
+                }
+                for (k, child) in map {
+                    collect_ref_sibling_violations(child, &format!("{path}.{k}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn assert_openai_ref_compat(schema: &Value, name: &str) {
+        let mut violations: Vec<String> = Vec::new();
+        collect_ref_sibling_violations(schema, "$", &mut violations);
+        assert!(
+            violations.is_empty(),
+            "{name} has OpenAI-incompatible $ref sibling nodes:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn strict_schema_cleanse_plan_enrichment_is_openai_compatible() {
+        let schema = strict_schema_for::<CleansePlanEnrichmentV1>().expect("schema");
+        assert_openai_ref_compat(&schema, "CleansePlanEnrichmentV1");
+    }
+
+    #[test]
+    fn strict_schema_model_plan_enrichment_is_openai_compatible() {
+        let schema = strict_schema_for::<ModelPlanEnrichmentV1>().expect("schema");
+        assert_openai_ref_compat(&schema, "ModelPlanEnrichmentV1");
+    }
+
+    #[test]
+    fn strict_schema_design_critique_is_openai_compatible() {
+        let schema = strict_schema_for::<PlanDesignCritiqueV1>().expect("schema");
+        assert_openai_ref_compat(&schema, "PlanDesignCritiqueV1");
+    }
+}

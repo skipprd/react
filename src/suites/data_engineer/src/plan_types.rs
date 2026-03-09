@@ -278,7 +278,6 @@ pub enum FieldKind {
 pub struct OutputFieldSpec {
     /// Output column name.
     pub name: String,
-    /// The role of the field in the model interface.
     pub kind: FieldKind,
     /// Upstream source columns (or prior-stage columns) this field depends on.
     #[serde(default)]

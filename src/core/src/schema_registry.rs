@@ -199,6 +199,28 @@ pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+
+    fn collect_ref_sibling_violations(v: &Value, path: &str, out: &mut Vec<String>) {
+        match v {
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    collect_ref_sibling_violations(item, &format!("{path}[{i}]"), out);
+                }
+            }
+            Value::Object(map) => {
+                if map.contains_key("$ref") && map.len() > 1 {
+                    let mut keys: Vec<String> = map.keys().cloned().collect();
+                    keys.sort();
+                    out.push(format!("{path}: {:?}", keys));
+                }
+                for (k, child) in map {
+                    collect_ref_sibling_violations(child, &format!("{path}.{k}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
 
     #[test]
     fn agent_step_schema_accepts_tool_and_complete() {
@@ -255,6 +277,18 @@ mod tests {
         assert!(
             got.contains(&"display".to_string()),
             "expected display required (nullable) for OpenAI strict schema; got={got:?}"
+        );
+    }
+
+    #[test]
+    fn agent_step_schema_has_no_ref_siblings_for_openai() {
+        let s = json_schema(SchemaId::AgentStepV1);
+        let mut violations: Vec<String> = Vec::new();
+        collect_ref_sibling_violations(&s, "$", &mut violations);
+        assert!(
+            violations.is_empty(),
+            "OpenAI-incompatible $ref sibling nodes found:\n{}",
+            violations.join("\n")
         );
     }
 }
