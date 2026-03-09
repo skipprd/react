@@ -2,12 +2,13 @@
 //!
 //! Design goal: subscribe to the same typed events as WS without using a socket.
 
-use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadItemStatus, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadStore};
+use react_view::{ThreadItemStatus, ThreadLogViewCache};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 
-use crate::run::event_hub::EventHub;
+use crate::event_hub::EventHub;
 use crate::ws::api_gen::src::models as api;
 
 const DEFAULT_EVENT_HUB_CAPACITY: usize = 4096;
@@ -32,10 +33,7 @@ fn classify_error(summary: &str) -> &'static str {
     }
 }
 
-fn summarize_failure_state(
-    st: &react_core::session::ThreadLogViewCache,
-    events: &[ThreadEvent],
-) -> Option<String> {
+fn summarize_failure_state(st: &ThreadLogViewCache, events: &[ThreadEvent]) -> Option<String> {
     let last_failed_event = events
         .iter()
         .rev()
@@ -240,10 +238,12 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         {
             if mode == "failed" {
                 if plain_progress {
-                    let st = store.get_thread_state(&thread_id).await.ok();
-                    let timeline_events = match store.get(&thread_id).await {
-                        Ok(log) => react_view::build_thread_events_from_log(&log, 500),
-                        Err(_) => Vec::new(),
+                    let (st, timeline_events) = match store.get(&thread_id).await {
+                        Ok(log) => (
+                            Some(crate::ws::thread_state::materialize_state_from_log(&thread_id, &log)),
+                            react_view::build_thread_events_from_log(&log, 500),
+                        ),
+                        Err(_) => (None, Vec::new()),
                     };
                     if let Some(ref st) = st {
                         if let Some(line) = summarize_failure_state(st, &timeline_events) {

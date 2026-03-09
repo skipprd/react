@@ -6,7 +6,7 @@ mod terminal_dbt;
 mod util;
 mod mapping;
 mod conn_state;
-mod thread_state;
+pub(crate) mod thread_state;
 mod suite_runner;
 mod history;
 mod handlers;

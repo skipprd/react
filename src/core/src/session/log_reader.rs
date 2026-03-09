@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::CoreResult;
-use super::{ThreadEvent, ThreadLog};
+use super::ThreadLog;
 
 /// Single read-only API for accessing the ThreadLog.
 ///
@@ -10,7 +10,6 @@ use super::{ThreadEvent, ThreadLog};
 #[async_trait]
 pub trait ThreadLogReader: Send + Sync {
     async fn get_log(&self, thread_id: &str) -> CoreResult<ThreadLog>;
-    async fn get_events(&self, thread_id: &str, max: usize) -> CoreResult<Vec<ThreadEvent>>;
     async fn get_step_count(&self, thread_id: &str) -> CoreResult<usize>;
     async fn list_thread_ids(&self) -> Vec<String>;
 }

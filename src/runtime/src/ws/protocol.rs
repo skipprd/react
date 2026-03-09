@@ -15,7 +15,7 @@ use super::mapping::{final_display_text_from_payload, ws_final_result_from_typed
 use super::suite_runner::{run_suite_and_frames, AgentFrame, SuiteRunKind};
 use super::terminal::TerminalEvent;
 use super::thread_state::{
-    load_timeline_events, ws_thread_state_snapshot_from_core,
+    load_materialized_state, load_timeline_events, ws_thread_state_snapshot_from_core,
 };
 use super::util::{now_iso, truncate_title, DEFAULT_AGENT_TYPE};
 
@@ -678,7 +678,9 @@ async fn handle_thread_state_message(v: &Value, state: &mut ConnState) -> Result
     let suite_id = resolve_suite_id_for_thread(state, &thread_id).await;
     let plans = load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id).await;
     let store = state.thread_store();
-    let st = store.get_thread_state(&thread_id).await.map_err(|e| e.to_string())?;
+    let st = load_materialized_state(&store, &thread_id)
+        .await
+        .ok_or_else(|| "thread not found".to_string())?;
     let timeline_events = load_timeline_events(&store, &thread_id).await;
     let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
     if let Some(t) = state.term() {

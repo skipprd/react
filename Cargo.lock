@@ -5931,6 +5931,7 @@ dependencies = [
  "react-module-storage-s3",
  "react-suite-data-engineer",
  "react-suite-kb",
+ "react-transport",
  "react-view",
  "regex",
  "serde",
@@ -6124,6 +6125,30 @@ dependencies = [
  "serde_json",
  "tokio",
  "walkdir",
+]
+
+[[package]]
+name = "react-transport"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "crossterm",
+ "futures",
+ "futures-util",
+ "once_cell",
+ "react-core",
+ "react-module-storage-memory",
+ "react-suite-data-engineer",
+ "react-suite-kb",
+ "react-view",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tungstenite",
+ "uuid",
 ]
 
 [[package]]

@@ -552,7 +552,7 @@ async fn main() {
                 {
                     std::env::set_var("REACT_HEADLESS", "1");
                 }
-                if let Err(e) = react::ws::terminal::init() {
+                if let Err(e) = react_transport::ws::terminal::init() {
                     tracing::warn!("terminal mode not enabled: {}", e);
                 }
             }
@@ -566,7 +566,7 @@ async fn main() {
             };
 
             let registry = default_registry();
-            if let Err(e) = react::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
+            if let Err(e) = react_transport::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
                 tracing::error!("{}", e);
                 std::process::exit(1);
             }
@@ -716,7 +716,7 @@ async fn main() {
             }
             // Terminal UI is the default for `run`; `--log` disables it.
             if terminal_enabled {
-                if let Err(e) = react::ws::terminal::init() {
+                if let Err(e) = react_transport::ws::terminal::init() {
                     tracing::warn!("terminal mode not enabled: {}", e);
                 }
             }
@@ -765,9 +765,9 @@ async fn main() {
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(resolve_default_suite_id);
             let registry = default_registry();
-            let run_fut = react::run::headless::run_headless(
+            let run_fut = react_transport::headless::run_headless(
                 suite_ctx,
-                react::run::headless::RunOpts {
+                react_transport::headless::RunOpts {
                     thread_id,
                     suite_id,
                     agent,
@@ -794,7 +794,7 @@ async fn main() {
             };
             // Ensure the terminal is restored before exiting.
             if terminal_enabled {
-                react::ws::terminal::shutdown();
+                react_transport::ws::terminal::shutdown();
             }
 
             // Flush tracing before we read/upload log bytes.

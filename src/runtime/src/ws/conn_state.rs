@@ -1,5 +1,5 @@
 use super::util::{truncate_title, DEFAULT_AGENT_TYPE};
-use crate::run::event_hub::EventHub;
+use crate::event_hub::EventHub;
 
 const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
@@ -181,8 +181,8 @@ pub(super) async fn synthesize_title(llm: &react_core::llm::DynLlm, question: &s
         let p = prompt.clone();
         move || {
             llm2.chat(
-                &[crate::llm::ChatMessage {
-                    role: crate::llm::ChatRole::User,
+                &[react_core::llm::ChatMessage {
+                    role: react_core::llm::ChatRole::User,
                     content: p,
                 }],
                 &react_core::llm::LlmCallOptions {

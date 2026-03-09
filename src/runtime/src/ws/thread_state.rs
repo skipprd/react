@@ -2,9 +2,13 @@ use super::mapping::{map_exec_ctx, map_thread_event_kind, map_tool_event_status}
 use super::util::{env_truthy, truncate_str, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 use crate::ws::api_gen::src::models as api;
 use react_core::session::{
+    ThreadLog as CoreThreadLog, ThreadStep, ThreadStore,
+};
+use react_view::{
     ThreadItemState as CoreThreadItemState,
     ThreadItemStatus as CoreThreadItemStatus,
-    ThreadLogViewCache as CoreThreadLogViewCache, ThreadStep, ThreadStore,
+    ThreadLogViewCache as CoreThreadLogViewCache,
+    THREAD_STATE_SCHEMA_VERSION,
 };
 use react_core::suite::SuiteRegistry;
 use std::collections::BTreeMap;
@@ -186,6 +190,30 @@ pub(super) fn ws_thread_state_snapshot_from_core(
         snap.plan_summaries = Some(plan_summaries);
     }
     snap
+}
+
+pub(crate) fn materialize_state_from_log(thread_id: &str, log: &CoreThreadLog) -> CoreThreadLogViewCache {
+    let mut st = CoreThreadLogViewCache {
+        thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
+        thread_id: thread_id.to_string(),
+        ..CoreThreadLogViewCache::default()
+    };
+    for (idx, step) in log.steps.iter().enumerate() {
+        react_view::apply_step_to_state(&mut st, idx, step);
+    }
+    st.last_materialized_step_count = log.steps.len();
+    st.total_runtime_ms = st
+        .items
+        .values()
+        .filter(|it| it.kind.as_str() == "phase")
+        .filter_map(|it| it.runtime_ms)
+        .sum();
+    st
+}
+
+pub(crate) async fn load_materialized_state(store: &ThreadStore, thread_id: &str) -> Option<CoreThreadLogViewCache> {
+    let log = store.get(thread_id).await.ok()?;
+    Some(materialize_state_from_log(thread_id, &log))
 }
 
 pub(super) async fn load_timeline_events(store: &ThreadStore, thread_id: &str) -> Vec<react_core::session::ThreadEvent> {

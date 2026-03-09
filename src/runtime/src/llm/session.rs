@@ -1,5 +1,4 @@
 use crate::llm::router::LlmRouter;
-use crate::llm::thread_ctx;
 use crate::llm::types::ChatResponseFormat;
 use crate::llm::types::LlmExecutionMode;
 use crate::llm::{ChatMessage, LargeLanguageModel};
@@ -148,7 +147,7 @@ impl LargeLanguageModel for RouterModel {
             thread_id: options
                 .thread_id
                 .clone()
-                .or_else(|| thread_ctx::current_thread_id()),
+                .or_else(|| react_core::thread_ctx::current_thread_id()),
             execution_mode,
         };
         let r = self.router.chat(&req)?;

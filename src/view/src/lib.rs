@@ -23,6 +23,12 @@ pub use projection::build_thread_events_from_log;
 mod materialization;
 pub use materialization::apply_step_to_state;
 
+mod types;
+pub use types::{
+    ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadLogViewCache,
+    THREAD_STATE_SCHEMA_VERSION,
+};
+
 pub use react_core::session::{
-    ThreadEvent, ThreadEventKind, ThreadEventStatus, ThreadLog, ThreadLogViewCache, ThreadStep,
+    ThreadEvent, ThreadEventKind, ThreadEventStatus, ThreadLog, ThreadStep,
 };

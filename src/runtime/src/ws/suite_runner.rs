@@ -1,7 +1,7 @@
 use super::conn_state::{ConnState, load_latest_plans};
 use super::mapping::{map_exec_ctx, ws_final_result_from_typed_final};
 use super::thread_state::{
-    load_timeline_events, log_thread_steps_if_enabled,
+    load_materialized_state, load_timeline_events, log_thread_steps_if_enabled,
     phase_at_step_idx, phase_runs_from_steps,
     total_completed_runtime_ms, ws_thread_state_snapshot_from_core,
 };
@@ -135,7 +135,7 @@ async fn run_agent_with_processing_suite(
         let agent_s = agent.to_string();
         tokio::spawn(async move {
             let tid_scope = thread_id_s.clone();
-            crate::llm::thread_ctx::scope_thread_id(&tid_scope, async move {
+            react_core::thread_ctx::scope_thread_id(&tid_scope, async move {
                 match run_kind {
                     SuiteRunKind::New => {
                         suite2.handle_new(&thread_id_s, &q, &agent_s, &sctx3).await
@@ -389,7 +389,7 @@ async fn run_agent_with_processing_suite(
                                 t.emit(TerminalEvent::Phase(ev.clone()));
                             }
                             emit_ws(state, write, api::ServerMessage::Phase(ev)).await;
-                            if let Ok(st) = store.get_thread_state(thread_id).await {
+                            if let Some(st) = load_materialized_state(&store, thread_id).await {
                                 let timeline_events = load_timeline_events(&store, thread_id).await;
                                 let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                 if let Some(t) = state.term() {
@@ -532,9 +532,9 @@ async fn run_agent_with_processing_suite(
             }
             _ = state_tick.tick() => {
                 let store = state.thread_store();
-                let st = match store.get_thread_state(thread_id).await {
-                    Ok(s) => s,
-                    Err(_) => continue,
+                let st = match load_materialized_state(&store, thread_id).await {
+                    Some(s) => s,
+                    None => continue,
                 };
                 let timeline_events = load_timeline_events(&store, thread_id).await;
                 let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
@@ -605,7 +605,7 @@ async fn run_agent_with_processing_suite(
 
                             {
                                 let store = state.thread_store();
-                                if let Ok(st) = store.get_thread_state(thread_id).await {
+                                if let Some(st) = load_materialized_state(&store, thread_id).await {
                                     let timeline_events = load_timeline_events(&store, thread_id).await;
                                     let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {
@@ -629,7 +629,7 @@ async fn run_agent_with_processing_suite(
                         AgentFrame::Final { kind, payload, display } => {
                             {
                                 let store = state.thread_store();
-                                if let Ok(st) = store.get_thread_state(thread_id).await {
+                                if let Some(st) = load_materialized_state(&store, thread_id).await {
                                     let timeline_events = load_timeline_events(&store, thread_id).await;
                                     let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {

@@ -24,6 +24,7 @@ pub mod session;
 pub mod storage;
 pub mod suite;
 pub mod tools;
+pub mod thread_ctx;
 pub mod workflow;
 
 #[cfg(test)]

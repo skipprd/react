@@ -1,17 +1,19 @@
 use super::*;
-use crate::wiring::{DefaultKeyspace, RequestScope};
 use crate::ws::conn_state::{normalize_agent_new, normalize_agent_open};
 use crate::ws::history::{build_history, compute_unread_for_log};
 use crate::ws::thread_state::ws_thread_state_snapshot_from_core;
 use crate::ws::util::DEFAULT_INITIAL_PHASE;
 use async_trait::async_trait;
 use futures_util::sink::Sink;
+use react_core::keyspace::DefaultKeyspace;
 use react_core::keyspace::Keyspace;
 use react_core::llm::NullModel;
+use react_core::scope::RequestScope;
 use react_core::session::{
-    Observation, ThreadLog, ThreadLogViewCache as CoreThreadLogViewCache, ThreadStep, ThreadStore,
+    Observation, ThreadLog, ThreadStep, ThreadStore,
     ToolObservation,
 };
+use react_view::ThreadLogViewCache as CoreThreadLogViewCache;
 use react_core::provider_traits::NullSecretsProvider;
 use react_module_storage_memory::InMemoryStorageAdapter;
 use serde_json::json;
@@ -24,7 +26,7 @@ use std::time::Duration;
 #[test]
 fn thread_state_snapshot_maps_ctx_from_core_event_field() {
     let mut core = CoreThreadLogViewCache::default();
-    core.thread_state_schema_version = react_core::session::THREAD_STATE_SCHEMA_VERSION;
+    core.thread_state_schema_version = react_view::THREAD_STATE_SCHEMA_VERSION;
     core.thread_id = "tid".to_string();
     core.suite_id = Some("suite_x".to_string());
     core.agent_type = Some("agent".to_string());

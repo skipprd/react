@@ -4,9 +4,9 @@ use std::time::Instant;
 use crate::error::{CoreError, CoreResult};
 
 use super::{
-    CacheEntry, ThreadLog, ThreadLogViewCache, ThreadStep, ThreadStore,
+    CacheEntry, ThreadLog, ThreadStep, ThreadStore,
     ThreadStoreConfig,
-    THREAD_SCHEMA_VERSION, THREAD_STATE_SCHEMA_VERSION,
+    THREAD_SCHEMA_VERSION,
 };
 
 
@@ -50,12 +50,6 @@ impl ThreadStore {
         self.keyspace
             .thread_key(&self.scope, thread_id)
             .map_err(|e| CoreError::Session(format!("failed to build thread key for '{thread_id}': {e}")))
-    }
-
-    pub(crate) fn state_key(&self, thread_id: &str) -> CoreResult<String> {
-        self.keyspace
-            .thread_state_key(&self.scope, thread_id)
-            .map_err(|e| CoreError::Session(format!("failed to build thread state key for '{thread_id}': {e}")))
     }
 
     fn list_prefix(&self) -> String {
@@ -104,7 +98,6 @@ impl ThreadStore {
         let key = self.key(thread_id)?;
         let mut log = self.load_thread_log_for_write(&key).await?;
         log.steps.push(step.clone());
-        let step_count = log.steps.len();
         let val = serde_json::to_value(&log)
             .map_err(|e| CoreError::Session(format!("append_step('{}'): failed to serialize thread log: {}", thread_id, e)))?;
         self.storage.put_json(&key, &val).await?;
@@ -116,51 +109,7 @@ impl ThreadStore {
             },
         );
 
-        if let Err(e) = self
-            .materialize_thread_state_incremental(thread_id, step_count, &step)
-            .await
-        {
-            tracing::warn!(
-                thread_id,
-                step_count,
-                error = %e,
-                "view cache materialization failed (non-fatal)"
-            );
-        }
         Ok(())
-    }
-
-    pub async fn get_thread_state(&self, thread_id: &str) -> CoreResult<ThreadLogViewCache> {
-        let key = self.state_key(thread_id)?;
-        let v = self.storage.get_json(&key).await?;
-        let s = serde_json::from_value::<ThreadLogViewCache>(v)
-            .map_err(|e| CoreError::Session(format!("failed to parse thread state: {e}")))?;
-        if s.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
-            return Err(CoreError::Schema(format!(
-                "thread_state schema_version mismatch: expected {}, got {}",
-                THREAD_STATE_SCHEMA_VERSION, s.thread_state_schema_version
-            )));
-        }
-        Ok(s)
-    }
-
-    pub(crate) async fn save_thread_state(&self, thread_id: &str, state: &ThreadLogViewCache) -> CoreResult<()> {
-        if state.thread_state_schema_version != THREAD_STATE_SCHEMA_VERSION {
-            return Err(CoreError::Schema(format!(
-                "thread_state schema_version mismatch: expected {}, got {}",
-                THREAD_STATE_SCHEMA_VERSION, state.thread_state_schema_version
-            )));
-        }
-        if state.thread_id != thread_id {
-            return Err(CoreError::Session(format!(
-                "thread_state thread_id mismatch: expected {}, got {}",
-                thread_id, state.thread_id
-            )));
-        }
-        let key = self.state_key(thread_id)?;
-        let v = serde_json::to_value(state)
-            .map_err(|e| CoreError::Session(format!("save_thread_state('{}'): failed to serialize: {}", thread_id, e)))?;
-        self.storage.put_json(&key, &v).await
     }
 
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
@@ -210,14 +159,12 @@ impl ThreadStore {
 
     pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let state_key = self.state_key(thread_id)?;
         let thread_prefix = format!(
             "{}/{}.",
             self.keyspace.threads_prefix(&self.scope).trim_end_matches('/'),
             thread_id
         );
         self.storage.delete_object(&key).await?;
-        let _ = self.storage.delete_object(&state_key).await;
         if let Ok(keys) = self.storage.list_prefix(&thread_prefix).await {
             for k in keys {
                 let _ = self.storage.delete_object(&k).await;

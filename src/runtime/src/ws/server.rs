@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::models as m;
-use crate::run::event_hub::EventHub;
+use crate::event_hub::EventHub;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalEvent};
 use react_core::suite::{SuiteCtx, SuiteRegistry};

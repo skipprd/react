@@ -55,22 +55,12 @@ pub(crate) struct CacheEntry {
     pub(crate) ts: Instant,
 }
 
-mod materialization;
-pub use materialization::apply_step_to_state;
-
-mod projection;
-pub use projection::build_thread_events_from_log;
-
 mod store_io;
 
 #[async_trait::async_trait]
 impl ThreadLogReader for ThreadStore {
     async fn get_log(&self, thread_id: &str) -> crate::error::CoreResult<ThreadLog> {
         self.get(thread_id).await
-    }
-    async fn get_events(&self, thread_id: &str, max: usize) -> crate::error::CoreResult<Vec<ThreadEvent>> {
-        let log = self.get(thread_id).await?;
-        Ok(build_thread_events_from_log(&log, max))
     }
     async fn get_step_count(&self, thread_id: &str) -> crate::error::CoreResult<usize> {
         let log = self.get(thread_id).await?;
