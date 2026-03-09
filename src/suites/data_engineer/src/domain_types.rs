@@ -126,6 +126,7 @@ pub enum GuardBlockKind {
     PrecheckFailed,
     ValidateExecutionFailed,
     MissingThreadStep,
+    PhaseExecutionError,
 }
 
 impl GuardBlockKind {
@@ -142,6 +143,7 @@ impl GuardBlockKind {
             GuardBlockKind::PrecheckFailed => "precheck_failed",
             GuardBlockKind::ValidateExecutionFailed => "validate_execution_failed",
             GuardBlockKind::MissingThreadStep => "missing_thread_step",
+            GuardBlockKind::PhaseExecutionError => "phase_execution_error",
         }
     }
 }
@@ -246,7 +248,7 @@ mod tests {
         PhaseReasonCode::PhaseBlocked,
     ];
 
-    const ALL_GUARD_BLOCK_KINDS: [GuardBlockKind; 11] = [
+    const ALL_GUARD_BLOCK_KINDS: [GuardBlockKind; 12] = [
         GuardBlockKind::PlanJsonInvalid,
         GuardBlockKind::PlanGrounding,
         GuardBlockKind::PlanSemanticInvalid,
@@ -258,6 +260,7 @@ mod tests {
         GuardBlockKind::PrecheckFailed,
         GuardBlockKind::ValidateExecutionFailed,
         GuardBlockKind::MissingThreadStep,
+        GuardBlockKind::PhaseExecutionError,
     ];
 
     #[test]

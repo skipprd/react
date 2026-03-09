@@ -447,7 +447,7 @@ impl DataEngineerSuite {
             }
 
             let repair_ctx = execution_state.repair_prompt_context();
-            let outcome = Self::execute_phase(
+            match Self::execute_phase(
                 &thread_store,
                 thread_id,
                 phase,
@@ -459,10 +459,10 @@ impl DataEngineerSuite {
                 &repair_ctx,
                 &mut out_frames,
             )
-            .await?;
-            match outcome {
+            .await {
                 PhaseExecutorOutcome::StayInPhase | PhaseExecutorOutcome::TransitionCommitted => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
+                PhaseExecutorOutcome::Failed { reason } => return Err(reason),
             }
         }
 
@@ -491,7 +491,58 @@ impl DataEngineerSuite {
         Err(budget_msg)
     }
 
+    /// Infallible phase dispatcher. Individual phase executors may return
+    /// `Err(String)` internally; this boundary catches every such error,
+    /// records a `PhaseExecutionError` guard block + `mark_failed` in
+    /// ControlState, and converts the error into `PhaseExecutorOutcome::Failed`.
+    ///
+    /// Because the return type carries no `Result`, the caller (`run_agent`)
+    /// cannot use `?` to silently discard errors — the compiler forces an
+    /// exhaustive match on the `Failed` variant.
     pub(super) async fn execute_phase(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        phase: crate::control_flow::Phase,
+        question: &str,
+        sctx: &SuiteCtx,
+        execution_state: &crate::progress_controller::ExecutionState,
+        guard: &control_flow::DerivedGuardState,
+        thread_state_step_count: usize,
+        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        out_frames: &mut Vec<FlowFrame>,
+    ) -> PhaseExecutorOutcome {
+        match Self::execute_phase_inner(
+            thread_store, thread_id, phase, question, sctx,
+            execution_state, guard, thread_state_step_count,
+            repair_ctx, out_frames,
+        ).await {
+            Ok(outcome) => outcome,
+            Err(reason) => {
+                tracing::error!(
+                    thread_id = %thread_id,
+                    phase = %phase.as_str(),
+                    error = %reason,
+                    "phase execution error — recording guard block",
+                );
+                let _ = apply_guard_block(
+                    thread_store, thread_id, phase,
+                    GuardBlockKind::PhaseExecutionError,
+                    &reason,
+                ).await;
+                if let Some(mut es) = crate::progress_controller::ExecutionState::load(
+                    &thread_store.control_store(), thread_id,
+                ).await {
+                    es.mark_failed(&reason);
+                    if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
+                        tracing::error!("failed to persist mark_failed after phase error: {e}");
+                    }
+                }
+                PhaseExecutorOutcome::Failed { reason }
+            }
+        }
+    }
+
+    async fn execute_phase_inner(
         thread_store: &ThreadStore,
         thread_id: &str,
         phase: crate::control_flow::Phase,

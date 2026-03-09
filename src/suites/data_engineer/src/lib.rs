@@ -169,6 +169,13 @@ pub(crate) enum PhaseExecutorOutcome {
     TransitionCommitted,
     /// Phase complete; return these frames to the caller.
     Return(Vec<FlowFrame>),
+    /// Phase execution failed; error has been recorded in ControlState + ThreadLog.
+    ///
+    /// This variant can only be constructed by `execute_phase` after persisting
+    /// a `PhaseExecutionError` guard block and calling `mark_failed`. Individual
+    /// phase executors return `Result<PhaseExecutorOutcome, String>` — the `Err`
+    /// is caught at the `execute_phase` boundary and converted to this variant.
+    Failed { reason: String },
 }
 
 /// Interrupt policy used by non-deterministic single-pass modes.
