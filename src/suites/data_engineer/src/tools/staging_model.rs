@@ -6,6 +6,7 @@ use tracing::info;
 use crate::dbt_repair::remediate::active_provider_dialect;
 use crate::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::plan;
+use crate::progress_controller::BatchFailureKind;
 use crate::project_fs;
 use crate::references::DatasetRef;
 use crate::sql_first;
@@ -144,6 +145,17 @@ fn build_staging_sys_prompt(
         ,
         provider_rules = provider_rules
     )
+}
+
+fn merge_failure_kind(a: BatchFailureKind, b: BatchFailureKind) -> BatchFailureKind {
+    use BatchFailureKind::*;
+    let rank = |k: BatchFailureKind| match k {
+        InfraTransient => 4,
+        SqlValidation => 3,
+        SchemaOrContract => 2,
+        Unknown => 1,
+    };
+    if rank(b) > rank(a) { b } else { a }
 }
 
 use super::plan_prompt_helpers::{combine_instructions, render_plan_driven_instructions};
@@ -768,10 +780,21 @@ impl Tool for StagingModelTool {
         );
 
         let out_notes = dedup_notes(notes, 50);
+        let classified_kind = errors.iter().fold(BatchFailureKind::Unknown, |acc, e| {
+            merge_failure_kind(
+                acc,
+                crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e),
+            )
+        });
 
         let mut result = serde_json::json!({
             "ok": errors.is_empty(),
-            "batch_failure_kind": if errors.is_empty() { Value::Null } else { Value::String("unknown".to_string()) },
+            "batch_failure_kind": if errors.is_empty() {
+                Value::Null
+            } else {
+                serde_json::to_value(classified_kind)
+                    .unwrap_or_else(|_| Value::String("unknown".to_string()))
+            },
             "datasets": dataset_ids.len(),
             "written_keys": written,
             "schema_key": schema_key,

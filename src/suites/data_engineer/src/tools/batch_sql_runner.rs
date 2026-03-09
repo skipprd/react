@@ -30,6 +30,56 @@ pub(crate) fn classify_schema_batch_failure_kind(msg: &str) -> BatchFailureKind 
     BatchFailureKind::Unknown
 }
 
+pub(crate) fn classify_authoring_batch_failure_kind(msg: &str) -> BatchFailureKind {
+    let s = msg.to_ascii_lowercase();
+    if s.contains("timeout")
+        || s.contains("temporar")
+        || s.contains("http 502")
+        || s.contains("http 503")
+        || s.contains("http 504")
+    {
+        return BatchFailureKind::InfraTransient;
+    }
+    if s.contains("sql validation")
+        || s.contains("athena/trino")
+        || s.contains("trino")
+        || s.contains("materialized sql")
+        || s.contains("source() call")
+        || s.contains("dbt source()")
+        || s.contains("syntax error")
+    {
+        return BatchFailureKind::SqlValidation;
+    }
+    if s.contains("schema")
+        || s.contains("yaml")
+        || s.contains("parse")
+        || s.contains("contract")
+        || s.contains("invalid model folder")
+    {
+        return BatchFailureKind::SchemaOrContract;
+    }
+    BatchFailureKind::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_authoring_sql_validation() {
+        let k = classify_authoring_batch_failure_kind(
+            "sql validation failed: Athena/Trino cannot reference a SELECT-list alias",
+        );
+        assert_eq!(k, BatchFailureKind::SqlValidation);
+    }
+
+    #[test]
+    fn classify_authoring_schema_error() {
+        let k = classify_authoring_batch_failure_kind("invalid model folder 'models/raw/x.sql'");
+        assert_eq!(k, BatchFailureKind::SchemaOrContract);
+    }
+}
+
 pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -> Result<(), String> {
     let Some(thread_store) = ctx.thread_store().as_ref() else {
         return Ok(());

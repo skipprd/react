@@ -294,7 +294,31 @@ if let Err(e) =
 let obs: crate::controller_event::ValidateObservationContract;
 let args_full = serde_json::json!({"build": true});
 let tool_id_full = uuid::Uuid::new_v4().to_string();
-let _ = thread_store
+let mut validate_ctx = react_core::session::ExecutionContext::default();
+validate_ctx.set(
+    "phase",
+    serde_json::Value::String(phase.as_str().to_string()),
+);
+validate_ctx.set(
+    "tier",
+    serde_json::Value::String(
+        if phase == Phase::CleanseValidate {
+            "cleanse"
+        } else {
+            "model"
+        }
+        .to_string(),
+    ),
+);
+validate_ctx.set(
+    "validate_mode",
+    serde_json::Value::String("deterministic_full_build".to_string()),
+);
+validate_ctx.set(
+    "build",
+    serde_json::Value::Bool(true),
+);
+let start_logged = match thread_store
     .append_step(
         thread_id,
         react_core::session::ThreadStep::ToolStart {
@@ -304,12 +328,24 @@ let _ = thread_store
             args: args_full.clone(),
             status: ToolStepStatus::Running,
             payload: None,
-            ctx: None,
+            ctx: Some(validate_ctx.clone()),
             ts: chrono::Utc::now().to_rfc3339(),
             agent: "agent".to_string(),
         },
     )
-    .await;
+    .await
+{
+    Ok(_) => true,
+    Err(e) => {
+        tracing::warn!(
+            "data_engineer: failed to append dbt_validate tool_start (thread_id={} phase={}): {}",
+            thread_id,
+            phase.as_str(),
+            e
+        );
+        false
+    }
+};
 obs = control_flow::DeterministicDbtValidateOnce::run(
     &actx, true, false, None,
 )
@@ -317,7 +353,7 @@ obs = control_flow::DeterministicDbtValidateOnce::run(
 let obs_norm = react_core::session::ToolObservation::normalize(
     obs.observation.clone(),
 );
-let _ = thread_store
+if let Err(e) = thread_store
     .append_step(
         thread_id,
         react_core::session::ThreadStep::ToolEnd {
@@ -331,13 +367,30 @@ let _ = thread_store
                 ToolStepStatus::Failed
             },
             payload: None,
-            ctx: None,
+            ctx: Some(validate_ctx),
             observation: obs_norm,
             ts: chrono::Utc::now().to_rfc3339(),
             agent: "agent".to_string(),
         },
     )
-    .await;
+    .await
+{
+    tracing::warn!(
+        "data_engineer: failed to append dbt_validate tool_end (thread_id={} phase={}): {}",
+        thread_id,
+        phase.as_str(),
+        e
+    );
+    if start_logged {
+        // Alertable observability gap: we emitted ToolStart but failed to persist ToolEnd.
+        // This stable marker is intended for log-based counters/alerts.
+        tracing::warn!(
+            "data_engineer_observability_gap kind=unmatched_tool_start tool=dbt_validate thread_id={} phase={}",
+            thread_id,
+            phase.as_str()
+        );
+    }
+}
 
 let validate_event =
     crate::controller_event::validate_event_from_contract(&obs);
