@@ -1,117 +1,215 @@
 use super::*;
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
+
+trait EnrichableTask: crate::plan::PlanTask + Sized {
+    type Spec: serde::Serialize + DeserializeOwned;
+    type EnrichmentItem;
+    type EnrichmentResponse: DeserializeOwned + JsonSchema;
+
+    fn track_kind() -> TrackKind;
+    fn phase() -> control_flow::Phase;
+    fn compile_schema_name() -> &'static str;
+    fn reason_prompt_id() -> &'static str;
+    fn compile_prompt_id() -> &'static str;
+    fn retry_prompt_id() -> &'static str;
+    fn enrichment_system_prompt() -> String;
+    fn sanitizer_phase() -> &'static str;
+    fn summarize_plan(plan: &crate::plan::Plan<Self>, max_lines: usize) -> String;
+    fn response_items(response: Self::EnrichmentResponse) -> Vec<Self::EnrichmentItem>;
+    fn item_parts(item: Self::EnrichmentItem) -> Result<(String, serde_json::Value), String>;
+    fn apply_spec(task: &mut Self, spec: Self::Spec);
+    fn is_placeholder(task: &Self) -> bool;
+    fn retry_hint(failure_errors: &[String]) -> String;
+}
+
+impl EnrichableTask for crate::plan::CleanseTask {
+    type Spec = crate::plan::CleanseImplementationSpec;
+    type EnrichmentItem = crate::plan_schema::CleansePlanEnrichmentItemV1;
+    type EnrichmentResponse = crate::plan_schema::CleansePlanEnrichmentV1;
+
+    fn track_kind() -> TrackKind {
+        TrackKind::Cleanse
+    }
+
+    fn phase() -> control_flow::Phase {
+        control_flow::Phase::CleansePlan
+    }
+
+    fn compile_schema_name() -> &'static str {
+        "suite.cleanse_plan_enrichment.v1"
+    }
+
+    fn reason_prompt_id() -> &'static str {
+        "data_engineer.cleanse_plan_enrich_reason"
+    }
+
+    fn compile_prompt_id() -> &'static str {
+        "data_engineer.cleanse_plan_enrich"
+    }
+
+    fn retry_prompt_id() -> &'static str {
+        "data_engineer.cleanse_plan_enrich_retry"
+    }
+
+    fn enrichment_system_prompt() -> String {
+        prompts::plan::cleanse_plan_enrichment_system_prompt()
+    }
+
+    fn sanitizer_phase() -> &'static str {
+        "cleanse_enrich"
+    }
+
+    fn summarize_plan(plan: &crate::plan::Plan<Self>, max_lines: usize) -> String {
+        crate::plan::summarize_cleanse_plan(plan, max_lines)
+    }
+
+    fn response_items(response: Self::EnrichmentResponse) -> Vec<Self::EnrichmentItem> {
+        response.items
+    }
+
+    fn item_parts(item: Self::EnrichmentItem) -> Result<(String, serde_json::Value), String> {
+        let spec_value =
+            serde_json::to_value(&item.implementation_spec).map_err(|e| e.to_string())?;
+        Ok((item.task_id, spec_value))
+    }
+
+    fn apply_spec(task: &mut Self, spec: Self::Spec) {
+        task.implementation_spec = Some(spec);
+    }
+
+    fn is_placeholder(task: &Self) -> bool {
+        task.implementation_spec.is_none()
+    }
+
+    fn retry_hint(failure_errors: &[String]) -> String {
+        format!(
+            "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,row_preserving,output_fields,prohibited_ops.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
+            failure_errors.join("\n")
+        )
+    }
+}
+
+impl EnrichableTask for crate::plan::ModelTask {
+    type Spec = crate::plan::ModelImplementationSpec;
+    type EnrichmentItem = crate::plan_schema::ModelPlanEnrichmentItemV1;
+    type EnrichmentResponse = crate::plan_schema::ModelPlanEnrichmentV1;
+
+    fn track_kind() -> TrackKind {
+        TrackKind::Model
+    }
+
+    fn phase() -> control_flow::Phase {
+        control_flow::Phase::ModelPlan
+    }
+
+    fn compile_schema_name() -> &'static str {
+        "suite.model_plan_enrichment.v1"
+    }
+
+    fn reason_prompt_id() -> &'static str {
+        "data_engineer.model_plan_enrich_reason"
+    }
+
+    fn compile_prompt_id() -> &'static str {
+        "data_engineer.model_plan_enrich"
+    }
+
+    fn retry_prompt_id() -> &'static str {
+        "data_engineer.model_plan_enrich_retry"
+    }
+
+    fn enrichment_system_prompt() -> String {
+        prompts::plan::model_plan_enrichment_system_prompt()
+    }
+
+    fn sanitizer_phase() -> &'static str {
+        "model_enrich"
+    }
+
+    fn summarize_plan(plan: &crate::plan::Plan<Self>, max_lines: usize) -> String {
+        crate::plan::summarize_model_plan(plan, max_lines)
+    }
+
+    fn response_items(response: Self::EnrichmentResponse) -> Vec<Self::EnrichmentItem> {
+        response.items
+    }
+
+    fn item_parts(item: Self::EnrichmentItem) -> Result<(String, serde_json::Value), String> {
+        let spec_value =
+            serde_json::to_value(&item.implementation_spec).map_err(|e| e.to_string())?;
+        Ok((item.task_id, spec_value))
+    }
+
+    fn apply_spec(task: &mut Self, spec: Self::Spec) {
+        let spec_inputs = spec.inputs.clone();
+        task.implementation_spec = Some(spec);
+        if !spec_inputs.is_empty() {
+            task.inputs = spec_inputs;
+        }
+        if task.goal.trim().is_empty() {
+            task.goal = format!("Build {} from grounded staging inputs.", task.name.trim());
+        }
+    }
+
+    fn is_placeholder(task: &Self) -> bool {
+        task.implementation_spec.is_none()
+    }
+
+    fn retry_hint(failure_errors: &[String]) -> String {
+        format!(
+            "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,grain,inputs,joins,metrics,output_fields,assumptions.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
+            failure_errors.join("\n")
+        )
+    }
+}
 
 impl DataEngineerSuite {
     pub(super) fn plan_enrich_chunk_size() -> usize {
         env_util::plan_enrich_chunk_size()
     }
 
-    pub(super) fn is_placeholder_cleanse_spec(spec: Option<&crate::plan::CleanseImplementationSpec>) -> bool {
-        spec.is_none()
-    }
-
-    pub(super) fn is_placeholder_model_spec(spec: Option<&crate::plan::ModelImplementationSpec>) -> bool {
-        spec.is_none()
-    }
-
-    pub(super) fn apply_cleanse_enrichment_items(
-        plan: &mut crate::plan::CleansePlan,
+    fn apply_enrichment_items<T: EnrichableTask>(
+        plan: &mut crate::plan::Plan<T>,
         allowed_task_ids: &[String],
-        items: Vec<crate::plan_schema::CleansePlanEnrichmentItemV1>,
+        items: Vec<T::EnrichmentItem>,
     ) -> (Vec<String>, Vec<String>) {
         let mut failed: Vec<String> = Vec::new();
         let mut failure_errors: Vec<String> = Vec::new();
         for it in items {
-            if !allowed_task_ids.iter().any(|t| t == &it.task_id) {
-                continue;
-            }
-            let spec_value = match serde_json::to_value(&it.implementation_spec) {
-                Ok(v) => v,
+            let (task_id, spec_value) = match T::item_parts(it) {
+                Ok(parts) => parts,
                 Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e.to_string());
-                    continue;
-                }
-            };
-            match Self::parse_impl_spec_value_with_sanitize::<
-                crate::plan::CleanseImplementationSpec,
-            >(spec_value, TrackKind::Cleanse)
-            {
-                Ok((spec, stripped)) => {
-                    if !stripped.is_empty() {
-                        Self::push_snapshot_array_event(
-                            &mut plan.project_snapshot,
-                            "spec_sanitizer_events",
-                            serde_json::json!({
-                                "phase": "cleanse_enrich",
-                                "task_id": it.task_id,
-                                "stripped_keys": stripped
-                            }),
-                            200,
-                        );
-                    }
-                    if let Some(t) = plan.tasks.iter_mut().find(|t| t.dataset_id == it.task_id) {
-                        t.implementation_spec = Some(spec);
-                    }
-                }
-                Err(e) => {
-                    failed.push(it.task_id);
                     failure_errors.push(e);
-                }
-            }
-        }
-        (failed, failure_errors)
-    }
-
-    pub(super) fn apply_model_enrichment_items(
-        plan: &mut crate::plan::ModelPlan,
-        allowed_task_ids: &[String],
-        items: Vec<crate::plan_schema::ModelPlanEnrichmentItemV1>,
-    ) -> (Vec<String>, Vec<String>) {
-        let mut failed: Vec<String> = Vec::new();
-        let mut failure_errors: Vec<String> = Vec::new();
-        for it in items {
-            if !allowed_task_ids.iter().any(|t| t == &it.task_id) {
-                continue;
-            }
-            let spec_value = match serde_json::to_value(&it.implementation_spec) {
-                Ok(v) => v,
-                Err(e) => {
-                    failed.push(it.task_id);
-                    failure_errors.push(e.to_string());
                     continue;
                 }
             };
-            match Self::parse_impl_spec_value_with_sanitize::<
-                crate::plan::ModelImplementationSpec,
-            >(spec_value, TrackKind::Model)
-            {
+            if !allowed_task_ids.iter().any(|t| t == &task_id) {
+                continue;
+            }
+            match Self::parse_impl_spec_value_with_sanitize::<T::Spec>(
+                spec_value,
+                T::track_kind(),
+            ) {
                 Ok((spec, stripped)) => {
                     if !stripped.is_empty() {
                         Self::push_snapshot_array_event(
                             &mut plan.project_snapshot,
                             "spec_sanitizer_events",
                             serde_json::json!({
-                                "phase": "model_enrich",
-                                "task_id": it.task_id,
+                                "phase": T::sanitizer_phase(),
+                                "task_id": task_id,
                                 "stripped_keys": stripped
                             }),
                             200,
                         );
                     }
-                    if let Some(t) = plan.tasks.iter_mut().find(|t| t.name == it.task_id) {
-                        let spec_inputs = spec.inputs.clone();
-                        t.implementation_spec = Some(spec);
-                        if !spec_inputs.is_empty() {
-                            t.inputs = spec_inputs;
-                        }
-                        if t.goal.trim().is_empty() {
-                            t.goal =
-                                format!("Build {} from grounded staging inputs.", t.name.trim());
-                        }
+                    if let Some(task) = plan.tasks.iter_mut().find(|task| task.task_id() == task_id) {
+                        T::apply_spec(task, spec);
                     }
                 }
                 Err(e) => {
-                    failed.push(it.task_id);
+                    failed.push(task_id);
                     failure_errors.push(e);
                 }
             }
@@ -164,29 +262,41 @@ impl DataEngineerSuite {
         )
     }
 
-    // TODO(item-86): enrich_cleanse_tasks and enrich_model_tasks below are near-identical
-    // (~165 lines each). Extract a generic `enrich_tasks<P: EnrichablePlan>(...)` function
-    // parameterized over the plan type, using a trait to abstract summarize, apply_items,
-    // system_prompt, schema_spec, prompt_ids, and unresolved-check. The apply_* methods
-    // can remain track-specific since model has extra inputs/goal logic.
-    pub(super) async fn enrich_cleanse_tasks(
+    fn unresolved_enrichment_task_ids<T: EnrichableTask>(
+        plan: &crate::plan::Plan<T>,
+        task_ids: &[String],
+    ) -> Vec<String> {
+        task_ids
+            .iter()
+            .filter(|task_id| {
+                plan.tasks
+                    .iter()
+                    .find(|task| task.task_id() == task_id.as_str())
+                    .map(T::is_placeholder)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect()
+    }
+
+    async fn enrich_tasks<T: EnrichableTask>(
         ctx: &AgentCtx,
         planning_context: &str,
         memo: &str,
         critique: &crate::plan_schema::PlanDesignCritiqueV1,
-        plan: &mut crate::plan::CleansePlan,
+        plan: &mut crate::plan::Plan<T>,
         task_ids: &[String],
     ) -> Result<(), String> {
         use react_core::llm::{ChatMessage, ChatRole};
         for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
             let chunk_vec = chunk.to_vec();
-            let summary = crate::plan::summarize_cleanse_plan(plan, 50);
+            let summary = T::summarize_plan(plan, 50);
             let base_user = format!(
                 "{}\n\nTarget task_ids:\n{}\n\nReturn schema-valid enrichment JSON.",
                 Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::CleansePlan,
+                    T::phase(),
                     crate::prompt_packets::TurnDirective::Compile,
-                    crate::plan_kind::PlanKind::Cleanse,
+                    T::track_kind(),
                     &plan.plan_key,
                     planning_context,
                     memo,
@@ -200,9 +310,9 @@ impl DataEngineerSuite {
             let reason_user = format!(
                 "Think through the enrichment strategy for these task_ids. Return plain text only, no JSON.\n\n{}",
                 Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::CleansePlan,
+                    T::phase(),
                     crate::prompt_packets::TurnDirective::Reason,
-                    crate::plan_kind::PlanKind::Cleanse,
+                    T::track_kind(),
                     &plan.plan_key,
                     planning_context,
                     memo,
@@ -225,7 +335,7 @@ impl DataEngineerSuite {
                 ],
                 &Self::planning_llm_options(
                     PlanningLlmProfile::EnrichmentReason,
-                    "data_engineer.cleanse_plan_enrich_reason",
+                    T::reason_prompt_id(),
                     ctx.thread_id().clone(),
                 )?,
             )
@@ -233,20 +343,18 @@ impl DataEngineerSuite {
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
-                "data_engineer.cleanse_plan_enrich",
+                T::compile_prompt_id(),
                 ctx.thread_id().clone(),
             )?;
             opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                name: "suite.cleanse_plan_enrichment.v1".to_string(),
-                schema: crate::plan_schema::strict_schema_for::<
-                    crate::plan_schema::CleansePlanEnrichmentV1,
-                >()?,
+                name: T::compile_schema_name().to_string(),
+                schema: crate::plan_schema::strict_schema_for::<T::EnrichmentResponse>()?,
             };
             let raw = ctx.llm_chat(
                 &[
                     ChatMessage {
                         role: ChatRole::System,
-                        content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
+                        content: T::enrichment_system_prompt(),
                     },
                     ChatMessage {
                         role: ChatRole::User,
@@ -256,42 +364,40 @@ impl DataEngineerSuite {
                 &opts,
             )
             .await.map_err(|e| e.to_string())?;
-            let enrich = Self::parse_json_typed_strict::<
-                crate::plan_schema::CleansePlanEnrichmentV1,
-            >(&raw)?;
-            let (failed, failure_errors) =
-                Self::apply_cleanse_enrichment_items(plan, &chunk_vec, enrich.items);
+            let enrich = Self::parse_json_typed_strict::<T::EnrichmentResponse>(&raw)?;
+            let (failed, failure_errors) = Self::apply_enrichment_items::<T>(
+                plan,
+                &chunk_vec,
+                T::response_items(enrich),
+            );
             if !failed.is_empty() {
-                let retry_hint = format!(
-                    "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,row_preserving,output_fields,prohibited_ops.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
-                    failure_errors.join("\n")
-                );
+                let retry_hint = T::retry_hint(&failure_errors);
                 let retry_user = format!(
                     "{}\n\nTarget task_ids:\n{}\n\nSTRICT RETRY REQUIREMENTS:\n{}\n\nReturn schema-valid enrichment JSON.",
                     Self::build_enrichment_prompt_envelope(
-                        control_flow::Phase::CleansePlan,
+                        T::phase(),
                         crate::prompt_packets::TurnDirective::Verify,
-                        crate::plan_kind::PlanKind::Cleanse,
+                        T::track_kind(),
                         &plan.plan_key,
                         planning_context,
                         memo,
                         critique,
-                        &crate::plan::summarize_cleanse_plan(plan, 50),
+                        &T::summarize_plan(plan, 50),
                         &failed,
                         &failure_errors,
                     ),
                     serde_json::to_string_pretty(&failed).unwrap_or_else(|_| "[]".to_string()),
                     retry_hint
                 );
-                let retry_opts = LlmCallOptions {
-                    prompt_id: "data_engineer.cleanse_plan_enrich_retry",
+                let retry_opts = react_core::llm::LlmCallOptions {
+                    prompt_id: T::retry_prompt_id(),
                     ..opts
                 };
                 let retry_raw = ctx.llm_chat(
                     &[
                         ChatMessage {
                             role: ChatRole::System,
-                            content: prompts::plan::cleanse_plan_enrichment_system_prompt(),
+                            content: T::enrichment_system_prompt(),
                         },
                         ChatMessage {
                             role: ChatRole::User,
@@ -301,38 +407,51 @@ impl DataEngineerSuite {
                     &retry_opts,
                 )
                 .await.map_err(|e| e.to_string())?;
-                let retry_enrich = Self::parse_json_typed_strict::<
-                    crate::plan_schema::CleansePlanEnrichmentV1,
-                >(&retry_raw)?;
-                let (retry_failed, retry_errors) =
-                    Self::apply_cleanse_enrichment_items(plan, &failed, retry_enrich.items);
+                let retry_enrich =
+                    Self::parse_json_typed_strict::<T::EnrichmentResponse>(&retry_raw)?;
+                let (retry_failed, retry_errors) = Self::apply_enrichment_items::<T>(
+                    plan,
+                    &failed,
+                    T::response_items(retry_enrich),
+                );
                 if !retry_failed.is_empty() {
                     return Err(format!(
-                        "cleanse enrichment invalid after bounded retry for task_ids={}: {}",
+                        "{} enrichment invalid after bounded retry for task_ids={}: {}",
+                        T::track_kind().as_str(),
                         retry_failed.join(","),
                         retry_errors.join(" | ")
                     ));
                 }
             }
         }
-        let unresolved: Vec<String> = task_ids
-            .iter()
-            .filter(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.dataset_id.as_str() == task_id.as_str())
-                    .map(|t| Self::is_placeholder_cleanse_spec(t.implementation_spec.as_ref()))
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
+        let unresolved = Self::unresolved_enrichment_task_ids::<T>(plan, task_ids);
         if !unresolved.is_empty() {
             return Err(format!(
-                "cleanse enrichment did not produce implementation_spec for task_ids={}",
+                "{} enrichment did not produce implementation_spec for task_ids={}",
+                T::track_kind().as_str(),
                 unresolved.join(",")
             ));
         }
         Ok(())
+    }
+
+    pub(super) async fn enrich_cleanse_tasks(
+        ctx: &AgentCtx,
+        planning_context: &str,
+        memo: &str,
+        critique: &crate::plan_schema::PlanDesignCritiqueV1,
+        plan: &mut crate::plan::CleansePlan,
+        task_ids: &[String],
+    ) -> Result<(), String> {
+        Self::enrich_tasks::<crate::plan::CleanseTask>(
+            ctx,
+            planning_context,
+            memo,
+            critique,
+            plan,
+            task_ids,
+        )
+        .await
     }
 
     pub(super) async fn enrich_model_tasks(
@@ -343,162 +462,15 @@ impl DataEngineerSuite {
         plan: &mut crate::plan::ModelPlan,
         task_ids: &[String],
     ) -> Result<(), String> {
-        use react_core::llm::{ChatMessage, ChatRole};
-        for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
-            let chunk_vec = chunk.to_vec();
-            let summary = crate::plan::summarize_model_plan(plan, 50);
-            let base_user = format!(
-                "{}\n\nTarget task_ids:\n{}\n\nReturn schema-valid enrichment JSON.",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::ModelPlan,
-                    crate::prompt_packets::TurnDirective::Compile,
-                    crate::plan_kind::PlanKind::Model,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                ),
-                serde_json::to_string_pretty(&chunk_vec).unwrap_or_else(|_| "[]".to_string())
-            );
-            let reason_user = format!(
-                "Think through the enrichment strategy for these task_ids. Return plain text only, no JSON.\n\n{}",
-                Self::build_enrichment_prompt_envelope(
-                    control_flow::Phase::ModelPlan,
-                    crate::prompt_packets::TurnDirective::Reason,
-                    crate::plan_kind::PlanKind::Model,
-                    &plan.plan_key,
-                    planning_context,
-                    memo,
-                    critique,
-                    &summary,
-                    &chunk_vec,
-                    &[],
-                )
-            );
-            let reason_memo = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: reason_user,
-                    },
-                ],
-                &Self::planning_llm_options(
-                    PlanningLlmProfile::EnrichmentReason,
-                    "data_engineer.model_plan_enrich_reason",
-                    ctx.thread_id().clone(),
-                )?,
-            )
-            .await.map_err(|e| e.to_string())?;
-            let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
-            let mut opts = Self::planning_llm_options(
-                PlanningLlmProfile::EnrichmentCompile,
-                "data_engineer.model_plan_enrich",
-                ctx.thread_id().clone(),
-            )?;
-            opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                name: "suite.model_plan_enrichment.v1".to_string(),
-                schema: crate::plan_schema::strict_schema_for::<
-                    crate::plan_schema::ModelPlanEnrichmentV1,
-                >()?,
-            };
-            let raw = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::model_plan_enrichment_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: compile_user,
-                    },
-                ],
-                &opts,
-            )
-            .await.map_err(|e| e.to_string())?;
-            let enrich = Self::parse_json_typed_strict::<
-                crate::plan_schema::ModelPlanEnrichmentV1,
-            >(&raw)?;
-            let (failed, failure_errors) =
-                Self::apply_model_enrichment_items(plan, &chunk_vec, enrich.items);
-            if !failed.is_empty() {
-                let retry_hint = format!(
-                    "You previously returned invalid implementation_spec.\nErrors:\n{}\nOnly emit implementation_spec object with keys: spec_version,grain,inputs,joins,metrics,output_fields,assumptions.\noutput_fields[].kind MUST be exactly one of: raw, clean, derived, quality_flag.\nEach output_fields item MUST include name, kind, expression.\nDo not use synonyms like passthrough/source/base/quality.\nNo wrappers, no extra fields.",
-                    failure_errors.join("\n")
-                );
-                let retry_user = format!(
-                    "{}\n\nTarget task_ids:\n{}\n\nSTRICT RETRY REQUIREMENTS:\n{}\n\nReturn schema-valid enrichment JSON.",
-                    Self::build_enrichment_prompt_envelope(
-                        control_flow::Phase::ModelPlan,
-                        crate::prompt_packets::TurnDirective::Verify,
-                        crate::plan_kind::PlanKind::Model,
-                        &plan.plan_key,
-                        planning_context,
-                        memo,
-                        critique,
-                        &crate::plan::summarize_model_plan(plan, 50),
-                        &failed,
-                        &failure_errors,
-                    ),
-                    serde_json::to_string_pretty(&failed).unwrap_or_else(|_| "[]".to_string()),
-                    retry_hint
-                );
-                let retry_opts = LlmCallOptions {
-                    prompt_id: "data_engineer.model_plan_enrich_retry",
-                    ..opts
-                };
-                let retry_raw = ctx.llm_chat(
-                    &[
-                        ChatMessage {
-                            role: ChatRole::System,
-                            content: prompts::plan::model_plan_enrichment_system_prompt(),
-                        },
-                        ChatMessage {
-                            role: ChatRole::User,
-                            content: retry_user,
-                        },
-                    ],
-                    &retry_opts,
-                )
-                .await.map_err(|e| e.to_string())?;
-                let retry_enrich = Self::parse_json_typed_strict::<
-                    crate::plan_schema::ModelPlanEnrichmentV1,
-                >(&retry_raw)?;
-                let (retry_failed, retry_errors) =
-                    Self::apply_model_enrichment_items(plan, &failed, retry_enrich.items);
-                if !retry_failed.is_empty() {
-                    return Err(format!(
-                        "model enrichment invalid after bounded retry for task_ids={}: {}",
-                        retry_failed.join(","),
-                        retry_errors.join(" | ")
-                    ));
-                }
-            }
-        }
-        let unresolved: Vec<String> = task_ids
-            .iter()
-            .filter(|task_id| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.name.as_str() == task_id.as_str())
-                    .map(|t| Self::is_placeholder_model_spec(t.implementation_spec.as_ref()))
-                    .unwrap_or(true)
-            })
-            .cloned()
-            .collect();
-        if !unresolved.is_empty() {
-            return Err(format!(
-                "model enrichment did not produce implementation_spec for task_ids={}",
-                unresolved.join(",")
-            ));
-        }
-        Ok(())
+        Self::enrich_tasks::<crate::plan::ModelTask>(
+            ctx,
+            planning_context,
+            memo,
+            critique,
+            plan,
+            task_ids,
+        )
+        .await
     }
 
     pub(super) async fn generate_design_memo(
@@ -853,5 +825,104 @@ Apply these fixes in the output.",
             mutations: vec![],
             progress: Default::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generic_enrichment_applies_cleanse_spec_to_allowed_tasks() {
+        let mut plan = crate::plan::CleansePlan {
+            plan_key: "p".to_string(),
+            status: crate::plan::PlanStatus::Draft,
+            project_snapshot: serde_json::json!({}),
+            tasks: vec![crate::plan::CleanseTask {
+                dataset_id: "raw.orders".to_string(),
+                expected_model_path: None,
+                invariants: vec![],
+                implementation_spec: None,
+                status: crate::plan::TaskStatus::Pending,
+                checklist: vec![],
+            }],
+            batches: vec![vec!["raw.orders".to_string()]],
+            work_groups: vec![],
+            mutations: vec![],
+            progress: Default::default(),
+        };
+
+        let (failed, errors) = DataEngineerSuite::apply_enrichment_items::<crate::plan::CleanseTask>(
+            &mut plan,
+            &["raw.orders".to_string()],
+            vec![crate::plan_schema::CleansePlanEnrichmentItemV1 {
+                task_id: "raw.orders".to_string(),
+                implementation_spec: crate::plan::CleanseImplementationSpec {
+                    spec_version: 1,
+                    row_preserving: true,
+                    output_fields: vec![crate::plan::OutputFieldSpec {
+                        name: "order_id".to_string(),
+                        kind: crate::plan::FieldKind::Raw,
+                        source_columns: vec!["order_id".to_string()],
+                        expression: "order_id".to_string(),
+                        data_type: None,
+                        nullable: false,
+                        description: None,
+                    }],
+                    prohibited_ops: vec![],
+                },
+            }],
+        );
+
+        assert!(failed.is_empty(), "failed={failed:?} errors={errors:?}");
+        assert!(errors.is_empty(), "errors={errors:?}");
+        assert!(plan.tasks[0].implementation_spec.is_some());
+    }
+
+    #[test]
+    fn generic_enrichment_applies_model_spec_and_updates_inputs_and_goal() {
+        let mut plan = crate::plan::ModelPlan {
+            plan_key: "p".to_string(),
+            status: crate::plan::PlanStatus::Draft,
+            project_snapshot: serde_json::json!({}),
+            tasks: vec![crate::plan::ModelTask {
+                name: "fct_orders".to_string(),
+                folder: crate::plan::ModelFolder::Marts,
+                goal: String::new(),
+                inputs: vec![],
+                expected_model_path: None,
+                invariants: vec![],
+                implementation_spec: None,
+                status: crate::plan::TaskStatus::Pending,
+                checklist: vec![],
+            }],
+            batches: vec![vec!["fct_orders".to_string()]],
+            work_groups: vec![],
+            mutations: vec![],
+            progress: Default::default(),
+        };
+
+        let (failed, errors) = DataEngineerSuite::apply_enrichment_items::<crate::plan::ModelTask>(
+            &mut plan,
+            &["fct_orders".to_string()],
+            vec![crate::plan_schema::ModelPlanEnrichmentItemV1 {
+                task_id: "fct_orders".to_string(),
+                implementation_spec: crate::plan::ModelImplementationSpec {
+                    spec_version: 1,
+                    grain: "1 row per order_id".to_string(),
+                    inputs: vec!["stg_orders".to_string()],
+                    joins: vec![],
+                    metrics: vec![],
+                    output_fields: vec![],
+                    assumptions: vec![],
+                },
+            }],
+        );
+
+        assert!(failed.is_empty(), "failed={failed:?} errors={errors:?}");
+        assert!(errors.is_empty(), "errors={errors:?}");
+        assert_eq!(plan.tasks[0].inputs, vec!["stg_orders".to_string()]);
+        assert_eq!(plan.tasks[0].goal, "Build fct_orders from grounded staging inputs.");
+        assert!(plan.tasks[0].implementation_spec.is_some());
     }
 }

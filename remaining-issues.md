@@ -1,6 +1,6 @@
 # Remaining Issues
 
-P0 and P1 are now implemented. The remaining open work is grouped by priority and ordered to favor the simplest design simplifications first.
+The tracked P0, P1, and P2 items in this document are now implemented.
 
 ---
 
@@ -17,44 +17,11 @@ P0 and P1 are now implemented. The remaining open work is grouped by priority an
 - Core run-loop exits now record first-class `RunLoopStop` thread events for rejected completes, policy-blocked interrupts, and step-limit exhaustion.
 - `ThreadStore::run_observed` now finalizes failed `ToolEnd` records on unwind paths via a panic guard, closing the normal unmatched-tool gap.
 
----
+### P2
 
-## P2 Medium
-
-### 1. Enrichment flow is still duplicated and can drift again
-
-**File**: `src/suites/data_engineer/src/enrichment.rs`
-
-The main remaining suite-level design smell is duplicated enrichment orchestration. The earlier ordering/grounding issues are fixed, but the two enrichment flows are still structurally near-identical.
-
-**Why this matters**
-- Future fixes can drift again.
-- Complexity remains higher than necessary.
-
-**Best simplification**
-- Extract a generic `enrich_tasks<T: EnrichablePlan>()`.
-- Keep only track-specific schema/spec application details in trait methods.
-
-```rust
-trait EnrichablePlan: PlanTask {
-    type Spec;
-    type EnrichmentItem;
-    fn apply_spec(task: &mut Self, spec: Self::Spec);
-    fn is_placeholder(task: &Self) -> bool;
-}
-```
-
-**Compiler benefit**
-- Shared control flow becomes single-source.
-- Divergence requires an explicit type-level choice instead of copy/paste drift.
+- Enrichment orchestration is now shared through a generic typed `enrich_tasks<T: EnrichableTask>()` flow, with cleanse/model differences isolated to trait hooks for schema IDs, prompts, retry hints, and spec application.
 
 ---
-
-## Priority Summary
-
-| Priority | Item | Simplest design move |
-|----------|------|----------------------|
-| **P2** | Enrichment flow duplication | Generic `EnrichablePlan`-based orchestration |
 # Remaining Issues — Audit Follow-Up
 
 Primary thread evidence: `3ac65b27`, `3a383d24` (both built SILVER successfully, both died in `model_plan` grounding).
