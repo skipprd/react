@@ -20,6 +20,89 @@ pub struct ToolStepMeta {
     pub ctx: Option<ExecutionContext>,
 }
 
+struct ToolEndPanicGuard {
+    thread_store: ThreadStore,
+    thread_id: String,
+    thread_step: Option<ThreadStep>,
+    tool_name: String,
+    phase: String,
+    start_logged: bool,
+    armed: bool,
+}
+
+impl ToolEndPanicGuard {
+    fn new(
+        thread_store: ThreadStore,
+        thread_id: String,
+        thread_step: ThreadStep,
+        tool_name: String,
+        phase: String,
+        start_logged: bool,
+    ) -> Self {
+        Self {
+            thread_store,
+            thread_id,
+            thread_step: Some(thread_step),
+            tool_name,
+            phase,
+            start_logged,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+        self.thread_step = None;
+    }
+}
+
+impl Drop for ToolEndPanicGuard {
+    fn drop(&mut self) {
+        if !self.armed || !self.start_logged || !std::thread::panicking() {
+            return;
+        }
+        let Some(step) = self.thread_step.take() else {
+            return;
+        };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!(
+                "run_observed: panic finalizer missing runtime handle tool={} thread_id={} phase={}",
+                self.tool_name,
+                self.thread_id,
+                self.phase
+            );
+            tracing::warn!(
+                "observability_gap kind=unmatched_tool_start tool={} thread_id={} phase={}",
+                self.tool_name,
+                self.thread_id,
+                self.phase
+            );
+            return;
+        };
+        let store = self.thread_store.clone();
+        let thread_id = self.thread_id.clone();
+        let tool_name = self.tool_name.clone();
+        let phase = self.phase.clone();
+        handle.spawn(async move {
+            if let Err(e) = store.append_step(&thread_id, step).await {
+                tracing::warn!(
+                    "run_observed: panic finalizer failed to append tool_end name={} thread_id={} phase={}: {}",
+                    tool_name,
+                    thread_id,
+                    phase,
+                    e
+                );
+                tracing::warn!(
+                    "observability_gap kind=unmatched_tool_start tool={} thread_id={} phase={}",
+                    tool_name,
+                    thread_id,
+                    phase
+                );
+            }
+        });
+    }
+}
+
 impl ThreadStore {
     /// Execute `operation` inside a paired ToolStart/ToolEnd bracket.
     ///
@@ -76,6 +159,29 @@ impl ThreadStore {
                 false
             }
         };
+
+        let mut panic_guard = ToolEndPanicGuard::new(
+            self.clone(),
+            thread_id.to_string(),
+            ThreadStep::ToolEnd {
+                tool_id: tool_id.clone(),
+                name: meta.name.clone(),
+                clean_name: meta.clean_name.clone(),
+                args: meta.args.clone(),
+                status: ToolStepStatus::Failed,
+                payload: None,
+                ctx: meta.ctx.clone(),
+                observation: ToolObservation::normalize(serde_json::json!({
+                    "ok": false,
+                    "errors": [format!("tool '{}' panicked before producing a normal observation", meta.name)],
+                })),
+                ts: chrono::Utc::now().to_rfc3339(),
+                agent: meta.agent.clone(),
+            },
+            meta.name.clone(),
+            meta.phase.clone(),
+            start_logged,
+        );
 
         let result = operation().await;
 
@@ -147,6 +253,7 @@ impl ThreadStore {
                 );
             }
         }
+        panic_guard.disarm();
 
         return_result
     }

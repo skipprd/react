@@ -81,7 +81,7 @@ impl AgentPolicy for TimeoutPolicy {
         store: Option<&crate::session::ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<CompleteDecision, String> {
         self.inner
             .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await
@@ -619,7 +619,7 @@ impl AgentPolicy for InterruptOnNoopPolicy {
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<CompleteDecision, String> {
         DefaultPolicy
             .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await
@@ -749,4 +749,149 @@ async fn run_until_block_non_interactive_returns_step_boundary_on_step_budget_ex
         }
         other => panic!("expected StepBoundary, got unexpected outcome: {:?}", std::mem::discriminant(&other)),
     }
+}
+
+struct RejectCompletePolicy;
+
+#[async_trait]
+impl AgentPolicy for RejectCompletePolicy {
+    async fn handle_complete(
+        &self,
+        _tools: &ToolRegistry,
+        _ctx: &AgentCtx,
+        transcript: &mut Vec<String>,
+        _store: Option<&ThreadStore>,
+        _thread_id: &str,
+        _complete_env: &CompleteEnvelope,
+    ) -> Result<CompleteDecision, String> {
+        let reason = "policy rejected complete in test".to_string();
+        transcript.push(format!("Observation: {reason}"));
+        Ok(CompleteDecision::Reject { reason })
+    }
+}
+
+#[tokio::test]
+async fn run_until_block_records_policy_blocked_stop() {
+    let llm = Arc::new(ScriptedModel {
+        replies: Arc::new(Mutex::new(vec![
+            "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}".to_string(),
+        ])),
+    });
+    let storage = Arc::new(InMemoryStorageAdapter::default());
+    let keyspace: Arc<dyn crate::keyspace::Keyspace> =
+        Arc::new(DefaultKeyspace::new("bucket".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let thread_store = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
+    let mut reg = ToolRegistry::new();
+    reg.register(NoopTool);
+    let ctx = AgentCtxBuilder::new(
+        llm,
+        storage,
+        scope,
+        keyspace,
+        Arc::new(InterruptOnNoopPolicy),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(1)
+    .max_steps(1)
+    .thread_id("tid")
+    .agent_name("test")
+    .thread_store(thread_store.clone())
+    .build();
+
+    let out = Agent::run_until_block(
+        &reg,
+        &ctx,
+        "sys",
+        "tools",
+        "q",
+        crate::llm::LlmCallOptions {
+            prompt_id: "react_core.agent.tests.policy_blocked_stop",
+            thread_id: None,
+            expected_format: crate::llm::LlmExpectedFormat::JsonObject,
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            reasoning_effort: None,
+            timeout_secs: None,
+        },
+    )
+    .await
+    .expect("run should interrupt");
+    assert!(matches!(out, RunOutcome::Interrupt { .. }));
+
+    let log = thread_store.get("tid").await.expect("log");
+    assert!(log.steps.iter().any(|step| matches!(
+        step,
+        crate::session::ThreadStep::RunLoopStop {
+            kind: crate::session::RunLoopStopKind::PolicyBlocked,
+            ..
+        }
+    )));
+}
+
+#[tokio::test]
+async fn run_until_block_records_rejected_complete_stop() {
+    let llm = Arc::new(ScriptedModel {
+        replies: Arc::new(Mutex::new(vec![
+            "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{\\\"text\\\":\\\"ok\\\"}\",\"display\":null}}".to_string(),
+        ])),
+    });
+    let storage = Arc::new(InMemoryStorageAdapter::default());
+    let keyspace: Arc<dyn crate::keyspace::Keyspace> =
+        Arc::new(DefaultKeyspace::new("bucket".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let thread_store = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
+    let reg = ToolRegistry::new();
+    let ctx = AgentCtxBuilder::new(
+        llm,
+        storage,
+        scope,
+        keyspace,
+        Arc::new(RejectCompletePolicy),
+    )
+    .top_k(1)
+    .per_step_timeout_secs(1)
+    .max_steps(1)
+    .thread_id("tid")
+    .agent_name("test")
+    .thread_store(thread_store.clone())
+    .build();
+
+    let out = Agent::run_until_block(
+        &reg,
+        &ctx,
+        "sys",
+        "tools",
+        "q",
+        crate::llm::LlmCallOptions {
+            prompt_id: "react_core.agent.tests.rejected_complete_stop",
+            thread_id: None,
+            expected_format: crate::llm::LlmExpectedFormat::JsonObject,
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            reasoning_effort: None,
+            timeout_secs: None,
+        },
+    )
+    .await
+    .expect("fallback interrupt should be returned");
+    assert!(matches!(out, RunOutcome::Interrupt { .. }));
+
+    let log = thread_store.get("tid").await.expect("log");
+    assert!(log.steps.iter().any(|step| matches!(
+        step,
+        crate::session::ThreadStep::RunLoopStop {
+            kind: crate::session::RunLoopStopKind::RejectedComplete,
+            ..
+        }
+    )));
+    assert!(log.steps.iter().any(|step| matches!(
+        step,
+        crate::session::ThreadStep::RunLoopStop {
+            kind: crate::session::RunLoopStopKind::StepLimitExceeded,
+            ..
+        }
+    )));
 }

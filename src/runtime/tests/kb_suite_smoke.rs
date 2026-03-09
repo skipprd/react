@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use react_core::agent::{
-    Agent, AgentCtxBuilder, AgentPolicy, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
+    Agent, AgentCtxBuilder, AgentPolicy, CompleteDecision, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
 };
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
@@ -75,8 +75,10 @@ impl AgentPolicy for InterruptOnAskUser {
         _store: Option<&ThreadStore>,
         _thread_id: &str,
         _complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
-        Ok(None)
+    ) -> Result<CompleteDecision, String> {
+        Ok(CompleteDecision::Reject {
+            reason: "interrupt_only_test_policy_rejects_complete".to_string(),
+        })
     }
 }
 

@@ -460,7 +460,16 @@ impl DataEngineerSuite {
                 &mut out_frames,
             )
             .await {
-                PhaseExecutorOutcome::StayInPhase | PhaseExecutorOutcome::TransitionCommitted => continue,
+                PhaseExecutorOutcome::StayedWithProgress { detail } => {
+                    tracing::debug!(thread_id = %thread_id, phase_progress = %detail);
+                    remaining_steps = max_phase_steps;
+                    continue;
+                }
+                PhaseExecutorOutcome::StayedWaiting { reason } => {
+                    tracing::debug!(thread_id = %thread_id, phase_waiting = %reason);
+                    continue;
+                }
+                PhaseExecutorOutcome::TransitionCommitted => continue,
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
                 PhaseExecutorOutcome::Failed { reason } => return Err(reason),
             }

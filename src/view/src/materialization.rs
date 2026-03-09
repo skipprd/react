@@ -121,6 +121,9 @@ pub fn apply_step_to_state(st: &mut ThreadLogViewCache, _step_idx: usize, step: 
         ThreadStep::GuardBlock { reason, ts, .. } => {
             block_current_phase(st, reason, ts);
         }
+        ThreadStep::RunLoopStop { reason, ts, .. } => {
+            block_current_phase(st, reason, ts);
+        }
         ThreadStep::User { .. } => {}
         ThreadStep::LlmCall { .. } => {}
         ThreadStep::ArtifactFocus { .. } => {}

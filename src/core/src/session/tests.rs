@@ -307,3 +307,56 @@ async fn control_state_mutate_returns_conflict_when_etag_changes_during_write() 
         .expect_err("etag mismatch must surface as write conflict");
     assert!(err.to_string().contains("write conflict"));
 }
+
+#[tokio::test]
+async fn run_observed_appends_failed_tool_end_when_operation_panics() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+    let tid = "tid-observed-panic";
+
+    let task_store = store.clone();
+    let join = tokio::spawn(async move {
+        let _ = task_store
+            .run_observed(
+                tid,
+                ToolStepMeta {
+                    agent: "agent".to_string(),
+                    phase: "test_phase".to_string(),
+                    name: "panic_tool".to_string(),
+                    clean_name: "Panic Tool".to_string(),
+                    args: serde_json::json!({}),
+                    ctx: None,
+                },
+                || async move {
+                    panic!("boom")
+                },
+                |_raw: &Value| Ok(serde_json::json!({"ok": true})),
+            )
+            .await;
+    });
+    let join_err = join.await.expect_err("panic should surface as join error");
+    assert!(join_err.is_panic());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let log = store.get(tid).await.expect("log");
+    assert_eq!(log.steps.len(), 2, "panic finalizer should close the tool span");
+    assert!(matches!(log.steps[0], ThreadStep::ToolStart { .. }));
+    match &log.steps[1] {
+        ThreadStep::ToolEnd {
+            status,
+            observation,
+            ..
+        } => {
+            assert_eq!(*status, ToolStepStatus::Failed);
+            assert!(
+                observation.errors.iter().any(|e| e.contains("panicked")),
+                "expected panic marker in observation errors: {:?}",
+                observation.errors
+            );
+        }
+        other => panic!("expected tool end, got {:?}", other),
+    }
+}

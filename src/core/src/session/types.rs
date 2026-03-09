@@ -108,6 +108,24 @@ impl ToolStepStatus {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
+pub enum RunLoopStopKind {
+    RejectedComplete,
+    StepLimitExceeded,
+    PolicyBlocked,
+}
+
+impl RunLoopStopKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunLoopStopKind::RejectedComplete => "rejected_complete",
+            RunLoopStopKind::StepLimitExceeded => "step_limit_exceeded",
+            RunLoopStopKind::PolicyBlocked => "policy_blocked",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
 pub enum LlmStepStatus {
     Ok,
     Failed,
@@ -550,6 +568,13 @@ pub enum ThreadStep {
         ts: String,
         agent: String,
     },
+    RunLoopStop {
+        kind: RunLoopStopKind,
+        reason: String,
+        observation: Observation,
+        ts: String,
+        agent: String,
+    },
     ArtifactFocus {
         kind: ArtifactKind,
         name: String,
@@ -618,7 +643,7 @@ macro_rules! thread_step_ts {
 
 thread_step_ts!(
     SwitchSuite, SwitchAgent, User, ToolStart, ToolEnd,
-    LlmStart, LlmEnd, LlmCall, Phase, GuardBlock,
+    LlmStart, LlmEnd, LlmCall, Phase, GuardBlock, RunLoopStop,
     ArtifactFocus, ArtifactSaved, Interrupt, ReviewResponse,
     Complete, Checkpoint,
 );

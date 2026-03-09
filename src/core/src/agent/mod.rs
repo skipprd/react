@@ -212,10 +212,24 @@ pub enum RunOutcome {
     },
 }
 
+pub enum CompleteDecision {
+    Accept { result: ThreadResult },
+    Reject { reason: String },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InterruptKind {
     AwaitUser,
     AwaitApproval,
+}
+
+impl InterruptKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::AwaitUser => "await_user",
+            Self::AwaitApproval => "await_approval",
+        }
+    }
 }
 
 pub enum RunOutcomeNonInteractive {
@@ -232,6 +246,13 @@ pub enum RunOutcomeNonInteractive {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StepBoundaryReason {
     StepBudgetExhausted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunLoopStop {
+    RejectedComplete { reason: String },
+    StepLimitExceeded,
+    PolicyBlocked { reason: String },
 }
 
 #[async_trait]
@@ -273,8 +294,8 @@ pub trait AgentPolicy: Send + Sync {
     }
 
     /// Handle a model-emitted complete step. Return:
-    /// - `Ok(Some(RunOutcome::Complete{..}))` to accept and finish
-    /// - `Ok(None)` to reject and continue (policy should append an Observation to transcript)
+    /// - `Ok(CompleteDecision::Accept(..))` to accept and finish
+    /// - `Ok(CompleteDecision::Reject { .. })` to reject and continue
     async fn handle_complete(
         &self,
         tools: &ToolRegistry,
@@ -283,7 +304,7 @@ pub trait AgentPolicy: Send + Sync {
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String>;
+    ) -> Result<CompleteDecision, String>;
 
     /// If we exhaust steps without reaching an accepted completion, produce a fallback.
     async fn fallback(
@@ -316,7 +337,7 @@ impl AgentPolicy for DefaultPolicy {
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<CompleteDecision, String> {
         let result = ThreadResult {
             kind: complete_env.kind.clone(),
             payload: complete_env.payload.clone(),
@@ -339,10 +360,7 @@ impl AgentPolicy for DefaultPolicy {
                 )
                 .await;
         }
-        Ok(Some(RunOutcome::Complete {
-            thread_id: thread_id.to_string(),
-            result,
-        }))
+        Ok(CompleteDecision::Accept { result })
     }
 }
 
@@ -390,7 +408,7 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<CompleteDecision, String> {
         self.inner
             .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await

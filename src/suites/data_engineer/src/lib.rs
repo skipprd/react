@@ -163,8 +163,10 @@ use llm_profiles::PlanningLlmProfile;
 use agent_modes::{AgentMode, AgentToolCapability};
 
 pub(crate) enum PhaseExecutorOutcome {
-    /// Phase still active, run another iteration.
-    StayInPhase,
+    /// Phase is still active and this turn made durable forward progress.
+    StayedWithProgress { detail: String },
+    /// Phase is still active but is explicitly waiting on more work/signal.
+    StayedWaiting { reason: String },
     /// Transition was committed; reload state and continue.
     TransitionCommitted,
     /// Phase complete; return these frames to the caller.
@@ -176,6 +178,20 @@ pub(crate) enum PhaseExecutorOutcome {
     /// phase executors return `Result<PhaseExecutorOutcome, String>` — the `Err`
     /// is caught at the `execute_phase` boundary and converted to this variant.
     Failed { reason: String },
+}
+
+impl PhaseExecutorOutcome {
+    pub(crate) fn stayed_with_progress(detail: impl Into<String>) -> Self {
+        Self::StayedWithProgress {
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn stayed_waiting(reason: impl Into<String>) -> Self {
+        Self::StayedWaiting {
+            reason: reason.into(),
+        }
+    }
 }
 
 /// Interrupt policy used by non-deterministic single-pass modes.
@@ -247,7 +263,7 @@ impl AgentPolicy for InterruptOnlyPolicy {
         store: Option<&react_core::session::ThreadStore>,
         thread_id: &str,
         complete_env: &react_core::agent::CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<react_core::agent::CompleteDecision, String> {
         react_core::agent::DefaultPolicy
             .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await

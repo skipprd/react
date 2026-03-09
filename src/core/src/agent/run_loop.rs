@@ -5,11 +5,11 @@ use tracing::info;
 use crate::error::CoreError;
 use crate::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 use crate::schema_registry::SchemaId;
-use crate::session::{ToolObservation, ToolStepMeta};
+use crate::session::{Observation, RunLoopStopKind, ThreadStep, ToolObservation, ToolStepMeta};
 use crate::tools::ToolRegistry;
 
 use super::{
-    Agent, AgentCtx, NonInteractivePolicyAdapter, ParsedStep, RunOutcome,
+    Agent, AgentCtx, CompleteDecision, NonInteractivePolicyAdapter, ParsedStep, RunLoopStop, RunOutcome,
     RunOutcomeNonInteractive, StepBoundaryReason,
 };
 
@@ -44,6 +44,39 @@ fn build_retry_transcript(transcript: &[String], tail: Option<usize>) -> Vec<Str
 }
 
 impl Agent {
+    async fn record_run_loop_stop(
+        ctx: &AgentCtx,
+        store: Option<&crate::session::ThreadStore>,
+        thread_id: &str,
+        stop: &RunLoopStop,
+    ) {
+        let Some(store) = store else {
+            return;
+        };
+        let (kind, reason) = match stop {
+            RunLoopStop::RejectedComplete { reason } => {
+                (RunLoopStopKind::RejectedComplete, reason.clone())
+            }
+            RunLoopStop::StepLimitExceeded => (
+                RunLoopStopKind::StepLimitExceeded,
+                "agent reached max_steps without an accepted completion".to_string(),
+            ),
+            RunLoopStop::PolicyBlocked { reason } => (RunLoopStopKind::PolicyBlocked, reason.clone()),
+        };
+        let _ = store
+            .append_step(
+                thread_id,
+                ThreadStep::RunLoopStop {
+                    kind,
+                    reason,
+                    observation: Observation::ok(),
+                    ts: chrono::Utc::now().to_rfc3339(),
+                    agent: ctx.agent_name_or_default(),
+                },
+            )
+            .await;
+    }
+
     pub(crate) async fn llm_chat_once(
         ctx: &AgentCtx,
         prompt: String,
@@ -152,15 +185,31 @@ impl Agent {
             .await?;
             let (action_name, args) = match step {
                 ParsedStep::Complete { complete_env: env } => {
-                    if let Some(outcome) = ctx
+                    match ctx
                         .policy
                         .handle_complete(tools, ctx, &mut transcript, store, &tid, &env)
                         .await
                         .map_err(CoreError::generic)?
                     {
-                        return Ok(outcome);
+                        CompleteDecision::Accept { result } => {
+                            return Ok(RunOutcome::Complete {
+                                thread_id: tid,
+                                result,
+                            })
+                        }
+                        CompleteDecision::Reject { reason } => {
+                            Self::record_run_loop_stop(
+                                ctx,
+                                store,
+                                &tid,
+                                &RunLoopStop::RejectedComplete {
+                                    reason: reason.clone(),
+                                },
+                            )
+                            .await;
+                            continue;
+                        }
                     }
-                    continue;
                 }
                 ParsedStep::Tool { name, args } => (name, args),
             };
@@ -175,6 +224,15 @@ impl Agent {
                 .policy
                 .interrupt_for_action(action_name_str, &args, &raw_obs)
             {
+                Self::record_run_loop_stop(
+                    ctx,
+                    store,
+                    &tid,
+                    &RunLoopStop::PolicyBlocked {
+                        reason: format!("{}: {}", kind.as_str(), prompt),
+                    },
+                )
+                .await;
                 return Ok(RunOutcome::Interrupt {
                     thread_id: tid,
                     kind,
@@ -187,6 +245,7 @@ impl Agent {
             );
         }
 
+        Self::record_run_loop_stop(ctx, store, &tid, &RunLoopStop::StepLimitExceeded).await;
         ctx.policy
             .fallback(tools, ctx, &mut transcript, store, &tid)
             .await

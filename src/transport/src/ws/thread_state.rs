@@ -239,6 +239,7 @@ pub(super) fn summarize_step(step: &ThreadStep) -> String {
         | ThreadStep::LlmCall { agent, .. }
         | ThreadStep::Phase { agent, .. }
         | ThreadStep::GuardBlock { agent, .. }
+        | ThreadStep::RunLoopStop { agent, .. }
         | ThreadStep::ArtifactFocus { agent, .. }
         | ThreadStep::ArtifactSaved { agent, .. }
         | ThreadStep::Interrupt { agent, .. }

@@ -903,7 +903,9 @@ let (plan_context, plan_state): (String, PlanState) =
                             let checklist_item_id = resolve_checklist_item_id(&actx);
                             for n in ids.iter() {
                                 if !names_in_schema.contains(n) {
-                                    return Ok(PhaseExecutorOutcome::StayInPhase);
+                                    return Ok(PhaseExecutorOutcome::stayed_waiting(
+                                        "model schema checklist is still missing required model stanzas",
+                                    ));
                                 }
                                 if let Some(t) =
                                     plan.tasks.iter().find(|t| t.name == *n)
@@ -933,7 +935,9 @@ let (plan_context, plan_state): (String, PlanState) =
                                     &actx, &plan,
                                 )
                                 .await?;
-                                return Ok(PhaseExecutorOutcome::StayInPhase);
+                                return Ok(PhaseExecutorOutcome::stayed_with_progress(
+                                    "marked existing schema checklist items done after reconciling models/schema.yml",
+                                ));
                             }
                         }
                     }
@@ -1484,7 +1488,9 @@ match Agent::run_until_block_non_interactive(
             .await
             .unwrap_or(false);
         if !has_proj || !has_models {
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_waiting(
+                "authoring completed without a usable dbt project/model inventory yet",
+            ));
         }
         // Hard cutover: single progress gate controls authoring->validate advancement.
         // Refresh control-state after tool run; tool-side writes in this turn
@@ -1507,7 +1513,7 @@ match Agent::run_until_block_non_interactive(
                 reason.clone(),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_waiting(reason));
         }
         if crate::phase_gate::patch_impl_intent_unsatisfied(
             &gate_state,
@@ -1525,7 +1531,7 @@ match Agent::run_until_block_non_interactive(
                 reason.clone(),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_waiting(reason));
         }
         if matches!(
             gate_state.repair.pending_patch_impl.as_ref(),
@@ -1556,12 +1562,14 @@ match Agent::run_until_block_non_interactive(
                     reason.to_string(),
                 )
                 .await?;
-                return Ok(PhaseExecutorOutcome::StayInPhase);
+                return Ok(PhaseExecutorOutcome::stayed_waiting(reason));
             }
         }
 
         if !track_completion_snapshot_all_done(&actx, track).await {
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_with_progress(
+                "authoring turn completed with durable progress but more plan work remains",
+            ));
         }
 
         let to_phase = if is_cleanse {
@@ -1625,7 +1633,9 @@ match Agent::run_until_block_non_interactive(
                 crate::authoring_driver::AuthoringTurnResult::Continue => {}
             }
         }
-        return Ok(PhaseExecutorOutcome::StayInPhase);
+        return Ok(PhaseExecutorOutcome::stayed_waiting(
+            "authoring turn ended at the single-step boundary without a committed transition",
+        ));
     }
     Err(e) => return Err(e.to_string()),
 }

@@ -55,7 +55,9 @@ impl DataEngineerSuite {
             es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
                 format!("failed to persist publish await-approval retry state: {e}")
             })?;
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_waiting(format!(
+                "publish await-approval gate remains unsatisfied: {reason}"
+            )));
         }
 
         es.reset_publish_retry(

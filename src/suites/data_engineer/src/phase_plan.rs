@@ -46,7 +46,9 @@ async fn finalize_plan_and_approve(
     if advanced {
         Ok(PhaseExecutorOutcome::TransitionCommitted)
     } else {
-        Ok(PhaseExecutorOutcome::StayInPhase)
+        Ok(PhaseExecutorOutcome::stayed_waiting(
+            "plan draft approval did not commit a phase transition",
+        ))
     }
 }
 
@@ -80,7 +82,9 @@ async fn handle_plan_semantic_failure(
             "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
             tries, sem.messages().join(" | ")
         )),
-        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::StayInPhase),
+        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::stayed_waiting(
+            "plan semantic validation failed but remains within retry budget",
+        )),
     }
 }
 
@@ -370,7 +374,9 @@ if let Some(mut existing_plan) =
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_with_progress(
+                "cancelled an empty approved plan and annotated the invalid state",
+            ));
         }
         crate::state_manager::mutate_execution_state(
             &thread_store.control_store(),
@@ -434,7 +440,9 @@ if let Some(mut existing_plan) =
                 PhaseDecision::annotation(phase, Some(PhaseReasonCode::PlanInvalidEmpty), Some(detail)),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::StayInPhase);
+            return Ok(PhaseExecutorOutcome::stayed_with_progress(
+                "cancelled an empty draft plan and annotated the invalid state",
+            ));
         }
         let advanced = Self::approve_plan_draft_and_advance(
             &thread_store,
@@ -450,7 +458,9 @@ if let Some(mut existing_plan) =
         if advanced {
             return Ok(PhaseExecutorOutcome::TransitionCommitted);
         }
-        return Ok(PhaseExecutorOutcome::StayInPhase);
+        return Ok(PhaseExecutorOutcome::stayed_waiting(
+            "existing draft plan approval did not commit a phase transition",
+        ));
     }
 }
 } // end if !is_plan_revision
@@ -839,7 +849,9 @@ match Agent::run_until_block_non_interactive(
                         ));
                     }
                     SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::StayInPhase);
+                        return Ok(PhaseExecutorOutcome::stayed_waiting(
+                            "model planning is waiting for staging model discovery to yield grounded inputs",
+                        ));
                     }
                 }
             }
@@ -924,7 +936,9 @@ match Agent::run_until_block_non_interactive(
                         ));
                     }
                     SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::StayInPhase);
+                        return Ok(PhaseExecutorOutcome::stayed_waiting(
+                            "model planning pruned to empty and is retrying within grounding budget",
+                        ));
                     }
                 }
             }
@@ -1020,7 +1034,9 @@ match Agent::run_until_block_non_interactive(
     }
     Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
         // Deterministic single-step handoff: return to outer controller loop.
-        return Ok(PhaseExecutorOutcome::StayInPhase);
+        return Ok(PhaseExecutorOutcome::stayed_waiting(
+            "plan phase hit its single-step boundary and is awaiting the next controller turn",
+        ));
     }
     Err(e) => return Err(e.to_string()),
 }

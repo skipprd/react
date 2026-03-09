@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use react_core::agent::{AgentPolicy, CompleteEnvelope, InterruptKind, RunOutcome};
+use react_core::agent::{AgentPolicy, CompleteDecision, CompleteEnvelope, InterruptKind, RunOutcome};
 use crate::thread_cache::ThreadCacheStore;
 use react_core::session::{
-    Observation, ThreadResult, ThreadStep, ThreadStore, ToolObservation, ToolStepMeta,
+    Observation, ThreadResult, ThreadStep, ThreadStore, ToolStepMeta,
 };
 use react_core::tools::ToolRegistry;
 
@@ -119,7 +119,7 @@ impl AgentPolicy for SqlValidatedPolicy {
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
-    ) -> Result<Option<RunOutcome>, String> {
+    ) -> Result<CompleteDecision, String> {
         let is_authoring = matches!(ctx.agent_name().as_deref(), Some("model") | Some("cleanse"));
         let is_ask = matches!(ctx.agent_name().as_deref(), Some("ask"));
 
@@ -134,10 +134,11 @@ impl AgentPolicy for SqlValidatedPolicy {
                 let log = match store.get(thread_id).await {
                     Ok(l) => l,
                     Err(e) => {
-                        transcript.push(format!(
-                            "Observation: dbt_validate_required; thread log unavailable so validation status is unknown ({e}). Call dbt_validate before completing."
-                        ));
-                        return Ok(None);
+                        let reason = format!(
+                            "dbt_validate_required; thread log unavailable so validation status is unknown ({e}). Call dbt_validate before completing."
+                        );
+                        transcript.push(format!("Observation: {reason}"));
+                        return Ok(CompleteDecision::Reject { reason });
                     }
                 };
                 let mut has_artifacts = false;
@@ -170,10 +171,10 @@ impl AgentPolicy for SqlValidatedPolicy {
                     // If artifacts were written, we require an explicit dbt_validate step.
                     // (Suite-level post-run validation is not sufficient for this policy gate.)
                     let Some(v) = last_validate else {
-                        transcript.push(
-                            "Observation: dbt_validate_required; you must run dbt_validate after writing artifacts before completing.".to_string(),
-                        );
-                        return Ok(None);
+                        let reason =
+                            "dbt_validate_required; you must run dbt_validate after writing artifacts before completing.".to_string();
+                        transcript.push(format!("Observation: {reason}"));
+                        return Ok(CompleteDecision::Reject { reason });
                     };
 
                     let (ok, compile_ok, run_ok, build, run) = match v {
@@ -198,35 +199,35 @@ impl AgentPolicy for SqlValidatedPolicy {
                     let allow_compile_only = crate::env_util::dbt_allow_compile_only_complete();
 
                     if !(ok && compile_ok) {
-                        transcript.push(
-                            "Observation: dbt_validate_failed; you must fix DBT artifacts and re-run dbt_validate until compile_ok=true before completing."
-                                .to_string(),
-                        );
-                        return Ok(None);
+                        let reason =
+                            "dbt_validate_failed; you must fix DBT artifacts and re-run dbt_validate until compile_ok=true before completing."
+                                .to_string();
+                        transcript.push(format!("Observation: {reason}"));
+                        return Ok(CompleteDecision::Reject { reason });
                     }
 
                     if !runtime_validate && !allow_compile_only {
-                        transcript.push(
-                            "Observation: dbt_validate_incomplete; compile-only validation is not sufficient after authoring DBT artifacts. Re-run dbt_validate with build=true (or run=true) and fix any runtime/test failures before completing."
-                                .to_string(),
-                        );
-                        return Ok(None);
+                        let reason =
+                            "dbt_validate_incomplete; compile-only validation is not sufficient after authoring DBT artifacts. Re-run dbt_validate with build=true (or run=true) and fix any runtime/test failures before completing."
+                                .to_string();
+                        transcript.push(format!("Observation: {reason}"));
+                        return Ok(CompleteDecision::Reject { reason });
                     }
 
                     if runtime_validate && run_ok != Some(true) {
-                        transcript.push(
-                            "Observation: dbt_validate_run_failed; you must fix runtime/test failures and re-run dbt_validate until run_ok=true before completing."
-                                .to_string(),
-                        );
-                        return Ok(None);
+                        let reason =
+                            "dbt_validate_run_failed; you must fix runtime/test failures and re-run dbt_validate until run_ok=true before completing."
+                                .to_string();
+                        transcript.push(format!("Observation: {reason}"));
+                        return Ok(CompleteDecision::Reject { reason });
                     }
                 }
             } else {
-                transcript.push(
-                    "Observation: dbt_validate_required; thread_store missing so validation status is unknown. Call dbt_validate before completing."
-                        .to_string(),
-                );
-                return Ok(None);
+                let reason =
+                    "dbt_validate_required; thread_store missing so validation status is unknown. Call dbt_validate before completing."
+                        .to_string();
+                transcript.push(format!("Observation: {reason}"));
+                return Ok(CompleteDecision::Reject { reason });
             }
 
             // Authoring agents complete without SQL validation (Ask-only concern).
@@ -254,23 +255,24 @@ impl AgentPolicy for SqlValidatedPolicy {
                     )
                     .await;
             }
-            return Ok(Some(RunOutcome::Complete {
-                thread_id: thread_id.to_string(),
-                result,
-            }));
+            return Ok(CompleteDecision::Accept { result });
         }
 
         // Ask mode: require and validate SQL+data before completing.
         if !is_ask {
-            transcript.push("Observation: invalid_complete_kind; only ask/model/cleanse agents may complete in this suite.".to_string());
-            return Ok(None);
+            let reason =
+                "invalid_complete_kind; only ask/model/cleanse agents may complete in this suite."
+                    .to_string();
+            transcript.push(format!("Observation: {reason}"));
+            return Ok(CompleteDecision::Reject { reason });
         }
         if complete_env.kind != "ask" {
-            transcript.push(format!(
-                "Observation: invalid_complete_kind; ask agent must complete with complete.kind='ask' (got '{}').",
+            let reason = format!(
+                "invalid_complete_kind; ask agent must complete with complete.kind='ask' (got '{}').",
                 complete_env.kind
-            ));
-            return Ok(None);
+            );
+            transcript.push(format!("Observation: {reason}"));
+            return Ok(CompleteDecision::Reject { reason });
         }
 
         let sql_opt = complete_env
@@ -281,15 +283,17 @@ impl AgentPolicy for SqlValidatedPolicy {
         if let Some(sql_str) = sql_opt.as_ref() {
             let sql_lower = sql_str.to_lowercase();
             if sql_lower.contains(" default.") {
-                transcript.push("Observation: invalid complete SQL - 'default.*' schema is forbidden. Use fully-qualified <catalog>.<database>.<table>.".to_string());
-                return Ok(None);
+                let reason = "invalid complete SQL - 'default.*' schema is forbidden. Use fully-qualified <catalog>.<database>.<table>.".to_string();
+                transcript.push(format!("Observation: {reason}"));
+                return Ok(CompleteDecision::Reject { reason });
             }
         }
         let sql_for_run = match sql_opt.as_ref() {
             Some(s) if !s.trim().is_empty() => s.clone(),
             _ => {
-                transcript.push("Observation: complete requires a valid SQL and data; please provide SQL and call run_sql before completing.".to_string());
-                return Ok(None);
+                let reason = "complete requires a valid SQL and data; please provide SQL and call run_sql before completing.".to_string();
+                transcript.push(format!("Observation: {reason}"));
+                return Ok(CompleteDecision::Reject { reason });
             }
         };
         let obs = if let Some(store) = store {
@@ -344,11 +348,12 @@ impl AgentPolicy for SqlValidatedPolicy {
                 .and_then(|a| a.get(0))
                 .and_then(|v| v.as_str())
                 .unwrap_or("no data");
-            transcript.push(format!(
-                "Observation: data_validation_failed reason='{}'; fix SQL and try again.",
+            let reason = format!(
+                "data_validation_failed reason='{}'; fix SQL and try again.",
                 err_text
-            ));
-            return Ok(None);
+            );
+            transcript.push(format!("Observation: {reason}"));
+            return Ok(CompleteDecision::Reject { reason });
         }
         let result = ThreadResult {
             kind: complete_env.kind.clone(),
@@ -374,10 +379,7 @@ impl AgentPolicy for SqlValidatedPolicy {
                 )
                 .await;
         }
-        Ok(Some(RunOutcome::Complete {
-            thread_id: thread_id.to_string(),
-            result,
-        }))
+        Ok(CompleteDecision::Accept { result })
     }
 
     async fn fallback(
@@ -450,6 +452,7 @@ mod tests {
     use super::*;
     use react_core::keyspace::DefaultKeyspace;
     use react_core::scope::RequestScope;
+    use react_core::session::ToolObservation;
     use react_module_storage_memory::InMemoryStorageAdapter;
     use std::sync::Arc;
 
@@ -552,7 +555,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(out.is_none());
+        assert!(matches!(out, CompleteDecision::Reject { .. }));
         assert!(
             transcript.iter().any(|l| l.contains("dbt_validate_failed")),
             "expected dbt_validate_failed in transcript; got: {transcript:?}"
