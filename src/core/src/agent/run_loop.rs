@@ -5,7 +5,7 @@ use tracing::info;
 use crate::error::CoreError;
 use crate::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat};
 use crate::schema_registry::SchemaId;
-use crate::session::{ThreadStep, ToolObservation, ToolStepStatus};
+use crate::session::{ToolObservation, ToolStepMeta};
 use crate::tools::ToolRegistry;
 
 use super::{
@@ -208,69 +208,50 @@ impl Agent {
             .unwrap_or(ctx.per_step_timeout_secs)
             .max(1);
 
-        let tool_id = uuid::Uuid::new_v4().to_string();
-        let agent = ctx.agent_name_or_default();
-        let clean_name = ctx.policy.clean_tool_name(action_name, args);
-        if let Some(store) = store {
-            let _ = store
-                .append_step(
+        let raw_obs = if let Some(store) = store {
+            let meta = ToolStepMeta {
+                agent: ctx.agent_name_or_default(),
+                phase: "agent_loop".to_string(),
+                name: action_name.to_string(),
+                clean_name: ctx.policy.clean_tool_name(action_name, args),
+                args: args.clone(),
+                ctx: ctx.exec_ctx.clone(),
+            };
+            let tools = tools;
+            let action = action_name.to_string();
+            let call_args = args.clone();
+            let call_ctx = ctx.clone();
+            store
+                .run_observed(
                     tid,
-                    ThreadStep::ToolStart {
-                        tool_id: tool_id.clone(),
-                        name: action_name.to_string(),
-                        clean_name: clean_name.clone(),
-                        args: args.clone(),
-                        status: ToolStepStatus::Running,
-                        payload: None,
-                        ctx: ctx.exec_ctx.clone(),
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent: agent.clone(),
+                    meta,
+                    || async move {
+                        Ok(match tokio::time::timeout(
+                            std::time::Duration::from_secs(timeout_secs),
+                            tools.call(&action, call_args, &call_ctx),
+                        )
+                        .await
+                        {
+                            Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
+                            Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
+                        })
                     },
+                    |raw: &serde_json::Value| Ok(raw.clone()),
                 )
-                .await;
-        }
-
-        let raw_obs = match tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            tools.call(action_name, args.clone(), ctx),
-        )
-        .await
-        {
-            Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
-            Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
+                .await
+                .unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]}))
+        } else {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(timeout_secs),
+                tools.call(action_name, args.clone(), ctx),
+            )
+            .await
+            {
+                Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
+                Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
+            }
         };
         let obs_env = ToolObservation::normalize(raw_obs.clone());
-
-        if let Some(store) = store {
-            let status = if obs_env.ok {
-                ToolStepStatus::Ok
-            } else {
-                ToolStepStatus::Failed
-            };
-            let payload = obs_env
-                .extra
-                .get("payload")
-                .cloned()
-                .or_else(|| obs_env.extra.get("ui_payload").cloned());
-            let _ = store
-                .append_step(
-                    tid,
-                    ThreadStep::ToolEnd {
-                        tool_id: tool_id.clone(),
-                        name: action_name.to_string(),
-                        clean_name: clean_name.clone(),
-                        args: args.clone(),
-                        status,
-                        payload,
-                        ctx: ctx.exec_ctx.clone(),
-                        observation: obs_env.clone(),
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent: agent.clone(),
-                    },
-                )
-                .await;
-        }
-
         (raw_obs, obs_env)
     }
 

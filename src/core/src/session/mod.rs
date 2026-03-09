@@ -57,6 +57,9 @@ pub(crate) struct CacheEntry {
 
 mod store_io;
 
+mod observed;
+pub use observed::ToolStepMeta;
+
 #[async_trait::async_trait]
 impl ThreadLogReader for ThreadStore {
     async fn get_log(&self, thread_id: &str) -> crate::error::CoreResult<ThreadLog> {

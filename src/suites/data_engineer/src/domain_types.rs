@@ -53,6 +53,8 @@ pub enum PhaseReasonCode {
     NoWorkAllDone,
     AuthoringComplete,
     PrecheckFailed,
+    ValidateExecutionFailed,
+    ValidateContractError,
     ValidatePassToReview,
     ValidatePassToAuthoring,
     ValidateFail,
@@ -89,6 +91,8 @@ impl PhaseReasonCode {
             PhaseReasonCode::NoWorkAllDone => "no_work_all_done",
             PhaseReasonCode::AuthoringComplete => "authoring_complete",
             PhaseReasonCode::PrecheckFailed => "precheck_failed",
+            PhaseReasonCode::ValidateExecutionFailed => "validate_execution_failed",
+            PhaseReasonCode::ValidateContractError => "validate_contract_error",
             PhaseReasonCode::ValidatePassToReview => "validate_pass_to_review",
             PhaseReasonCode::ValidatePassToAuthoring => "validate_pass_to_authoring",
             PhaseReasonCode::ValidateFail => "validate_fail",
@@ -120,6 +124,7 @@ pub enum GuardBlockKind {
     AuthoringToValidate,
     MissingGoldModels,
     PrecheckFailed,
+    ValidateExecutionFailed,
     MissingThreadStep,
 }
 
@@ -135,6 +140,7 @@ impl GuardBlockKind {
             GuardBlockKind::AuthoringToValidate => "authoring_to_validate",
             GuardBlockKind::MissingGoldModels => "missing_gold_models",
             GuardBlockKind::PrecheckFailed => "precheck_failed",
+            GuardBlockKind::ValidateExecutionFailed => "validate_execution_failed",
             GuardBlockKind::MissingThreadStep => "missing_thread_step",
         }
     }
@@ -204,7 +210,7 @@ impl ValidateObservationContract {
 mod tests {
     use super::*;
 
-    const ALL_PHASE_REASON_CODES: [PhaseReasonCode; 31] = [
+    const ALL_PHASE_REASON_CODES: [PhaseReasonCode; 33] = [
         PhaseReasonCode::PhaseSet,
         PhaseReasonCode::PreflightStart,
         PhaseReasonCode::PreflightOk,
@@ -221,6 +227,8 @@ mod tests {
         PhaseReasonCode::NoWorkAllDone,
         PhaseReasonCode::AuthoringComplete,
         PhaseReasonCode::PrecheckFailed,
+        PhaseReasonCode::ValidateExecutionFailed,
+        PhaseReasonCode::ValidateContractError,
         PhaseReasonCode::ValidatePassToReview,
         PhaseReasonCode::ValidatePassToAuthoring,
         PhaseReasonCode::ValidateFail,
@@ -238,7 +246,7 @@ mod tests {
         PhaseReasonCode::PhaseBlocked,
     ];
 
-    const ALL_GUARD_BLOCK_KINDS: [GuardBlockKind; 10] = [
+    const ALL_GUARD_BLOCK_KINDS: [GuardBlockKind; 11] = [
         GuardBlockKind::PlanJsonInvalid,
         GuardBlockKind::PlanGrounding,
         GuardBlockKind::PlanSemanticInvalid,
@@ -248,6 +256,7 @@ mod tests {
         GuardBlockKind::AuthoringToValidate,
         GuardBlockKind::MissingGoldModels,
         GuardBlockKind::PrecheckFailed,
+        GuardBlockKind::ValidateExecutionFailed,
         GuardBlockKind::MissingThreadStep,
     ];
 

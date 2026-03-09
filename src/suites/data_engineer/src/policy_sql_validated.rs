@@ -4,8 +4,7 @@ use serde_json::Value;
 use react_core::agent::{AgentPolicy, CompleteEnvelope, InterruptKind, RunOutcome};
 use crate::thread_cache::ThreadCacheStore;
 use react_core::session::{
-    Observation, ThreadResult, ThreadStep, ThreadStore, ToolObservation,
-    ToolStepStatus,
+    Observation, ThreadResult, ThreadStep, ThreadStore, ToolObservation, ToolStepMeta,
 };
 use react_core::tools::ToolRegistry;
 
@@ -293,12 +292,44 @@ impl AgentPolicy for SqlValidatedPolicy {
                 return Ok(None);
             }
         };
-        let obs = match tools
-            .call("run_sql", serde_json::json!({"sql": sql_for_run}), ctx)
-            .await
-        {
-            Ok(o) => o,
-            Err(e) => serde_json::json!({"ok": false, "errors": [e]}),
+        let obs = if let Some(store) = store {
+            let meta = ToolStepMeta {
+                agent: ctx
+                    .agent_name()
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                phase: "sql_validation".to_string(),
+                name: "run_sql".to_string(),
+                clean_name: "Run SQL".to_string(),
+                args: serde_json::json!({"sql": sql_for_run}),
+                ctx: None,
+            };
+            let sql = sql_for_run.clone();
+            store
+                .run_observed(
+                    thread_id,
+                    meta,
+                    || async {
+                        Ok(match tools
+                            .call("run_sql", serde_json::json!({"sql": sql}), ctx)
+                            .await
+                        {
+                            Ok(o) => o,
+                            Err(e) => serde_json::json!({"ok": false, "errors": [e]}),
+                        })
+                    },
+                    |raw: &Value| Ok(raw.clone()),
+                )
+                .await
+                .unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]}))
+        } else {
+            match tools
+                .call("run_sql", serde_json::json!({"sql": sql_for_run}), ctx)
+                .await
+            {
+                Ok(o) => o,
+                Err(e) => serde_json::json!({"ok": false, "errors": [e]}),
+            }
         };
         let ok = obs.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         let rows_non_empty = obs
@@ -306,33 +337,6 @@ impl AgentPolicy for SqlValidatedPolicy {
             .and_then(|r| serde_json::from_value::<Vec<Vec<String>>>(r.clone()).ok())
             .map(|r| !r.is_empty())
             .unwrap_or(false);
-        if let Some(store) = store {
-            let agent = ctx
-                .agent_name()
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
-            let _ = store
-                .append_step(
-                    thread_id,
-                    ThreadStep::ToolEnd {
-                        tool_id: uuid::Uuid::new_v4().to_string(),
-                        name: "run_sql".to_string(),
-                        clean_name: "Run SQL".to_string(),
-                        args: serde_json::json!({"sql": sql_for_run}),
-                        status: if ok {
-                            ToolStepStatus::Ok
-                        } else {
-                            ToolStepStatus::Failed
-                        },
-                        payload: None,
-                        ctx: None,
-                        observation: ToolObservation::normalize(obs.clone()),
-                        ts: chrono::Utc::now().to_rfc3339(),
-                        agent,
-                    },
-                )
-                .await;
-        }
         if !(ok && rows_non_empty) {
             let err_text = obs
                 .get("errors")

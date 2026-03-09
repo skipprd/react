@@ -628,6 +628,7 @@ pub enum SubjectiveRetryKind {
     PlanGroundingStagingDiscoveryEmpty,
     ReviewPatchImpl,
     ValidatePrecheckFailed,
+    ValidateExecutionFailed,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1061,6 +1062,7 @@ impl ExecutionState {
             ..LastValidateState::default()
         });
         self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidatePrecheckFailed);
+        self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidateExecutionFailed);
         self.with_workflow_control_state_mut(|state| {
             state.mark_validate_success(tier);
         });

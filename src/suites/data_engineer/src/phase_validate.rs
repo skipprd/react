@@ -32,6 +32,50 @@ enum ValidatePassTransition {
 }
 
 impl DataEngineerSuite {
+    async fn handle_validate_execution_failure(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        phase: Phase,
+        reason: String,
+        detail: serde_json::Value,
+        reason_code: PhaseReasonCode,
+    ) -> Result<PhaseExecutorOutcome, String> {
+        use crate::retry_budget::SubjectiveRetryOutcome;
+        match Self::check_subjective_retry_budget(
+            thread_store,
+            thread_id,
+            crate::progress_controller::SubjectiveRetryKind::ValidateExecutionFailed,
+        )
+        .await?
+        {
+            SubjectiveRetryOutcome::Exhausted(tries) => {
+                let blocked_reason = format!(
+                    "dbt_validate execution failed {tries} times; manual intervention required.\n\n{reason}"
+                );
+                crate::phase_contract::commit_guard_block(
+                    thread_store,
+                    thread_id,
+                    phase,
+                    GuardBlockKind::ValidateExecutionFailed,
+                    blocked_reason,
+                )
+                .await?;
+                Ok(PhaseExecutorOutcome::TransitionCommitted)
+            }
+            SubjectiveRetryOutcome::WithinBudget(_) => {
+                crate::retry_budget::guard_block_loopback_to_author(
+                    thread_store,
+                    thread_id,
+                    phase,
+                    GuardBlockKind::ValidateExecutionFailed,
+                    reason,
+                    reason_code,
+                    Some(detail),
+                )
+                .await
+            }
+        }
+    }
     fn decide_validate_pass_transition(
         completion_snapshot: Option<&crate::plan::PlanCompletionSnapshot>,
     ) -> ValidatePassTransition {
@@ -291,9 +335,7 @@ if let Err(e) =
 }
 
 // Deterministic full validate (NO repair loop / no mutation).
-let obs: crate::controller_event::ValidateObservationContract;
 let args_full = serde_json::json!({"build": true});
-let tool_id_full = uuid::Uuid::new_v4().to_string();
 let mut validate_ctx = react_core::session::ExecutionContext::default();
 validate_ctx.set(
     "phase",
@@ -318,79 +360,46 @@ validate_ctx.set(
     "build",
     serde_json::Value::Bool(true),
 );
-let start_logged = match thread_store
-    .append_step(
-        thread_id,
-        react_core::session::ThreadStep::ToolStart {
-            tool_id: tool_id_full.clone(),
-            name: "dbt_validate".to_string(),
-            clean_name: "Validate DBT".to_string(),
-            args: args_full.clone(),
-            status: ToolStepStatus::Running,
-            payload: None,
-            ctx: Some(validate_ctx.clone()),
-            ts: chrono::Utc::now().to_rfc3339(),
-            agent: "agent".to_string(),
-        },
-    )
-    .await
-{
-    Ok(_) => true,
-    Err(e) => {
-        tracing::warn!(
-            "data_engineer: failed to append dbt_validate tool_start (thread_id={} phase={}): {}",
+let obs = {
+    let meta = react_core::session::ToolStepMeta {
+        agent: "agent".to_string(),
+        phase: phase.as_str().to_string(),
+        name: "dbt_validate".to_string(),
+        clean_name: "Validate DBT".to_string(),
+        args: args_full,
+        ctx: Some(validate_ctx),
+    };
+    match thread_store
+        .run_observed(
             thread_id,
-            phase.as_str(),
-            e
-        );
-        false
+            meta,
+            || async {
+                control_flow::DeterministicDbtValidateOnce::run(&actx, true, false, None).await
+            },
+            |contract| Ok(contract.observation.clone()),
+        )
+        .await
+    {
+        Ok(contract) => contract,
+        Err(e) => {
+            tracing::warn!(
+                "data_engineer: validate execution failed (thread_id={} phase={}): {}",
+                thread_id,
+                phase.as_str(),
+                e
+            );
+            return Self::handle_validate_execution_failure(
+                thread_store,
+                thread_id,
+                phase,
+                format!("dbt_validate execution failed: {}", e),
+                serde_json::json!({"error": e}),
+                PhaseReasonCode::ValidateExecutionFailed,
+            )
+            .await;
+        }
     }
 };
-obs = control_flow::DeterministicDbtValidateOnce::run(
-    &actx, true, false, None,
-)
-.await?;
-let obs_norm = react_core::session::ToolObservation::normalize(
-    obs.observation.clone(),
-);
-if let Err(e) = thread_store
-    .append_step(
-        thread_id,
-        react_core::session::ThreadStep::ToolEnd {
-            tool_id: tool_id_full,
-            name: "dbt_validate".to_string(),
-            clean_name: "Validate DBT".to_string(),
-            args: args_full,
-            status: if obs_norm.ok {
-                ToolStepStatus::Ok
-            } else {
-                ToolStepStatus::Failed
-            },
-            payload: None,
-            ctx: Some(validate_ctx),
-            observation: obs_norm,
-            ts: chrono::Utc::now().to_rfc3339(),
-            agent: "agent".to_string(),
-        },
-    )
-    .await
-{
-    tracing::warn!(
-        "data_engineer: failed to append dbt_validate tool_end (thread_id={} phase={}): {}",
-        thread_id,
-        phase.as_str(),
-        e
-    );
-    if start_logged {
-        // Alertable observability gap: we emitted ToolStart but failed to persist ToolEnd.
-        // This stable marker is intended for log-based counters/alerts.
-        tracing::warn!(
-            "data_engineer_observability_gap kind=unmatched_tool_start tool=dbt_validate thread_id={} phase={}",
-            thread_id,
-            phase.as_str()
-        );
-    }
-}
 
 let validate_event =
     crate::controller_event::validate_event_from_contract(&obs);
@@ -456,10 +465,22 @@ let (
         reason,
         brief,
     } => {
-        return Err(format!(
-            "validate_outcome_v2_contract_error: {} ({})",
-            reason, brief
-        ));
+        tracing::warn!(
+            "data_engineer: validate contract error: {} ({}) (thread_id={} phase={})",
+            reason,
+            brief,
+            thread_id,
+            phase.as_str()
+        );
+        return Self::handle_validate_execution_failure(
+            thread_store,
+            thread_id,
+            phase,
+            format!("validate_outcome_v2_contract_error: {} ({})", reason, brief),
+            serde_json::json!({"reason": reason, "brief": brief}),
+            PhaseReasonCode::ValidateContractError,
+        )
+        .await;
     }
     crate::controller_event::ControllerEvent::ValidatePassed => {
         // Covered by the success branch above.

@@ -7,7 +7,7 @@ use tracing::warn;
 
 use react_core::agent::AgentCtx;
 use crate::providers::DbtValidateArgs;
-use react_core::session::{ThreadStep, ThreadStore, ToolObservation, ToolStepStatus};
+use react_core::session::{ThreadStore, ToolObservation, ToolStepMeta};
 use react_core::tools::Tool;
 
 use crate::tools::files_tool::FilesTool;
@@ -487,9 +487,6 @@ pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
     }
 }
 
-// TODO(item-98): call_and_record_tool is ~150 lines. Extract sub-functions for:
-// (a) input validation / argument prep, (b) actual tool dispatch, (c) thread-log recording,
-// (d) post-call state mutation (mutation epoch bump, evidence recording).
 pub async fn call_and_record_tool(
     store: &ThreadStore,
     thread_id: &str,
@@ -499,41 +496,50 @@ pub async fn call_and_record_tool(
     ctx: &AgentCtx,
     timeout_secs: u64,
 ) -> Value {
-    let agent = agent.unwrap_or_else(|| crate::env_util::UNKNOWN_AGENT.to_string());
-    let clean_name = de_clean_tool_name(tool.name(), &args);
-    let tool_id = uuid::Uuid::new_v4().to_string();
-    let ts_start = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = store
-        .append_step(
+    let agent_str = agent.unwrap_or_else(|| crate::env_util::UNKNOWN_AGENT.to_string());
+    let tool_name = tool.name().to_string();
+    let meta = ToolStepMeta {
+        agent: agent_str,
+        phase: "suite_tool_dispatch".to_string(),
+        name: tool_name.clone(),
+        clean_name: de_clean_tool_name(tool.name(), &args),
+        args: args.clone(),
+        ctx: ctx.exec_ctx().clone(),
+    };
+
+    store
+        .run_observed(
             thread_id,
-            ThreadStep::ToolStart {
-                tool_id: tool_id.clone(),
-                name: tool.name().to_string(),
-                clean_name: clean_name.clone(),
-                args: args.clone(),
-                status: ToolStepStatus::Running,
-                payload: None,
-                ctx: ctx.exec_ctx().clone(),
-                ts: ts_start,
-                agent: agent.clone(),
+            meta,
+            || async {
+                let raw = match timeout(
+                    Duration::from_secs(timeout_secs.max(1)),
+                    tool.call(args.clone(), ctx),
+                )
+                .await
+                {
+                    Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
+                    Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
+                };
+
+                let obs = ToolObservation::normalize(raw.clone());
+                record_post_tool_telemetry(store, thread_id, &tool_name, &args, &obs).await;
+                Ok(raw)
             },
+            |raw: &Value| Ok(raw.clone()),
         )
         .await
-    {
-        warn!("failed to append tool start step: {}", e);
-    }
+        .unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]}))
+}
 
-    let raw = match timeout(
-        Duration::from_secs(timeout_secs.max(1)),
-        tool.call(args.clone(), ctx),
-    )
-    .await
-    {
-        Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
-        Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
-    };
-    let obs = ToolObservation::normalize(raw.clone());
-    if tool.name() == "json_file" {
+async fn record_post_tool_telemetry(
+    store: &ThreadStore,
+    thread_id: &str,
+    tool_name: &str,
+    args: &Value,
+    obs: &ToolObservation,
+) {
+    if tool_name == "json_file" {
         let manifest_path = args
             .get("path")
             .and_then(|v| v.as_str())
@@ -542,8 +548,11 @@ pub async fn call_and_record_tool(
         if let Some(path_kind) =
             crate::progress_controller::classify_manifest_lookup_path(manifest_path)
         {
-            match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
-                .await
+            match crate::state_manager::load_execution_state_strict(
+                &store.control_store(),
+                thread_id,
+            )
+            .await
             {
                 Ok(Some(mut st)) => {
                     if st.phase.current_phase == Some(Phase::ModelPlan) {
@@ -555,8 +564,12 @@ pub async fn call_and_record_tool(
                             )
                         };
                         st.note_manifest_lookup_attempt(path_kind, obs.ok, failure_kind);
-                        if let Err(e) =
-                            crate::state_manager::replace_execution_state(&store.control_store(), thread_id, st).await
+                        if let Err(e) = crate::state_manager::replace_execution_state(
+                            &store.control_store(),
+                            thread_id,
+                            st,
+                        )
+                        .await
                         {
                             warn!("failed to persist manifest lookup telemetry: {}", e);
                         }
@@ -572,10 +585,12 @@ pub async fn call_and_record_tool(
             }
         }
     }
+
     if let Some((op, affected_paths)) = (|| {
-        let name = tool.name();
-        let key = match name {
-            "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => "succeeded_dataset_ids",
+        let key = match tool_name {
+            "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => {
+                "succeeded_dataset_ids"
+            }
             "apply_next_model_batch" | "apply_next_model_schema_batch" => "succeeded_item_names",
             "staging_model" | "gold_model" => "written_keys",
             _ => return None,
@@ -587,14 +602,20 @@ pub async fn call_and_record_tool(
             Some((crate::progress_controller::MutationOp::Patch, items))
         }
     })() {
-        match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
-            .await
+        match crate::state_manager::load_execution_state_strict(
+            &store.control_store(),
+            thread_id,
+        )
+        .await
         {
             Ok(Some(mut st)) => {
                 st.set_last_mutation_summary(op, affected_paths, Vec::new());
-                if let Err(e) =
-                    crate::state_manager::replace_execution_state(&store.control_store(), thread_id, st)
-                        .await
+                if let Err(e) = crate::state_manager::replace_execution_state(
+                    &store.control_store(),
+                    thread_id,
+                    st,
+                )
+                .await
                 {
                     warn!("failed to persist non-file mutation summary: {}", e);
                 }
@@ -608,37 +629,6 @@ pub async fn call_and_record_tool(
             }
         }
     }
-    let status = if obs.ok {
-        ToolStepStatus::Ok
-    } else {
-        ToolStepStatus::Failed
-    };
-    let payload = obs
-        .extra
-        .get("payload")
-        .cloned()
-        .or_else(|| obs.extra.get("ui_payload").cloned());
-    if let Err(e) = store
-        .append_step(
-            thread_id,
-            ThreadStep::ToolEnd {
-                tool_id,
-                name: tool.name().to_string(),
-                clean_name,
-                args,
-                status,
-                payload,
-                ctx: ctx.exec_ctx().clone(),
-                observation: obs,
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent,
-            },
-        )
-        .await
-    {
-        warn!("failed to append tool end step: {}", e);
-    }
-    raw
 }
 
 /// Deterministic authoring invariant: ensure there is at least one model SQL file in `models/`.

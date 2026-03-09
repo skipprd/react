@@ -649,6 +649,18 @@ mod tests {
             "phase_validate should commit validate-pass transitions through one helper"
         );
         assert!(
+            validate_src.contains(".run_observed("),
+            "phase_validate must use ThreadStore::run_observed for tool step logging"
+        );
+        assert!(
+            !validate_src.contains("ThreadStep::ToolStart {"),
+            "phase_validate must not append raw ToolStart steps directly; use ThreadStore::run_observed"
+        );
+        assert!(
+            !validate_src.contains("ThreadStep::ToolEnd {"),
+            "phase_validate must not append raw ToolEnd steps directly; use ThreadStore::run_observed"
+        );
+        assert!(
             !validate_src.contains(&format!("{}{}", "thread_store", ".get(thread_id)")),
             "phase_validate must not derive runtime control metadata from thread log replay"
         );
@@ -696,6 +708,29 @@ mod tests {
                 "{name} should not bypass commit_phase_decision"
             );
         }
+    }
+
+    #[test]
+    fn tool_observability_uses_core_run_observed() {
+        let control_flow_src = include_str!("control_flow.rs");
+        assert!(
+            control_flow_src.contains(".run_observed("),
+            "call_and_record_tool must delegate to ThreadStore::run_observed"
+        );
+        assert!(
+            !control_flow_src.contains("ThreadStep::ToolStart {"),
+            "control_flow must not construct raw ToolStart; use ThreadStore::run_observed"
+        );
+        assert!(
+            !control_flow_src.contains("ThreadStep::ToolEnd {"),
+            "control_flow must not construct raw ToolEnd; use ThreadStore::run_observed"
+        );
+
+        let policy_src = include_str!("policy_sql_validated.rs");
+        assert!(
+            policy_src.contains(".run_observed("),
+            "policy_sql_validated must delegate to ThreadStore::run_observed for run_sql"
+        );
     }
 
     #[test]
