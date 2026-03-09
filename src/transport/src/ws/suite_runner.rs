@@ -583,7 +583,6 @@ async fn run_agent_with_processing_suite(
                     }
                 };
                 let frames = frames.into_iter().map(convert).collect::<Vec<_>>();
-                let frames = frames;
 
                 let mut rerun: Option<(SuiteRunKind, String)> = None;
                 for f in frames {
@@ -769,47 +768,3 @@ async fn run_agent_with_processing_suite(
     }
 }
 
-pub(super) async fn run_suite_and_frames(
-    thread_id: &str,
-    question: &str,
-    suite_id: &str,
-    agent: &str,
-    reg: &react_core::suite::SuiteRegistry,
-    sctx: &react_core::suite::SuiteCtx,
-    kind: SuiteRunKind,
-) -> Result<Vec<AgentFrame>, String> {
-    let convert = |ff: react_core::suite::FlowFrame| -> AgentFrame {
-        match ff {
-            react_core::suite::FlowFrame::Complete {
-                kind,
-                payload,
-                display,
-            } => AgentFrame::Final {
-                kind: kind.0,
-                payload,
-                display,
-            },
-            react_core::suite::FlowFrame::Review { text, meta } => AgentFrame::Review { text, meta },
-            react_core::suite::FlowFrame::Checkpoint { kind, payload, display } => AgentFrame::Review { text: display.unwrap_or(kind.0), meta: Some(payload) },
-            react_core::suite::FlowFrame::Interrupt { kind, prompt } => {
-                if kind == "await_approval" {
-                    AgentFrame::AwaitApproval { prompt }
-                } else {
-                    AgentFrame::AwaitUser { prompt }
-                }
-            }
-        }
-    };
-    let suite = reg
-        .get(suite_id)
-        .ok_or_else(|| format!("invalid suite_id '{}'", suite_id))?;
-    let frames = match kind {
-        SuiteRunKind::New => suite.handle_new(thread_id, question, agent, sctx).await?,
-        SuiteRunKind::Open => suite.handle_open(thread_id, question, agent, sctx).await?,
-        SuiteRunKind::User => suite.handle_user(thread_id, question, agent, sctx).await?,
-    }
-        .into_iter()
-        .map(convert)
-        .collect();
-    Ok(frames)
-}

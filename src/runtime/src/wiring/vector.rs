@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use react_core::provider_traits::{ScoredVectorChunk, VectorChunk, VectorStore};
 use react_core::scope::RequestScope;
@@ -8,23 +6,13 @@ use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 /// Default vector store implementation (LanceDB-on-S3).
 #[derive(Clone)]
 pub struct LanceVectorStore {
-    pub keyspace: Arc<dyn crate::wiring::Keyspace>,
-    pub scope: RequestScope,
     /// URI scheme + root for LanceDB paths (e.g. `s3://bucket` or `file:///data/root`).
     pub uri_prefix: String,
 }
 
 impl LanceVectorStore {
-    pub fn new(
-        keyspace: Arc<dyn crate::wiring::Keyspace>,
-        scope: RequestScope,
-        uri_prefix: String,
-    ) -> Self {
-        Self {
-            keyspace,
-            scope,
-            uri_prefix,
-        }
+    pub fn new(uri_prefix: String) -> Self {
+        Self { uri_prefix }
     }
 
     fn store_for(&self, scope: &RequestScope) -> LanceDbStore {
@@ -34,7 +22,6 @@ impl LanceVectorStore {
         );
         LanceDbStore::new(&uri)
     }
-
 }
 
 #[async_trait]

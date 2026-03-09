@@ -158,8 +158,6 @@ pub(crate) async fn wire_providers(
 
     if providers.vector.enabled {
         sctx.set_vector(Some(Arc::new(LanceVectorStore::new(
-            keyspace.clone(),
-            sctx.scope().clone(),
             lance_uri_prefix.to_string(),
         ))));
     }

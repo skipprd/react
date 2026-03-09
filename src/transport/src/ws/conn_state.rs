@@ -1,4 +1,4 @@
-use super::util::{truncate_title, DEFAULT_AGENT_TYPE};
+use super::util::DEFAULT_AGENT_TYPE;
 use crate::event_hub::EventHub;
 
 const SENT_BUFFER_CAPACITY: usize = 500;
@@ -172,44 +172,6 @@ pub(super) fn build_suites_catalog(reg: &SuiteRegistry) -> Vec<api::SuitesRespon
         }
     }
     out
-}
-
-pub(super) async fn synthesize_title(llm: &react_core::llm::DynLlm, question: &str, answer: &str) -> String {
-    let prompt = format!(
-		"Create a very short, descriptive chat title (≤ 8 words).\nRules: plain text only, no quotes, no punctuation beyond spaces, title case.\nQuestion: {}\nAnswer: {}\nTitle:",
-		question, answer
-	);
-    let out = tokio::task::spawn_blocking({
-        let llm2 = llm.clone();
-        let p = prompt.clone();
-        move || {
-            llm2.chat(
-                &[react_core::llm::ChatMessage {
-                    role: react_core::llm::ChatRole::User,
-                    content: p,
-                }],
-                &react_core::llm::LlmCallOptions {
-                    prompt_id: "react.ws.synthesize_title",
-                    thread_id: None,
-                    expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    max_output_tokens: None,
-                    temperature: None,
-                    top_p: None,
-                    reasoning_effort: None,
-                    timeout_secs: None,
-                },
-            )
-        }
-    })
-    .await;
-    if let Ok(Ok(text)) = out {
-        let t = text.trim();
-        if !t.is_empty() {
-            let norm = t.split_whitespace().collect::<Vec<_>>().join(" ");
-            return truncate_title(&norm, 64);
-        }
-    }
-    truncate_title(question, 64)
 }
 
 pub(super) fn normalize_agent_new(a: api::new_request::AgentType) -> String {
