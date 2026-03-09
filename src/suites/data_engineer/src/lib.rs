@@ -99,6 +99,8 @@ pub(crate) mod thread_cache;
 pub(crate) mod dataset_truth;
 pub(crate) mod dbt;
 pub(crate) mod dbt_error;
+pub mod failure_kind;
+pub mod failure_text;
 pub(crate) mod dbt_repair;
 pub(crate) mod facts;
 pub(crate) mod naming;

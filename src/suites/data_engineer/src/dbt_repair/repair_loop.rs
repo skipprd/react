@@ -3,8 +3,9 @@ use super::remediate::list_sql_keys_for_scope;
 use super::remediate::remediate_dbt_failures_grounded_with_llm;
 use super::remediate::RemediationDiff;
 use react_core::agent::AgentCtx;
+use crate::failure_kind::FailureKind;
 use crate::providers::{
-    CatalogProvider, DatasetCatalogProvider, DbtFailureClass, DbtProvider, DbtValidateArgs,
+    CatalogProvider, DatasetCatalogProvider, DbtProvider, DbtValidateArgs,
     DbtValidateResult,
 };
 use serde::{Deserialize, Serialize};
@@ -281,7 +282,7 @@ pub async fn run_repair_loop(
         }
 
         // Missing sources are grounding failures; do NOT attempt SQL remediation.
-        if matches!(class, DbtFailureClass::MissingSource) {
+        if matches!(class, FailureKind::MissingSource) {
             report.iterations.push(RepairIteration {
                 iteration: i + 1,
                 scanned_models: 0,
@@ -303,7 +304,7 @@ pub async fn run_repair_loop(
 
         let allow_llm_repair = matches!(
             class,
-            DbtFailureClass::SqlOrRuntime | DbtFailureClass::Unknown
+            FailureKind::SqlRuntime | FailureKind::Unknown
         );
 
         let mut llm_changed_files: usize = 0;
@@ -382,7 +383,7 @@ pub async fn run_repair_loop(
         }
 
         // Stop on non-remediable warehouse config errors.
-        if matches!(class, DbtFailureClass::WarehouseConfig) {
+        if matches!(class, FailureKind::WarehouseConfig) {
             report.stopped_reason = Some("warehouse_config".to_string());
             return Ok((res, report));
         }
@@ -503,7 +504,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::failure_kind::FailureKind::SqlRuntime,
                     errors: vec!["Compilation Error: something".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -591,7 +592,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(false),
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::failure_kind::FailureKind::SqlRuntime,
                     errors: vec!["Database Error: something during run".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -718,7 +719,7 @@ mod tests {
                         compile_ok: true,
                         run_ok: Some(false),
                         uploaded_target_files: 0,
-                        failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                        failure_class: crate::failure_kind::FailureKind::SqlRuntime,
                         errors: vec![format!("Runtime Error: Column 'context.session.id' cannot be resolved (models/staging/stg_src_events.sql)")],
                         warnings: vec![],
                         logs: serde_json::json!({}),
@@ -731,7 +732,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(true),
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::NoFailure,
+                    failure_class: crate::failure_kind::FailureKind::NoFailure,
                     errors: vec![],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -843,7 +844,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::failure_kind::FailureKind::SqlRuntime,
                     errors: vec!["Compilation Error: mismatched input".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -941,7 +942,7 @@ mod tests {
                     compile_ok: false,
                     run_ok: None,
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::SqlOrRuntime,
+                    failure_class: crate::failure_kind::FailureKind::SqlRuntime,
                     errors: vec!["Compilation Error: syntax error".to_string()],
                     warnings: vec![],
                     logs: serde_json::json!({}),
@@ -1032,7 +1033,7 @@ mod tests {
                         compile_ok: false,
                         run_ok: None,
                         uploaded_target_files: 0,
-                        failure_class: crate::providers::DbtFailureClass::SchemaOrProject,
+                        failure_class: crate::failure_kind::FailureKind::Schema,
                         errors: vec!["Compilation Error: 'dbt_utils' is undefined".to_string()],
                         warnings: vec![],
                         logs: serde_json::json!({}),
@@ -1045,7 +1046,7 @@ mod tests {
                     compile_ok: true,
                     run_ok: Some(true),
                     uploaded_target_files: 0,
-                    failure_class: crate::providers::DbtFailureClass::NoFailure,
+                    failure_class: crate::failure_kind::FailureKind::NoFailure,
                     errors: vec![],
                     warnings: vec![],
                     logs: serde_json::json!({}),

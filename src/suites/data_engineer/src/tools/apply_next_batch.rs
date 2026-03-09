@@ -7,12 +7,13 @@ use crate::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 use crate::dataset_truth;
+use crate::failure_kind::FailureKind;
 use crate::chunk_progress_contract;
 use crate::controller_kernel;
 use crate::plan;
 use crate::plan::{CleansePlan, ModelPlan};
 use crate::progress_controller::{
-    BatchFailureKind, DataEngineerEvent, ExecutionTier, FailedModelRef,
+    DataEngineerEvent, ExecutionTier, FailedModelRef,
 };
 use crate::tools;
 
@@ -63,7 +64,7 @@ async fn emit_batch_failure(
         ctx,
         DataEngineerEvent::BatchAuthoringFailed {
             tier,
-            kind: BatchFailureKind::Unknown,
+            kind: FailureKind::Unknown,
             failed_targets,
             brief,
         },
@@ -243,7 +244,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                 controller_kernel::note_batch_result_with_failure_kind(
                     &mut plan.progress,
                     false,
-                    Some(BatchFailureKind::Unknown),
+                    Some(FailureKind::Unknown),
                 );
                 emit_batch_failure(ctx, ExecutionTier::Cleanse, &batch, &err_brief, |ds| {
                     plan.tasks.iter().find(|t| t.dataset_id == *ds)
@@ -289,7 +290,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                 );
             }
         }
-        let mut failure_kind_for_budget: Option<BatchFailureKind> = None;
+        let mut failure_kind_for_budget: Option<FailureKind> = None;
         if !failed.is_empty() || !ok {
             let err = crate::tools::batch_sql_runner::extract_first_error(
                 &res,
@@ -555,7 +556,7 @@ impl Tool for ApplyNextModelBatchTool {
                 controller_kernel::note_batch_result_with_failure_kind(
                     &mut plan.progress,
                     false,
-                    Some(BatchFailureKind::Unknown),
+                    Some(FailureKind::Unknown),
                 );
                 emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, &err_brief, |n| {
                     plan.tasks.iter().find(|t| t.name == *n)
@@ -597,7 +598,7 @@ impl Tool for ApplyNextModelBatchTool {
                 );
             }
         }
-        let mut failure_kind_for_budget: Option<BatchFailureKind> = None;
+        let mut failure_kind_for_budget: Option<FailureKind> = None;
         if !failed.is_empty() || !ok {
             let err = crate::tools::batch_sql_runner::extract_first_error(
                 &res,

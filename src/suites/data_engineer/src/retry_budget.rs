@@ -1,6 +1,6 @@
 use crate::control_flow::Phase;
+use crate::failure_kind::FailureKind;
 use crate::plan;
-use crate::progress_controller::BatchFailureKind;
 use react_core::session::ThreadStore;
 
 pub const MAX_CONSECUTIVE_BATCH_FAILURES: usize = 3;
@@ -52,12 +52,12 @@ pub fn note_batch_result(progress: &mut plan::PlanProgress, ok: bool) -> RetryBu
 pub fn note_batch_result_with_failure_kind(
     progress: &mut plan::PlanProgress,
     ok: bool,
-    failure_kind: Option<BatchFailureKind>,
+    failure_kind: Option<FailureKind>,
 ) -> RetryBudget {
     if ok {
         return note_batch_result(progress, true);
     }
-    if matches!(failure_kind, Some(BatchFailureKind::InfraTransient)) {
+    if matches!(failure_kind, Some(FailureKind::InfraTransient)) {
         // Transient upstream outages must not consume deterministic batch-lock budget.
         return batch_budget(progress);
     }
@@ -171,7 +171,7 @@ mod tests {
         let budget = note_batch_result_with_failure_kind(
             &mut progress,
             false,
-            Some(BatchFailureKind::InfraTransient),
+            Some(FailureKind::InfraTransient),
         );
         assert_eq!(budget.used, 0);
         assert_eq!(progress.total_batch_failures, 0);

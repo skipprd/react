@@ -19,7 +19,7 @@ pub use catalog_types::{
     GLOBAL_SEMANTIC_DATASET_ID,
 };
 pub use dataset_catalog::{DatasetCatalogProvider, DatasetId};
-pub use dbt::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
+pub use dbt::{DbtProvider, DbtValidateArgs, DbtValidateResult};
 pub use query::{QueryProvider, QueryResult};
 pub use stats::DatasetFieldStats;
 pub use warehouse::{has_obvious_same_select_alias_reuse, WarehouseNaming, WarehouseProvider};

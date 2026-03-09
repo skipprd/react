@@ -319,7 +319,7 @@ fn parse_test_name_hints(test_name: &str) -> (Option<String>, Option<String>) {
 
 pub fn classify(errors: &[String]) -> DbtErrorClass {
     let joined = errors.join("\n");
-    let s = strip_ansi(&joined).to_lowercase();
+    let s = crate::failure_text::normalize_text(&strip_ansi(&joined));
 
     if s.contains("dbt found two sources with the name") || s.contains("duplicate sources") {
         return DbtErrorClass::DuplicateSources;
@@ -338,29 +338,17 @@ pub fn classify(errors: &[String]) -> DbtErrorClass {
     if s.contains("could not find profile named") {
         return DbtErrorClass::ProfilesYaml;
     }
-    if s.contains("workgroup is not found")
-        || (s.contains("datacatalog") && s.contains("was not found"))
-        || s.contains("accessdenied")
-        || s.contains("expiredtoken")
-        || s.contains("signaturedoesnotmatch")
-    {
+    if crate::failure_text::is_warehouse_config(&s) {
         return DbtErrorClass::WarehouseConfig;
     }
     // Missing dbt source definitions (grounding failure, not SQL).
     // Typical dbt phrasing:
     //   "depends on a source named 'test_raw.raw_products' which was not found"
-    if (s.contains("depends on a source named") && s.contains("which was not found"))
-        || (s.contains("source named") && s.contains("was not found"))
-    {
+    if crate::failure_text::is_missing_source(&s) {
         return DbtErrorClass::MissingSource;
     }
     // Generic SQL failures (compilation/runtime/database execution)
-    if s.contains("compilation error")
-        || s.contains("runtime error")
-        || s.contains("database error")
-        || s.contains("failed to execute query")
-        || s.contains("invalidrequestexception")
-    {
+    if crate::failure_text::is_sql_or_runtime_strict(&s) {
         return DbtErrorClass::SqlFailure;
     }
     if s.contains("sql") {

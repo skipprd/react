@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::dbt_repair::remediate::active_provider_dialect;
+use crate::failure_kind::FailureKind;
 use crate::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::plan;
-use crate::progress_controller::BatchFailureKind;
 use crate::project_fs;
 use crate::references::DatasetRef;
 use crate::sql_first;
@@ -147,13 +147,15 @@ fn build_staging_sys_prompt(
     )
 }
 
-fn merge_failure_kind(a: BatchFailureKind, b: BatchFailureKind) -> BatchFailureKind {
-    use BatchFailureKind::*;
-    let rank = |k: BatchFailureKind| match k {
+fn merge_failure_kind(a: FailureKind, b: FailureKind) -> FailureKind {
+    use FailureKind::*;
+    let rank = |k: FailureKind| match k {
+        WarehouseConfig => 5,
         InfraTransient => 4,
-        SqlValidation => 3,
-        SchemaOrContract => 2,
+        SqlRuntime => 3,
+        Schema => 2,
         Unknown => 1,
+        MissingSource | NoFailure => 0,
     };
     if rank(b) > rank(a) { b } else { a }
 }
@@ -256,7 +258,7 @@ impl Tool for StagingModelTool {
             // IMPORTANT: do not write schema.yml or any models if the dataset facts are not proven.
             return Ok(serde_json::json!({
                 "ok": false,
-                "batch_failure_kind": "schema_or_contract",
+                "batch_failure_kind": "schema",
                 "datasets": dataset_ids.len(),
                 "written_keys": [],
                 "schema_key": Value::Null,
@@ -298,7 +300,7 @@ impl Tool for StagingModelTool {
                 Err(e) => {
                     return Ok(serde_json::json!({
                         "ok": false,
-                        "batch_failure_kind": "schema_or_contract",
+                        "batch_failure_kind": "schema",
                         "datasets": dataset_ids.len(),
                         "written_keys": [],
                         "schema_key": schema_key,
@@ -314,7 +316,7 @@ impl Tool for StagingModelTool {
             {
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "batch_failure_kind": "schema_or_contract",
+                    "batch_failure_kind": "schema",
                     "datasets": dataset_ids.len(),
                     "written_keys": [],
                     "schema_key": schema_key,
@@ -332,7 +334,7 @@ impl Tool for StagingModelTool {
                     Err(e) => {
                         return Ok(serde_json::json!({
                             "ok": false,
-                            "batch_failure_kind": "schema_or_contract",
+                            "batch_failure_kind": "schema",
                             "datasets": dataset_ids.len(),
                             "written_keys": [],
                             "schema_key": schema_key,
@@ -358,7 +360,7 @@ impl Tool for StagingModelTool {
                     Err(e) => {
                         return Ok(serde_json::json!({
                             "ok": false,
-                            "batch_failure_kind": "schema_or_contract",
+                            "batch_failure_kind": "schema",
                             "datasets": dataset_ids.len(),
                             "written_keys": [],
                             "schema_key": schema_key,
@@ -374,7 +376,7 @@ impl Tool for StagingModelTool {
                 {
                     return Ok(serde_json::json!({
                         "ok": false,
-                        "batch_failure_kind": "schema_or_contract",
+                        "batch_failure_kind": "schema",
                         "datasets": dataset_ids.len(),
                         "written_keys": [],
                         "schema_key": schema_key,
@@ -460,7 +462,7 @@ impl Tool for StagingModelTool {
                 ));
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "batch_failure_kind": "schema_or_contract",
+                    "batch_failure_kind": "schema",
                     "datasets": dataset_ids.len(),
                     "written_keys": written,
                     "schema_key": schema_key,
@@ -475,7 +477,7 @@ impl Tool for StagingModelTool {
                 ));
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "batch_failure_kind": "schema_or_contract",
+                    "batch_failure_kind": "schema",
                     "datasets": dataset_ids.len(),
                     "written_keys": written,
                     "schema_key": schema_key,
@@ -496,7 +498,7 @@ impl Tool for StagingModelTool {
                 ));
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "batch_failure_kind": "sql_validation",
+                    "batch_failure_kind": "sql_runtime",
                     "datasets": dataset_ids.len(),
                     "written_keys": written,
                     "schema_key": schema_key,
@@ -510,7 +512,7 @@ impl Tool for StagingModelTool {
                 ));
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "batch_failure_kind": "sql_validation",
+                    "batch_failure_kind": "sql_runtime",
                     "datasets": dataset_ids.len(),
                     "written_keys": written,
                     "schema_key": schema_key,
@@ -780,7 +782,7 @@ impl Tool for StagingModelTool {
         );
 
         let out_notes = dedup_notes(notes, 50);
-        let classified_kind = errors.iter().fold(BatchFailureKind::Unknown, |acc, e| {
+        let classified_kind = errors.iter().fold(FailureKind::Unknown, |acc, e| {
             merge_failure_kind(
                 acc,
                 crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e),

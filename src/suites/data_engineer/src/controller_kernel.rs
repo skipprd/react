@@ -130,7 +130,7 @@ pub fn note_batch_result(progress: &mut plan::PlanProgress, ok: bool) -> RetryBu
 pub fn note_batch_result_with_failure_kind(
     progress: &mut plan::PlanProgress,
     ok: bool,
-    failure_kind: Option<crate::progress_controller::BatchFailureKind>,
+    failure_kind: Option<crate::failure_kind::FailureKind>,
 ) -> RetryBudget {
     retry_budget::note_batch_result_with_failure_kind(progress, ok, failure_kind)
 }

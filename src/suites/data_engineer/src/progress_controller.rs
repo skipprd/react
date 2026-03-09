@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
+use crate::failure_kind::FailureKind;
 
 use crate::domain_types::PhaseReasonCode;
 use react_core::session::ControlStateStore;
@@ -119,7 +120,7 @@ pub struct LastValidateState {
     #[serde(default)]
     pub failed_models: Vec<FailedModelRef>,
     #[serde(default)]
-    pub failure_class: Option<FailureClass>,
+    pub failure_class: Option<FailureKind>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -449,15 +450,6 @@ pub enum ProbeRequirementStatus {
     ExhaustedRequireMutation,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum BatchFailureKind {
-    SqlValidation,
-    InfraTransient,
-    SchemaOrContract,
-    Unknown,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProbeSignature {
@@ -563,28 +555,13 @@ pub struct RepairTarget {
     #[serde(default)]
     pub path: Option<RepairTargetPath>,
     #[serde(default)]
-    pub error_class: Option<FailureClass>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum FailureClass {
-    WarehouseConfig,
-    SqlOrRuntime,
-    SchemaOrPrecheck,
-    Unknown,
-}
-
-impl Default for FailureClass {
-    fn default() -> Self {
-        Self::Unknown
-    }
+    pub error_class: Option<FailureKind>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct FailureSignature {
-    pub class: FailureClass,
+    pub class: FailureKind,
     #[serde(default)]
     pub node_id: Option<String>,
     #[serde(default)]
@@ -976,7 +953,7 @@ pub enum DataEngineerEvent {
     },
     ValidateFailed {
         tier: ExecutionTier,
-        failure_class: FailureClass,
+        failure_class: FailureKind,
         failure_signature: FailureSignature,
         repair_intent: RepairIntent,
         brief: Option<String>,
@@ -985,7 +962,7 @@ pub enum DataEngineerEvent {
     },
     BatchAuthoringFailed {
         tier: ExecutionTier,
-        kind: BatchFailureKind,
+        kind: FailureKind,
         failed_targets: Vec<FailedModelRef>,
         brief: String,
     },
@@ -1255,7 +1232,7 @@ impl ExecutionState {
     pub fn apply_validate_failure(
         &mut self,
         tier: ExecutionTier,
-        failure_class: FailureClass,
+        failure_class: FailureKind,
         failure_signature: FailureSignature,
         repair_intent: RepairIntent,
         brief: Option<String>,
@@ -1643,13 +1620,7 @@ impl ExecutionState {
                 failed_targets,
                 brief,
             } => {
-                let failure_class = match kind {
-                    BatchFailureKind::SchemaOrContract => FailureClass::SchemaOrPrecheck,
-                    BatchFailureKind::SqlValidation => FailureClass::SqlOrRuntime,
-                    BatchFailureKind::InfraTransient | BatchFailureKind::Unknown => {
-                        FailureClass::Unknown
-                    }
-                };
+                let failure_class = kind;
                 let backlog = repair_backlog_from_failed_models(failure_class, &failed_targets);
                 let repair_intent = repair_intent_from_backlog(failure_class, backlog.clone());
                 let sig = FailureSignature {
@@ -1810,7 +1781,7 @@ fn obs_like_bool(
 }
 
 pub fn repair_backlog_from_failed_models(
-    failure_class: FailureClass,
+    failure_class: FailureKind,
     failing_models: &[FailedModelRef],
 ) -> Vec<RepairTarget> {
     let mut out: Vec<RepairTarget> = failing_models
@@ -1825,17 +1796,21 @@ pub fn repair_backlog_from_failed_models(
             error_class: None,
         })
         .filter(|target| match failure_class {
-            FailureClass::SchemaOrPrecheck => target
+            FailureKind::Schema => target
                 .path
                 .as_ref()
                 .map(|p| matches!(p, RepairTargetPath::SchemaDoc(_)))
                 .unwrap_or(false),
-            FailureClass::SqlOrRuntime => target
+            FailureKind::SqlRuntime => target
                 .path
                 .as_ref()
                 .map(|p| matches!(p, RepairTargetPath::SqlModel(_) | RepairTargetPath::SchemaDoc(_)))
                 .unwrap_or(false),
-            FailureClass::WarehouseConfig | FailureClass::Unknown => false,
+            FailureKind::WarehouseConfig
+            | FailureKind::InfraTransient
+            | FailureKind::MissingSource
+            | FailureKind::NoFailure
+            | FailureKind::Unknown => false,
         })
         .collect();
     out.sort_by(|a, b| {
@@ -1860,10 +1835,10 @@ fn is_schema_doc_path(path: &str) -> bool {
         && (normalized.ends_with(".yml") || normalized.ends_with(".yaml"))
 }
 
-pub fn repair_intent_from_backlog(failure_class: FailureClass, backlog: Vec<RepairTarget>) -> RepairIntent {
+pub fn repair_intent_from_backlog(failure_class: FailureKind, backlog: Vec<RepairTarget>) -> RepairIntent {
     match failure_class {
-        FailureClass::SchemaOrPrecheck => RepairIntent::Schema { backlog },
-        FailureClass::SqlOrRuntime => {
+        FailureKind::Schema => RepairIntent::Schema { backlog },
+        FailureKind::SqlRuntime => {
             if let Some(target) = backlog.iter().find_map(|item| match &item.path {
                 Some(RepairTargetPath::SqlModel(path)) => Some(path.clone()),
                 _ => None,
@@ -1878,7 +1853,11 @@ pub fn repair_intent_from_backlog(failure_class: FailureClass, backlog: Vec<Repa
                 RepairIntent::None { backlog }
             }
         }
-        FailureClass::WarehouseConfig | FailureClass::Unknown => RepairIntent::None { backlog },
+        FailureKind::WarehouseConfig
+        | FailureKind::InfraTransient
+        | FailureKind::MissingSource
+        | FailureKind::NoFailure
+        | FailureKind::Unknown => RepairIntent::None { backlog },
     }
 }
 
@@ -2092,12 +2071,12 @@ mod tests {
     fn validate_failure_sets_typed_repair_type() {
         let mut st = ExecutionState::new();
         let sig = FailureSignature {
-            class: FailureClass::SchemaOrPrecheck,
+            class: FailureKind::Schema,
             ..FailureSignature::default()
         };
         st.apply_validate_failure(
             ExecutionTier::Cleanse,
-            FailureClass::SchemaOrPrecheck,
+            FailureKind::Schema,
             sig,
             RepairIntent::Schema { backlog: Vec::new() },
             Some("schema fail".to_string()),
@@ -2105,19 +2084,19 @@ mod tests {
         assert_eq!(st.repair_type(), RepairType::Schema);
 
         let sig2 = FailureSignature {
-            class: FailureClass::SqlOrRuntime,
+            class: FailureKind::SqlRuntime,
             ..FailureSignature::default()
         };
         st.apply_validate_failure(
             ExecutionTier::Cleanse,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig2,
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/staging/stg_orders.sql"),
                 backlog: vec![RepairTarget {
                 model_name: Some("model.pkg.stg_orders".to_string()),
                 path: Some(repair_target_path("models/staging/stg_orders.sql")),
-                error_class: Some(FailureClass::SqlOrRuntime),
+                error_class: Some(FailureKind::SqlRuntime),
                 }],
             },
             Some("sql fail".to_string()),
@@ -2129,18 +2108,18 @@ mod tests {
     fn validate_failure_sql_runtime_with_schema_target_routes_to_schema_repair() {
         let mut st = ExecutionState::new();
         let sig = FailureSignature {
-            class: FailureClass::SqlOrRuntime,
+            class: FailureKind::SqlRuntime,
             ..FailureSignature::default()
         };
         st.apply_validate_failure(
             ExecutionTier::Cleanse,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig,
             RepairIntent::Schema {
                 backlog: vec![RepairTarget {
                     model_name: Some("test.not_null_stg_orders_order_id".to_string()),
                     path: Some(repair_target_path("models/staging/stg_orders.yml")),
-                    error_class: Some(FailureClass::SqlOrRuntime),
+                    error_class: Some(FailureKind::SqlRuntime),
                 }],
             },
             Some("dbt test fail".to_string()),
@@ -2170,14 +2149,14 @@ mod tests {
         ];
 
         let schema_backlog =
-            repair_backlog_from_failed_models(FailureClass::SchemaOrPrecheck, &failing);
+            repair_backlog_from_failed_models(FailureKind::Schema, &failing);
         assert_eq!(schema_backlog.len(), 1);
         assert_eq!(
             schema_backlog[0].path.as_ref().map(|p| p.as_str()),
             Some("models/staging/stg_orders.yml")
         );
 
-        let sql_backlog = repair_backlog_from_failed_models(FailureClass::SqlOrRuntime, &failing);
+        let sql_backlog = repair_backlog_from_failed_models(FailureKind::SqlRuntime, &failing);
         assert_eq!(sql_backlog.len(), 2);
         assert!(sql_backlog
             .iter()
@@ -2186,7 +2165,7 @@ mod tests {
             .iter()
             .any(|entry| entry.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.yml")));
 
-        let unknown_backlog = repair_backlog_from_failed_models(FailureClass::Unknown, &failing);
+        let unknown_backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
         assert!(unknown_backlog.is_empty());
     }
 
@@ -2343,7 +2322,7 @@ mod tests {
     fn repeated_equivalent_validate_failures_do_not_count_as_progress() {
         let mut st = ExecutionState::new();
         let sig = FailureSignature {
-            class: FailureClass::SqlOrRuntime,
+            class: FailureKind::SqlRuntime,
             node_id: Some("model.pkg.fct_orders".to_string()),
             canonical_path: Some(repair_target_path("models/marts/fct_orders.sql")),
             error_code: Some("E_SQL".to_string()),
@@ -2351,12 +2330,12 @@ mod tests {
         let backlog = vec![RepairTarget {
             model_name: Some("model.pkg.fct_orders".to_string()),
             path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_class: Some(FailureClass::SqlOrRuntime),
+            error_class: Some(FailureKind::SqlRuntime),
         }];
 
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig.clone(),
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/marts/fct_orders.sql"),
@@ -2368,7 +2347,7 @@ mod tests {
 
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig,
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/marts/fct_orders.sql"),
@@ -2388,7 +2367,7 @@ mod tests {
     fn shrinking_repair_backlog_counts_as_structural_progress() {
         let mut st = ExecutionState::new();
         let sig = FailureSignature {
-            class: FailureClass::SqlOrRuntime,
+            class: FailureKind::SqlRuntime,
             node_id: Some("model.pkg.fct_orders".to_string()),
             canonical_path: Some(repair_target_path("models/marts/fct_orders.sql")),
             error_code: Some("E_SQL".to_string()),
@@ -2397,17 +2376,17 @@ mod tests {
             RepairTarget {
                 model_name: Some("model.pkg.fct_orders".to_string()),
                 path: Some(repair_target_path("models/marts/fct_orders.sql")),
-                error_class: Some(FailureClass::SqlOrRuntime),
+                error_class: Some(FailureKind::SqlRuntime),
             },
             RepairTarget {
                 model_name: Some("model.pkg.dim_users".to_string()),
                 path: Some(repair_target_path("models/marts/dim_users.sql")),
-                error_class: Some(FailureClass::SqlOrRuntime),
+                error_class: Some(FailureKind::SqlRuntime),
             },
         ];
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig.clone(),
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/marts/fct_orders.sql"),
@@ -2419,11 +2398,11 @@ mod tests {
         let one = vec![RepairTarget {
             model_name: Some("model.pkg.fct_orders".to_string()),
             path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_class: Some(FailureClass::SqlOrRuntime),
+            error_class: Some(FailureKind::SqlRuntime),
         }];
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureClass::SqlOrRuntime,
+            FailureKind::SqlRuntime,
             sig,
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/marts/fct_orders.sql"),
@@ -2442,7 +2421,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
             tier: ExecutionTier::Cleanse,
-            kind: BatchFailureKind::SqlValidation,
+            kind: FailureKind::SqlRuntime,
             failed_targets: vec![FailedModelRef {
                 name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),

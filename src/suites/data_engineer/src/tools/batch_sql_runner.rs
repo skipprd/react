@@ -2,63 +2,42 @@ use react_core::agent::AgentCtx;
 use serde_json::Value;
 use std::collections::HashSet;
 
-use crate::progress_controller::{BatchFailureKind, DataEngineerEvent};
+use crate::failure_kind::FailureKind;
+use crate::progress_controller::DataEngineerEvent;
 use crate::state_manager;
 
-pub(crate) fn extract_batch_failure_kind(res: &Value) -> Result<BatchFailureKind, String> {
+pub(crate) fn extract_batch_failure_kind(res: &Value) -> Result<FailureKind, String> {
     let raw = res
         .get("batch_failure_kind")
         .cloned()
         .ok_or_else(|| "missing required field batch_failure_kind".to_string())?;
-    serde_json::from_value::<BatchFailureKind>(raw)
+    serde_json::from_value::<FailureKind>(raw)
         .map_err(|e| format!("invalid batch_failure_kind value: {e}"))
 }
 
-pub(crate) fn classify_schema_batch_failure_kind(msg: &str) -> BatchFailureKind {
-    let s = msg.to_ascii_lowercase();
-    if s.contains("timeout")
-        || s.contains("temporar")
-        || s.contains("http 502")
-        || s.contains("http 503")
-        || s.contains("http 504")
-    {
-        return BatchFailureKind::InfraTransient;
+pub(crate) fn classify_schema_batch_failure_kind(msg: &str) -> FailureKind {
+    let s = crate::failure_text::normalize_text(msg);
+    if crate::failure_text::is_infra_transient(&s) {
+        return FailureKind::InfraTransient;
     }
-    if s.contains("schema") || s.contains("yaml") || s.contains("parse") || s.contains("column") {
-        return BatchFailureKind::SchemaOrContract;
+    if crate::failure_text::is_schema_or_contract(&s) || s.contains("column") {
+        return FailureKind::Schema;
     }
-    BatchFailureKind::Unknown
+    FailureKind::Unknown
 }
 
-pub(crate) fn classify_authoring_batch_failure_kind(msg: &str) -> BatchFailureKind {
-    let s = msg.to_ascii_lowercase();
-    if s.contains("timeout")
-        || s.contains("temporar")
-        || s.contains("http 502")
-        || s.contains("http 503")
-        || s.contains("http 504")
-    {
-        return BatchFailureKind::InfraTransient;
+pub(crate) fn classify_authoring_batch_failure_kind(msg: &str) -> FailureKind {
+    let s = crate::failure_text::normalize_text(msg);
+    if crate::failure_text::is_infra_transient(&s) {
+        return FailureKind::InfraTransient;
     }
-    if s.contains("sql validation")
-        || s.contains("athena/trino")
-        || s.contains("trino")
-        || s.contains("materialized sql")
-        || s.contains("source() call")
-        || s.contains("dbt source()")
-        || s.contains("syntax error")
-    {
-        return BatchFailureKind::SqlValidation;
+    if crate::failure_text::is_sql_or_runtime_strict(&s) {
+        return FailureKind::SqlRuntime;
     }
-    if s.contains("schema")
-        || s.contains("yaml")
-        || s.contains("parse")
-        || s.contains("contract")
-        || s.contains("invalid model folder")
-    {
-        return BatchFailureKind::SchemaOrContract;
+    if crate::failure_text::is_schema_or_contract(&s) {
+        return FailureKind::Schema;
     }
-    BatchFailureKind::Unknown
+    FailureKind::Unknown
 }
 
 #[cfg(test)]
@@ -70,13 +49,13 @@ mod tests {
         let k = classify_authoring_batch_failure_kind(
             "sql validation failed: Athena/Trino cannot reference a SELECT-list alias",
         );
-        assert_eq!(k, BatchFailureKind::SqlValidation);
+        assert_eq!(k, FailureKind::SqlRuntime);
     }
 
     #[test]
     fn classify_authoring_schema_error() {
         let k = classify_authoring_batch_failure_kind("invalid model folder 'models/raw/x.sql'");
-        assert_eq!(k, BatchFailureKind::SchemaOrContract);
+        assert_eq!(k, FailureKind::Schema);
     }
 }
 

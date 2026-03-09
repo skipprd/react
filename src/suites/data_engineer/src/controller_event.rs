@@ -1,30 +1,28 @@
 use serde_json::Value;
 
 pub use crate::domain_types::{
-    ControllerEvent, FailureSignature, ValidateFailingTarget, ValidateFailureClass,
+    ControllerEvent, FailureSignature, ValidateFailingTarget,
     ValidateObservationContract, ValidateOutcomeV2, ValidateTargetPath,
 };
+use crate::failure_kind::FailureKind;
 
-fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> ValidateFailureClass {
-    let class = obj
+fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> FailureKind {
+    obj
         .get("failure_class")
         .cloned()
-        .and_then(|v| serde_json::from_value::<crate::providers::DbtFailureClass>(v).ok())
-        .unwrap_or(crate::providers::DbtFailureClass::Unknown);
-    match class {
-        crate::providers::DbtFailureClass::WarehouseConfig => {
-            ValidateFailureClass::WarehouseConfig
-        }
-        crate::providers::DbtFailureClass::SqlOrRuntime => ValidateFailureClass::SqlOrRuntime,
-        _ => ValidateFailureClass::Unknown,
-    }
+        .and_then(|v| serde_json::from_value::<FailureKind>(v).ok())
+        .unwrap_or(FailureKind::Unknown)
 }
 
-fn failure_class_key(class: ValidateFailureClass) -> &'static str {
+fn failure_class_key(class: FailureKind) -> &'static str {
     match class {
-        ValidateFailureClass::WarehouseConfig => "warehouse_config",
-        ValidateFailureClass::SqlOrRuntime => "sql_or_runtime",
-        ValidateFailureClass::Unknown => "unknown",
+        FailureKind::NoFailure => "no_failure",
+        FailureKind::InfraTransient => "infra_transient",
+        FailureKind::WarehouseConfig => "warehouse_config",
+        FailureKind::MissingSource => "missing_source",
+        FailureKind::Schema => "schema",
+        FailureKind::SqlRuntime => "sql_runtime",
+        FailureKind::Unknown => "unknown",
     }
 }
 
@@ -101,7 +99,7 @@ fn fallback_targets_from_text_blobs(
 fn build_failing_targets_from_logs(
     logs: &Value,
     errors: &[String],
-    failure_class: ValidateFailureClass,
+    failure_class: FailureKind,
 ) -> Vec<ValidateFailingTarget> {
     let error_code = failure_class_key(failure_class).to_string();
     let mut out: Vec<ValidateFailingTarget> = crate::dbt_error::extract_failed_models_from_logs(logs)
@@ -269,17 +267,11 @@ pub fn validate_event_from_contract(contract: &ValidateObservationContract) -> C
     }
 }
 
-fn parse_failure_class(v: &Value) -> ValidateFailureClass {
-    match v
-        .get("class")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .trim()
-    {
-        "warehouse_config" => ValidateFailureClass::WarehouseConfig,
-        "sql_or_runtime" => ValidateFailureClass::SqlOrRuntime,
-        _ => ValidateFailureClass::Unknown,
-    }
+fn parse_failure_class(v: &Value) -> FailureKind {
+    v.get("class")
+        .cloned()
+        .and_then(|x| serde_json::from_value::<FailureKind>(x).ok())
+        .unwrap_or(FailureKind::Unknown)
 }
 
 fn parse_failing_targets(obs: &Value) -> Vec<ValidateFailingTarget> {
@@ -454,7 +446,7 @@ mod tests {
         });
         match validate_event_from_observation(&obs) {
             ControllerEvent::ValidateFailed { class, .. } => {
-                assert_eq!(class, ValidateFailureClass::WarehouseConfig)
+                assert_eq!(class, FailureKind::WarehouseConfig)
             }
             other => panic!("expected ValidateFailed, got {:?}", other),
         }
@@ -469,7 +461,7 @@ mod tests {
                 "compile_ok": false,
                 "run_ok": false,
                 "failure_signature": {
-                    "class": "sql_or_runtime",
+                    "class": "sql_runtime",
                     "node_id": "model.pkg.events",
                     "canonical_path": "models/marts/events.sql",
                     "error_code": "E_SQL"
@@ -607,6 +599,6 @@ mod tests {
             .outcome_v2
             .failure_signature
             .expect("expected failure signature");
-        assert_eq!(sig.class, ValidateFailureClass::WarehouseConfig);
+        assert_eq!(sig.class, FailureKind::WarehouseConfig);
     }
 }

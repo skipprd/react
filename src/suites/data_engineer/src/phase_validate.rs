@@ -468,7 +468,7 @@ let (
 };
 if matches!(
     failure_class,
-    crate::controller_event::ValidateFailureClass::WarehouseConfig
+    crate::failure_kind::FailureKind::WarehouseConfig
 ) {
     return Err(format!(
         "dbt_validate failed due to a warehouse/aws configuration issue: {}",
@@ -498,17 +498,7 @@ let errs: Vec<String> = obs
             ..Default::default()
         })
         .collect();
-    let failure_class_state = match failure_class {
-        crate::controller_event::ValidateFailureClass::WarehouseConfig => {
-            crate::progress_controller::FailureClass::WarehouseConfig
-        }
-        crate::controller_event::ValidateFailureClass::SqlOrRuntime => {
-            crate::progress_controller::FailureClass::SqlOrRuntime
-        }
-        crate::controller_event::ValidateFailureClass::Unknown => {
-            crate::progress_controller::FailureClass::Unknown
-        }
-    };
+    let failure_class_state = failure_class;
     let backlog = crate::progress_controller::repair_backlog_from_failed_models(
         failure_class_state,
         &failing_models,

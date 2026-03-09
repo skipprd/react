@@ -143,19 +143,11 @@ impl GuardBlockKind {
 /// Project-relative path to a dbt model file that was the target of a validate failure.
 pub type ValidateTargetPath = crate::progress_controller::RepairTargetPath;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ValidateFailureClass {
-    WarehouseConfig,
-    SqlOrRuntime,
-    Unknown,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControllerEvent {
     ValidatePassed,
     ValidateFailed {
-        class: ValidateFailureClass,
+        class: crate::failure_kind::FailureKind,
         signature: FailureSignature,
         brief: String,
         failing_targets: Vec<ValidateFailingTarget>,
@@ -178,7 +170,7 @@ pub struct ValidateFailingTarget {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FailureSignature {
-    pub class: ValidateFailureClass,
+    pub class: crate::failure_kind::FailureKind,
     pub node_id: String,
     #[serde(rename = "canonical_path")]
     pub target_path: ValidateTargetPath,

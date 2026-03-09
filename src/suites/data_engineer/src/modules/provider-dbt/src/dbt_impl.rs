@@ -12,7 +12,7 @@ use std::{io::BufRead, process::Stdio};
 use crate::adapters::storage::StorageAdapter;
 use crate::providers::{Keyspace, RequestScope};
 
-use react_suite_data_engineer::providers::{DbtFailureClass, DbtProvider, DbtValidateArgs, DbtValidateResult};
+use react_suite_data_engineer::providers::{DbtProvider, DbtValidateArgs, DbtValidateResult};
 
 #[derive(Clone)]
 pub struct DbtProjectProvider {
@@ -1072,45 +1072,6 @@ impl DbtProjectProvider {
         Ok(())
     }
 
-    fn classify_validate_failure(errors: &[String]) -> DbtFailureClass {
-        if errors.is_empty() {
-            return DbtFailureClass::NoFailure;
-        }
-        let s = errors.join("\n").to_ascii_lowercase();
-        if s.contains("workgroup is not found")
-            || (s.contains("datacatalog") && s.contains("was not found"))
-            || s.contains("accessdenied")
-            || s.contains("expiredtoken")
-            || s.contains("signaturedoesnotmatch")
-        {
-            return DbtFailureClass::WarehouseConfig;
-        }
-        if (s.contains("depends on a source named") && s.contains("which was not found"))
-            || (s.contains("source named") && s.contains("was not found"))
-        {
-            return DbtFailureClass::MissingSource;
-        }
-        if s.contains("got duplicate keys")
-            || s.contains("profiles.yml")
-            || s.contains("dbt_project.yml")
-            || s.contains("additional properties are not allowed")
-            || s.contains("schema.yml")
-            || s.contains("yaml")
-        {
-            return DbtFailureClass::SchemaOrProject;
-        }
-        if s.contains("compilation error")
-            || s.contains("runtime error")
-            || s.contains("database error")
-            || s.contains("failed to execute query")
-            || s.contains("invalidrequestexception")
-            || s.contains("sql")
-        {
-            return DbtFailureClass::SqlOrRuntime;
-        }
-        DbtFailureClass::Unknown
-    }
-
     async fn upload_dir_to_storage(&self, local_dir: &Path, prefix: &str) -> Result<usize, String> {
         if !local_dir.is_dir() {
             return Ok(0);
@@ -1413,7 +1374,7 @@ impl DbtProvider for DbtProjectProvider {
         for e in combine_errors(&compile_res, run_or_build_res.as_ref().unwrap_or(&empty)) {
             errs_vec.push(e);
         }
-        let failure_class = Self::classify_validate_failure(&errs_vec);
+        let failure_class = react_suite_data_engineer::failure_text::classify_dbt_failure(&errs_vec);
 
         Ok(DbtValidateResult {
             ok,

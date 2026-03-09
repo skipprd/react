@@ -520,7 +520,7 @@ mod tests {
                 compile_ok: true,
                 run_ok: Some(args.build),
                 uploaded_target_files: 1,
-                failure_class: crate::providers::DbtFailureClass::NoFailure,
+                failure_class: crate::failure_kind::FailureKind::NoFailure,
                 errors: vec![],
                 warnings: vec![],
                 logs: serde_json::json!({}),
