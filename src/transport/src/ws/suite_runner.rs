@@ -153,8 +153,6 @@ async fn run_agent_with_processing_suite(
     };
 
     let mut agent_task = spawn_task(kind, question.to_string());
-    let mut _auto_turns: usize = 0;
-
     let mut plan_tick = tokio::time::interval(std::time::Duration::from_millis(800));
     plan_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_plan_fp_by_kind: HashMap<String, String> = HashMap::new();
@@ -704,7 +702,6 @@ async fn run_agent_with_processing_suite(
                         AgentFrame::AwaitApproval { prompt } => {
                             match interrupt_policy.on_await_approval(&prompt).await {
                                 InterruptDecision::AutoApprove => {
-                                    _auto_turns += 1;
                                     {
                                         let writer = state.log_writer();
                                         let _ = writer
