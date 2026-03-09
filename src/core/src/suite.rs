@@ -8,7 +8,7 @@ use crate::llm::{DynLlm, NullModel};
 use crate::provider_traits::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
-use crate::session::{ControlStateStore, Observation, ThreadLogWriter, ThreadStep, ThreadStore};
+use crate::session::{ControlStateStore, Observation, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore};
 use crate::error::CoreError;
 use crate::storage::StorageAdapter;
 
@@ -137,6 +137,11 @@ impl SuiteCtx {
 
     pub fn log_writer(&self) -> ThreadLogWriter {
         ThreadLogWriter::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+    }
+
+    /// Read-only ThreadLog access for display/projection consumers.
+    pub fn log_reader(&self) -> impl ThreadLogReader {
+        ThreadStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
     }
 
     pub fn thread_store(&self) -> ThreadStore {

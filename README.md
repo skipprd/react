@@ -103,7 +103,8 @@ The **effective output token limit** is controlled by the environment variable *
 react (workspace root)
 │
 ├── src/core            (react-core)      Generic loop, traits, session — no infra or domain deps
-├── src/runtime         (react)           CLI, WS server, concrete provider wiring
+├── src/transport       (react-transport) WS protocol/server + headless transport
+├── src/runtime         (react)           CLI/bootstrap + concrete provider wiring
 ├── src/suites          (react-suites)    Suite implementations
 │   └── lib.rs + one directory per suite (data_engineer/, kb/)
 │       └── data_engineer/
@@ -121,17 +122,17 @@ react (workspace root)
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into the core's trait-based abstractions. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
+**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. The runtime crate wires concrete modules into core abstractions and hands execution to `react-transport`. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
 
 **State hierarchy rule**: `ControlState` is the first-class source of truth. The `ThreadLog` is a secondary audit log — append-only, readable via a single compile-time-guaranteed read-only API (`ThreadLogReader`). `ThreadLogViewCache` / WS are disposable display projections that must never drive control flow. Execution state (suite phase, progress, errors) is always read from `ControlStateStore`, never inferred from the log or view cache.
 
 **Two-tier module architecture**: modules that are specific to a single suite (e.g. warehouse adapters, dbt CLI wrapper) live under that suite's directory and depend on suite-local traits. Modules that are truly suite-agnostic (e.g. S3 storage, vector store) live at the top-level `src/modules/` and depend only on `react-core`.
 
 ```
-runtime ──► react-core ◄── react-suites
-  │              ▲              │
-  └──► modules ──┘              └── suite modules (depend on suite traits)
-       (generic)
+runtime ──► transport ──► react-core ◄── react-suites
+   │             │              ▲              │
+   └──► modules ─┴──────────────┘              └── suite modules (depend on suite traits)
+        (generic)
 ```
 
 ---
@@ -140,15 +141,15 @@ runtime ──► react-core ◄── react-suites
 
 #### 1. Transport — WebSocket server
 
-**Crate**: `runtime` · **File**: `src/runtime/src/ws/server.rs`
+**Crate**: `react-transport` · **File**: `src/transport/src/ws/server.rs`
 
-The WS server is a thin routing layer. It never calls the agent loop directly and never drives control flow — it is a read-only lens onto thread state.
+The WS server is a thin routing layer. It never calls the agent loop directly and never drives control flow — it is a display/input lens over core state.
 
 - Parses inbound frames (`new`, `open`, `user`, `approve`, `delete`, etc.)
 - Creates/loads threads and persists user steps
 - Resolves `suite_id` + `agent_type` — first from `ControlStateStore`, falling back to `ThreadLog` scan
 - Converts the suite's `FlowFrame` output into wire-format `ServerMessage`s and streams them back
-- Constructs the `SuiteCtx` (injected capabilities) for each request via the runtime's provider wiring
+- Uses runtime-provided `SuiteCtx` (injected capabilities) for each request
 - Holds an `InterruptPolicy` (injected) to decide how user prompts are surfaced, without branching on environment flags
 
 **`FlowFrame` → wire mapping:**
@@ -391,8 +392,8 @@ The session layer enforces a strict three-tier hierarchy:
 
 ```
 1. ControlState   — THE core. Source of truth. Drives all execution decisions.
-2. ThreadLog      — Audit log. Important but secondary. Append-only from suites,
-                    readable only via ThreadLogReader (single API, compile-time read-only).
+2. ThreadLog      — Audit log. Important but secondary. Read via `ThreadLogReader`,
+                    written via `ThreadLogWriter` (single entry points for read/write APIs).
 3. ViewCache / WS — Disposable display projection. Tertiary.
 ```
 
@@ -422,11 +423,11 @@ Reading and writing the log are separated by type:
 
 | Type | Role | Who holds it |
 |------|------|-------------|
-| `ThreadLogReader` (trait) | Read-only access to the log | Everyone — WS, LLM prompt builder, policy gates, headless CLI |
-| `ThreadLogWriter` | Append-only writes | Suites (via `SuiteCtx`) |
+| `ThreadLogReader` (trait) | Read-only access to the log | WS/headless transport, LLM prompt builder, policy gates |
+| `ThreadLogWriter` | Log writes | Suites and transport adapters (via `SuiteCtx` / `ConnState`) |
 | `ControlStateStore` | Read-write execution state | Suites (via `SuiteCtx`) |
 
-**ThreadLogViewCache** is a disposable, materialized projection of the ThreadLog for display purposes. It can be rebuilt from the log at any time. Materialization is non-fatal — if it fails, a warning is logged but the log append succeeds. The WS layer reads this for rendering thread state snapshots.
+**ThreadLogViewCache** is a disposable projection in `react-view`. It is materialized on demand from `ThreadLog` for WS/headless responses and can be rebuilt at any time; it is never persisted as a source of truth and never drives control flow.
 
 **InterruptPolicy** decouples control-flow decisions about user interrupts from the presentation layer. The suite runner receives an injected policy rather than checking environment flags directly:
 

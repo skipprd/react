@@ -1,7 +1,7 @@
 use super::mapping::final_display_text_from_payload;
 use crate::models as m;
 use crate::ws::api_gen::src::models as api;
-use react_core::session::{ThreadLog, ThreadStep, ThreadStore};
+use react_core::session::{ThreadLog, ThreadLogReader, ThreadStep};
 
 pub(super) fn compute_unread_for_log(log: &ThreadLog, seen_seq: i32) -> (i32, i32) {
     let mut tseq: i32 = 0;
@@ -28,13 +28,13 @@ pub(super) fn compute_unread_for_log(log: &ThreadLog, seen_seq: i32) -> (i32, i3
 }
 
 pub(super) async fn build_history(
-    store: &ThreadStore,
+    reader: &(impl ThreadLogReader + ?Sized),
     thread_id: &str,
     before: Option<i32>,
     limit_opt: Option<i32>,
 ) -> Result<(Vec<api::HistoryResponseMessagesInner>, Option<i32>), String> {
     let limit = limit_opt.unwrap_or(50).max(1);
-    let log = store.get(thread_id).await.map_err(|e| e.to_string())?;
+    let log = reader.get_log(thread_id).await.map_err(|e| e.to_string())?;
     let mut tseq: i32 = 0;
     let mut all_msgs: Vec<api::HistoryResponseMessagesInner> = Vec::new();
     for step in log.steps.iter() {

@@ -4,7 +4,7 @@ use crate::event_hub::EventHub;
 const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalSink};
-use react_core::session::{ControlStateStore, ThreadLogReader, ThreadStep, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -44,14 +44,6 @@ impl ConnState {
     pub fn hub(&self) -> Option<&EventHub> {
         self.hub.as_ref()
     }
-    pub fn thread_store(&self) -> ThreadStore {
-        ThreadStore::new(
-            self.suite_ctx.storage().clone(),
-            self.suite_ctx.scope().clone(),
-            self.suite_ctx.keyspace().clone(),
-        )
-    }
-
     pub fn control_store(&self) -> ControlStateStore {
         ControlStateStore::new(
             self.suite_ctx.storage().clone(),
@@ -60,9 +52,20 @@ impl ConnState {
         )
     }
 
-    /// Read-only ThreadLog access. Prefer this over thread_store() for read operations.
+    /// Read-only ThreadLog access for transport consumers.
     pub fn log_reader(&self) -> impl ThreadLogReader {
-        self.thread_store()
+        ThreadStore::new(
+            self.suite_ctx.storage().clone(),
+            self.suite_ctx.scope().clone(),
+            self.suite_ctx.keyspace().clone(),
+        )
+    }
+    pub fn log_writer(&self) -> ThreadLogWriter {
+        ThreadLogWriter::new(
+            self.suite_ctx.storage().clone(),
+            self.suite_ctx.scope().clone(),
+            self.suite_ctx.keyspace().clone(),
+        )
     }
     pub fn next_seq(&mut self) -> i32 {
         self.seq += 1;

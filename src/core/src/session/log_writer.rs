@@ -65,6 +65,10 @@ impl ThreadLogWriter {
         self.store.lock_title(thread_id, title).await
     }
 
+    pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
+        self.store.delete(thread_id).await
+    }
+
     pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
         self.store.append_step_if_new(thread_id, step).await
     }

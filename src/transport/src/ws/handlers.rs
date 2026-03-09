@@ -34,8 +34,8 @@ pub(super) async fn process_new(
     state.current_agent.insert(thread_id.clone(), agent.clone());
     // Persist initial suite/agent selection so it survives reconnects
     {
-        let store = state.thread_store();
-        let _ = store
+        let writer = state.log_writer();
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchSuite {
@@ -47,7 +47,7 @@ pub(super) async fn process_new(
                 },
             )
             .await;
-        let _ = store
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchAgent {
@@ -87,8 +87,8 @@ pub(super) async fn process_new(
     // If a question was provided, record it and run the suite. Otherwise, this is "create thread".
     if !question.trim().is_empty() {
         {
-            let store = state.thread_store();
-            let _ = store
+            let writer = state.log_writer();
+            let _ = writer
                 .append_step(
                     &thread_id,
                     ThreadStep::User {
@@ -99,7 +99,7 @@ pub(super) async fn process_new(
                     },
                 )
                 .await;
-            let _ = store
+            let _ = writer
                 .set_title_if_absent(&thread_id, &truncate_title(&question, 64))
                 .await;
         }
@@ -140,9 +140,9 @@ pub(super) async fn process_open(
     let requested_agent = normalize_agent_open(req.agent_type);
 
     let (current_suite, current_agent) = resolve_thread_context(state, &thread_id).await;
-    let store = state.thread_store();
+    let writer = state.log_writer();
     if current_suite != requested_suite {
-        let _ = store
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchSuite {
@@ -160,7 +160,7 @@ pub(super) async fn process_open(
         .insert(thread_id.clone(), requested_suite.clone());
 
     if current_agent != requested_agent {
-        let _ = store
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchAgent {
@@ -191,7 +191,7 @@ pub(super) async fn process_open(
 
     // Strongly-consistent materialized state snapshot (durable across reloads).
     {
-        let store = state.thread_store();
+        let reader = state.log_reader();
         let plans = load_latest_plans(
             state.reg.as_ref(),
             &requested_suite,
@@ -199,8 +199,8 @@ pub(super) async fn process_open(
             &thread_id,
         )
         .await;
-        if let Some(st) = load_materialized_state(&store, &thread_id).await {
-            let timeline_events = load_timeline_events(&store, &thread_id).await;
+        if let Some(st) = load_materialized_state(&reader, &thread_id).await {
+            let timeline_events = load_timeline_events(&reader, &thread_id).await;
             let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
             let mut resp = api::ThreadStateResponse::new(
                 1,
@@ -230,8 +230,8 @@ pub(super) async fn process_open(
         .unwrap_or_else(|| requested_agent.clone());
     // if user supplied a prompt on open, record it
     if !question.trim().is_empty() {
-        let store = state.thread_store();
-        let _ = store
+        let writer = state.log_writer();
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -242,7 +242,7 @@ pub(super) async fn process_open(
                 },
             )
             .await;
-        let _ = store
+        let _ = writer
             .set_title_if_absent(&thread_id, &truncate_title(&question, 64))
             .await;
     }
@@ -287,8 +287,8 @@ pub(super) async fn process_user(
     }
 
     {
-        let store = state.thread_store();
-        let _ = store
+        let writer = state.log_writer();
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -338,8 +338,8 @@ pub(super) async fn process_approve(
         let _ = write.send(Message::Text(s)).await;
     }
     {
-        let store = state.thread_store();
-        let _ = store
+        let writer = state.log_writer();
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -391,8 +391,8 @@ pub(super) async fn process_reject(
     }
     // append user=reject step
     {
-        let store = state.thread_store();
-        let _ = store
+        let writer = state.log_writer();
+        let _ = writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {

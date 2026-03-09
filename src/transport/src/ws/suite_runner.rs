@@ -11,7 +11,7 @@ use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::TerminalEvent;
 use futures_util::SinkExt;
 use react_core::interrupt::{InterruptDecision, InterruptPolicy};
-use react_core::session::{Observation, ThreadStep, ToolStepStatus};
+use react_core::session::{Observation, ThreadLogReader, ThreadStep, ToolStepStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message;
@@ -160,7 +160,8 @@ async fn run_agent_with_processing_suite(
     let mut last_plan_fp_by_kind: HashMap<String, String> = HashMap::new();
     let mut last_plans: Vec<api::PlanSnapshot> = Vec::new();
 
-    let mut last_emitted_step_idx: usize = match state.thread_store().get(thread_id).await {
+    let reader = state.log_reader();
+    let mut last_emitted_step_idx: usize = match reader.get_log(thread_id).await {
         Ok(log) => log.steps.len(),
         Err(_) => 0,
     };
@@ -319,8 +320,8 @@ async fn run_agent_with_processing_suite(
                 last_plans = plans;
             }
             _ = tool_tick.tick() => {
-                let store = state.thread_store();
-                let log = match store.get(thread_id).await {
+                let reader = state.log_reader();
+                let log = match reader.get_log(thread_id).await {
                     Ok(l) => l,
                     Err(_) => continue,
                 };
@@ -389,8 +390,8 @@ async fn run_agent_with_processing_suite(
                                 t.emit(TerminalEvent::Phase(ev.clone()));
                             }
                             emit_ws(state, write, api::ServerMessage::Phase(ev)).await;
-                            if let Some(st) = load_materialized_state(&store, thread_id).await {
-                                let timeline_events = load_timeline_events(&store, thread_id).await;
+                            if let Some(st) = load_materialized_state(&reader, thread_id).await {
+                                let timeline_events = load_timeline_events(&reader, thread_id).await;
                                 let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                 if let Some(t) = state.term() {
                                     t.emit(TerminalEvent::ThreadState(snap.clone()));
@@ -531,12 +532,12 @@ async fn run_agent_with_processing_suite(
                 last_emitted_step_idx = log.steps.len();
             }
             _ = state_tick.tick() => {
-                let store = state.thread_store();
-                let st = match load_materialized_state(&store, thread_id).await {
+                let reader = state.log_reader();
+                let st = match load_materialized_state(&reader, thread_id).await {
                     Some(s) => s,
                     None => continue,
                 };
-                let timeline_events = load_timeline_events(&store, thread_id).await;
+                let timeline_events = load_timeline_events(&reader, thread_id).await;
                 let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                 let phase_changed = snap.current_phase.as_ref() != last_sent_phase.as_ref();
                 let step_count_changed = Some(snap.last_materialized_step_count) != last_sent_step_count;
@@ -604,9 +605,9 @@ async fn run_agent_with_processing_suite(
                             emit_ws(state, write, api::ServerMessage::Review(resp)).await;
 
                             {
-                                let store = state.thread_store();
-                                if let Some(st) = load_materialized_state(&store, thread_id).await {
-                                    let timeline_events = load_timeline_events(&store, thread_id).await;
+                                let reader = state.log_reader();
+                                if let Some(st) = load_materialized_state(&reader, thread_id).await {
+                                    let timeline_events = load_timeline_events(&reader, thread_id).await;
                                     let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {
                                         t.emit(TerminalEvent::ThreadState(snap.clone()));
@@ -628,9 +629,9 @@ async fn run_agent_with_processing_suite(
                         }
                         AgentFrame::Final { kind, payload, display } => {
                             {
-                                let store = state.thread_store();
-                                if let Some(st) = load_materialized_state(&store, thread_id).await {
-                                    let timeline_events = load_timeline_events(&store, thread_id).await;
+                                let reader = state.log_reader();
+                                if let Some(st) = load_materialized_state(&reader, thread_id).await {
+                                    let timeline_events = load_timeline_events(&reader, thread_id).await;
                                     let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &last_plans);
                                     if let Some(t) = state.term() {
                                         t.emit(TerminalEvent::ThreadState(snap.clone()));
@@ -662,8 +663,8 @@ async fn run_agent_with_processing_suite(
                             emit_ws(state, write, api::ServerMessage::Final(resp)).await;
 
                             {
-                                let store = state.thread_store();
-                                log_thread_steps_if_enabled(&store, thread_id, "final").await;
+                                let reader = state.log_reader();
+                                log_thread_steps_if_enabled(&reader, thread_id, "final").await;
                             }
                             return Ok(());
                         }
@@ -696,8 +697,8 @@ async fn run_agent_with_processing_suite(
                             );
                             emit_ws(state, write, api::ServerMessage::AwaitUser(resp)).await;
                             {
-                                let store = state.thread_store();
-                                log_thread_steps_if_enabled(&store, thread_id, "await_user").await;
+                                let reader = state.log_reader();
+                                log_thread_steps_if_enabled(&reader, thread_id, "await_user").await;
                             }
                             return Ok(());
                         }
@@ -706,8 +707,8 @@ async fn run_agent_with_processing_suite(
                                 InterruptDecision::AutoApprove => {
                                     _auto_turns += 1;
                                     {
-                                        let store = state.thread_store();
-                                        let _ = store
+                                        let writer = state.log_writer();
+                                        let _ = writer
                                             .append_step(
                                                 thread_id,
                                                 ThreadStep::User {
@@ -751,8 +752,8 @@ async fn run_agent_with_processing_suite(
                             );
                             emit_ws(state, write, api::ServerMessage::AwaitApproval(resp)).await;
                             {
-                                let store = state.thread_store();
-                                log_thread_steps_if_enabled(&store, thread_id, "await_approval").await;
+                                let reader = state.log_reader();
+                                log_thread_steps_if_enabled(&reader, thread_id, "await_approval").await;
                             }
                             return Ok(());
                         }

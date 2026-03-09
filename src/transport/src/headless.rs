@@ -2,7 +2,7 @@
 //!
 //! Design goal: subscribe to the same typed events as WS without using a socket.
 
-use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadStore};
+use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadLogReader};
 use react_view::{ThreadItemStatus, ThreadLogViewCache};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use tokio::sync::broadcast;
@@ -227,7 +227,7 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         .unwrap_or_else(|| tid.clone());
 
     // Determine exit code: prefer ControlState, fall back to view cache.
-    let store = ThreadStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
+    let reader = ctx.log_reader();
     let control = ControlStateStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
 
     // Check ControlState for execution outcome (primary source of truth).
@@ -238,7 +238,7 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
         {
             if mode == "failed" {
                 if plain_progress {
-                    let (st, timeline_events) = match store.get(&thread_id).await {
+                    let (st, timeline_events) = match reader.get_log(&thread_id).await {
                         Ok(log) => (
                             Some(crate::ws::thread_state::materialize_state_from_log(&thread_id, &log)),
                             react_view::build_thread_events_from_log(&log, 500),

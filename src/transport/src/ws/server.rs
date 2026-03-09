@@ -7,6 +7,7 @@ use crate::models as m;
 use crate::event_hub::EventHub;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalEvent};
+use react_core::session::ThreadLogReader;
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use std::sync::Arc;
 
@@ -285,8 +286,8 @@ pub async fn run_headless_with_hub(
             return Err("invalid thread_id".into());
         }
         // Enforce "must exist" semantics with a clear error message.
-        let store = state.thread_store();
-        if store.get(&tid).await.is_err() {
+        let reader = state.log_reader();
+        if reader.get_log(&tid).await.is_err() {
             return Err(format!("thread does not exist: {}", tid));
         }
 

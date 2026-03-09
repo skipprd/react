@@ -1,9 +1,7 @@
 use super::mapping::{map_exec_ctx, map_thread_event_kind, map_tool_event_status};
 use super::util::{env_truthy, truncate_str, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 use crate::ws::api_gen::src::models as api;
-use react_core::session::{
-    ThreadLog as CoreThreadLog, ThreadStep, ThreadStore,
-};
+use react_core::session::{ThreadLog as CoreThreadLog, ThreadLogReader, ThreadStep};
 use react_view::{
     ThreadItemState as CoreThreadItemState,
     ThreadItemStatus as CoreThreadItemStatus,
@@ -211,13 +209,19 @@ pub(crate) fn materialize_state_from_log(thread_id: &str, log: &CoreThreadLog) -
     st
 }
 
-pub(crate) async fn load_materialized_state(store: &ThreadStore, thread_id: &str) -> Option<CoreThreadLogViewCache> {
-    let log = store.get(thread_id).await.ok()?;
+pub(crate) async fn load_materialized_state(
+    reader: &(impl ThreadLogReader + ?Sized),
+    thread_id: &str,
+) -> Option<CoreThreadLogViewCache> {
+    let log = reader.get_log(thread_id).await.ok()?;
     Some(materialize_state_from_log(thread_id, &log))
 }
 
-pub(super) async fn load_timeline_events(store: &ThreadStore, thread_id: &str) -> Vec<react_core::session::ThreadEvent> {
-    match store.get(thread_id).await {
+pub(super) async fn load_timeline_events(
+    reader: &(impl ThreadLogReader + ?Sized),
+    thread_id: &str,
+) -> Vec<react_core::session::ThreadEvent> {
+    match reader.get_log(thread_id).await {
         Ok(log) => react_view::build_thread_events_from_log(&log, 500),
         Err(_) => Vec::new(),
     }
@@ -357,11 +361,15 @@ pub(super) fn derive_completed_phases(
     completed
 }
 
-pub(super) async fn log_thread_steps_if_enabled(store: &ThreadStore, thread_id: &str, reason: &str) {
+pub(super) async fn log_thread_steps_if_enabled(
+    reader: &(impl ThreadLogReader + ?Sized),
+    thread_id: &str,
+    reason: &str,
+) {
     if !env_truthy("REACT_LOG_THREAD_STEPS") {
         return;
     }
-    match store.get(thread_id).await {
+    match reader.get_log(thread_id).await {
         Ok(log) => {
             tracing::info!(
                 "THREAD_LOG {} thread_id={} steps={} title={:?} finalized={}",
