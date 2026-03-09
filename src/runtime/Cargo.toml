@@ -32,8 +32,6 @@ hex = "0.4.3"
 ureq = { version = "2", features = ["json"] }
 crossterm = "0.27"
 react-core = { path = "../core" }
-react-view = { path = "../view" }
-react-transport = { path = "../transport" }
 react-suite-data-engineer = { path = "../suites/data_engineer" }
 react-suite-kb = { path = "../suites/kb" }
 react-module-provider-vector-lance = { path = "../modules/providers/vector-lance" }
@@ -44,6 +42,7 @@ react-module-provider-bigquery = { path = "../suites/data_engineer/src/modules/p
 react-module-provider-athena = { path = "../suites/data_engineer/src/modules/provider-athena" }
 react-module-provider-dbt = { path = "../suites/data_engineer/src/modules/provider-dbt" }
 react-module-provider-catalog = { path = "../suites/data_engineer/src/modules/provider-catalog" }
+react-transport = { path = "../transport" }
 
 # Vector store + Arrow
 arrow = { version = "56.2.0", features = ["ipc_compression"] }

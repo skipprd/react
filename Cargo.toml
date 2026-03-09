@@ -3,8 +3,6 @@ resolver = "2"
 members = [
   "src/runtime",
   "src/core",
-  "src/view",
-  "src/transport",
   "src/suites/data_engineer",
   "src/suites/kb",
   "src/modules/adaptors/storage-s3",

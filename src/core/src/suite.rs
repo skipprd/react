@@ -144,10 +144,6 @@ impl SuiteCtx {
         ThreadStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
     }
 
-    pub fn thread_store(&self) -> ThreadStore {
-        ThreadStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
-    }
-
     pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
         self.llm.embed(texts).map_err(crate::CoreError::generic)
     }
@@ -162,15 +158,9 @@ impl SuiteCtx {
         self.capabilities.set(val);
     }
 
-    /// Record FlowFrames as ThreadSteps in the audit log before returning
-    /// them to the runtime. The runtime only observes and broadcasts;
-    /// the suite owns the write.
-    pub async fn record_flow_frames(
-        &self,
-        thread_id: &str,
-        agent_type: &str,
-        frames: &[FlowFrame],
-    ) {
+    /// Record `FlowFrame`s as `ThreadStep`s in the audit log before returning
+    /// them to the transport. The suite owns writes; transport only observes.
+    pub async fn record_flow_frames(&self, thread_id: &str, agent_type: &str, frames: &[FlowFrame]) {
         let writer = self.log_writer();
         for frame in frames {
             let step = flow_frame_to_step(frame, agent_type);
@@ -183,6 +173,44 @@ impl SuiteCtx {
                 }
             }
         }
+    }
+}
+
+fn flow_frame_to_step(frame: &FlowFrame, agent_type: &str) -> ThreadStep {
+    let ts = chrono::Utc::now().to_rfc3339();
+    let agent = agent_type.to_string();
+    let observation = Observation::ok();
+    match frame {
+        FlowFrame::Complete { kind, payload, display } => ThreadStep::Complete {
+            kind: kind.0.clone(),
+            payload: payload.clone(),
+            display: display.clone(),
+            observation,
+            ts,
+            agent,
+        },
+        FlowFrame::Review { text, meta } => ThreadStep::ReviewResponse {
+            text: text.clone(),
+            meta: meta.clone(),
+            observation,
+            ts,
+            agent,
+        },
+        FlowFrame::Checkpoint { kind, payload, display } => ThreadStep::Checkpoint {
+            kind: kind.0.clone(),
+            payload: payload.clone(),
+            display: display.clone(),
+            observation,
+            ts,
+            agent,
+        },
+        FlowFrame::Interrupt { kind, prompt } => ThreadStep::Interrupt {
+            kind: kind.0.clone(),
+            prompt: prompt.clone(),
+            observation,
+            ts,
+            agent,
+        },
     }
 }
 
@@ -274,44 +302,6 @@ impl StorageAdapter for NullStorageAdapter {
     }
 }
 
-fn flow_frame_to_step(frame: &FlowFrame, agent_type: &str) -> ThreadStep {
-    let ts = chrono::Utc::now().to_rfc3339();
-    let agent = agent_type.to_string();
-    let obs = Observation::ok();
-    match frame {
-        FlowFrame::Complete { kind, payload, display } => ThreadStep::Complete {
-            kind: kind.0.clone(),
-            payload: payload.clone(),
-            display: display.clone(),
-            observation: obs,
-            ts,
-            agent,
-        },
-        FlowFrame::Review { text, meta } => ThreadStep::ReviewResponse {
-            text: text.clone(),
-            meta: meta.clone(),
-            observation: obs,
-            ts,
-            agent,
-        },
-        FlowFrame::Checkpoint { kind, payload, display } => ThreadStep::Checkpoint {
-            kind: kind.0.clone(),
-            payload: payload.clone(),
-            display: display.clone(),
-            observation: obs,
-            ts,
-            agent,
-        },
-        FlowFrame::Interrupt { kind, prompt } => ThreadStep::Interrupt {
-            kind: kind.0.clone(),
-            prompt: prompt.clone(),
-            observation: obs,
-            ts,
-            agent,
-        },
-    }
-}
-
 impl Default for SuiteCtx {
     fn default() -> Self {
         Self {
@@ -346,12 +336,12 @@ pub trait Suite: Send + Sync {
         "ask"
     }
 
-    fn initial_phase(&self) -> &'static str {
-        "preflight"
-    }
-
     fn phase_order(&self, _agent_type: &str) -> Vec<String> {
         Vec::new()
+    }
+
+    fn initial_phase(&self) -> &'static str {
+        "preflight"
     }
 
     async fn load_ws_plans(

@@ -3,12 +3,7 @@ use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
 
-use super::{
-    CacheEntry, ThreadLog, ThreadStep, ThreadStore,
-    ThreadStoreConfig,
-    THREAD_SCHEMA_VERSION,
-};
-
+use super::{CacheEntry, Observation, ThreadLog, ThreadStep, ThreadStore, ThreadStoreConfig, THREAD_SCHEMA_VERSION};
 
 impl ThreadStore {
     pub fn new(
@@ -39,11 +34,7 @@ impl ThreadStore {
     }
 
     pub fn control_store(&self) -> super::ControlStateStore {
-        super::ControlStateStore::new(
-            self.storage.clone(),
-            self.scope.clone(),
-            self.keyspace.clone(),
-        )
+        super::ControlStateStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
     }
 
     pub(crate) fn key(&self, thread_id: &str) -> CoreResult<String> {
@@ -53,12 +44,7 @@ impl ThreadStore {
     }
 
     fn list_prefix(&self) -> String {
-        format!(
-            "{}/",
-            self.keyspace
-                .threads_prefix(&self.scope)
-                .trim_end_matches('/')
-        )
+        format!("{}/", self.keyspace.threads_prefix(&self.scope).trim_end_matches('/'))
     }
 
     fn ensure_thread_log_schema(log: &ThreadLog) -> CoreResult<()> {
@@ -97,19 +83,81 @@ impl ThreadStore {
     pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let mut log = self.load_thread_log_for_write(&key).await?;
-        log.steps.push(step.clone());
-        let val = serde_json::to_value(&log)
-            .map_err(|e| CoreError::Session(format!("append_step('{}'): failed to serialize thread log: {}", thread_id, e)))?;
+        log.steps.push(step);
+        let val = serde_json::to_value(&log).map_err(|e| {
+            CoreError::Session(format!(
+                "append_step('{}'): failed to serialize thread log: {}",
+                thread_id, e
+            ))
+        })?;
         self.storage.put_json(&key, &val).await?;
-        self.cache.insert(
-            key.clone(),
-            CacheEntry {
-                log,
-                ts: Instant::now(),
-            },
-        );
-
+        self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         Ok(())
+    }
+
+    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
+        let is_dup = match &step {
+            ThreadStep::Complete { kind, payload, .. } => self
+                .get(thread_id)
+                .await
+                .ok()
+                .map(|log| {
+                    log.steps.iter().rev().any(|s| {
+                        matches!(s, ThreadStep::Complete { kind: k, payload: p, .. } if k == kind && p == payload)
+                    })
+                })
+                .unwrap_or(false),
+            ThreadStep::Interrupt { kind, prompt, .. } => self
+                .get(thread_id)
+                .await
+                .ok()
+                .map(|log| {
+                    log.steps.iter().rev().any(|s| {
+                        matches!(s, ThreadStep::Interrupt { kind: k, prompt: p, .. } if k == kind && p == prompt)
+                    })
+                })
+                .unwrap_or(false),
+            _ => false,
+        };
+        if !is_dup {
+            let _ = self.append_step(thread_id, step).await;
+        }
+    }
+
+    pub async fn ensure_preflight_phase_step(
+        &self,
+        thread_id: &str,
+        agent: &str,
+        suite_id: Option<&str>,
+        initial_phase: &str,
+    ) -> CoreResult<Option<(usize, String)>> {
+        let key = self.key(thread_id)?;
+        let mut log = self.load_thread_log_for_write(&key).await?;
+        for (idx, step) in log.steps.iter().enumerate() {
+            if let ThreadStep::Phase { phase, .. } = step {
+                return Ok(Some((idx, phase.clone())));
+            }
+        }
+        let reason_detail = suite_id.map(|sid| serde_json::json!({"suite_id": sid}));
+        log.steps.push(ThreadStep::Phase {
+            phase: initial_phase.to_string(),
+            from_phase: None,
+            reason_code: Some("thread_started".to_string()),
+            reason_detail,
+            observation: Observation::ok(),
+            ts: chrono::Utc::now().to_rfc3339(),
+            agent: agent.to_string(),
+        });
+        let idx = log.steps.len().saturating_sub(1);
+        let val = serde_json::to_value(&log).map_err(|e| {
+            CoreError::Session(format!(
+                "ensure_preflight_phase_step('{}'): failed to serialize thread log: {}",
+                thread_id, e
+            ))
+        })?;
+        self.storage.put_json(&key, &val).await?;
+        self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
+        Ok(Some((idx, initial_phase.to_string())))
     }
 
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
@@ -142,10 +190,7 @@ impl ThreadStore {
         let mut out: Vec<String> = Vec::new();
         if let Ok(keys) = self.storage.list_prefix(&prefix).await {
             for k in keys {
-                if let Some(name) = k
-                    .strip_prefix(&prefix)
-                    .and_then(|s| s.strip_suffix(".json"))
-                {
+                if let Some(name) = k.strip_prefix(&prefix).and_then(|s| s.strip_suffix(".json")) {
                     if name.contains('.') {
                         continue;
                     }
@@ -179,90 +224,16 @@ impl ThreadStore {
         let mut log = self.load_thread_log_for_write(&key).await?;
         if log.title.is_none() || log.title.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             log.title = Some(title.to_string());
-            let val = serde_json::to_value(&log)
-                .map_err(|e| CoreError::Session(format!("set_title_if_absent('{}'): failed to serialize: {}", thread_id, e)))?;
+            let val = serde_json::to_value(&log).map_err(|e| {
+                CoreError::Session(format!(
+                    "set_title_if_absent('{}'): failed to serialize: {}",
+                    thread_id, e
+                ))
+            })?;
             self.storage.put_json(&key, &val).await?;
-            self.cache.insert(
-                key.clone(),
-                CacheEntry {
-                    log,
-                    ts: Instant::now(),
-                },
-            );
+            self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         }
         Ok(())
-    }
-
-    /// Ensure a "preflight" Phase step exists at the beginning of the thread.
-    /// Returns `Some((step_idx, ts))` if the step was appended, `None` if one already existed.
-    /// Append a step only if it's not a duplicate of the last step in the log.
-    /// Deduplicates Interrupt and Complete steps by comparing payloads.
-    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
-        let is_dup = match self
-            .get(thread_id)
-            .await
-            .ok()
-            .and_then(|l| l.steps.last().cloned())
-        {
-            Some(ThreadStep::Interrupt { prompt: p1, .. }) => {
-                matches!(&step, ThreadStep::Interrupt { prompt: p2, .. } if p1 == *p2)
-            }
-            Some(ThreadStep::Complete {
-                kind: k1,
-                payload: pl1,
-                display: d1,
-                ..
-            }) => matches!(
-                &step,
-                ThreadStep::Complete { kind: k2, payload: pl2, display: d2, .. }
-                    if k1 == *k2 && pl1 == *pl2 && d1 == *d2
-            ),
-            _ => false,
-        };
-        if !is_dup {
-            let _ = self.append_step(thread_id, step).await;
-        }
-    }
-
-    pub async fn ensure_preflight_phase_step(
-        &self,
-        thread_id: &str,
-        agent: &str,
-        suite_id: Option<&str>,
-        initial_phase: &str,
-    ) -> CoreResult<Option<(usize, String)>> {
-        let log = self.get(thread_id).await.unwrap_or_default();
-        let already_has_phase = log.steps.iter().any(|s| matches!(s, ThreadStep::Phase { .. }));
-        if already_has_phase {
-            return Ok(None);
-        }
-        let step_idx = log.steps.len();
-        let ts = chrono::Utc::now().to_rfc3339();
-        let mut detail = serde_json::Map::new();
-        detail.insert("phase".to_string(), serde_json::json!(initial_phase));
-        if let Some(s) = suite_id {
-            if !s.trim().is_empty() {
-                detail.insert("suite_id".to_string(), serde_json::json!(s));
-            }
-        }
-        if !agent.trim().is_empty() {
-            detail.insert("agent".to_string(), serde_json::json!(agent));
-        }
-        let _ = self
-            .append_step(
-                thread_id,
-                ThreadStep::Phase {
-                    phase: initial_phase.to_string(),
-                    from_phase: None,
-                    reason_code: Some("preflight_start".to_string()),
-                    reason_detail: Some(serde_json::Value::Object(detail)),
-                    observation: super::Observation::ok(),
-                    ts: ts.clone(),
-                    agent: agent.to_string(),
-                },
-            )
-            .await;
-        Ok(Some((step_idx, ts)))
     }
 
     pub async fn lock_title(&self, thread_id: &str, title: &str) -> CoreResult<()> {
@@ -271,16 +242,11 @@ impl ThreadStore {
         if !log.title_locked {
             log.title = Some(title.to_string());
             log.title_locked = true;
-            let val = serde_json::to_value(&log)
-                .map_err(|e| CoreError::Session(format!("lock_title('{}'): failed to serialize: {}", thread_id, e)))?;
+            let val = serde_json::to_value(&log).map_err(|e| {
+                CoreError::Session(format!("lock_title('{}'): failed to serialize: {}", thread_id, e))
+            })?;
             self.storage.put_json(&key, &val).await?;
-            self.cache.insert(
-                key.clone(),
-                CacheEntry {
-                    log,
-                    ts: Instant::now(),
-                },
-            );
+            self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
         }
         Ok(())
     }

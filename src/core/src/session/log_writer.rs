@@ -45,14 +45,6 @@ impl ThreadLogWriter {
         }
     }
 
-    pub fn from_store(store: ThreadStore) -> Self {
-        Self { store }
-    }
-
-    pub fn as_store(&self) -> &ThreadStore {
-        &self.store
-    }
-
     pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         self.store.append_step(thread_id, step).await
     }

@@ -5932,7 +5932,6 @@ dependencies = [
  "react-suite-data-engineer",
  "react-suite-kb",
  "react-transport",
- "react-view",
  "regex",
  "serde",
  "serde_derive",
