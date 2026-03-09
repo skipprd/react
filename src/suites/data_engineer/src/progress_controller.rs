@@ -1828,7 +1828,10 @@ pub fn repair_backlog_from_failed_models(
 
 fn is_sql_model_path(path: &str) -> bool {
     let normalized = path.trim().replace('\\', "/");
-    normalized.starts_with("models/") && normalized.ends_with(".sql")
+    normalized.starts_with("models/")
+        && normalized.ends_with(".sql")
+        && !normalized.contains(".yml/")
+        && !normalized.contains(".yaml/")
 }
 
 fn is_schema_doc_path(path: &str) -> bool {
@@ -2128,6 +2131,21 @@ mod tests {
         );
         assert_eq!(st.repair_type(), RepairType::Schema);
         assert!(st.single_target_repair_path().is_none());
+    }
+
+    #[test]
+    fn sql_model_path_rejects_dbt_compiled_test_paths() {
+        assert!(SqlModelPath::parse("models/staging/stg_orders.sql").is_ok());
+        assert!(SqlModelPath::parse(
+            "models/staging/stg_orders.yml/not_null_stg_orders_order_id.sql"
+        ).is_err());
+        assert!(SqlModelPath::parse(
+            "models/staging/stg_orders.yaml/not_null_stg_orders_order_id.sql"
+        ).is_err());
+        let target = RepairTargetPath::parse(
+            "models/staging/stg_orders.yml/not_null_stg_orders_order_id.sql".to_string(),
+        );
+        assert!(target.is_err(), "dbt compiled test path must not parse as RepairTargetPath");
     }
 
     #[test]
