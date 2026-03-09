@@ -202,12 +202,6 @@ pub struct ValidateObservationContract {
     pub outcome_v2: ValidateOutcomeV2,
 }
 
-impl ValidateObservationContract {
-    pub fn into_observation(self) -> Value {
-        self.observation
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

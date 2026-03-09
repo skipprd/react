@@ -104,7 +104,6 @@ pub mod failure_text;
 pub(crate) mod dbt_repair;
 pub(crate) mod facts;
 pub(crate) mod naming;
-pub(crate) mod mutation_gateway;
 pub(crate) mod patch_contract;
 pub(crate) mod patch_protocol;
 pub(crate) mod phase_contract;

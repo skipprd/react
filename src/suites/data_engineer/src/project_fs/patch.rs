@@ -40,6 +40,7 @@ pub enum PatchApplyKind {
     UnifiedDiff,
 }
 
+#[cfg(test)]
 pub fn create_patch_text(old: &str, new: &str) -> String {
     diffy::create_patch(old, new).to_string()
 }
@@ -125,6 +126,7 @@ fn join_lines_preserve_trailing_newline(lines: &[String], had_trailing_newline: 
 /// Apply a 1-based inclusive line replacement to a text blob.
 ///
 /// Supports insertion by specifying `start_line == end_line + 1`.
+#[cfg(test)]
 pub fn apply_replace_range(
     old_text: &str,
     start_line: usize,
@@ -165,6 +167,7 @@ pub fn apply_replace_range(
     ))
 }
 
+#[cfg(test)]
 pub fn apply_replace_list(old_text: &str, edits: &[super::ReplaceListEdit]) -> Result<String, String> {
     if edits.is_empty() {
         return Ok(old_text.to_string());

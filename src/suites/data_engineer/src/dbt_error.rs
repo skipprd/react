@@ -1,3 +1,4 @@
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DbtErrorClass {
     DuplicateSources,
@@ -86,6 +87,7 @@ pub fn extract_unresolved_columns(errors: &[String]) -> Vec<String> {
 /// Detect the common dbt contract error where `data_type` is missing from YAML column definitions.
 ///
 /// This class of failure is remediated by patching YAML schema contracts, not by editing SQL.
+#[cfg(test)]
 pub fn logs_indicate_contract_data_type_missing(logs: &serde_json::Value) -> bool {
     let mut parts: Vec<&str> = Vec::new();
     for phase in ["compile", "run_or_build"] {
@@ -317,6 +319,7 @@ fn parse_test_name_hints(test_name: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+#[cfg(test)]
 pub fn classify(errors: &[String]) -> DbtErrorClass {
     let joined = errors.join("\n");
     let s = crate::failure_text::normalize_text(&strip_ansi(&joined));

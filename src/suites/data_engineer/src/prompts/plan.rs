@@ -92,6 +92,7 @@ Rules:\n\
     )
 }
 
+#[cfg(test)]
 pub fn cleanse_plan_skeleton_system_prompt() -> String {
     "Return CLEANSE plan skeleton JSON only.\n\
 Use strict schema fields only: tasks[].dataset_id and batches.\n\

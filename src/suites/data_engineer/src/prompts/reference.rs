@@ -1,3 +1,4 @@
+#[cfg(test)]
 pub fn dbt_model_example() -> &'static str {
     r#"{{ config(
     materialized='table',
@@ -26,6 +27,7 @@ order by activity_date
 "#
 }
 
+#[cfg(test)]
 pub fn metricflow_example() -> &'static str {
     r#"version: 1
 

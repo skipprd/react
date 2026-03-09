@@ -13,6 +13,7 @@ use crate::plan_validation::{
 };
 #[cfg(test)]
 use react_core::session::{ThreadLog, ThreadStep};
+#[cfg(test)]
 use serde_json::Value;
 
 pub const MAX_BATCH_SIZE: usize = 5;
@@ -293,6 +294,7 @@ fn extract_file_paths(op: &str, args: &Value) -> Vec<String> {
 
 // Plan storage I/O is in plan_storage.rs; re-exported via plan.rs.
 
+#[cfg(test)]
 fn next_sql_batch_from_plan<T>(
     batches: &[Vec<String>],
     tasks: &[T],
@@ -324,6 +326,7 @@ fn next_sql_batch_from_plan<T>(
     vec![]
 }
 
+#[cfg(test)]
 pub fn next_batch<T: PlanTask>(plan: &Plan<T>) -> Vec<String> {
     next_sql_batch_from_plan(
         &plan.batches,
@@ -333,10 +336,12 @@ pub fn next_batch<T: PlanTask>(plan: &Plan<T>) -> Vec<String> {
     )
 }
 
+#[cfg(test)]
 pub fn cleanse_next_batch(plan: &CleansePlan) -> Vec<String> {
     next_batch(plan)
 }
 
+#[cfg(test)]
 pub fn model_next_batch(plan: &ModelPlan) -> Vec<String> {
     next_batch(plan)
 }
@@ -397,10 +402,12 @@ pub fn executable_plan_issues<T: PlanTask>(plan: &Plan<T>) -> Vec<String> {
     )
 }
 
+#[cfg(test)]
 pub fn cleanse_executable_plan_issues(plan: &CleansePlan) -> Vec<String> {
     executable_plan_issues(plan)
 }
 
+#[cfg(test)]
 pub fn model_executable_plan_issues(plan: &ModelPlan) -> Vec<String> {
     executable_plan_issues(plan)
 }
@@ -617,6 +624,7 @@ pub fn cleanse_pending_schema_contracts(plan: &CleansePlan) -> Vec<String> {
     pending_schema_contracts(plan)
 }
 
+#[cfg(test)]
 pub fn cleanse_pending_for_checklist(
     plan: &CleansePlan,
     prereq_checklist_item_id: &str,
@@ -629,6 +637,7 @@ pub fn model_pending_schema_contracts(plan: &ModelPlan) -> Vec<String> {
     pending_schema_contracts(plan)
 }
 
+#[cfg(test)]
 pub fn model_pending_for_checklist(
     plan: &ModelPlan,
     prereq_checklist_item_id: &str,
@@ -984,10 +993,12 @@ pub fn all_done<T: PlanTask>(plan: &Plan<T>) -> bool {
     snapshot_completion(plan).all_done
 }
 
+#[cfg(test)]
 pub fn cleanse_all_done(plan: &CleansePlan) -> bool {
     all_done(plan)
 }
 
+#[cfg(test)]
 pub fn model_all_done(plan: &ModelPlan) -> bool {
     all_done(plan)
 }
@@ -2205,6 +2216,7 @@ pub fn summarize_model_plan(plan: &ModelPlan, max_lines: usize) -> String {
     lines.join("\n")
 }
 
+#[cfg(test)]
 pub fn parse_plan_json(answer: &str) -> Option<Value> {
     // Hard cutover: the entire answer must be JSON.
     serde_json::from_str::<Value>(answer.trim()).ok()

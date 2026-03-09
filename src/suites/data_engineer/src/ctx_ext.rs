@@ -27,23 +27,37 @@ pub struct DatasetsCap(pub Arc<dyn DatasetCatalogProvider>);
 pub struct CatalogCap(pub Arc<dyn CatalogProvider>);
 pub struct ProvidersCfgCap(pub ProvidersResolved);
 
-macro_rules! cap_accessors {
-    ($cap:ident, $ret:ty, $sctx_fn:ident, $actx_fn:ident) => {
-        pub(crate) fn $sctx_fn(ctx: &SuiteCtx) -> Option<$ret> {
-            ctx.capability::<$cap>().map(|c| c.0.clone())
-        }
-        pub(crate) fn $actx_fn(ctx: &AgentCtx) -> Option<$ret> {
-            ctx.capability::<$cap>().map(|c| c.0.clone())
-        }
-    };
+pub(crate) fn actx_warehouse(ctx: &AgentCtx) -> Option<Arc<dyn WarehouseProvider>> {
+    ctx.capability::<WarehouseCap>().map(|c| c.0.clone())
 }
 
-cap_accessors!(WarehouseCap, Arc<dyn WarehouseProvider>, sctx_warehouse, actx_warehouse);
-cap_accessors!(DbtCap,       Arc<dyn DbtProvider>,       sctx_dbt,       actx_dbt);
-cap_accessors!(QueryCap,     Arc<dyn QueryProvider>,     sctx_query,     actx_query);
-cap_accessors!(DatasetsCap,  Arc<dyn DatasetCatalogProvider>, sctx_datasets, actx_datasets);
-cap_accessors!(CatalogCap,   Arc<dyn CatalogProvider>,  sctx_catalog,   actx_catalog);
-cap_accessors!(ProvidersCfgCap, ProvidersResolved,       sctx_providers_cfg, actx_providers_cfg);
+pub(crate) fn sctx_dbt(ctx: &SuiteCtx) -> Option<Arc<dyn DbtProvider>> {
+    ctx.capability::<DbtCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn actx_dbt(ctx: &AgentCtx) -> Option<Arc<dyn DbtProvider>> {
+    ctx.capability::<DbtCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn sctx_query(ctx: &SuiteCtx) -> Option<Arc<dyn QueryProvider>> {
+    ctx.capability::<QueryCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn actx_query(ctx: &AgentCtx) -> Option<Arc<dyn QueryProvider>> {
+    ctx.capability::<QueryCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn sctx_datasets(ctx: &SuiteCtx) -> Option<Arc<dyn DatasetCatalogProvider>> {
+    ctx.capability::<DatasetsCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn sctx_catalog(ctx: &SuiteCtx) -> Option<Arc<dyn CatalogProvider>> {
+    ctx.capability::<CatalogCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn actx_providers_cfg(ctx: &AgentCtx) -> Option<ProvidersResolved> {
+    ctx.capability::<ProvidersCfgCap>().map(|c| c.0.clone())
+}
 
 /// Wire data_engineer capabilities into a SuiteCtx from a ProvidersResolved.
 pub fn wire_sctx_capabilities(

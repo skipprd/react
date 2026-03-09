@@ -42,10 +42,6 @@ impl TrackKind {
         }
     }
 
-    pub fn plan_kind(self) -> PlanKind {
-        self
-    }
-
     pub fn execution_plan_kind(self) -> react_core::session::ExecutionPlanKind {
         match self {
             Self::Cleanse => react_core::session::ExecutionPlanKind::new("cleanse"),

@@ -204,6 +204,7 @@ fn extract_all_json_values(s: &str, max: usize) -> Vec<String> {
     out
 }
 
+#[cfg(test)]
 pub async fn llm_should_remediate_sql(
     ctx: &AgentCtx,
     dialect: &str,
@@ -284,6 +285,7 @@ pub async fn list_sql_keys_for_scope(ctx: &AgentCtx) -> Result<Vec<String>, Stri
     Ok(out)
 }
 
+#[cfg(test)]
 pub async fn remediate_dbt_sql_keys_with_llm(
     ctx: &AgentCtx,
     phase: &str,
@@ -520,6 +522,7 @@ pub async fn remediate_dbt_sql_keys_with_llm(
     Ok(report)
 }
 
+#[cfg(test)]
 pub async fn remediate_dbt_sql_with_llm(
     ctx: &AgentCtx,
     phase: &str,
@@ -1083,6 +1086,7 @@ async fn best_effort_schema_columns_for_source(
     vec![]
 }
 
+#[cfg(test)]
 pub async fn remediate_unresolved_columns_with_llm(
     ctx: &AgentCtx,
     phase: &str,

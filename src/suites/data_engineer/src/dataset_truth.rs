@@ -29,12 +29,6 @@ pub struct GroundedDatasetSet {
     pub warnings: Vec<String>,
 }
 
-impl GroundedDatasetSet {
-    pub fn is_allowed(&self, dataset_id: &str) -> bool {
-        self.allowed.contains(dataset_id)
-    }
-}
-
 fn source_container_from_cfg(ctx: &AgentCtx) -> Option<String> {
     crate::ctx_ext::actx_providers_cfg(ctx).map(|p| p.warehouse.container.clone())
 }
@@ -238,32 +232,6 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
     }
 
     out
-}
-
-/// Helper to build candidate list for raw datasets from a list_datasets call.
-pub fn candidates_from_list_datasets(listed: &[crate::providers::DatasetId]) -> Vec<String> {
-    let mut out: BTreeSet<String> = BTreeSet::new();
-    for ds in listed.iter() {
-        out.insert(ds.fqn());
-    }
-    out.into_iter().collect()
-}
-
-/// Helper: map schema.yml `sources:` shape into candidate dataset ids.
-pub fn candidates_from_schema_yml_sources(
-    sources: &[(String, String)], // (schema, table) lowercased/trimmed
-    catalog: &str,
-) -> Vec<String> {
-    let mut out: BTreeSet<String> = BTreeSet::new();
-    for (schema, table) in sources.iter() {
-        let s = schema.trim();
-        let t = table.trim();
-        if s.is_empty() || t.is_empty() {
-            continue;
-        }
-        out.insert(format!("{}.{}.{}", catalog, s, t));
-    }
-    out.into_iter().collect()
 }
 
 /// Group dataset fqn strings by (catalog, schema) for schema.yml sources emission.

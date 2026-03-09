@@ -1866,6 +1866,7 @@ pub fn repair_intent_from_backlog(failure_class: FailureKind, backlog: Vec<Repai
     }
 }
 
+#[cfg(test)]
 pub fn failed_model_refs_from_values(values: &[Value]) -> Vec<FailedModelRef> {
     values
         .iter()

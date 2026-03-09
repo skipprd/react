@@ -480,6 +480,7 @@ pub fn dataset_ids_to_fqns(dataset_ids: &[String]) -> Vec<String> {
 }
 
 /// Small helper to merge, sort, and cap relation lists deterministically.
+#[cfg(test)]
 pub fn merge_relation_fqns(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
     for it in b {
         a.push(it);

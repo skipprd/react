@@ -27,15 +27,6 @@ fn evict_if_full(cache: &DashMap<String, ThreadCache>) {
     }
 }
 
-impl ThreadCache {
-    pub fn ttl_fresh(&self, secs: u64) -> bool {
-        match self.updated_at {
-            Some(t) => t.elapsed().as_secs() < secs,
-            None => false,
-        }
-    }
-}
-
 pub struct ThreadCacheStore;
 
 impl ThreadCacheStore {

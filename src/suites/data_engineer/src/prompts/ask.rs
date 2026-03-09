@@ -28,6 +28,7 @@ Completion criteria:
     .to_string()
 }
 
+#[cfg(test)]
 pub fn intent_extraction(user_q: &str) -> String {
     format!(
         r#"You are a data analyst. Extract the analysis intent from the Question.
@@ -37,6 +38,7 @@ Question: {}"#,
     )
 }
 
+#[cfg(test)]
 pub fn candidate_ranking(context: &str, user_q: &str) -> String {
     format!(
         r#"You are a data model selector. Given Datasets and Fields context (including dataset root descriptions), select relevant datasets and fields for the Question.
@@ -48,6 +50,7 @@ Question: {}"#,
     )
 }
 
+#[cfg(test)]
 pub fn sql_generation(context: &str, join_hints: &str, user_q: &str, top_k: usize) -> String {
     format!(
         r#"You are a SQL generator. Given Datasets/Fields context and Join hints, write a single query (SELECT or WITH ... SELECT) to answer the Question.
@@ -64,6 +67,7 @@ Question: {}"#,
     )
 }
 
+#[cfg(test)]
 pub fn dataset_selection(candidates_ctx: &str, user_q: &str) -> String {
     format!(
         r#"You are a data model selector.
@@ -80,6 +84,7 @@ Output JSON:"#,
     )
 }
 
+#[cfg(test)]
 pub fn field_selection(fields_ctx: &str, schema_ctx: &str, user_q: &str, top_k: usize) -> String {
     format!(
         r#"You are a field selector.
@@ -105,6 +110,7 @@ Output JSON:"#,
     )
 }
 
+#[cfg(test)]
 pub fn sql_generation_json(namespace: &str, user_q: &str, stats_ctx: &str, top_k: usize) -> String {
     format!(
         r#"You are a SQL generator.
@@ -138,6 +144,7 @@ Output JSON:"#,
     )
 }
 
+#[cfg(test)]
 pub fn sql_repair(previous_json: &str, error_text: &str, schema_ctx: &str) -> String {
     format!(
         r#"You are a SQL fixer.
@@ -163,6 +170,7 @@ Output JSON:"#,
     )
 }
 
+#[cfg(test)]
 pub fn english_synthesis(
     meta_ctx: &str,
     sql_json: &str,
@@ -193,6 +201,7 @@ Answer:"#,
     )
 }
 
+#[cfg(test)]
 pub fn field_selection_with_names(
     fields_ctx: &str,
     schema_ctx: &str,

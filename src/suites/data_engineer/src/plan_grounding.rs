@@ -414,6 +414,7 @@ impl TryFrom<CleansePlan> for GroundedCleansePlan {
     }
 }
 
+#[cfg(test)]
 impl TryFrom<CleansePlan> for PersistableCleansePlan {
     type Error = String;
 
@@ -446,6 +447,7 @@ impl GroundedModelPlan {
     }
 }
 
+#[cfg(test)]
 impl PersistableModelPlan {
     pub fn from_plan(
         value: ModelPlan,

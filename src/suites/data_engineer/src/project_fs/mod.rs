@@ -8,7 +8,6 @@ pub mod diff;
 pub mod patch;
 pub mod yaml;
 
-pub use diff::*;
 pub use patch::*;
 pub use yaml::*;
 

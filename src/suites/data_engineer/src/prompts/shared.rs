@@ -53,6 +53,7 @@ Hard rules:
 - Output format is enforced by the system-provided output contract; return exactly one contracted object per step."#
 }
 
+#[cfg(test)]
 pub fn tool_card_common_prefix() -> &'static str {
     r#"Tools:
 - artifacts(args:{op:"list", type?:"model"|"metric", tier?:string, limit?:int} | {op:"get", path:string})

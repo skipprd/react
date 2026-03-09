@@ -12,10 +12,8 @@ pub enum ActiveWarehouse {
 
 #[derive(Clone, Debug)]
 pub struct GeneratedProfiles {
-    pub profile_name: String,
     pub target: String,
     pub profiles_yml: String,
-    pub active: ActiveWarehouse,
 }
 
 /// Determine which warehouse provider is active for publishing.
@@ -150,10 +148,8 @@ pub fn generate_profiles_yml(
                 ));
             }
             Ok(GeneratedProfiles {
-                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
-                active,
             })
         }
         ActiveWarehouse::Postgres => {
@@ -194,10 +190,8 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
-                active,
             })
         }
         ActiveWarehouse::Snowflake => {
@@ -251,10 +245,8 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
-                active,
             })
         }
         ActiveWarehouse::Bigquery => {
@@ -300,10 +292,8 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
-                active,
             })
         }
         ActiveWarehouse::Mssql => {
@@ -344,10 +334,8 @@ pub fn generate_profiles_yml(
                 out.push_str(&format!("      threads: {}\n", t.max(1)));
             }
             Ok(GeneratedProfiles {
-                profile_name: profile_name.as_str().to_string(),
                 target,
                 profiles_yml: out,
-                active,
             })
         }
     }

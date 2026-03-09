@@ -37,13 +37,6 @@ impl PlanStatus {
         }
     }
 
-    pub fn try_complete(self) -> Result<PlanStatus, String> {
-        match self {
-            PlanStatus::Approved => Ok(PlanStatus::Completed),
-            other => Err(format!("cannot complete plan in {:?} state", other)),
-        }
-    }
-
     pub fn try_cancel(self) -> Result<PlanStatus, String> {
         if self.is_terminal() {
             return Err(format!("cannot cancel plan in terminal {:?} state", self));
@@ -73,11 +66,9 @@ impl Default for TaskStatus {
 pub trait PlanTask: Clone + std::fmt::Debug + Serialize + serde::de::DeserializeOwned + Send + Sync {
     fn task_id(&self) -> &str;
     fn expected_model_path(&self) -> Option<&str>;
-    fn status(&self) -> TaskStatus;
     fn set_status(&mut self, status: TaskStatus);
     fn checklist(&self) -> &[PlanChecklistItem];
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem>;
-    fn invariants(&self) -> &[String];
     /// Prefix used when generating canonical work_group IDs (e.g. "cleanse", "model").
     fn work_group_prefix() -> &'static str;
 }
@@ -382,11 +373,9 @@ pub struct CleanseTask {
 impl PlanTask for CleanseTask {
     fn task_id(&self) -> &str { &self.dataset_id }
     fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
-    fn status(&self) -> TaskStatus { self.status }
     fn set_status(&mut self, status: TaskStatus) { self.status = status; }
     fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
-    fn invariants(&self) -> &[String] { &self.invariants }
     fn work_group_prefix() -> &'static str { "cleanse" }
 }
 
@@ -419,11 +408,9 @@ pub struct ModelTask {
 impl PlanTask for ModelTask {
     fn task_id(&self) -> &str { &self.name }
     fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
-    fn status(&self) -> TaskStatus { self.status }
     fn set_status(&mut self, status: TaskStatus) { self.status = status; }
     fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
-    fn invariants(&self) -> &[String] { &self.invariants }
     fn work_group_prefix() -> &'static str { "model" }
 }
 
@@ -485,12 +472,6 @@ pub trait TrackPlan {
         Ok(())
     }
 
-    fn complete(&mut self) -> Result<(), String> {
-        let next = self.status().try_complete()?;
-        self.set_status(next);
-        Ok(())
-    }
-
     fn cancel(&mut self) -> Result<(), String> {
         let next = self.status().try_cancel()?;
         self.set_status(next);
@@ -519,20 +500,25 @@ pub type GroundedCleansePlan = GroundedPlan<CleanseTask>;
 pub type GroundedModelPlan = GroundedPlan<ModelTask>;
 
 impl<T: PlanTask> GroundedPlan<T> {
+    #[cfg(test)]
     pub fn into_inner(self) -> Plan<T> {
         self.0
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub enum PersistablePlan<T: PlanTask> {
     Grounded(GroundedPlan<T>),
     Terminal(Plan<T>),
 }
 
+#[cfg(test)]
 pub type PersistableCleansePlan = PersistablePlan<CleanseTask>;
+#[cfg(test)]
 pub type PersistableModelPlan = PersistablePlan<ModelTask>;
 
+#[cfg(test)]
 impl<T: PlanTask> PersistablePlan<T> {
     pub fn into_inner(self) -> Plan<T> {
         match self {

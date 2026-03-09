@@ -243,18 +243,6 @@ pub fn plan_not_approved(status: PlanStatus) -> Value {
     })
 }
 
-pub fn plan_semantic_invalid(
-    plan_key: impl Into<String>,
-    reason: impl Into<String>,
-    audit_acceptance: Value,
-) -> Value {
-    to_value(&PlanSemanticInvalidDetail {
-        plan_key: plan_key.into(),
-        reason: reason.into(),
-        audit_acceptance,
-    })
-}
-
 pub fn plan_key(plan_key: impl Into<String>) -> Value {
     to_value(&PlanKeyDetail {
         plan_key: plan_key.into(),

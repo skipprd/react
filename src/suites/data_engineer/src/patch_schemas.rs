@@ -49,6 +49,7 @@ pub struct PatchReplaceListV1 {
     pub edits: Vec<PatchReplaceListEditV1>,
 }
 
+#[cfg(test)]
 pub fn patch_single_file_schema() -> Result<serde_json::Value, String> {
     react_core::schema_registry::strict_json_schema_for::<PatchSingleFileV1>().map_err(|e| e.to_string())
 }

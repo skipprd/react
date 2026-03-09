@@ -40,9 +40,11 @@ pub enum BatchLockReason {
 }
 
 impl BatchLockReason {
-    pub fn code(self) -> &'static str {
+    pub fn message(self) -> &'static str {
         match self {
-            Self::ConsecutiveFailureBudgetExhausted => "consecutive_failure_budget_exhausted",
+            Self::ConsecutiveFailureBudgetExhausted => {
+                "too many consecutive batch failures; apply a targeted mutating fix (file op=patch|rm|mv) before retrying"
+            }
         }
     }
 }
@@ -52,11 +54,7 @@ pub fn guard_block_error(reason: GuardReason) -> String {
 }
 
 pub fn batch_lock_error_message(reason: BatchLockReason) -> &'static str {
-    match reason {
-        BatchLockReason::ConsecutiveFailureBudgetExhausted => {
-            "too many consecutive batch failures; apply a targeted mutating fix (file op=patch|rm|mv) before retrying"
-        }
-    }
+    reason.message()
 }
 
 pub fn build_batch_lock_prompt(
@@ -107,14 +105,6 @@ Plan:\n\
     s
 }
 
-pub fn subjective_retry_limit() -> usize {
-    retry_budget::subjective_retry_limit()
-}
-
-pub fn subjective_retry_state_cap() -> usize {
-    retry_budget::subjective_retry_state_cap()
-}
-
 pub fn publish_retry_limit() -> usize {
     crate::env_util::max_publish_retries()
 }
@@ -137,6 +127,15 @@ pub fn note_batch_result_with_failure_kind(
 
 pub fn max_consecutive_batch_failures() -> usize {
     retry_budget::MAX_CONSECUTIVE_BATCH_FAILURES
+}
+
+#[cfg(test)]
+pub(crate) fn batch_lock_reason_message(reason: BatchLockReason) -> &'static str {
+    match reason {
+        BatchLockReason::ConsecutiveFailureBudgetExhausted => {
+            reason.message()
+        }
+    }
 }
 
 #[cfg(test)]
