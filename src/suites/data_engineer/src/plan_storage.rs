@@ -2,7 +2,7 @@ use react_core::agent::AgentCtx;
 
 use crate::plan_grounding::{
     ensure_expected_model_paths_cleanse, ensure_expected_model_paths_model,
-    prune_cleanse_plan_to_grounded_raw_datasets, prune_model_plan_to_grounded_staging_models,
+    prune_cleanse_plan_to_grounded_raw_datasets,
 };
 use crate::plan_types::*;
 
@@ -117,28 +117,28 @@ pub async fn load_cleanse_plan_by_key(ctx: &AgentCtx, key: &str) -> Option<Clean
     Some(p)
 }
 
+/// Persist a cleanse plan without re-validating grounding. Used for mid-execution
+/// mutations on plans that were already grounded at creation time.
 pub async fn save_cleanse_plan(ctx: &AgentCtx, plan: &CleansePlan) -> Result<(), String> {
     if plan.plan_key.trim().is_empty() {
         return Err("cleanse plan missing plan_key".to_string());
     }
-    let candidate = PersistableCleansePlan::try_from(plan.clone())?.into_inner();
-    let bytes = serde_json::to_vec_pretty(&candidate).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?;
     ctx.storage()
-        .put_bytes(&candidate.plan_key, &bytes, "application/json")
+        .put_bytes(&plan.plan_key, &bytes, "application/json")
         .await
         .map_err(|e| e.to_string())
 }
 
+/// Validate grounding and persist. The caller must have already pruned the plan.
 pub async fn save_cleanse_plan_grounded(
     ctx: &AgentCtx,
     plan: &CleansePlan,
-    allowed_raw: Option<&std::collections::BTreeSet<String>>,
+    allowed_raw: &std::collections::BTreeSet<String>,
 ) -> Result<(), String> {
     let mut candidate = plan.clone();
     ensure_expected_model_paths_cleanse(Some(ctx), &mut candidate);
-    if let Some(allowed) = allowed_raw {
-        prune_cleanse_plan_to_grounded_raw_datasets(&mut candidate, allowed);
-    }
+    prune_cleanse_plan_to_grounded_raw_datasets(&mut candidate, allowed_raw);
     let grounded = GroundedCleansePlan::try_from(candidate)?;
     save_cleanse_plan(ctx, &grounded.0).await
 }
@@ -169,28 +169,28 @@ pub async fn load_model_plan_by_key(ctx: &AgentCtx, key: &str) -> Option<ModelPl
     Some(p)
 }
 
+/// Persist a model plan without re-validating grounding. Used for mid-execution
+/// mutations (checklist updates, batch progress, status changes) on plans that
+/// were already grounded at creation time via `save_model_plan_grounded`.
 pub async fn save_model_plan(ctx: &AgentCtx, plan: &ModelPlan) -> Result<(), String> {
     if plan.plan_key.trim().is_empty() {
         return Err("model plan missing plan_key".to_string());
     }
-    let candidate = PersistableModelPlan::try_from(plan.clone())?.into_inner();
-    let bytes = serde_json::to_vec_pretty(&candidate).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(plan).map_err(|e| e.to_string())?;
     ctx.storage()
-        .put_bytes(&candidate.plan_key, &bytes, "application/json")
+        .put_bytes(&plan.plan_key, &bytes, "application/json")
         .await
         .map_err(|e| e.to_string())
 }
 
+/// Validate grounding against the staging model allowlist and persist.
+/// The caller must have already pruned the plan; this function does NOT re-prune.
 pub async fn save_model_plan_grounded(
     ctx: &AgentCtx,
     plan: &ModelPlan,
-    allowed_staging_models: Option<&std::collections::BTreeSet<String>>,
+    allowed_staging_models: &std::collections::BTreeSet<String>,
 ) -> Result<(), String> {
-    let mut candidate = plan.clone();
-    ensure_expected_model_paths_model(&mut candidate);
-    if let Some(allowed) = allowed_staging_models {
-        prune_model_plan_to_grounded_staging_models(&mut candidate, allowed);
-    }
-    let grounded = GroundedModelPlan::try_from(candidate)?;
+    let candidate = plan.clone();
+    let grounded = GroundedModelPlan::ground(candidate, allowed_staging_models)?;
     save_model_plan(ctx, &grounded.0).await
 }

@@ -258,12 +258,12 @@ Single generic `enrich_tasks<T: EnrichablePlan>()` function handles the chunk→
 
 ## Priority Order
 
-| Priority | Issue | Fix | Impact |
+| Priority | Issue | Fix | Status |
 |----------|-------|-----|--------|
-| **P0** | I1: Prune doesn't update work_groups | S1: Atomic prune + reconcile | Both threads would have succeeded |
-| **P0** | I4: `GroundedPlan::try_from` skips checks | S2: Require grounding context | Compile-time guarantee |
-| **P1** | I2: Model enriches before pruning | S3: Typed pipeline stages | Saves ~19 LLM calls per thread |
-| **P1** | I3: `save_*_grounded` re-prunes | S4: Accept `GroundedPlan` only | Eliminates double-mutation bug class |
-| **P2** | I6: Enrichment duplication | S5: `EnrichablePlan` trait | Prevents future drift |
-| **P2** | I5: No work_group reconciliation | Solved by S1 | — |
-| **P3** | I7: Prior audit items (C1, C2, H1-H5) | See previous audit | Different failure class |
+| **P0** | I1: Prune doesn't update work_groups | S1: Atomic prune + reconcile | **DONE** |
+| **P0** | I4: `GroundedPlan::try_from` skips checks | S2: Require grounding context | **DONE** |
+| **P1** | I2: Model enriches before pruning | S3: Reorder pipeline (prune-then-enrich) | **DONE** |
+| **P1** | I3: `save_*_grounded` re-prunes | S4: Remove internal re-pruning | **DONE** |
+| **P2** | I6: Enrichment duplication | S5: `EnrichablePlan` trait | Open (TODO item-86) |
+| **P2** | I5: No work_group reconciliation | Solved by S1 | **DONE** |
+| **P3** | I7: Prior audit items (C1, C2, H1-H5) | See previous audit | Open |

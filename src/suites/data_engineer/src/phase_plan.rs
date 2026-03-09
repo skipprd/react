@@ -752,7 +752,7 @@ match Agent::run_until_block_non_interactive(
             crate::plan::save_cleanse_plan_grounded(
                 &actx,
                 &plan,
-                Some(&grounded.allowed),
+                &grounded.allowed,
             )
                 .await
                 .map_err(|e| {
@@ -796,7 +796,7 @@ match Agent::run_until_block_non_interactive(
             crate::plan::save_cleanse_plan_grounded(
                 &actx,
                 &plan,
-                Some(&grounded.allowed),
+                &grounded.allowed,
             )
                 .await
                 .map_err(|e| {
@@ -900,23 +900,8 @@ match Agent::run_until_block_non_interactive(
                     "fixes": design_critique.fixes.clone()
                 },
             });
-            // Enrich tasks (populates inputs) BEFORE pruning, since the prune
-            // function removes tasks whose inputs don't reference known staging models.
-            let enrich_ids: Vec<String> = plan
-                .tasks
-                .iter()
-                .map(|t| t.name.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            Self::enrich_model_tasks(
-                &actx,
-                &q,
-                &design_memo,
-                &design_critique,
-                &mut plan,
-                &enrich_ids,
-            )
-            .await?;
+            // Prune BEFORE enriching (consistent with cleanse pipeline).
+            // This avoids spending LLM budget on tasks that will be pruned.
             tracing::info!("data_engineer: [model] grounding plan against existing staging models");
             crate::plan::prune_model_plan_to_grounded_staging_models(
                 &mut plan,
@@ -943,17 +928,30 @@ match Agent::run_until_block_non_interactive(
                     }
                 }
             }
-            // Crash-safety: persist the grounded/pruned draft so resume/inspection reflects
-            // what we actually validated/critiqued (not just the initial parsed JSON).
+            let enrich_ids: Vec<String> = plan
+                .tasks
+                .iter()
+                .map(|t| t.name.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            Self::enrich_model_tasks(
+                &actx,
+                &q,
+                &design_memo,
+                &design_critique,
+                &mut plan,
+                &enrich_ids,
+            )
+            .await?;
             crate::plan::save_model_plan_grounded(
                 &actx,
                 &plan,
-                Some(&staged.allowed_models),
+                &staged.allowed_models,
             )
             .await
             .map_err(|e| {
                 format!(
-                    "failed to checkpoint grounded/pruned model draft plan: {e}"
+                    "failed to checkpoint grounded/enriched model draft plan: {e}"
                 )
             })?;
 
@@ -989,12 +987,10 @@ match Agent::run_until_block_non_interactive(
                     sem
                 }
             };
-            // Crash-safety: persist the normalized draft so resume/inspection reflects
-            // what we actually validated (not just the initial parsed JSON).
             crate::plan::save_model_plan_grounded(
                 &actx,
                 &plan,
-                Some(&staged.allowed_models),
+                &staged.allowed_models,
             )
             .await
             .map_err(|e| {

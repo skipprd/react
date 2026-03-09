@@ -2371,7 +2371,7 @@ mod tests {
             mutations: vec![],
             progress: PlanProgress::default(),
         };
-        let err = PersistableModelPlan::try_from(plan).unwrap_err();
+        let err = PersistableModelPlan::from_plan(plan, &std::collections::BTreeSet::new()).unwrap_err();
         assert!(err.contains("model_plan_grounding_failed"));
     }
 
@@ -2398,7 +2398,7 @@ mod tests {
             progress: PlanProgress::default(),
         };
         assert!(PersistableCleansePlan::try_from(cleanse).is_ok());
-        assert!(PersistableModelPlan::try_from(model).is_ok());
+        assert!(PersistableModelPlan::from_plan(model, &std::collections::BTreeSet::new()).is_ok());
     }
 
     #[test]

@@ -78,6 +78,8 @@ pub trait PlanTask: Clone + std::fmt::Debug + Serialize + serde::de::Deserialize
     fn checklist(&self) -> &[PlanChecklistItem];
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem>;
     fn invariants(&self) -> &[String];
+    /// Prefix used when generating canonical work_group IDs (e.g. "cleanse", "model").
+    fn work_group_prefix() -> &'static str;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -385,6 +387,7 @@ impl PlanTask for CleanseTask {
     fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
     fn invariants(&self) -> &[String] { &self.invariants }
+    fn work_group_prefix() -> &'static str { "cleanse" }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -421,6 +424,7 @@ impl PlanTask for ModelTask {
     fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
     fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
     fn invariants(&self) -> &[String] { &self.invariants }
+    fn work_group_prefix() -> &'static str { "model" }
 }
 
 // ---------- Generic Plan ----------
@@ -445,6 +449,17 @@ pub struct Plan<T: PlanTask> {
     pub mutations: Vec<PlanMutation>,
     #[serde(default)]
     pub progress: PlanProgress,
+}
+
+impl<T: PlanTask> Plan<T> {
+    /// Regenerate work_groups from the current batches. Must be called after any
+    /// mutation that adds/removes tasks or batches to maintain internal consistency.
+    pub fn reconcile_work_groups(&mut self) {
+        self.work_groups = crate::plan_progress::canonical_work_groups_from_batches(
+            &self.batches,
+            T::work_group_prefix(),
+        );
+    }
 }
 
 pub type CleansePlan = Plan<CleanseTask>;

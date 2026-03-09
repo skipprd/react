@@ -88,6 +88,7 @@ pub fn prune_cleanse_plan_to_grounded_raw_datasets(
             );
         }
     }
+    plan.reconcile_work_groups();
 }
 
 pub fn prune_model_plan_to_grounded_staging_models(
@@ -202,6 +203,7 @@ pub fn prune_model_plan_to_grounded_staging_models(
             );
         }
     }
+    plan.reconcile_work_groups();
 }
 
 fn default_silver_passthrough_field_spec() -> OutputFieldSpec {
@@ -423,30 +425,35 @@ impl TryFrom<CleansePlan> for PersistableCleansePlan {
     }
 }
 
-impl TryFrom<ModelPlan> for GroundedModelPlan {
-    type Error = String;
-
-    fn try_from(mut value: ModelPlan) -> Result<Self, Self::Error> {
-        ensure_expected_model_paths_model(&mut value);
-        let mut errors = strict_model_grounding_errors(&value, None);
-        let sem = validate_model_plan_semantics(&value, None);
+impl GroundedModelPlan {
+    /// Validate and ground a model plan against the known staging models.
+    /// The allowlist is required — callers must provide the set of staging models
+    /// that actually exist. This is the only way to construct a `GroundedModelPlan`.
+    pub fn ground(
+        mut plan: ModelPlan,
+        allowed_staging_models: &std::collections::BTreeSet<String>,
+    ) -> Result<Self, String> {
+        ensure_expected_model_paths_model(&mut plan);
+        let mut errors = strict_model_grounding_errors(&plan, Some(allowed_staging_models));
+        let sem = validate_model_plan_semantics(&plan, Some(allowed_staging_models));
         errors.extend(sem.messages());
         if !errors.is_empty() {
             errors.sort();
             errors.dedup();
             return Err(format!("model_plan_grounding_failed: {}", errors.join(" | ")));
         }
-        Ok(Self(value))
+        Ok(Self(plan))
     }
 }
 
-impl TryFrom<ModelPlan> for PersistableModelPlan {
-    type Error = String;
-
-    fn try_from(value: ModelPlan) -> Result<Self, Self::Error> {
+impl PersistableModelPlan {
+    pub fn from_plan(
+        value: ModelPlan,
+        allowed_staging_models: &std::collections::BTreeSet<String>,
+    ) -> Result<Self, String> {
         if value.status.is_terminal() {
             return Ok(Self::Terminal(value));
         }
-        Ok(Self::Grounded(GroundedModelPlan::try_from(value)?))
+        Ok(Self::Grounded(GroundedModelPlan::ground(value, allowed_staging_models)?))
     }
 }
