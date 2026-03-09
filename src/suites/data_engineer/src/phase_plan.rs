@@ -764,8 +764,7 @@ match Agent::run_until_block_non_interactive(
             tracing::info!("data_engineer: [cleanse] validating plan semantics");
             let sem = crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
                 &mut plan,
-            )
-            .await?;
+            );
             let sem = if sem.ok {
                 sem
             } else {
@@ -788,7 +787,6 @@ match Agent::run_until_block_non_interactive(
                     crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
                         &mut plan,
                     )
-                    .await?
                 } else {
                     sem
                 }
@@ -963,8 +961,7 @@ match Agent::run_until_block_non_interactive(
             let sem = crate::plan::ensure_model_plan_semantically_valid_or_repaired(
                 &mut plan,
                 &staged.allowed_models,
-            )
-            .await?;
+            );
             let sem = if sem.ok {
                 sem
             } else {
@@ -988,7 +985,6 @@ match Agent::run_until_block_non_interactive(
                         &mut plan,
                         &staged.allowed_models,
                     )
-                    .await?
                 } else {
                     sem
                 }

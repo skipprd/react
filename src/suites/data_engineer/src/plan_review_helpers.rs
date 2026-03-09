@@ -100,11 +100,14 @@ impl DataEngineerSuite {
         // Auto-heal (semantic): reuse the grounding computed above.
         let v = match &mut doc {
             TrackPlanDoc::Cleanse(p) => {
-                crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(p).await?
+                crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(p)
             }
             TrackPlanDoc::Model(p) => {
                 let stg = staging_grounding.as_ref().expect("pre-computed for model track");
-                crate::plan::ensure_model_plan_semantically_valid_or_repaired(p, &stg.allowed_models).await?
+                crate::plan::ensure_model_plan_semantically_valid_or_repaired(
+                    p,
+                    &stg.allowed_models,
+                )
             }
         };
         if !v.ok {

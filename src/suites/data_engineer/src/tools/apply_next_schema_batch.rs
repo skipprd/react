@@ -214,7 +214,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         }
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
-        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan).await?;
+        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan);
         if !v.ok {
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::CleanseSchemaBatchContract {
@@ -595,8 +595,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         let v = plan::ensure_model_plan_semantically_valid_or_repaired(
             &mut plan,
             &stg.allowed_models,
-        )
-        .await?;
+        );
         if !v.ok {
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::ModelSchemaBatchContract {

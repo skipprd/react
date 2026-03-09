@@ -358,19 +358,17 @@ pub fn validate_model_plan_semantics(
     validation_result(errors)
 }
 
-pub async fn ensure_cleanse_plan_semantically_valid_or_repaired(
+pub fn ensure_cleanse_plan_semantically_valid_or_repaired(
     plan: &mut CleansePlan,
-) -> Result<PlanSemanticValidation, String> {
+) -> PlanSemanticValidation {
     crate::plan_grounding::normalize_cleanse_plan_defaults(plan);
-    let v0 = validate_cleanse_plan_semantics(plan);
-    Ok(v0)
+    validate_cleanse_plan_semantics(plan)
 }
 
-pub async fn ensure_model_plan_semantically_valid_or_repaired(
+pub fn ensure_model_plan_semantically_valid_or_repaired(
     plan: &mut ModelPlan,
     allowed_staging_models: &std::collections::BTreeSet<String>,
-) -> Result<PlanSemanticValidation, String> {
+) -> PlanSemanticValidation {
     crate::plan_grounding::ensure_expected_model_paths_model(plan);
-    let v0 = validate_model_plan_semantics(plan, Some(allowed_staging_models));
-    Ok(v0)
+    validate_model_plan_semantics(plan, Some(allowed_staging_models))
 }

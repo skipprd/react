@@ -124,7 +124,7 @@ impl Tool for ApplyNextCleanseBatchTool {
         }
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
-        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan).await?;
+        let v = plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan);
         if !v.ok {
             return Ok(serde_json::json!({
                 "ok": false,
@@ -410,8 +410,7 @@ impl Tool for ApplyNextModelBatchTool {
         let v = plan::ensure_model_plan_semantically_valid_or_repaired(
             &mut plan,
             &stg.allowed_models,
-        )
-        .await?;
+        );
         if !v.ok {
             return Ok(serde_json::json!({
                 "ok": false,
