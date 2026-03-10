@@ -697,7 +697,6 @@ async fn dependency_schemas_for_sql(sctx: &SuiteCtx, actx: &AgentCtx, sql: &str)
 
 struct ProjectSummary {
     project_notes: Vec<String>,
-    project_risks: Vec<String>,
 }
 
 async fn build_project_summary(
@@ -753,7 +752,6 @@ async fn build_project_summary(
     let summary_v = config.call(actx, thread_id, summary_user).await?;
     let summary_out: ReviewSummaryOutput = config.parse_typed(summary_v, "summary")?;
     let project_notes = clamp_lines(summary_out.project_notes, MAX_PROJECT_NOTES);
-    let project_risks = clamp_lines(summary_out.project_risks, MAX_PROJECT_NOTES);
 
     append_review_step(
         thread_store,
@@ -763,26 +761,14 @@ async fn build_project_summary(
         PhaseReasonCode::ReviewProjectSummary,
         serde_json::json!({
             "project_notes": project_notes,
-            "project_risks": project_risks
         }),
     )
     .await?;
     if let (Some(pk), Some(key)) = (plan_kind, plan_key) {
-        persist_review_summary_to_plan(
-            actx,
-            phase,
-            pk,
-            key,
-            project_notes.clone(),
-            project_risks.clone(),
-        )
-        .await?;
+        persist_review_summary_to_plan(actx, phase, pk, key, project_notes.clone()).await?;
     }
 
-    Ok(ProjectSummary {
-        project_notes,
-        project_risks,
-    })
+    Ok(ProjectSummary { project_notes })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -880,14 +866,12 @@ async fn review_single_batch(
     let config = ReviewLlmConfig::for_phase(phase, "batch");
     let v = config.call(actx, thread_id, batch_user).await?;
     let batch_out: ReviewBatchOutput = config.parse_typed(v, "batch")?;
-    let notes = clamp_lines(batch_out.notes, MAX_NOTES_PER_BATCH);
-    let actionable_hints = clamp_lines(batch_out.actionable_hints, MAX_NOTES_PER_BATCH);
+    let findings = clamp_lines(batch_out.findings, MAX_NOTES_PER_BATCH);
 
     let detail = serde_json::json!({
         "batch_idx": batch_idx,
         "batch_items": batch,
-        "notes": notes,
-        "actionable_hints": actionable_hints
+        "findings": findings,
     });
     append_review_step(
         thread_store,
@@ -900,7 +884,7 @@ async fn review_single_batch(
     .await?;
 
     if let (Some(pk), Some(key)) = (plan_kind, plan_key) {
-        persist_review_batch_to_plan(actx, pk, key, batch_idx, batch.to_vec(), notes.clone())
+        persist_review_batch_to_plan(actx, pk, key, batch_idx, batch.to_vec(), findings.clone())
             .await?;
     }
 
@@ -931,21 +915,19 @@ async fn unify_reviews(
         .into_iter()
         .map(|v| {
             let batch_items = v.get("batch_items").cloned().unwrap_or(Value::Null);
-            let notes = v.get("notes").cloned().unwrap_or(Value::Null);
-            let actionable_hints = v.get("actionable_hints").cloned().unwrap_or(Value::Null);
+            let findings = v.get("findings").cloned().unwrap_or(Value::Null);
             serde_json::json!({
                 "batch_items": batch_items,
-                "notes": notes,
-                "actionable_hints": actionable_hints
+                "findings": findings,
             })
         })
         .collect::<Vec<_>>();
     let unify_user = format!(
-        "Phase: {phase}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Project notes:\n{proj}\n\nBatch notes:\n{batches}\n",
+        "Phase: {phase}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Project notes:\n{proj}\n\nBatch findings:\n{batches}\n",
         phase = phase.as_str(),
         q = original_question_with_context,
         gctx_block = global_ctx_block,
-        proj = serde_json::json!({"project_notes": summary.project_notes, "project_risks": summary.project_risks}),
+        proj = serde_json::json!({"project_notes": summary.project_notes}),
         batches = serde_json::to_string_pretty(&unify_batches).unwrap_or_else(|_| "[]".to_string()),
     );
 
@@ -1300,11 +1282,11 @@ mod tests {
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
                 // summary
-                serde_json::json!({"project_notes":["n1"],"project_risks":["r1"]}).to_string(),
+                serde_json::json!({"project_notes":["n1"]}).to_string(),
                 // batch 1
-                serde_json::json!({"notes":["b1n"],"actionable_hints":["h1"]}).to_string(),
+                serde_json::json!({"findings":["b1n"]}).to_string(),
                 // batch 2
-                serde_json::json!({"notes":["b2n"],"actionable_hints":["h2"]}).to_string(),
+                serde_json::json!({"findings":["b2n"]}).to_string(),
                 // unify
                 serde_json::json!({"decision":"proceed","tier":"silver","dataset_ids":[],"final_review_text":"All good."}).to_string(),
             ])),
@@ -1610,7 +1592,7 @@ mod tests {
         let llm_cleanse = Arc::new(CapturingModel {
             captured_user_prompts: captured_cleanse.clone(),
             replies: Arc::new(Mutex::new(vec![
-                serde_json::json!({"project_notes":[],"project_risks":[]}).to_string(), // summary
+                serde_json::json!({"project_notes":[]}).to_string(), // summary
                 serde_json::json!({"decision":"proceed","tier":"silver","dataset_ids":[],"final_review_text":"ok"}).to_string(), // unify
             ])),
         });
@@ -1636,7 +1618,7 @@ mod tests {
         let llm_model = Arc::new(CapturingModel {
             captured_user_prompts: captured_model.clone(),
             replies: Arc::new(Mutex::new(vec![
-                serde_json::json!({"project_notes":[],"project_risks":[]}).to_string(), // summary
+                serde_json::json!({"project_notes":[]}).to_string(), // summary
                 serde_json::json!({"decision":"proceed","tier":"gold","dataset_ids":[],"final_review_text":"ok"}).to_string(), // unify
             ])),
         });
@@ -1663,8 +1645,8 @@ mod tests {
     #[test]
     fn deterministic_unify_defaults_derives_tier_and_dataset_ids() {
         let notes = vec![
-            serde_json::json!({"batch_items":["a.b.c","x.y.z"],"notes":[],"actionable_hints":[]}),
-            serde_json::json!({"batch_items":["x.y.z"],"notes":[],"actionable_hints":[]}),
+            serde_json::json!({"batch_items":["a.b.c","x.y.z"],"findings":[]}),
+            serde_json::json!({"batch_items":["x.y.z"],"findings":[]}),
         ];
         let (tier, dataset_ids) = deterministic_unify_defaults(Phase::CleanseReview, &notes);
         assert_eq!(tier, ReviewTier::Silver);
@@ -1672,13 +1654,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unify_decision_is_not_overridden_by_actionable_hints() {
+    async fn unify_respects_llm_plan_change_decision() {
         let storage: Arc<dyn react_core::storage::StorageAdapter> =
             Arc::new(InMemoryStorageAdapter::default());
         let llm = Arc::new(ScriptedModel {
             replies: Arc::new(Mutex::new(vec![
-                serde_json::json!({"project_notes":[],"project_risks":[]}).to_string(),
-                serde_json::json!({"notes":["requires plan change"],"actionable_hints":["do not use hallucinated fields"]}).to_string(),
+                serde_json::json!({"project_notes":[]}).to_string(),
+                serde_json::json!({"findings":["REQUIRES PLAN CHANGE: hallucinated fields"]}).to_string(),
                 serde_json::json!({
                     "decision":"plan_change",
                     "tier":"silver",

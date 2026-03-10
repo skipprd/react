@@ -189,8 +189,6 @@ pub(crate) enum PhaseError {
     Plan(#[from] plan_storage::PlanError),
     #[error(transparent)]
     Transition(#[from] transition_dispatcher::TransitionError),
-    #[error("LLM call failed: {0}")]
-    LlmFailed(String),
     #[error("tool contract violation: {0}")]
     ToolContractViolation(String),
     #[error("{0}")]

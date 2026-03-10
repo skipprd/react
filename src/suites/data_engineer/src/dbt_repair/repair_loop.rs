@@ -23,20 +23,6 @@ pub enum RepairStopReason {
     PackagesNoProgress,
 }
 
-impl RepairStopReason {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::DbtOk => "dbt_ok",
-            Self::MaxIterations => "max_iterations",
-            Self::MissingSource => "missing_source",
-            Self::WarehouseConfig => "warehouse_config",
-            Self::InfraTransient => "infra_transient",
-            Self::LlmNoProgress => "llm_no_progress",
-            Self::PackagesNoProgress => "packages_no_progress",
-        }
-    }
-}
-
 fn errors_look_like_missing_dbt_utils(errors: &[String]) -> bool {
     let s = errors.join("\n").to_lowercase();
     if !s.contains("dbt_utils") {

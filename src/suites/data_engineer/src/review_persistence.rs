@@ -116,7 +116,6 @@ pub(super) async fn persist_review_summary_to_plan(
     plan_kind: PlanKind,
     plan_key: &str,
     project_notes: Vec<String>,
-    project_risks: Vec<String>,
 ) -> Result<(), String> {
     let ts = utc_ts();
     mutate_plan_review(
@@ -129,7 +128,6 @@ pub(super) async fn persist_review_summary_to_plan(
                 serde_json::json!({
                     "phase": phase.as_str(),
                     "project_notes": project_notes,
-                    "project_risks": project_risks,
                     "ts": ts,
                 }),
             );
@@ -145,13 +143,13 @@ pub(super) async fn persist_review_batch_to_plan(
     plan_key: &str,
     batch_idx: usize,
     batch_items: Vec<String>,
-    notes: Vec<String>,
+    findings: Vec<String>,
 ) -> Result<(), String> {
     let ts = utc_ts();
     let entry = serde_json::json!({
         "batch_idx": batch_idx,
         "batch_items": batch_items,
-        "notes": notes,
+        "findings": findings,
         "ts": ts,
     });
     mutate_plan_review(

@@ -49,17 +49,13 @@ pub struct ReviewArtifactRef {
 pub struct ReviewSummaryOutput {
     #[serde(default)]
     pub project_notes: Vec<String>,
-    #[serde(default)]
-    pub project_risks: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewBatchOutput {
     #[serde(default)]
-    pub notes: Vec<String>,
-    #[serde(default)]
-    pub actionable_hints: Vec<String>,
+    pub findings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
