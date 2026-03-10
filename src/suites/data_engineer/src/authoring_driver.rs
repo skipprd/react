@@ -103,13 +103,11 @@ impl AuthoringDriver {
     ) -> AuthoringTurnResult {
         if !snapshot.progress_made
             && snapshot.reason
-                == Some(
-                    crate::progress_controller::AuthoringNoProgressReason::NoMutationObservedInHardRepair,
-                )
+                == Some(crate::progress_controller::AuthoringNoProgressReason::NoMutationProgress)
         {
             return AuthoringTurnResult::HardError {
                 message: format!(
-                    "failed to make progress for this thread: no mutating file operation observed while hard_mutation_repair_mode=true and repair stall budget was exhausted (phase={}). Apply a direct file mutation (patch/rm/mv) to the failing model path before retrying.",
+                    "authoring stall: no mutating file operation observed after repeated step-boundary attempts (phase={})",
                     ctx.phase.as_str()
                 ),
             };
@@ -150,7 +148,7 @@ mod tests {
         let snapshot = crate::progress_controller::AuthoringProgressSnapshot {
             progress_made: false,
             reason: Some(
-                crate::progress_controller::AuthoringNoProgressReason::NoMutationObservedInHardRepair,
+                crate::progress_controller::AuthoringNoProgressReason::NoMutationProgress,
             ),
         };
         let out = AuthoringDriver::stepboundary_outcome(&ctx, &snapshot);

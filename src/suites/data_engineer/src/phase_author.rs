@@ -1555,39 +1555,43 @@ async fn handle_author_run_outcome(
             Ok(PhaseExecutorOutcome::TransitionCommitted)
         }
         RunOutcomeNonInteractive::StepBoundary { .. } => {
-            if params.hard_mutation_repair_mode && params.phase_guard.last_validate_failed {
-                let post_state = crate::progress_controller::ExecutionState::load_strict(
-                    &params.thread_store.control_store(),
-                    params.thread_id,
-                )
-                .await?
-                .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-                let snapshot = crate::progress_controller::snapshot_authoring_stepboundary_progress(
-                    params.hard_mutation_repair_mode,
-                    params.phase_guard.last_validate_failed,
-                    pre_mutation_epoch,
-                    post_state.repair.mutation_epoch,
-                    post_state.repair.stall_count,
-                );
-                match crate::authoring_driver::AuthoringDriver::run_turn(authoring_ctx, &snapshot) {
-                    crate::authoring_driver::AuthoringTurnResult::HardError { message } => {
-                        let violation = crate::progress_controller::PlanViolation::new(
-                            params.phase,
-                            None,
-                            format!("Authoring repair stall: {message}"),
-                        );
-                        crate::phase_contract::commit_plan_revision_loopback(
-                            params.thread_store,
-                            params.thread_id,
-                            params.phase,
-                            vec![violation],
-                            crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                        )
-                        .await?;
-                        return Ok(PhaseExecutorOutcome::TransitionCommitted);
-                    }
-                    crate::authoring_driver::AuthoringTurnResult::Continue => {}
+            let mut post_state = crate::progress_controller::ExecutionState::load_strict(
+                &params.thread_store.control_store(),
+                params.thread_id,
+            )
+            .await?
+            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+
+            let mutation_advanced = post_state.repair.mutation_epoch > pre_mutation_epoch;
+            post_state.record_stepboundary_progress(mutation_advanced);
+            post_state
+                .save(&params.thread_store.control_store(), params.thread_id)
+                .await
+                .map_err(|e| format!("failed to persist step-boundary progress: {e}"))?;
+
+            let snapshot = crate::progress_controller::snapshot_authoring_stepboundary_progress(
+                pre_mutation_epoch,
+                post_state.repair.mutation_epoch,
+                post_state.repair.stall_count,
+            );
+            match crate::authoring_driver::AuthoringDriver::run_turn(authoring_ctx, &snapshot) {
+                crate::authoring_driver::AuthoringTurnResult::HardError { message } => {
+                    let violation = crate::progress_controller::PlanViolation::new(
+                        params.phase,
+                        None,
+                        format!("Authoring stall: {message}"),
+                    );
+                    crate::phase_contract::commit_plan_revision_loopback(
+                        params.thread_store,
+                        params.thread_id,
+                        params.phase,
+                        vec![violation],
+                        crate::progress_controller::PlanRevisionStrategy::Rewrite,
+                    )
+                    .await?;
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
+                crate::authoring_driver::AuthoringTurnResult::Continue => {}
             }
             Ok(PhaseExecutorOutcome::stayed_waiting(
                 "authoring turn ended at the single-step boundary without a committed transition",

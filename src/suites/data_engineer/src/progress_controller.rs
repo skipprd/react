@@ -674,7 +674,7 @@ pub struct ProgressDelta {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthoringNoProgressReason {
-    NoMutationObservedInHardRepair,
+    NoMutationProgress,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1689,6 +1689,16 @@ impl ExecutionState {
         self.debug_assert_invariants();
     }
 
+    /// Track authoring step-boundary progress for stall detection.
+    /// Resets stall_count on mutation progress; increments it otherwise.
+    pub fn record_stepboundary_progress(&mut self, mutation_advanced: bool) {
+        if mutation_advanced {
+            self.repair.stall_count = 0;
+        } else {
+            self.repair.stall_count = self.repair.stall_count.saturating_add(1);
+        }
+    }
+
     pub fn apply_event(&mut self, event: DataEngineerEvent) {
         match event {
             DataEngineerEvent::ValidatePassed { tier } => self.apply_validate_success(tier),
@@ -2110,20 +2120,16 @@ pub fn gate_authoring_progress(state: &ExecutionState, phase: Phase) -> Result<(
 }
 
 pub fn snapshot_authoring_stepboundary_progress(
-    hard_mutation_repair_mode: bool,
-    last_validate_failed: bool,
     pre_mutation_epoch: u64,
     post_mutation_epoch: u64,
     post_stall_count: usize,
 ) -> AuthoringProgressSnapshot {
-    if hard_mutation_repair_mode
-        && last_validate_failed
-        && post_mutation_epoch <= pre_mutation_epoch
+    if post_mutation_epoch <= pre_mutation_epoch
         && post_stall_count >= DEFAULT_MAX_STALL_COUNT.max(1)
     {
         return AuthoringProgressSnapshot {
             progress_made: false,
-            reason: Some(AuthoringNoProgressReason::NoMutationObservedInHardRepair),
+            reason: Some(AuthoringNoProgressReason::NoMutationProgress),
         };
     }
     AuthoringProgressSnapshot {
@@ -2183,27 +2189,39 @@ mod tests {
     }
 
     #[test]
-    fn authoring_stepboundary_snapshot_flags_hard_repair_no_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 4, 4, 3);
+    fn authoring_stepboundary_snapshot_flags_no_mutation_progress() {
+        let snapshot = snapshot_authoring_stepboundary_progress(4, 4, 3);
         assert!(!snapshot.progress_made);
         assert_eq!(
             snapshot.reason,
-            Some(AuthoringNoProgressReason::NoMutationObservedInHardRepair)
+            Some(AuthoringNoProgressReason::NoMutationProgress)
         );
     }
 
     #[test]
     fn authoring_stepboundary_snapshot_accepts_mutation_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 4, 5, 0);
+        let snapshot = snapshot_authoring_stepboundary_progress(4, 5, 0);
         assert!(snapshot.progress_made);
         assert_eq!(snapshot.reason, None);
     }
 
     #[test]
     fn authoring_stepboundary_snapshot_allows_single_non_mutating_turn_before_budget() {
-        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 5, 5, 1);
+        let snapshot = snapshot_authoring_stepboundary_progress(5, 5, 1);
         assert!(snapshot.progress_made);
         assert_eq!(snapshot.reason, None);
+    }
+
+    #[test]
+    fn record_stepboundary_progress_increments_on_no_mutation() {
+        let mut st = ExecutionState::new();
+        assert_eq!(st.repair.stall_count, 0);
+        st.record_stepboundary_progress(false);
+        assert_eq!(st.repair.stall_count, 1);
+        st.record_stepboundary_progress(false);
+        assert_eq!(st.repair.stall_count, 2);
+        st.record_stepboundary_progress(true);
+        assert_eq!(st.repair.stall_count, 0);
     }
 
     #[test]
