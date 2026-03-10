@@ -403,20 +403,20 @@ impl DeterministicDbtValidateOnce {
         let profiles_path = td.path().join("profiles.yml");
         std::fs::write(&profiles_path, gen.profiles_yml.as_bytes()).map_err(|e| e.to_string())?;
 
-        let res = dbt
-            .validate_project(
-                ctx.scope(),
-                &DbtValidateArgs {
-                    project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
-                    profiles_dir: Some(profiles_dir),
-                    target: gen.target,
-                    run,
-                    build,
-                    select: select.map(|s| s.to_vec()),
-                    exclude: None,
-                },
-            )
-            .await?;
+        let validate_args = DbtValidateArgs {
+            project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
+            profiles_dir: Some(profiles_dir),
+            target: gen.target,
+            run,
+            build,
+            select: select.map(|s| s.to_vec()),
+            exclude: None,
+        };
+        let res = crate::transient_retry::retry_transient_default(
+            "deterministic_dbt_validate",
+            || async { dbt.validate_project(ctx.scope(), &validate_args).await },
+        )
+        .await?;
 
         let mut v = serde_json::to_value(res).unwrap_or_else(
             |_| serde_json::json!({"ok": false, "error": "failed to serialize result"}),

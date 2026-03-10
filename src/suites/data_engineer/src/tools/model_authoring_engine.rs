@@ -224,13 +224,12 @@ where
                 if let Some(h) = athena_alias_reuse_hint(&err, rel_path, entity_id) {
                     remediation_hints.push(h);
                 }
-                if attempt >= config.max_attempts {
-                    return Err(vec![format!(
-                        "{entity_id}: sql validation failed: {err}"
-                    )]);
-                }
-                continue;
             }
+        }
+        if attempt >= config.max_attempts {
+            return Err(vec![format!(
+                "{entity_id}: sql validation failed: {last_err}"
+            )]);
         }
     }
 

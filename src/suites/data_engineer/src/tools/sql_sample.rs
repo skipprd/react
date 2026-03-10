@@ -60,7 +60,12 @@ impl Tool for SqlSampleTool {
                 "field": field,
             }));
         }
-        match self.query.schema(&table).await {
+        match crate::transient_retry::retry_transient_default(
+            "sql_sample_schema",
+            || async { self.query.schema(&table).await },
+        )
+        .await
+        {
             Ok(cols) => {
                 let names: Vec<String> = cols.into_iter().map(|(n, _)| n).collect();
                 if !names.iter().any(|n| n == field) {
@@ -89,7 +94,12 @@ impl Tool for SqlSampleTool {
             t = table,
             k = k
         );
-        match self.query.query(&sql).await {
+        match crate::transient_retry::retry_transient_default(
+            "sql_sample_query",
+            || async { self.query.query(&sql).await },
+        )
+        .await
+        {
             Ok(qr) => {
                 let mut values: Vec<Value> = Vec::new();
                 for r in qr.rows {

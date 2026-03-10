@@ -381,6 +381,14 @@ let obs = {
     {
         Ok(contract) => contract,
         Err(e) => {
+            let is_transient = crate::failure_text::is_infra_transient(
+                &crate::failure_text::normalize_text(&e),
+            );
+            if is_transient {
+                return Err(PhaseError::Fatal(format!(
+                    "dbt_validate execution failed due to transient infrastructure error: {e}"
+                )));
+            }
             tracing::warn!(
                 "data_engineer: validate execution failed (thread_id={} phase={}): {}",
                 thread_id,
@@ -494,6 +502,16 @@ if matches!(
         "dbt_validate failed due to a warehouse/aws configuration issue: {}",
         brief
     ).into());
+}
+if matches!(
+    failure_class,
+    crate::failure_kind::FailureKind::InfraTransient
+) {
+    return Err(PhaseError::Fatal(format!(
+        "dbt_validate failed due to a transient infrastructure error (service outage, throttling, or network issue). \
+         This is not a code defect — retry after the upstream service recovers.\n\n{}",
+        brief
+    )));
 }
 let errs: Vec<String> = obs
     .observation

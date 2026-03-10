@@ -101,6 +101,7 @@ pub(crate) mod dbt;
 pub(crate) mod dbt_error;
 pub mod failure_kind;
 pub mod failure_text;
+pub(crate) mod transient_retry;
 pub(crate) mod dbt_repair;
 pub(crate) mod facts;
 pub(crate) mod naming;

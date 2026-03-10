@@ -147,18 +147,6 @@ fn build_staging_sys_prompt(
     )
 }
 
-fn merge_failure_kind(a: FailureKind, b: FailureKind) -> FailureKind {
-    use FailureKind::*;
-    let rank = |k: FailureKind| match k {
-        WarehouseConfig => 5,
-        InfraTransient => 4,
-        SqlRuntime => 3,
-        Schema => 2,
-        Unknown => 1,
-        MissingSource | NoFailure => 0,
-    };
-    if rank(b) > rank(a) { b } else { a }
-}
 
 use super::plan_prompt_helpers::{combine_instructions, render_plan_driven_instructions};
 
@@ -197,7 +185,12 @@ impl Tool for StagingModelTool {
         let plan_opt = plan::load_cleanse_plan(ctx).await.ok().flatten();
 
         // Ensure minimal dbt project exists before writing artifacts.
-        if let Err(e) = dbt.ensure_minimal_project(ctx.scope()).await {
+        if let Err(e) = crate::transient_retry::retry_transient_default(
+            "staging_ensure_minimal_project",
+            || async { dbt.ensure_minimal_project(ctx.scope()).await },
+        )
+        .await
+        {
             return Ok(serde_json::json!({
                 "ok": false,
                 "batch_failure_kind": "unknown",
@@ -242,7 +235,13 @@ impl Tool for StagingModelTool {
                 ));
                 continue;
             }
-            match gating_wh.schema(&ds).await {
+            let gating_ds = ds.clone();
+            match crate::transient_retry::retry_transient_default(
+                "staging_model_schema_lookup",
+                || async { gating_wh.schema(&gating_ds).await },
+            )
+            .await
+            {
                 Ok(cols) => {
                     schema_cols_by_ds.insert(ds, cols);
                 }
@@ -785,10 +784,7 @@ impl Tool for StagingModelTool {
 
         let out_notes = dedup_notes(notes, 50);
         let classified_kind = errors.iter().fold(FailureKind::Unknown, |acc, e| {
-            merge_failure_kind(
-                acc,
-                crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e),
-            )
+            acc.merge(crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e))
         });
 
         let mut result = serde_json::json!({

@@ -19,6 +19,7 @@ pub enum RepairStopReason {
     MaxIterations,
     MissingSource,
     WarehouseConfig,
+    InfraTransient,
     LlmNoProgress,
     PackagesNoProgress,
 }
@@ -30,6 +31,7 @@ impl RepairStopReason {
             Self::MaxIterations => "max_iterations",
             Self::MissingSource => "missing_source",
             Self::WarehouseConfig => "warehouse_config",
+            Self::InfraTransient => "infra_transient",
             Self::LlmNoProgress => "llm_no_progress",
             Self::PackagesNoProgress => "packages_no_progress",
         }
@@ -226,6 +228,10 @@ pub fn classify_repair_iteration(
         return RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig);
     }
 
+    if matches!(failure_class, FailureKind::InfraTransient) {
+        return RepairIterationOutcome::Stop(RepairStopReason::InfraTransient);
+    }
+
     if !catalog_refreshed && llm_changed_files == 0 {
         return RepairIterationOutcome::Stop(RepairStopReason::LlmNoProgress);
     }
@@ -371,7 +377,11 @@ pub async fn run_repair_loop(
 
     let max_it = max_iterations.max(1).min(25);
     for i in 0..max_it {
-        let res = dbt.validate_project(ctx.scope(), args).await?;
+        let res = crate::transient_retry::retry_transient_default(
+            "dbt_validate_project",
+            || async { dbt.validate_project(ctx.scope(), args).await },
+        )
+        .await?;
 
         report.iterations_run = i + 1;
         let unresolved_columns =
@@ -1163,6 +1173,22 @@ mod tests {
         assert_eq!(
             classify_repair_iteration(0, 5, false, FailureKind::WarehouseConfig, false, false, false, 0),
             RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig),
+        );
+    }
+
+    #[test]
+    fn classify_infra_transient_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::InfraTransient, false, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::InfraTransient),
+        );
+    }
+
+    #[test]
+    fn classify_infra_transient_stops_even_with_llm_progress() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::InfraTransient, false, false, false, 3),
+            RepairIterationOutcome::Stop(RepairStopReason::InfraTransient),
         );
     }
 

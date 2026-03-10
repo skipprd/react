@@ -50,7 +50,12 @@ impl Tool for SqlSchemaTool {
                     }
                 }
             }
-            match self.query.schema(&canonical).await {
+            match crate::transient_retry::retry_transient_default(
+                "sql_schema_lookup",
+                || async { self.query.schema(&canonical).await },
+            )
+            .await
+            {
                 Ok(cols) => Ok(
                     serde_json::json!({"ok": true, "columns": cols.into_iter().map(|(n,t)| serde_json::json!({"name": n, "type": t})).collect::<Vec<_>>(), "source": "provider", "table": canonical}),
                 ),

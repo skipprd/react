@@ -26,4 +26,19 @@ impl FailureKind {
     pub fn is_repairable(self) -> bool {
         matches!(self, Self::Schema | Self::SqlRuntime)
     }
+
+    fn severity(self) -> u8 {
+        match self {
+            Self::WarehouseConfig => 5,
+            Self::InfraTransient => 4,
+            Self::SqlRuntime => 3,
+            Self::Schema => 2,
+            Self::Unknown => 1,
+            Self::MissingSource | Self::NoFailure => 0,
+        }
+    }
+
+    pub fn merge(self, other: Self) -> Self {
+        if other.severity() > self.severity() { other } else { self }
+    }
 }

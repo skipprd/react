@@ -294,7 +294,12 @@ impl Tool for GoldModelTool {
                         "".to_string()
                     };
                     let schema_cols = if !derived_fqn.is_empty() {
-                        query3.schema(&derived_fqn).await.unwrap_or_default()
+                        crate::transient_retry::retry_transient_default(
+                            "gold_model_schema",
+                            || async { query3.schema(&derived_fqn).await },
+                        )
+                        .await
+                        .unwrap_or_default()
                     } else {
                         vec![]
                     };
@@ -546,9 +551,20 @@ impl Tool for GoldModelTool {
             "gold_model finished"
         );
 
+        let classified_kind = errors.iter().fold(
+            crate::failure_kind::FailureKind::Unknown,
+            |acc, e| {
+                acc.merge(crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e))
+            },
+        );
         let mut result = serde_json::json!({
             "ok": errors.is_empty(),
-            "batch_failure_kind": if errors.is_empty() { Value::Null } else { Value::String("unknown".to_string()) },
+            "batch_failure_kind": if errors.is_empty() {
+                Value::Null
+            } else {
+                serde_json::to_value(classified_kind)
+                    .unwrap_or_else(|_| Value::String("unknown".to_string()))
+            },
             "written_keys": written,
             "notes": out_notes,
             "remediation_hints": remediation_hints,

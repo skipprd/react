@@ -317,7 +317,12 @@ async fn check_existing_relations(
             "{}.{}.{}",
             wh_container, db, r.identifier
         );
-        let exists = q.schema(&fqn).await.is_ok();
+        let exists = crate::transient_retry::retry_transient_default(
+            "publish_check_schema",
+            || async { q.schema(&fqn).await },
+        )
+        .await
+        .is_ok();
         out.insert(fqn, exists);
     }
     out

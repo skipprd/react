@@ -571,16 +571,23 @@ async fn best_effort_samples_for_source(
     let Some(ref wh) = wh else {
         return None;
     };
-    let header: Vec<String> = wh
-        .schema(&fqn)
-        .await
-        .ok()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(n, _t)| n)
-        .collect();
+    let header: Vec<String> = crate::transient_retry::retry_transient_default(
+        "remediate_schema",
+        || async { wh.schema(&fqn).await },
+    )
+    .await
+    .ok()
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(n, _t)| n)
+    .collect();
 
-    let rows = wh.sample(&fqn, limit).await.ok()?;
+    let rows = crate::transient_retry::retry_transient_default(
+        "remediate_sample",
+        || async { wh.sample(&fqn, limit).await },
+    )
+    .await
+    .ok()?;
     Some(serde_json::json!({
         "dataset_fqn": fqn,
         "limit": limit,
@@ -1066,7 +1073,12 @@ async fn best_effort_schema_columns_for_source(
     let ds_id = format!("{}.{}.{}", catalog, source_schema, source_table);
     let wh = crate::ctx_ext::actx_warehouse(ctx);
     if let Some(ref wh) = wh {
-        if let Ok(cols) = wh.schema(&ds_id).await {
+        if let Ok(cols) = crate::transient_retry::retry_transient_default(
+            "remediate_resolve_schema",
+            || async { wh.schema(&ds_id).await },
+        )
+        .await
+        {
             return cols;
         }
     }

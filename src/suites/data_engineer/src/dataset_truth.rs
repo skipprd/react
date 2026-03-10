@@ -63,7 +63,10 @@ async fn schema_proves_dataset(
     wh: &Arc<dyn WarehouseProvider>,
     dataset_id: &str,
 ) -> Result<(), String> {
-    wh.schema(dataset_id).await.map(|_cols| ()).map_err(|e| e)
+    crate::transient_retry::retry_transient_default("schema_proves_dataset", || async {
+        wh.schema(dataset_id).await.map(|_cols| ())
+    })
+    .await
 }
 
 /// Build a grounded dataset set for **raw/cleanse** (silver):

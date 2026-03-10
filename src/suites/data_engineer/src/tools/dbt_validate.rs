@@ -128,7 +128,13 @@ async fn probe_compiled_model_sql(
         };
         let sql = String::from_utf8_lossy(&bytes).to_string();
         let probe_sql = crate::sql_first::wrap_sql_for_validation(&sql, 1);
-        match crate::ctx_ext::actx_warehouse(ctx).unwrap().query(&probe_sql).await {
+        let wh = crate::ctx_ext::actx_warehouse(ctx).unwrap();
+        let probe_result = crate::transient_retry::retry_transient_default(
+            "compiled_sql_probe",
+            || async { wh.query(&probe_sql).await },
+        )
+        .await;
+        match probe_result {
             Ok(qr) => {
                 probed = probed.saturating_add(1);
                 let dups =

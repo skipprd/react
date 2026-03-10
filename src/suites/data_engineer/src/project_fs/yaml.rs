@@ -238,7 +238,12 @@ async fn postprocess_schema_yml(
         if proven.len() >= MAX_PROVED_SOURCES {
             break;
         }
-        if let Ok(_cols) = q.schema(&fqn).await {
+        if let Ok(_cols) = crate::transient_retry::retry_transient_default(
+            "yaml_source_prove",
+            || async { q.schema(&fqn).await },
+        )
+        .await
+        {
             proven.insert(fqn);
         }
     }

@@ -57,6 +57,20 @@ mod tests {
         let k = classify_authoring_batch_failure_kind("invalid model folder 'models/raw/x.sql'");
         assert_eq!(k, FailureKind::Schema);
     }
+
+    #[test]
+    fn classify_authoring_service_error_is_transient() {
+        let k = classify_authoring_batch_failure_kind(
+            "AwsDataCatalog.test_raw.raw_customers: sql validation failed: service error",
+        );
+        assert_eq!(k, FailureKind::InfraTransient);
+    }
+
+    #[test]
+    fn classify_authoring_throttling_is_transient() {
+        let k = classify_authoring_batch_failure_kind("ThrottlingException: rate exceeded");
+        assert_eq!(k, FailureKind::InfraTransient);
+    }
 }
 
 pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -> Result<(), String> {

@@ -33,7 +33,12 @@ impl Tool for SqlRunTool {
             .collect::<Vec<&str>>()
             .join(" ")
             .to_ascii_lowercase();
-        match self.query.query(&forced).await {
+        match crate::transient_retry::retry_transient_default(
+            "sql_run_query",
+            || async { self.query.query(&forced).await },
+        )
+        .await
+        {
             Ok(qr) => {
                 let row_count = qr.rows.len();
                 let header_count = qr.header.len();

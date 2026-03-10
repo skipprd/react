@@ -210,7 +210,11 @@ pub async fn validate_sql_quick(
         return Err(msg);
     }
     let probe = wrap_sql_for_validation(&expanded, 1);
-    let res = wh.query(&probe).await?;
+    let res = crate::transient_retry::retry_transient_default(
+        "validate_sql_quick",
+        || async { wh.query(&probe).await },
+    )
+    .await?;
     let dups = duplicate_output_columns(&res.header);
     if !dups.is_empty() {
         return Err(format!(
