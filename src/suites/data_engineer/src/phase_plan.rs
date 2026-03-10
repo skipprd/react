@@ -142,8 +142,15 @@ fn stamp_design_review(
 }
 
 // ---------------------------------------------------------------------------
-// run_plan_bootstrap (unchanged)
+// run_plan_bootstrap
 // ---------------------------------------------------------------------------
+
+struct PlanBootstrapOutcome {
+    summary: Option<String>,
+    /// True when deterministic bootstrap gathered sufficient evidence to skip
+    /// the ReAct discovery loop (tables discovered, models/ empty).
+    discovery_sufficient: bool,
+}
 
 async fn run_plan_bootstrap(
     thread_store: &ThreadStore,
@@ -152,9 +159,12 @@ async fn run_plan_bootstrap(
     sctx: &SuiteCtx,
     actx: &AgentCtx,
     execution_state: &crate::progress_controller::ExecutionState,
-) -> Result<Option<String>, String> {
+) -> Result<PlanBootstrapOutcome, String> {
     if !execution_state.needs_plan_bootstrap(phase) {
-        return Ok(None);
+        return Ok(PlanBootstrapOutcome {
+            summary: None,
+            discovery_sufficient: false,
+        });
     }
     let query =
         crate::ctx_ext::sctx_query(sctx).ok_or_else(|| "query provider missing".to_string())?;
@@ -307,7 +317,11 @@ async fn run_plan_bootstrap(
             .await
             .map_err(|e| format!("failed to persist plan bootstrap state: {e}"))?;
     }
-    Ok(Some(summary))
+    let discovery_sufficient = bootstrap_sufficient && model_count == 0;
+    Ok(PlanBootstrapOutcome {
+        summary: Some(summary),
+        discovery_sufficient,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,8 +1068,8 @@ impl DataEngineerSuite {
         }
 
         // 3. Deterministic bootstrap.
-        Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
-        let bootstrap_summary: Option<String> = run_plan_bootstrap(
+        //    Catalog bootstrap is guaranteed by run_agent before the phase loop.
+        let bootstrap = run_plan_bootstrap(
             thread_store,
             thread_id,
             phase,
@@ -1073,9 +1087,22 @@ impl DataEngineerSuite {
             execution_state,
             repair_ctx,
             &plan_violations,
-            bootstrap_summary.as_deref(),
+            bootstrap.summary.as_deref(),
         )
         .await;
+
+        // 5. For cleanse plans where the deterministic bootstrap already gathered
+        //    all discoverable evidence (tables found, models/ empty), skip the
+        //    ReAct discovery loop and proceed directly to plan compilation.
+        if track.is_cleanse() && bootstrap.discovery_sufficient {
+            tracing::info!(
+                "data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery"
+            );
+            let (design_memo, design_critique) =
+                Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
+            return compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique)
+                .await;
+        }
 
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
             prompts::cleanse_plan_system_prompt()
@@ -1105,7 +1132,7 @@ impl DataEngineerSuite {
             )?
         };
 
-        // 5. Run the planning agent.
+        // 6. Run the planning agent (full ReAct discovery).
         match Agent::run_until_block_non_interactive(
             &registry, &pctx.actx, &sys, &tools_card, &q, llm_options,
         )
