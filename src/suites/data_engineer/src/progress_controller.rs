@@ -1366,7 +1366,7 @@ impl ExecutionState {
             .unwrap_or(false);
         let failed_target_count_delta = backlog.len() as i64 - prev_count;
         let failure_signature_changed = prev_signature != Some(failure_signature.clone());
-        let progress_made = failed_target_count_delta < 0;
+        let progress_made = failure_signature_changed || failed_target_count_delta < 0;
         self.with_workflow_control_state_mut(|state| {
             state.phase.current_tier = tier;
             state.phase.mode = ExecutionMode::Mutate;

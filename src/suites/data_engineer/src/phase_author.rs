@@ -1529,6 +1529,14 @@ async fn handle_author_run_outcome(
                 ));
             }
 
+            crate::state_manager::mutate_execution_state(
+                &params.thread_store.control_store(),
+                params.thread_id,
+                |es| es.record_stepboundary_progress(true),
+            )
+            .await
+            .map_err(|e| format!("failed to reset stall count on authoring complete: {e}"))?;
+
             let to_phase = if params.track.is_cleanse() {
                 Phase::CleanseValidate
             } else {
