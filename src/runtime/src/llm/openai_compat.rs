@@ -178,20 +178,12 @@ impl LargeLanguageModel for OpenAICompatModel {
                 react_core::llm::LlmExpectedFormat::JsonObject => {
                     serde_json::json!({ "type": "json_object" })
                 }
-                react_core::llm::LlmExpectedFormat::JsonSchema(id) => serde_json::json!({
+                react_core::llm::LlmExpectedFormat::JsonSchema(schema) => serde_json::json!({
                     "type": "json_schema",
-                    "name": id.name().replace('.', "_"),
-                    "schema": react_core::schema_registry::json_schema(*id),
+                    "name": schema.name().replace('.', "_"),
+                    "schema": schema.schema(),
                     "strict": true
                 }),
-                react_core::llm::LlmExpectedFormat::JsonSchemaSpec { name, schema } => {
-                    serde_json::json!({
-                        "type": "json_schema",
-                        "name": name.replace('.', "_"),
-                        "schema": schema,
-                        "strict": true
-                    })
-                }
             };
             let body = RespReq {
                 model: model.clone(),

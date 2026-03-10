@@ -105,12 +105,12 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                        name: "suite.plan_design_critique.v1".to_string(),
-                        schema: crate::plan_schema::strict_schema_for::<
+                    expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(
+                        react_core::schema_registry::OpenAiStrictSchema::for_type::<
                             crate::plan_schema::PlanDesignCritiqueV1,
-                        >()?,
-                    },
+                        >("suite.plan_design_critique.v1")
+                        .map_err(|e| e.to_string())?,
+                    ),
                     temperature: Some(0.10),
                     top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),

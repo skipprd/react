@@ -141,6 +141,7 @@ mod tests {
                     "models/staging/stg_x.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::Stop,
                     attempt_count: 1,

@@ -972,6 +972,7 @@ mod tests {
                     "models/staging/m.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -1022,6 +1023,7 @@ mod tests {
                     "models/staging/m.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,

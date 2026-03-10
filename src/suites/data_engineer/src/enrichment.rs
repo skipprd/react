@@ -346,10 +346,12 @@ impl DataEngineerSuite {
                 T::compile_prompt_id(),
                 ctx.thread_id().clone(),
             )?;
-            opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-                name: T::compile_schema_name().to_string(),
-                schema: crate::plan_schema::strict_schema_for::<T::EnrichmentResponse>()?,
-            };
+            opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchema(
+                react_core::schema_registry::OpenAiStrictSchema::for_type::<T::EnrichmentResponse>(
+                    T::compile_schema_name(),
+                )
+                .map_err(|e| e.to_string())?,
+            );
             let raw = ctx
                 .llm_chat(
                     &[
@@ -690,12 +692,12 @@ Apply these fixes in the output.",
             "data_engineer.model_plan_candidates",
             ctx.thread_id().clone(),
         )?;
-        opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchemaSpec {
-            name: "suite.model_plan_candidates.v1".to_string(),
-            schema: crate::plan_schema::strict_schema_for::<
+        opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchema(
+            react_core::schema_registry::OpenAiStrictSchema::for_type::<
                 crate::plan_schema::ModelPlanCandidatesV1,
-            >()?,
-        };
+            >("suite.model_plan_candidates.v1")
+            .map_err(|e| e.to_string())?,
+        );
         let sys = prompts::plan::model_plan_candidates_system_prompt();
         let user = format!(
             "Context:\n{}\n\nDesign memo:\n{}\n\n{}\n\nReturn candidate-selection JSON.",

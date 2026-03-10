@@ -138,7 +138,9 @@ impl Agent {
         llm_options: LlmCallOptions,
     ) -> Result<RunOutcome, CoreError> {
         let mut llm_options = llm_options;
-        llm_options.expected_format = LlmExpectedFormat::JsonSchema(SchemaId::AgentStepV1);
+        llm_options.expected_format = LlmExpectedFormat::JsonSchema(
+            crate::schema_registry::OpenAiStrictSchema::for_schema_id(SchemaId::AgentStepV1),
+        );
 
         let tid = ctx.thread_id.clone().unwrap_or_else(Self::gen_uuid);
         let store = ctx.thread_store.as_ref();

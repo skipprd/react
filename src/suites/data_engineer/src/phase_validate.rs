@@ -501,14 +501,21 @@ impl DataEngineerSuite {
             } else {
                 crate::progress_controller::ExecutionTier::Model
             };
-            let failing_models: Vec<crate::progress_controller::FailedModelRef> = failing_targets
-                .iter()
-                .map(|t| crate::progress_controller::FailedModelRef {
+            let mut failing_models: Vec<crate::progress_controller::FailedModelRef> = Vec::new();
+            for t in failing_targets.iter() {
+                let rel = t.target_path.as_str().to_string();
+                let key = crate::project_fs::join_storage_key(&actx, &rel);
+                let materialization = match actx.storage().get_bytes(&key).await {
+                    Ok(_) => crate::progress_controller::RepairTargetMaterialization::Existing,
+                    Err(_) => crate::progress_controller::RepairTargetMaterialization::Missing,
+                };
+                failing_models.push(crate::progress_controller::FailedModelRef {
                     name: t.node_id.clone(),
-                    file: t.target_path.as_str().to_string(),
-                    ..Default::default()
-                })
-                .collect();
+                    file: rel,
+                    error: None,
+                    materialization,
+                });
+            }
             let failure_class_state = failure_class;
             let backlog = crate::progress_controller::repair_backlog_from_failed_models(
                 failure_class_state,

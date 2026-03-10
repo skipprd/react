@@ -12,7 +12,9 @@ use crate::dataset_truth;
 use crate::failure_kind::FailureKind;
 use crate::plan;
 use crate::plan::{CleansePlan, ModelPlan};
-use crate::progress_controller::{DataEngineerEvent, ExecutionTier, FailedModelRef};
+use crate::progress_controller::{
+    DataEngineerEvent, ExecutionTier, FailedModelRef, RepairTargetMaterialization,
+};
 use crate::tools;
 
 use super::model_authoring_engine::extract_string_arg;
@@ -45,14 +47,10 @@ async fn emit_batch_failure(
     err: &str,
     resolve_path: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
-    let failed_targets: Vec<FailedModelRef> = batch
-        .iter()
-        .map(|id| FailedModelRef {
-            name: id.clone(),
-            file: resolve_path(id).unwrap_or_default(),
-            ..Default::default()
-        })
-        .collect();
+    let mut failed_targets: Vec<FailedModelRef> = Vec::new();
+    for id in batch.iter() {
+        failed_targets.push(build_failed_model_ref(ctx, id.clone(), resolve_path(id)).await);
+    }
     let brief = if err.trim().is_empty() {
         format!("batch authoring failed (tier={tier:?})")
     } else {
@@ -68,6 +66,29 @@ async fn emit_batch_failure(
         },
     )
     .await
+}
+
+async fn build_failed_model_ref(
+    ctx: &AgentCtx,
+    name: String,
+    path: Option<String>,
+) -> FailedModelRef {
+    let materialization = match path.as_deref() {
+        Some(rel) if !rel.trim().is_empty() => {
+            let key = crate::project_fs::join_storage_key(ctx, rel);
+            match ctx.storage().get_bytes(&key).await {
+                Ok(_) => RepairTargetMaterialization::Existing,
+                Err(_) => RepairTargetMaterialization::Missing,
+            }
+        }
+        _ => RepairTargetMaterialization::Unknown,
+    };
+    FailedModelRef {
+        name,
+        file: path.unwrap_or_default(),
+        error: None,
+        materialization,
+    }
 }
 
 fn mark_in_progress_model(plan: &mut ModelPlan, names: &[String]) {
@@ -314,11 +335,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                     .iter()
                     .find(|t| t.dataset_id == *ds)
                     .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(FailedModelRef {
-                    name: ds.clone(),
-                    file: expected_path.unwrap_or_default(),
-                    ..Default::default()
-                });
+                failed_targets.push(build_failed_model_ref(ctx, ds.clone(), expected_path).await);
             }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_cleanse_batch_contract_error: {e}"))?;
@@ -618,11 +635,7 @@ impl Tool for ApplyNextModelBatchTool {
                     .iter()
                     .find(|t| t.name == *n)
                     .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(FailedModelRef {
-                    name: n.clone(),
-                    file: expected_path.unwrap_or_default(),
-                    ..Default::default()
-                });
+                failed_targets.push(build_failed_model_ref(ctx, n.clone(), expected_path).await);
             }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_model_batch_contract_error: {e}"))?;

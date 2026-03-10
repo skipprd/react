@@ -129,18 +129,11 @@ impl LargeLanguageModel for RouterModel {
             response_format: match &options.expected_format {
                 LlmExpectedFormat::Text => None,
                 LlmExpectedFormat::JsonObject => Some(ChatResponseFormat::JsonObject),
-                LlmExpectedFormat::JsonSchema(id) => Some(ChatResponseFormat::JsonSchema {
-                    name: openai_schema_name(id.name()),
-                    schema: react_core::schema_registry::json_schema(*id),
+                LlmExpectedFormat::JsonSchema(schema) => Some(ChatResponseFormat::JsonSchema {
+                    name: openai_schema_name(schema.name()),
+                    schema: schema.schema().clone(),
                     strict: true,
                 }),
-                LlmExpectedFormat::JsonSchemaSpec { name, schema } => {
-                    Some(ChatResponseFormat::JsonSchema {
-                        name: openai_schema_name(name.as_str()),
-                        schema: schema.clone(),
-                        strict: true,
-                    })
-                }
             },
             reasoning_effort,
             prompt_id,

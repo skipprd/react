@@ -9,16 +9,11 @@ use std::sync::Arc;
 pub enum LlmExpectedFormat {
     Text,
     JsonObject,
-    /// A single JSON object matching a named JSON Schema.
+    /// A single JSON object matching an OpenAI-compatible strict schema built in core.
     ///
-    /// Providers that support transport-level schema enforcement should use it.
-    /// Providers that don't must still return a JSON object; callers will validate and retry.
-    JsonSchema(crate::schema_registry::SchemaId),
-    /// A caller-provided JSON Schema document for suite-owned contracts.
-    JsonSchemaSpec {
-        name: String,
-        schema: serde_json::Value,
-    },
+    /// Callers cannot pass raw JSON here; they must use `OpenAiStrictSchema` constructors so
+    /// provider-facing schemas are normalized centrally.
+    JsonSchema(crate::schema_registry::OpenAiStrictSchema),
 }
 
 /// OpenAI-style reasoning effort hint.

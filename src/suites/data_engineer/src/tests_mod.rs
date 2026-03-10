@@ -326,6 +326,7 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
                 "models/staging/stg_probe.sql".to_string(),
             )
             .expect("valid sql model path"),
+            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,
@@ -395,6 +396,7 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
                 "models/staging/stg_probe.sql".to_string(),
             )
             .expect("valid sql model path"),
+            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,
@@ -555,6 +557,7 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
                     "models/marts/fct_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -622,6 +625,7 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
                     "models/marts/fct_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -685,6 +689,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
                     "models/marts/fct_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::ReplaceContents,
                     attempt_count: 0,
@@ -761,6 +766,7 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
                     "models/marts/fct_orders.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::FsOp,
                     attempt_count: 2,
@@ -1088,6 +1094,7 @@ fn derive_single_target_repair_path_prefers_execution_state_target() {
                 "models/staging/stg_orders.sql".to_string(),
             )
             .expect("valid sql model path"),
+            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,
@@ -1156,6 +1163,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
                 "models/staging/stg_orders.sql".to_string(),
             )
             .expect("valid sql model path"),
+            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,

@@ -84,6 +84,36 @@ pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, crate::CoreError
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenAiStrictSchema {
+    name: String,
+    schema: Value,
+}
+
+impl OpenAiStrictSchema {
+    pub fn for_schema_id(id: SchemaId) -> Self {
+        Self {
+            name: id.name().to_string(),
+            schema: json_schema(id),
+        }
+    }
+
+    pub fn for_type<T: JsonSchema>(name: impl Into<String>) -> Result<Self, crate::CoreError> {
+        Ok(Self {
+            name: name.into(),
+            schema: strict_json_schema_for::<T>()?,
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn schema(&self) -> &Value {
+        &self.schema
+    }
+}
+
 /// Convert `schemars::schema_for!()` JSON into a standard JSON Schema document.
 ///
 /// `schemars::schema_for!()` yields a wrapper like:
@@ -135,6 +165,11 @@ fn openai_structured_outputs_strictify_schema(v: &mut Value) {
             }
         }
         Value::Object(m) => {
+            if let Some(ref_value) = m.get("$ref").cloned() {
+                m.clear();
+                m.insert("$ref".to_string(), ref_value);
+                return;
+            }
             for v in m.values_mut() {
                 openai_structured_outputs_strictify_schema(v);
             }
@@ -210,6 +245,27 @@ pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+    #[serde(rename_all = "snake_case")]
+    enum LocalTier {
+        Silver,
+        Gold,
+        Unknown,
+    }
+
+    impl Default for LocalTier {
+        fn default() -> Self {
+            Self::Unknown
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct LocalSchemaOutput {
+        #[serde(default)]
+        tier: LocalTier,
+    }
 
     fn collect_ref_sibling_violations(v: &Value, path: &str, out: &mut Vec<String>) {
         match v {
@@ -295,6 +351,20 @@ mod tests {
         let s = json_schema(SchemaId::AgentStepV1);
         let mut violations: Vec<String> = Vec::new();
         collect_ref_sibling_violations(&s, "$", &mut violations);
+        assert!(
+            violations.is_empty(),
+            "OpenAI-incompatible $ref sibling nodes found:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn openai_strict_schema_for_type_strips_ref_sibling_defaults() {
+        let schema =
+            OpenAiStrictSchema::for_type::<LocalSchemaOutput>("core.tests.local_schema_output")
+                .expect("schema");
+        let mut violations: Vec<String> = Vec::new();
+        collect_ref_sibling_violations(schema.schema(), "$", &mut violations);
         assert!(
             violations.is_empty(),
             "OpenAI-incompatible $ref sibling nodes found:\n{}",

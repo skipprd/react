@@ -245,7 +245,6 @@ mod inner {
             options.expected_format,
             react_core::llm::LlmExpectedFormat::JsonObject
                 | react_core::llm::LlmExpectedFormat::JsonSchema(_)
-                | react_core::llm::LlmExpectedFormat::JsonSchemaSpec { .. }
         );
         let max_new_tokens: i32 = if is_strict_json {
             ((tuned_ctx_len as i32) / 2).clamp(256, 2048)

@@ -21,6 +21,17 @@ pub struct FailedModelRef {
     pub file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default)]
+    pub materialization: RepairTargetMaterialization,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepairTargetMaterialization {
+    Existing,
+    Missing,
+    #[default]
+    Unknown,
 }
 
 /// Single source of truth for error/failure context injected into LLM prompts.
@@ -61,6 +72,15 @@ impl RepairPromptContext {
                     fm.file.as_str()
                 };
                 out.push_str(&format!("- {name} ({file})"));
+                match fm.materialization {
+                    RepairTargetMaterialization::Existing => {
+                        out.push_str(" [target_exists]");
+                    }
+                    RepairTargetMaterialization::Missing => {
+                        out.push_str(" [target_missing]");
+                    }
+                    RepairTargetMaterialization::Unknown => {}
+                }
                 if let Some(ref err) = fm.error {
                     let trimmed = err.trim();
                     if !trimmed.is_empty() {
@@ -388,6 +408,8 @@ pub struct SchemaRepairMode {
 #[serde(deny_unknown_fields)]
 pub struct SqlTargetRepairMode {
     pub target_path: SqlModelPath,
+    #[serde(default)]
+    pub materialization: RepairTargetMaterialization,
     #[serde(flatten)]
     pub core: RepairModeCore,
 }
@@ -413,10 +435,21 @@ impl SchemaRepairMode {
 }
 
 impl SqlTargetRepairMode {
-    pub fn new(target_path: SqlModelPath) -> Self {
+    pub fn for_existing_target(target_path: SqlModelPath) -> Self {
         Self {
             target_path,
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore::default(),
+        }
+    }
+    pub fn for_missing_target(target_path: SqlModelPath) -> Self {
+        Self {
+            target_path,
+            materialization: RepairTargetMaterialization::Missing,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::ReplaceContents,
+                ..RepairModeCore::default()
+            },
         }
     }
     pub fn ladder_step(&self) -> RepairLadderStep {
@@ -427,6 +460,9 @@ impl SqlTargetRepairMode {
     }
     pub fn consecutive_noop_patches(&self) -> usize {
         self.core.consecutive_noop_patches
+    }
+    pub fn note_materialized(&mut self) {
+        self.materialization = RepairTargetMaterialization::Existing;
     }
 }
 
@@ -568,6 +604,8 @@ pub struct RepairTarget {
     pub path: Option<RepairTargetPath>,
     #[serde(default)]
     pub error_class: Option<FailureKind>,
+    #[serde(default)]
+    pub materialization: RepairTargetMaterialization,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -584,14 +622,19 @@ pub struct FailureSignature {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RepairIntent {
-    SqlTarget {
+    SqlPatch {
+        target: SqlModelPath,
+        backlog: Vec<RepairTarget>,
+    },
+    SqlRewrite {
         target: SqlModelPath,
         backlog: Vec<RepairTarget>,
     },
     Schema {
         backlog: Vec<RepairTarget>,
     },
-    None {
+    NoRepair {
+        reason: NoRepairReason,
         backlog: Vec<RepairTarget>,
     },
 }
@@ -599,11 +642,19 @@ pub enum RepairIntent {
 impl RepairIntent {
     pub fn backlog(&self) -> &[RepairTarget] {
         match self {
-            Self::SqlTarget { backlog, .. } => backlog.as_slice(),
+            Self::SqlPatch { backlog, .. } => backlog.as_slice(),
+            Self::SqlRewrite { backlog, .. } => backlog.as_slice(),
             Self::Schema { backlog } => backlog.as_slice(),
-            Self::None { backlog } => backlog.as_slice(),
+            Self::NoRepair { backlog, .. } => backlog.as_slice(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoRepairReason {
+    FailureClassNotRepairable,
+    NoRepairableTarget,
+    MissingTargetMaterialization,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -1070,12 +1121,17 @@ impl ExecutionState {
                     ..RepairModeCore::default()
                 },
             }),
-            RepairIntent::SqlTarget { target, .. } => {
-                let mut mode = SqlTargetRepairMode::new(target.clone());
+            RepairIntent::SqlPatch { target, .. } => {
+                let mut mode = SqlTargetRepairMode::for_existing_target(target.clone());
                 mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
                 RepairModeState::SqlTarget(mode)
             }
-            RepairIntent::None { .. } => RepairModeState::Inactive,
+            RepairIntent::SqlRewrite { target, .. } => {
+                let mut mode = SqlTargetRepairMode::for_missing_target(target.clone());
+                mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
+                RepairModeState::SqlTarget(mode)
+            }
+            RepairIntent::NoRepair { .. } => RepairModeState::Inactive,
         };
     }
 
@@ -1334,8 +1390,10 @@ impl ExecutionState {
 
             state.publish.publish_approval = None;
             state.probe = ProbeState::default();
-            state.probe.required =
-                matches!(repair_intent, RepairIntent::SqlTarget { .. }) && compile_ok;
+            state.probe.required = matches!(
+                repair_intent,
+                RepairIntent::SqlPatch { .. } | RepairIntent::SqlRewrite { .. }
+            ) && compile_ok;
         });
     }
 
@@ -1348,6 +1406,9 @@ impl ExecutionState {
                 if let Some(core) = state.repair.core_mut() {
                     core.consecutive_noop_patches = 0;
                     core.ladder_step = RepairLadderStep::PatchTarget;
+                }
+                if let RepairModeState::SqlTarget(mode) = &mut state.repair.repair_mode {
+                    mode.note_materialized();
                 }
                 state.repair.stall_count = 0;
                 state.repair.last_progress_delta = Some(ProgressDelta {
@@ -1719,6 +1780,14 @@ impl ExecutionState {
             if mode.core.ladder_step == RepairLadderStep::Stop && mode.core.attempt_count < 3 {
                 violations.push("repair ladder reached stop before three attempts".to_string());
             }
+            if mode.materialization == RepairTargetMaterialization::Missing
+                && mode.core.ladder_step == RepairLadderStep::PatchTarget
+            {
+                violations.push(
+                    "sql target repair mode cannot enter patch_target when target content is missing"
+                        .to_string(),
+                );
+            }
             if mode.target_path.as_str().trim().is_empty() {
                 violations
                     .push("sql target repair mode requires non-empty target_path".to_string());
@@ -1847,6 +1916,7 @@ pub fn repair_backlog_from_failed_models(
                 RepairTargetPath::parse(fm.file.trim().to_string()).ok()
             },
             error_class: None,
+            materialization: fm.materialization,
         })
         .filter(|target| match failure_class {
             FailureKind::Schema => target
@@ -1883,6 +1953,7 @@ pub fn repair_backlog_from_failed_models(
                         model_name: t.model_name.clone(),
                         path: Some(RepairTargetPath::SqlModel(sql_path)),
                         error_class: None,
+                        materialization: RepairTargetMaterialization::Unknown,
                     })
                 }
                 _ => None,
@@ -1923,25 +1994,46 @@ pub fn repair_intent_from_backlog(
     match failure_class {
         FailureKind::Schema => RepairIntent::Schema { backlog },
         FailureKind::SqlRuntime => {
-            if let Some(target) = backlog.iter().find_map(|item| match &item.path {
-                Some(RepairTargetPath::SqlModel(path)) => Some(path.clone()),
-                _ => None,
-            }) {
-                RepairIntent::SqlTarget { target, backlog }
+            if let Some((target, materialization)) =
+                backlog.iter().find_map(|item| match &item.path {
+                    Some(RepairTargetPath::SqlModel(path)) => {
+                        Some((path.clone(), item.materialization))
+                    }
+                    _ => None,
+                })
+            {
+                match materialization {
+                    RepairTargetMaterialization::Existing => {
+                        RepairIntent::SqlPatch { target, backlog }
+                    }
+                    RepairTargetMaterialization::Missing => {
+                        RepairIntent::SqlRewrite { target, backlog }
+                    }
+                    RepairTargetMaterialization::Unknown => RepairIntent::NoRepair {
+                        reason: NoRepairReason::MissingTargetMaterialization,
+                        backlog,
+                    },
+                }
             } else if backlog
                 .iter()
                 .any(|item| matches!(item.path, Some(RepairTargetPath::SchemaDoc(_))))
             {
                 RepairIntent::Schema { backlog }
             } else {
-                RepairIntent::None { backlog }
+                RepairIntent::NoRepair {
+                    reason: NoRepairReason::NoRepairableTarget,
+                    backlog,
+                }
             }
         }
         FailureKind::WarehouseConfig
         | FailureKind::InfraTransient
         | FailureKind::MissingSource
         | FailureKind::NoFailure
-        | FailureKind::Unknown => RepairIntent::None { backlog },
+        | FailureKind::Unknown => RepairIntent::NoRepair {
+            reason: NoRepairReason::FailureClassNotRepairable,
+            backlog,
+        },
     }
 }
 
@@ -1962,6 +2054,12 @@ pub fn failed_model_refs_from_values(values: &[Value]) -> Vec<FailedModelRef> {
                 .unwrap_or_default()
                 .trim()
                 .to_string(),
+            materialization: serde_json::from_value(
+                v.get("materialization")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String("unknown".to_string())),
+            )
+            .unwrap_or(RepairTargetMaterialization::Unknown),
             ..Default::default()
         })
         .collect()
@@ -2113,6 +2211,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 ladder_step: RepairLadderStep::PatchTarget,
                 attempt_count: 0,
@@ -2167,12 +2266,13 @@ mod tests {
             ExecutionTier::Cleanse,
             FailureKind::SqlRuntime,
             sig2,
-            RepairIntent::SqlTarget {
+            RepairIntent::SqlPatch {
                 target: sql_model_path("models/staging/stg_orders.sql"),
                 backlog: vec![RepairTarget {
                     model_name: Some("model.pkg.stg_orders".to_string()),
                     path: Some(repair_target_path("models/staging/stg_orders.sql")),
                     error_class: Some(FailureKind::SqlRuntime),
+                    materialization: RepairTargetMaterialization::Existing,
                 }],
             },
             Some("sql fail".to_string()),
@@ -2196,6 +2296,7 @@ mod tests {
                     model_name: Some("test.not_null_stg_orders_order_id".to_string()),
                     path: Some(repair_target_path("models/staging/stg_orders.yml")),
                     error_class: Some(FailureKind::SqlRuntime),
+                    materialization: RepairTargetMaterialization::Existing,
                 }],
             },
             Some("dbt test fail".to_string()),
@@ -2230,11 +2331,13 @@ mod tests {
             FailedModelRef {
                 name: "model.pkg.stg_orders".to_string(),
                 file: "models/staging/stg_orders.sql".to_string(),
+                materialization: RepairTargetMaterialization::Existing,
                 ..Default::default()
             },
             FailedModelRef {
                 name: "model.pkg.stg_orders".to_string(),
                 file: "models/staging/stg_orders.yml".to_string(),
+                materialization: RepairTargetMaterialization::Existing,
                 ..Default::default()
             },
             FailedModelRef {
@@ -2271,6 +2374,7 @@ mod tests {
         let failing = vec![FailedModelRef {
             name: "not_null_stg_orders_line_id".to_string(),
             file: "models/staging/stg_orders.yml".to_string(),
+            materialization: RepairTargetMaterialization::Existing,
             ..Default::default()
         }];
         let backlog = repair_backlog_from_failed_models(FailureKind::SqlRuntime, &failing);
@@ -2288,6 +2392,24 @@ mod tests {
                     == Some("models/staging/stg_orders.yml")),
             "original .yml target should be preserved"
         );
+    }
+
+    #[test]
+    fn repair_intent_requires_materialization_evidence_for_sql_targets() {
+        let backlog = vec![RepairTarget {
+            model_name: Some("model.pkg.stg_orders".to_string()),
+            path: Some(repair_target_path("models/staging/stg_orders.sql")),
+            error_class: Some(FailureKind::SqlRuntime),
+            materialization: RepairTargetMaterialization::Unknown,
+        }];
+        let intent = repair_intent_from_backlog(FailureKind::SqlRuntime, backlog);
+        assert!(matches!(
+            intent,
+            RepairIntent::NoRepair {
+                reason: NoRepairReason::MissingTargetMaterialization,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -2352,6 +2474,7 @@ mod tests {
 
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 attempt_count: 1,
                 ladder_step: RepairLadderStep::PatchTarget,
@@ -2384,6 +2507,7 @@ mod tests {
         });
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 attempt_count: 1,
                 ladder_step: RepairLadderStep::PatchTarget,
@@ -2412,6 +2536,7 @@ mod tests {
         });
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/marts/fct_orders.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 attempt_count: 1,
                 ladder_step: RepairLadderStep::PatchTarget,
@@ -2553,13 +2678,14 @@ mod tests {
             model_name: Some("model.pkg.fct_orders".to_string()),
             path: Some(repair_target_path("models/marts/fct_orders.sql")),
             error_class: Some(FailureKind::SqlRuntime),
+            materialization: RepairTargetMaterialization::Existing,
         }];
 
         st.apply_validate_failure(
             ExecutionTier::Model,
             FailureKind::SqlRuntime,
             sig.clone(),
-            RepairIntent::SqlTarget {
+            RepairIntent::SqlPatch {
                 target: sql_model_path("models/marts/fct_orders.sql"),
                 backlog: backlog.clone(),
             },
@@ -2571,7 +2697,7 @@ mod tests {
             ExecutionTier::Model,
             FailureKind::SqlRuntime,
             sig,
-            RepairIntent::SqlTarget {
+            RepairIntent::SqlPatch {
                 target: sql_model_path("models/marts/fct_orders.sql"),
                 backlog,
             },
@@ -2599,18 +2725,20 @@ mod tests {
                 model_name: Some("model.pkg.fct_orders".to_string()),
                 path: Some(repair_target_path("models/marts/fct_orders.sql")),
                 error_class: Some(FailureKind::SqlRuntime),
+                materialization: RepairTargetMaterialization::Existing,
             },
             RepairTarget {
                 model_name: Some("model.pkg.dim_users".to_string()),
                 path: Some(repair_target_path("models/marts/dim_users.sql")),
                 error_class: Some(FailureKind::SqlRuntime),
+                materialization: RepairTargetMaterialization::Existing,
             },
         ];
         st.apply_validate_failure(
             ExecutionTier::Model,
             FailureKind::SqlRuntime,
             sig.clone(),
-            RepairIntent::SqlTarget {
+            RepairIntent::SqlPatch {
                 target: sql_model_path("models/marts/fct_orders.sql"),
                 backlog: two,
             },
@@ -2621,12 +2749,13 @@ mod tests {
             model_name: Some("model.pkg.fct_orders".to_string()),
             path: Some(repair_target_path("models/marts/fct_orders.sql")),
             error_class: Some(FailureKind::SqlRuntime),
+            materialization: RepairTargetMaterialization::Existing,
         }];
         st.apply_validate_failure(
             ExecutionTier::Model,
             FailureKind::SqlRuntime,
             sig,
-            RepairIntent::SqlTarget {
+            RepairIntent::SqlPatch {
                 target: sql_model_path("models/marts/fct_orders.sql"),
                 backlog: one,
             },
@@ -2647,6 +2776,7 @@ mod tests {
             failed_targets: vec![FailedModelRef {
                 name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                materialization: RepairTargetMaterialization::Existing,
                 ..Default::default()
             }],
             brief: "sql validation failed".to_string(),
@@ -2661,6 +2791,47 @@ mod tests {
             st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok),
             Some(false)
         );
+        assert_eq!(st.ladder_step(), RepairLadderStep::PatchTarget);
+    }
+
+    #[test]
+    fn apply_event_batch_authoring_failed_missing_target_starts_with_replace_contents() {
+        let mut st = ExecutionState::new();
+        st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
+            tier: ExecutionTier::Cleanse,
+            kind: FailureKind::SqlRuntime,
+            failed_targets: vec![FailedModelRef {
+                name: "AwsDataCatalog.test_raw.raw_orders".to_string(),
+                file: "models/staging/stg_test_raw_raw_orders.sql".to_string(),
+                materialization: RepairTargetMaterialization::Missing,
+                ..Default::default()
+            }],
+            brief: "sql authoring never materialized target".to_string(),
+        });
+        assert!(st.hard_mutation_repair_mode());
+        assert_eq!(st.repair_type(), RepairType::SqlTarget);
+        assert_eq!(st.ladder_step(), RepairLadderStep::ReplaceContents);
+        assert_eq!(
+            st.single_target_repair_path().as_deref(),
+            Some("models/staging/stg_test_raw_raw_orders.sql")
+        );
+    }
+
+    #[test]
+    fn invariants_reject_patch_target_when_target_is_missing() {
+        let mut st = ExecutionState::new();
+        st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
+            target_path: sql_model_path("models/staging/stg_test.sql"),
+            materialization: RepairTargetMaterialization::Missing,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
+        });
+        let err = st.validate_invariants().expect_err("invariants must fail");
+        assert!(err.contains("cannot enter patch_target"));
     }
 
     #[test]
@@ -2668,6 +2839,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/staging/x.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 ladder_step: RepairLadderStep::PatchTarget,
                 attempt_count: 0,
@@ -2695,6 +2867,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
             target_path: sql_model_path("models/staging/stg_test.sql"),
+            materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
                 ladder_step: RepairLadderStep::Stop,
                 attempt_count: 2,

@@ -355,21 +355,21 @@ impl ReviewLlmConfig {
     }
 
     fn expected_format(&self) -> Result<LlmExpectedFormat, String> {
-        let (name, schema) = match self.step_name.as_str() {
-            "summary" => (
-                format!("{}.summary_output.v1", self.prompt_id),
-                crate::plan_schema::strict_schema_for::<ReviewSummaryOutput>()?,
-            ),
-            "batch" => (
-                format!("{}.batch_output.v1", self.prompt_id),
-                crate::plan_schema::strict_schema_for::<ReviewBatchOutput>()?,
-            ),
-            _ => (
+        let schema = match self.step_name.as_str() {
+            "summary" => react_core::schema_registry::OpenAiStrictSchema::for_type::<
+                ReviewSummaryOutput,
+            >(format!("{}.summary_output.v1", self.prompt_id)),
+            "batch" => {
+                react_core::schema_registry::OpenAiStrictSchema::for_type::<ReviewBatchOutput>(
+                    format!("{}.batch_output.v1", self.prompt_id),
+                )
+            }
+            _ => react_core::schema_registry::OpenAiStrictSchema::for_type::<ReviewUnifyOutput>(
                 format!("{}.unify_output.v1", self.prompt_id),
-                crate::plan_schema::strict_schema_for::<ReviewUnifyOutput>()?,
             ),
-        };
-        Ok(LlmExpectedFormat::JsonSchemaSpec { name, schema })
+        }
+        .map_err(|e| e.to_string())?;
+        Ok(LlmExpectedFormat::JsonSchema(schema))
     }
 
     fn parse_typed<T: DeserializeOwned>(&self, value: Value, label: &str) -> Result<T, String> {
@@ -1199,7 +1199,29 @@ mod tests {
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::scope::RequestScope;
     use react_module_storage_memory::InMemoryStorageAdapter;
+    use serde_json::Value;
     use std::sync::{Arc, Mutex};
+
+    fn collect_ref_sibling_violations(v: &Value, path: &str, out: &mut Vec<String>) {
+        match v {
+            Value::Array(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    collect_ref_sibling_violations(item, &format!("{path}[{i}]"), out);
+                }
+            }
+            Value::Object(map) => {
+                if map.contains_key("$ref") && map.len() > 1 {
+                    let mut keys: Vec<String> = map.keys().cloned().collect();
+                    keys.sort();
+                    out.push(format!("{path}: {:?}", keys));
+                }
+                for (k, child) in map {
+                    collect_ref_sibling_violations(child, &format!("{path}.{k}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
 
     struct ScriptedModel {
         replies: Arc<Mutex<Vec<String>>>,
@@ -1258,6 +1280,22 @@ mod tests {
         fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
             Ok(vec![])
         }
+    }
+
+    #[test]
+    fn review_unify_output_schema_is_openai_compatible() {
+        let schema =
+            react_core::schema_registry::OpenAiStrictSchema::for_type::<ReviewUnifyOutput>(
+                "suite.review_unify_output.v1",
+            )
+            .expect("schema");
+        let mut violations: Vec<String> = Vec::new();
+        collect_ref_sibling_violations(schema.schema(), "$", &mut violations);
+        assert!(
+            violations.is_empty(),
+            "OpenAI-incompatible $ref sibling nodes found:\n{}",
+            violations.join("\n")
+        );
     }
 
     fn make_suite_ctx(

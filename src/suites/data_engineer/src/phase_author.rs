@@ -120,6 +120,7 @@ mod tests {
                     "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
                 )
                 .expect("valid sql model path"),
+                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 2,
@@ -326,6 +327,7 @@ fn build_repair_mode_context(
     ctx
 }
 
+#[cfg(test)]
 fn is_patch_based_repair_step(ladder: &crate::progress_controller::RepairLadderStep) -> bool {
     matches!(
         ladder,
@@ -1301,7 +1303,11 @@ async fn build_author_prompt(
             }
         }
 
-        if is_patch_based_repair_step(&ladder) && !target_exists {
+        if matches!(
+            ladder,
+            crate::progress_controller::RepairLadderStep::PatchTarget
+        ) && !target_exists
+        {
             let reason = build_missing_target_repair_abort_reason(
                 params.phase,
                 &target,
@@ -1353,6 +1359,9 @@ async fn build_author_prompt(
             }
             crate::progress_controller::RepairLadderStep::ReplaceContents => {
                 repair.push_str("- REQUIRED OP MODE: replace_contents. Use file op='patch' only and rewrite target content decisively.\n");
+                if !target_exists {
+                    repair.push_str("- The target file does not exist yet. Create it with a guarded single-file patch against the empty file content shown below.\n");
+                }
             }
             crate::progress_controller::RepairLadderStep::FsOp => {
                 repair.push_str("- REQUIRED OP MODE: fs_op. Use file op='mv' or op='rm' only (no patch in this step).\n");
