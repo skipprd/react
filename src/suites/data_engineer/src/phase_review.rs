@@ -81,18 +81,14 @@ impl DataEngineerSuite {
                 ))
             }
         };
-        let review_ref_from_trigger = match trigger_step.get("phase_reason_detail").cloned() {
-            Some(v) if !v.is_null() => {
-                let detail: crate::phase_reason_detail::ReviewDecisionTransitionDetail =
-                    serde_json::from_value(v).map_err(|e| {
-                        PhaseError::ToolContractViolation(format!(
-                            "trigger phase_reason_detail did not match review transition schema: {e}"
-                        ))
-                    })?;
-                detail.meta.review_ref
-            }
-            _ => None,
-        };
+        let review_ref_from_trigger = trigger_step
+            .get("phase_reason_detail")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .and_then(|v| {
+                serde_json::from_value::<crate::phase_reason_detail::ReviewDecisionTransitionDetail>(v).ok()
+            })
+            .and_then(|detail| detail.meta.review_ref);
         if meta.review_ref.is_none() {
             meta.review_ref = review_ref_from_trigger;
         }
