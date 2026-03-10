@@ -873,15 +873,10 @@ async fn compile_and_ground_model_plan(
         }
     }
 
-    // Enrich the question with discovered staging model names for candidate generation.
-    let mut q_enriched = q.to_string();
-    {
-        let names: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
-        q_enriched.push_str("\n\nIMMUTABLE FACTS (existing staging models — GOLD models MUST reference these exact names via ref()):\n");
-        for name in &names {
-            q_enriched.push_str(&format!("- {name}\n"));
-        }
-    }
+    // q already contains the IMMUTABLE FACTS staging block (enriched by execute_plan_phase).
+    // Re-enrich here to guarantee the grounding-validated set is present even on
+    // direct calls, keeping the function self-contained.
+    let q_enriched = crate::dataset_truth::enrich_query_with_staging_models(q, &staged);
 
     tracing::info!("data_engineer: [model] compiling plan from candidate models");
     let candidates = DataEngineerSuite::generate_model_candidates(
@@ -1143,13 +1138,23 @@ impl DataEngineerSuite {
                     "data_engineer: plan discovery complete for {}, beginning deterministic plan compilation",
                     track.as_str()
                 );
+
+                // For model plans, enrich the planning context with the actual
+                // staging model names so the design memo references them correctly.
+                let q_memo = if !track.is_cleanse() {
+                    let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
+                    crate::dataset_truth::enrich_query_with_staging_models(&q, &staged)
+                } else {
+                    q.clone()
+                };
+
                 let (design_memo, design_critique) =
-                    Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
+                    Self::produce_critiqued_design_memo(&pctx.actx, track, &q_memo).await?;
 
                 if track.is_cleanse() {
                     compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique).await
                 } else {
-                    compile_and_ground_model_plan(&pctx, &q, &design_memo, &design_critique).await
+                    compile_and_ground_model_plan(&pctx, &q_memo, &design_memo, &design_critique).await
                 }
             }
             Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {

@@ -164,6 +164,25 @@ pub fn is_ref_only_gold_input(input: &str) -> bool {
     is_staging_model_name(input)
 }
 
+/// Append an IMMUTABLE FACTS block listing the exact staging model names that
+/// GOLD models must reference via `ref()`.  Used to ground both the design memo
+/// and candidate generation so the LLM never invents abbreviated names.
+pub fn enrich_query_with_staging_models(
+    q: &str,
+    staging: &GroundedStagingModelSet,
+) -> String {
+    let mut out = q.to_string();
+    if !staging.allowed_models.is_empty() {
+        out.push_str(
+            "\n\nIMMUTABLE FACTS (existing staging models \u{2014} GOLD models MUST reference these exact names via ref()):\n",
+        );
+        for name in &staging.allowed_models {
+            out.push_str(&format!("- {name}\n"));
+        }
+    }
+    out
+}
+
 pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedStagingModelSet {
     let mut out = GroundedStagingModelSet::default();
     let base = ctx
