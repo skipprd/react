@@ -12,11 +12,7 @@ const BACKOFF_BASE_MS: u64 = 500;
 /// Non-transient errors are returned immediately without retry.
 ///
 /// `label` is used in warning logs to identify the call site.
-pub async fn retry_transient<F, Fut, T>(
-    label: &str,
-    max_retries: usize,
-    f: F,
-) -> Result<T, String>
+pub async fn retry_transient<F, Fut, T>(label: &str, max_retries: usize, f: F) -> Result<T, String>
 where
     F: Fn() -> Fut,
     Fut: Future<Output = Result<T, String>>,
@@ -28,9 +24,8 @@ where
     }
 
     for attempt in 1..=max_retries {
-        if !crate::failure_text::is_infra_transient(&crate::failure_text::normalize_text(
-            &last_err,
-        )) {
+        if !crate::failure_text::is_infra_transient(&crate::failure_text::normalize_text(&last_err))
+        {
             return Err(last_err);
         }
         let backoff_ms = BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(4));

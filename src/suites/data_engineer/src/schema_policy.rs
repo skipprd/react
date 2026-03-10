@@ -74,7 +74,7 @@ async fn collect_sql_model_name_collisions(
     limit: usize,
 ) -> Result<Vec<(String, Vec<String>)>, String> {
     let limit = limit.max(1).min(2000);
-    let base =     ctx
+    let base = ctx
         .keyspace()
         .scoped_prefix(ctx.scope(), &["dbt"])
         .trim_end_matches('/')
@@ -722,10 +722,7 @@ pub async fn prevalidate_dbt_schema_artifacts(ctx: &AgentCtx) -> Result<(), Stri
                 format!("cannot validate {rel}: missing staging SQL {sql_rel} for model '{name}'")
             })?;
             let sql_text = String::from_utf8_lossy(&sql_bytes).to_string();
-            let allowed =
-                crate::tools::files_tool::extract_final_select_output_columns(
-                    &sql_text,
-                )
+            let allowed = crate::tools::files_tool::extract_final_select_output_columns(&sql_text)
                 .map_err(|e| {
                     format!(
                         "cannot validate {rel} against {sql_rel} (model '{name}'): {}",
@@ -776,13 +773,19 @@ mod tests {
 
     fn make_ctx(storage: Arc<dyn StorageAdapter>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
-        react_core::agent::AgentCtxBuilder::new(Arc::new(DummyLlm::default()), storage, RequestScope::parse("t", "w", "p").expect("valid test scope"), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("t".to_string())
-            .agent_name("test".to_string())
-            .build()
+        react_core::agent::AgentCtxBuilder::new(
+            Arc::new(DummyLlm::default()),
+            storage,
+            RequestScope::parse("t", "w", "p").expect("valid test scope"),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("t".to_string())
+        .agent_name("test".to_string())
+        .build()
     }
 
     #[test]
@@ -845,8 +848,8 @@ mod tests {
             .expect("normalize ok");
         assert!(!notes.is_empty());
 
-        let got =
-            String::from_utf8_lossy(&ctx.storage().get_bytes(&schema_key).await.unwrap()).to_string();
+        let got = String::from_utf8_lossy(&ctx.storage().get_bytes(&schema_key).await.unwrap())
+            .to_string();
         // Only one model stanza remains.
         assert_eq!(got.matches("name: dim_orders").count(), 1);
         assert!(got.contains("customer_id"));

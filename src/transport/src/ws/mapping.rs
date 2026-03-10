@@ -1,5 +1,5 @@
-use serde_json::Value;
 use crate::ws::api_gen::src::models as api;
+use serde_json::Value;
 
 // ── Naming bridge: core "Complete" ↔ WS API "Final" ─────────────────
 //
@@ -101,7 +101,9 @@ pub(super) fn ws_final_result_from_typed_final(
     }
 }
 
-pub(super) fn map_thread_event_kind(event_kind: react_core::session::ThreadEventKind) -> api::ThreadEventKind {
+pub(super) fn map_thread_event_kind(
+    event_kind: react_core::session::ThreadEventKind,
+) -> api::ThreadEventKind {
     match event_kind {
         react_core::session::ThreadEventKind::ToolStart => api::ThreadEventKind::ToolStart,
         react_core::session::ThreadEventKind::ToolEnd => api::ThreadEventKind::ToolEnd,
@@ -110,7 +112,9 @@ pub(super) fn map_thread_event_kind(event_kind: react_core::session::ThreadEvent
     }
 }
 
-pub(super) fn map_tool_event_status(status: Option<react_core::session::ThreadEventStatus>) -> api::ToolEventStatus {
+pub(super) fn map_tool_event_status(
+    status: Option<react_core::session::ThreadEventStatus>,
+) -> api::ToolEventStatus {
     match status {
         Some(react_core::session::ThreadEventStatus::Running) => api::ToolEventStatus::Running,
         Some(react_core::session::ThreadEventStatus::Ok) => api::ToolEventStatus::Ok,

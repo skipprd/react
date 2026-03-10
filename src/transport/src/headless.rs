@@ -3,8 +3,8 @@
 //! Design goal: subscribe to the same typed events as WS without using a socket.
 
 use react_core::session::{ControlStateStore, ThreadEvent, ThreadEventStatus, ThreadLogReader};
-use react_view::{ThreadItemStatus, ThreadLogViewCache};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
+use react_view::{ThreadItemStatus, ThreadLogViewCache};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 
@@ -88,7 +88,7 @@ fn summarize_failure_state(st: &ThreadLogViewCache, events: &[ThreadEvent]) -> O
 pub struct RunOpts {
     pub thread_id: Option<String>,
     pub suite_id: String,
-    pub agent: String,    // default: agent
+    pub agent: String, // default: agent
     /// Optional channel to publish the thread_id as soon as it is observed.
     pub thread_id_tx: Option<mpsc::UnboundedSender<String>>,
 }
@@ -99,7 +99,11 @@ pub struct RunOpts {
 /// - 0: no failed items in materialized thread_state
 /// - 1: at least one failed item
 /// - 2: no final state could be determined
-pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry) -> Result<(i32, String), String> {
+pub async fn run_headless(
+    ctx: SuiteCtx,
+    opts: RunOpts,
+    registry: SuiteRegistry,
+) -> Result<(i32, String), String> {
     let hub = EventHub::new(DEFAULT_EVENT_HUB_CAPACITY);
     let mut rx = hub.subscribe();
     let plain_progress = std::env::var("REACT_PLAIN_PROGRESS")
@@ -228,11 +232,19 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
 
     // Determine exit code: prefer ControlState, fall back to view cache.
     let reader = ctx.log_reader();
-    let control = ControlStateStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
+    let control = ControlStateStore::new(
+        ctx.storage().clone(),
+        ctx.scope().clone(),
+        ctx.keyspace().clone(),
+    );
 
     // Check ControlState for execution outcome (primary source of truth).
-    if let Ok(Some(outcome)) = control.load::<serde_json::Value>(&thread_id, "data_engineer").await {
-        if let Some(mode) = outcome.get("phase_state")
+    if let Ok(Some(outcome)) = control
+        .load::<serde_json::Value>(&thread_id, "data_engineer")
+        .await
+    {
+        if let Some(mode) = outcome
+            .get("phase_state")
             .and_then(|ps| ps.get("mode"))
             .and_then(|m| m.as_str())
         {
@@ -240,7 +252,9 @@ pub async fn run_headless(ctx: SuiteCtx, opts: RunOpts, registry: SuiteRegistry)
                 if plain_progress {
                     let (st, timeline_events) = match reader.get_log(&thread_id).await {
                         Ok(log) => (
-                            Some(crate::ws::thread_state::materialize_state_from_log(&thread_id, &log)),
+                            Some(crate::ws::thread_state::materialize_state_from_log(
+                                &thread_id, &log,
+                            )),
                             react_view::build_thread_events_from_log(&log, 500),
                         ),
                         Err(_) => (None, Vec::new()),

@@ -77,7 +77,6 @@ impl AuthoringAdapter {
             Self::Model(v) => v.kind(),
         }
     }
-
 }
 
 pub(crate) fn adapter_for_phase(phase: Phase) -> Option<AuthoringAdapter> {

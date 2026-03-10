@@ -37,11 +37,7 @@ impl Tool for VectUpsertTool {
         let epoch = chrono::Utc::now().timestamp() as u64;
         let mut items: Vec<VectorChunk> = Vec::new();
         for (i, v) in arr.iter().enumerate() {
-            let kind = ChunkKind::from(
-                v.get("kind")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("doc"),
-            );
+            let kind = ChunkKind::from(v.get("kind").and_then(|x| x.as_str()).unwrap_or("doc"));
             let dataset_id = v
                 .get("dataset_id")
                 .and_then(|x| x.as_str())

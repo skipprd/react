@@ -1,18 +1,15 @@
-use serde::{Deserialize, Serialize};
-use crate::track_spec::TrackKind;
-use crate::plan_types::*;
 #[cfg(test)]
 use crate::plan_grounding::{
-    ensure_expected_model_paths_cleanse,
-    prune_cleanse_plan_to_grounded_raw_datasets,
+    ensure_expected_model_paths_cleanse, prune_cleanse_plan_to_grounded_raw_datasets,
     prune_model_plan_to_grounded_staging_models,
 };
+use crate::plan_types::*;
 #[cfg(test)]
-use crate::plan_validation::{
-    validate_cleanse_plan_semantics, validate_model_plan_semantics,
-};
+use crate::plan_validation::{validate_cleanse_plan_semantics, validate_model_plan_semantics};
+use crate::track_spec::TrackKind;
 #[cfg(test)]
 use react_core::session::{ThreadLog, ThreadStep};
+use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use serde_json::Value;
 
@@ -557,7 +554,6 @@ pub fn cleanse_next_work_item_ctx(plan: &CleansePlan) -> Option<NextWorkItemCtx>
     next_work_item_ctx(plan)
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthoringNextAction {
     AuthorSql(Vec<String>),
@@ -718,7 +714,6 @@ fn recompute_task_status<T: PlanTask>(t: &mut T) {
     let new_status = task_status_from_checklist(t.checklist());
     t.set_status(new_status);
 }
-
 
 #[cfg(test)]
 fn evidence_from_tool_end(
@@ -953,11 +948,7 @@ pub fn mark_in_progress<T: PlanTask>(plan: &mut Plan<T>, task_id: &str, label: &
     }
 }
 
-pub fn cleanse_mark_needs_update(
-    plan: &mut CleansePlan,
-    dataset_id: &str,
-    reason: Option<&str>,
-) {
+pub fn cleanse_mark_needs_update(plan: &mut CleansePlan, dataset_id: &str, reason: Option<&str>) {
     mark_needs_update(plan, dataset_id, "Author staging SQL", reason);
 }
 
@@ -1057,9 +1048,7 @@ pub fn apply_model_progress_event(plan: &mut ModelPlan, event: PlanProgressEvent
     }
 }
 
-pub fn snapshot_completion<T: PlanTask>(
-    plan: &Plan<T>,
-) -> PlanCompletionSnapshot {
+pub fn snapshot_completion<T: PlanTask>(plan: &Plan<T>) -> PlanCompletionSnapshot {
     let mut pending_count: usize = 0;
     let mut pending_refs: Vec<PlanPendingRef> = Vec::new();
     for t in plan.tasks.iter() {
@@ -1232,9 +1221,11 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
         }
 
         if name == "apply_next_cleanse_schema_batch" {
-            let batch = parse_batch_contract::<
-                crate::tools::batch_contracts::CleanseSchemaBatchContract,
-            >(&observation.extra, "apply_next_cleanse_schema_batch contract");
+            let batch =
+                parse_batch_contract::<crate::tools::batch_contracts::CleanseSchemaBatchContract>(
+                    &observation.extra,
+                    "apply_next_cleanse_schema_batch contract",
+                );
             let checklist_item_id = batch.checklist_item_id;
             let ok = batch.ok;
             let attempted = batch.attempted_dataset_ids;
@@ -1540,14 +1531,10 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
                     .get("logs")
                     .cloned()
                     .unwrap_or(Value::Null);
-                let failed =
-                    crate::dbt_error::extract_failed_models_from_logs(&logs);
-                let runtime =
-                    crate::dbt_error::extract_runtime_failures_from_logs(&logs);
+                let failed = crate::dbt_error::extract_failed_models_from_logs(&logs);
+                let runtime = crate::dbt_error::extract_runtime_failures_from_logs(&logs);
                 let contract_data_type_missing =
-                    crate::dbt_error::logs_indicate_contract_data_type_missing(
-                        &logs,
-                    );
+                    crate::dbt_error::logs_indicate_contract_data_type_missing(&logs);
 
                 let mut names: Vec<String> = Vec::new();
                 for f in failed.iter() {
@@ -1651,9 +1638,10 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| CHECKLIST_SQL_MODEL.to_string());
-            let batch = parse_batch_contract::<
-                crate::tools::batch_contracts::ModelSqlBatchContract,
-            >(&observation.extra, "apply_next_model_batch contract");
+            let batch = parse_batch_contract::<crate::tools::batch_contracts::ModelSqlBatchContract>(
+                &observation.extra,
+                "apply_next_model_batch contract",
+            );
             let ok = batch.ok;
             let attempted = batch.attempted_item_names;
             let succeeded = batch.succeeded_item_names;
@@ -1949,10 +1937,8 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
                     .get("logs")
                     .cloned()
                     .unwrap_or(Value::Null);
-                let failed =
-                    crate::dbt_error::extract_failed_models_from_logs(&logs);
-                let runtime =
-                    crate::dbt_error::extract_runtime_failures_from_logs(&logs);
+                let failed = crate::dbt_error::extract_failed_models_from_logs(&logs);
+                let runtime = crate::dbt_error::extract_runtime_failures_from_logs(&logs);
 
                 let mut names: Vec<String> = Vec::new();
                 for f in failed.iter() {
@@ -2383,7 +2369,8 @@ mod tests {
             mutations: vec![],
             progress: PlanProgress::default(),
         };
-        let err = PersistableModelPlan::from_plan(plan, &std::collections::BTreeSet::new()).unwrap_err();
+        let err =
+            PersistableModelPlan::from_plan(plan, &std::collections::BTreeSet::new()).unwrap_err();
         assert!(err.contains("model_plan_grounding_failed"));
     }
 
@@ -2491,7 +2478,10 @@ mod tests {
                 },
             ],
             batches: vec![vec!["a.b.c".to_string(), "a.b.c".to_string()]],
-            work_groups: canonical_work_groups_from_batches(&[vec!["a.b.c".to_string()]], "cleanse"),
+            work_groups: canonical_work_groups_from_batches(
+                &[vec!["a.b.c".to_string()]],
+                "cleanse",
+            ),
             mutations: vec![],
             progress: PlanProgress::default(),
         };
@@ -2501,13 +2491,20 @@ mod tests {
         });
         let v = validate_cleanse_plan_semantics(&plan);
         assert!(!v.ok, "expected validation to fail, errors: {:?}", v.errors);
-        assert!(v
-            .errors
-            .iter()
-            .any(|e| e.contains("duplicate task.dataset_id")),
-            "expected 'duplicate task.dataset_id' in errors: {:?}", v.errors);
-        assert!(v.errors.iter().any(|e| e.contains("contains duplicate dataset_id")),
-            "expected 'contains duplicate dataset_id' in errors: {:?}", v.errors);
+        assert!(
+            v.errors
+                .iter()
+                .any(|e| e.contains("duplicate task.dataset_id")),
+            "expected 'duplicate task.dataset_id' in errors: {:?}",
+            v.errors
+        );
+        assert!(
+            v.errors
+                .iter()
+                .any(|e| e.contains("contains duplicate dataset_id")),
+            "expected 'contains duplicate dataset_id' in errors: {:?}",
+            v.errors
+        );
         assert!(v
             .errors
             .iter()
@@ -2613,7 +2610,10 @@ mod tests {
                 },
             ],
             batches: vec![vec!["fct_orders".to_string(), "fct_orders".to_string()]],
-            work_groups: canonical_work_groups_from_batches(&[vec!["fct_orders".to_string()]], "model"),
+            work_groups: canonical_work_groups_from_batches(
+                &[vec!["fct_orders".to_string()]],
+                "model",
+            ),
             mutations: vec![],
             progress: PlanProgress::default(),
         };
@@ -2842,11 +2842,17 @@ mod tests {
                 }),
                 Some({
                     let mut ctx = ExecutionContext::default();
-                    ctx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+                    ctx.set(
+                        "plan_kind",
+                        serde_json::Value::String("cleanse".to_string()),
+                    );
                     ctx.set("plan_key", serde_json::Value::String("k".to_string()));
                     ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
                     ctx.set("task_id", serde_json::Value::String("a.b.c".to_string()));
-                    ctx.set("checklist_item_id", serde_json::Value::String("time_derivatives".to_string()));
+                    ctx.set(
+                        "checklist_item_id",
+                        serde_json::Value::String("time_derivatives".to_string()),
+                    );
                     ctx
                 }),
             )],
@@ -2911,11 +2917,17 @@ mod tests {
                 }),
                 Some({
                     let mut ctx = ExecutionContext::default();
-                    ctx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+                    ctx.set(
+                        "plan_kind",
+                        serde_json::Value::String("cleanse".to_string()),
+                    );
                     ctx.set("plan_key", serde_json::Value::String("k".to_string()));
                     ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
                     ctx.set("task_id", serde_json::Value::String("a.b.c".to_string()));
-                    ctx.set("checklist_item_id", serde_json::Value::String("collision_id_contract".to_string()));
+                    ctx.set(
+                        "checklist_item_id",
+                        serde_json::Value::String("collision_id_contract".to_string()),
+                    );
                     ctx
                 }),
             )],
@@ -2978,8 +2990,14 @@ mod tests {
                     ctx.set("plan_kind", serde_json::Value::String("model".to_string()));
                     ctx.set("plan_key", serde_json::Value::String("k".to_string()));
                     ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
-                    ctx.set("task_id", serde_json::Value::String("dim_customers".to_string()));
-                    ctx.set("checklist_item_id", serde_json::Value::String(CHECKLIST_SCHEMA_CONTRACT.to_string()));
+                    ctx.set(
+                        "task_id",
+                        serde_json::Value::String("dim_customers".to_string()),
+                    );
+                    ctx.set(
+                        "checklist_item_id",
+                        serde_json::Value::String(CHECKLIST_SCHEMA_CONTRACT.to_string()),
+                    );
                     ctx
                 }),
             )],

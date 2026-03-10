@@ -72,8 +72,9 @@ fn schema_for_id(id: SchemaId) -> Result<Value, crate::CoreError> {
     let schema = match id {
         SchemaId::AgentStepV1 => schemars::schema_for!(AgentStepV1),
     };
-    let root_v = serde_json::to_value(&schema)
-        .map_err(|e| crate::CoreError::Schema(format!("schema serialization failed for {:?}: {}", id, e)))?;
+    let root_v = serde_json::to_value(&schema).map_err(|e| {
+        crate::CoreError::Schema(format!("schema serialization failed for {:?}: {}", id, e))
+    })?;
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
@@ -180,10 +181,15 @@ pub fn json_schema(id: SchemaId) -> Value {
     let map = SCHEMAS.get_or_init(|| {
         use std::collections::HashMap;
         let mut m: HashMap<SchemaId, Value> = HashMap::new();
-        m.insert(SchemaId::AgentStepV1, schema_for_id(SchemaId::AgentStepV1).expect("AgentStepV1 schema init"));
+        m.insert(
+            SchemaId::AgentStepV1,
+            schema_for_id(SchemaId::AgentStepV1).expect("AgentStepV1 schema init"),
+        );
         m
     });
-    map.get(&id).cloned().unwrap_or_else(|| schema_for_id(id).expect("schema_for_id fallback"))
+    map.get(&id)
+        .cloned()
+        .unwrap_or_else(|| schema_for_id(id).expect("schema_for_id fallback"))
 }
 
 pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> {
@@ -191,7 +197,11 @@ pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> 
     let validator = jsonschema::validator_for(&schema_json)
         .map_err(|e| crate::CoreError::Schema(format!("failed to compile {}: {}", id.name(), e)))?;
     if let Err(first) = validator.validate(instance) {
-        return Err(crate::CoreError::Schema(format!("{} validation error: {}", id.name(), first)));
+        return Err(crate::CoreError::Schema(format!(
+            "{} validation error: {}",
+            id.name(),
+            first
+        )));
     }
     Ok(())
 }

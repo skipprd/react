@@ -57,7 +57,13 @@ impl Tool for CatalogNoteTool {
         let thread_id = ctx.thread_id().clone().unwrap_or_default();
 
         // Resolve catalog key
-        let catalog_key = ctx.keyspace().scoped_key(ctx.scope(), &["catalog", &format!("{}.yaml", encode_key_component(&dataset_id))]);
+        let catalog_key = ctx.keyspace().scoped_key(
+            ctx.scope(),
+            &[
+                "catalog",
+                &format!("{}.yaml", encode_key_component(&dataset_id)),
+            ],
+        );
         let mut catalog: Value = ctx
             .storage()
             .get_json(&catalog_key)

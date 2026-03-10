@@ -1,6 +1,6 @@
+use crate::providers::DatasetId;
 use crate::references::DatasetRef;
 use react_core::agent::AgentCtx;
-use crate::providers::DatasetId;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProbeTarget {
@@ -28,7 +28,9 @@ impl ProbeTarget {
         raw_field: Option<&str>,
     ) -> Result<Self, String> {
         let dataset = Self::canonical_table(ctx, raw_table)?;
-        let field = raw_field.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let field = raw_field
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         Ok(Self { dataset, field })
     }
 

@@ -8,8 +8,7 @@ use react_core::session::{Observation, ThreadStep};
 use uuid::Uuid;
 
 use super::conn_state::{
-    load_latest_plans, normalize_agent_new,
-    normalize_agent_open, resolve_thread_context, ConnState,
+    load_latest_plans, normalize_agent_new, normalize_agent_open, resolve_thread_context, ConnState,
 };
 use super::suite_runner::{run_suite_and_stream, SuiteRunKind};
 use super::thread_state::{
@@ -64,7 +63,8 @@ pub(super) async fn process_new(
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     {
-        let s = serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }
@@ -78,7 +78,8 @@ pub(super) async fn process_new(
         thread_id.clone(),
     );
     {
-        let s = serde_json::to_string(&ta).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ta).map_err(|e| format!("JSON serialization failed: {e}"))?;
         state.buffer_last(&s);
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
@@ -184,7 +185,8 @@ pub(super) async fn process_open(
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     {
-        let s = serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }
@@ -201,7 +203,12 @@ pub(super) async fn process_open(
         .await;
         if let Some(st) = load_materialized_state(&reader, &thread_id).await {
             let timeline_events = load_timeline_events(&reader, &thread_id).await;
-            let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
+            let snap = ws_thread_state_snapshot_from_core(
+                &st,
+                &timeline_events,
+                state.reg.as_ref(),
+                &plans,
+            );
             let mut resp = api::ThreadStateResponse::new(
                 1,
                 m::thread_state_response::Type::ThreadState,
@@ -211,7 +218,8 @@ pub(super) async fn process_open(
                 snap,
             );
             resp.for_cid = Some(cid.clone());
-            let s = serde_json::to_string(&resp).map_err(|e| format!("JSON serialization failed: {e}"))?;
+            let s = serde_json::to_string(&resp)
+                .map_err(|e| format!("JSON serialization failed: {e}"))?;
             state.buffer_last(&s);
             ws_log_out(&s);
             let _ = write.send(Message::Text(s)).await;
@@ -281,7 +289,8 @@ pub(super) async fn process_user(
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     {
-        let s = serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }
@@ -318,8 +327,7 @@ pub(super) async fn process_approve(
     state: &mut ConnState,
     write: &mut (impl SinkExt<Message> + Unpin),
 ) -> Result<(), String> {
-    let req: api::ApproveRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::ApproveRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let cid = req.cid;
     let thread_id = req.thread_id;
     if thread_id.is_empty() {
@@ -333,7 +341,8 @@ pub(super) async fn process_approve(
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     {
-        let s = serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }
@@ -370,8 +379,7 @@ pub(super) async fn process_reject(
     state: &mut ConnState,
     write: &mut (impl SinkExt<Message> + Unpin),
 ) -> Result<(), String> {
-    let req: api::RejectRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::RejectRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let cid = req.cid;
     let thread_id = req.thread_id;
     if thread_id.is_empty() {
@@ -385,7 +393,8 @@ pub(super) async fn process_reject(
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
     ok.cid = Some(cid.clone());
     {
-        let s = serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
+        let s =
+            serde_json::to_string(&ok).map_err(|e| format!("JSON serialization failed: {e}"))?;
         ws_log_out(&s);
         let _ = write.send(Message::Text(s)).await;
     }

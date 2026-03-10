@@ -1,7 +1,7 @@
 use super::*;
+use crate::error::CoreError;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::scope::RequestScope;
-use crate::error::CoreError;
 use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 use crate::test_support::InMemoryStorageAdapter;
 use async_trait::async_trait;
@@ -29,7 +29,8 @@ impl StorageAdapter for SequencedJsonStorage {
         *self
             .json_value
             .lock()
-            .map_err(|_| CoreError::Storage("put_json: lock poisoned".to_string()))? = Some(value.clone());
+            .map_err(|_| CoreError::Storage("put_json: lock poisoned".to_string()))? =
+            Some(value.clone());
         Ok(())
     }
 
@@ -39,10 +40,9 @@ impl StorageAdapter for SequencedJsonStorage {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let mut value_guard = self
-            .json_value
-            .lock()
-            .map_err(|_| CoreError::Storage("put_json_if_etag_matches: lock poisoned".to_string()))?;
+        let mut value_guard = self.json_value.lock().map_err(|_| {
+            CoreError::Storage("put_json_if_etag_matches: lock poisoned".to_string())
+        })?;
         let current_etag = value_guard.as_ref().map(|_| "stable".to_string());
         let expected = expected_etag.map(str::to_string);
         if current_etag != expected {
@@ -58,11 +58,22 @@ impl StorageAdapter for SequencedJsonStorage {
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Storage(format!("get_bytes('{}'): unsupported in test", key)))
+        Err(CoreError::Storage(format!(
+            "get_bytes('{}'): unsupported in test",
+            key
+        )))
     }
 
-    async fn put_bytes(&self, key: &str, _bytes: &[u8], _content_type: &str) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!("put_bytes('{}'): unsupported in test", key)))
+    async fn put_bytes(
+        &self,
+        key: &str,
+        _bytes: &[u8],
+        _content_type: &str,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::Storage(format!(
+            "put_bytes('{}'): unsupported in test",
+            key
+        )))
     }
 
     async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
@@ -78,7 +89,9 @@ impl StorageAdapter for SequencedJsonStorage {
             return Ok(self
                 .json_value
                 .lock()
-                .map_err(|_| CoreError::Storage(format!("head_etag('{}'): json lock poisoned", key)))?
+                .map_err(|_| {
+                    CoreError::Storage(format!("head_etag('{}'): json lock poisoned", key))
+                })?
                 .as_ref()
                 .map(|_| "stable".to_string()));
         }
@@ -329,9 +342,7 @@ async fn run_observed_appends_failed_tool_end_when_operation_panics() {
                     args: serde_json::json!({}),
                     ctx: None,
                 },
-                || async move {
-                    panic!("boom")
-                },
+                || async move { panic!("boom") },
                 |_raw: &Value| Ok(serde_json::json!({"ok": true})),
             )
             .await;
@@ -342,7 +353,11 @@ async fn run_observed_appends_failed_tool_end_when_operation_panics() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let log = store.get(tid).await.expect("log");
-    assert_eq!(log.steps.len(), 2, "panic finalizer should close the tool span");
+    assert_eq!(
+        log.steps.len(),
+        2,
+        "panic finalizer should close the tool span"
+    );
     assert!(matches!(log.steps[0], ThreadStep::ToolStart { .. }));
     match &log.steps[1] {
         ThreadStep::ToolEnd {

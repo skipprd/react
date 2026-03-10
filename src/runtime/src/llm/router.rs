@@ -25,7 +25,8 @@ fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<Pa
     let mut parts: Vec<PartInput> = Vec::new();
     for (i, m) in req.messages.iter().enumerate() {
         core_msgs.push(CoreChatMessage {
-            role: react_core::llm::ChatRole::try_from(m.role.as_str()).unwrap_or(react_core::llm::ChatRole::User),
+            role: react_core::llm::ChatRole::try_from(m.role.as_str())
+                .unwrap_or(react_core::llm::ChatRole::User),
             content: m.content.clone(),
         });
         parts.push(PartInput {
@@ -85,7 +86,11 @@ struct HttpRetryPolicy {
 impl HttpRetryPolicy {
     fn from_env() -> Self {
         let request_timeout_secs: u64 = crate::runtime_settings::llm_http_timeout_secs()
-            .or_else(|| runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200").parse().ok())
+            .or_else(|| {
+                runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
+                    .parse()
+                    .ok()
+            })
             .unwrap_or(420)
             .max(30)
             .min(1800);
@@ -196,7 +201,9 @@ impl LlmRouter {
         let provider = crate::runtime_settings::llm_provider().unwrap_or(LlmProvider::Null);
         let adapter: Arc<dyn Adapter> = match provider {
             LlmProvider::LlamaCpp | LlmProvider::Null => self.adapter.clone(),
-            LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => pick_openai_adapter_for_model(&req.model),
+            LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => {
+                pick_openai_adapter_for_model(&req.model)
+            }
         };
         // Memoization key: model + hash(messages JSON)
         let mut hasher = DefaultHasher::new();
@@ -225,7 +232,8 @@ impl LlmRouter {
                 .messages
                 .iter()
                 .map(|m| crate::llm::ChatMessage {
-                    role: react_core::llm::ChatRole::try_from(m.role.as_str()).unwrap_or(react_core::llm::ChatRole::User),
+                    role: react_core::llm::ChatRole::try_from(m.role.as_str())
+                        .unwrap_or(react_core::llm::ChatRole::User),
                     content: m.content.clone(),
                 })
                 .collect();
@@ -446,7 +454,9 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         let provider = crate::runtime_settings::llm_provider().unwrap_or(LlmProvider::Null);
         let adapter: Arc<dyn Adapter> = match provider {
             LlmProvider::LlamaCpp | LlmProvider::Null => self.adapter.clone(),
-            LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => pick_openai_adapter_for_model(&req.model),
+            LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => {
+                pick_openai_adapter_for_model(&req.model)
+            }
         };
         let http_req = adapter.build_embed_http(req)?;
         if http_req.url.starts_with("local://embed") {
@@ -538,10 +548,11 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                     ))
                 }
                 Err(ureq::Error::Status(s, rr)) => {
-                    if Self::is_retryable_http_status(s as u16) && attempt < self.retry_policy.max_retries {
-                        let retry_after = rr
-                            .header("retry-after")
-                            .and_then(|v| v.parse::<u64>().ok());
+                    if Self::is_retryable_http_status(s as u16)
+                        && attempt < self.retry_policy.max_retries
+                    {
+                        let retry_after =
+                            rr.header("retry-after").and_then(|v| v.parse::<u64>().ok());
                         let backoff_ms = Self::status_backoff_ms(attempt, retry_after);
                         let jitter = rand::random::<u64>() % 250;
                         std::thread::sleep(Duration::from_millis(backoff_ms + jitter));
@@ -592,10 +603,11 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                     ))
                 }
                 Err(ureq::Error::Status(s, rr)) => {
-                    if Self::is_retryable_http_status(s as u16) && attempt < self.retry_policy.max_retries {
-                        let retry_after = rr
-                            .header("retry-after")
-                            .and_then(|v| v.parse::<u64>().ok());
+                    if Self::is_retryable_http_status(s as u16)
+                        && attempt < self.retry_policy.max_retries
+                    {
+                        let retry_after =
+                            rr.header("retry-after").and_then(|v| v.parse::<u64>().ok());
                         let backoff_ms = Self::status_backoff_ms(attempt, retry_after);
                         let jitter = rand::random::<u64>() % 250;
                         std::thread::sleep(Duration::from_millis(backoff_ms + jitter));

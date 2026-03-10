@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::track_spec::TrackKind;
+use crate::domain_types::{ReviewDecision, ReviewDecisionMeta};
 use crate::plan_types::PlanStatus;
-use crate::domain_types::ReviewDecision;
+use crate::track_spec::TrackKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,7 +117,7 @@ pub struct PlanSemanticInvalidErrorsDetail {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReviewDecisionTransitionDetail {
     pub review_phase: String,
-    pub meta: Value,
+    pub meta: ReviewDecisionMeta,
     pub answer: ReviewDecision,
     pub forced_progress_guard: bool,
     pub forced_progress_by_subjective_retry: bool,
@@ -183,7 +183,7 @@ pub fn plan_auto_approved(source: AutoApprovalSource) -> Value {
 
 pub fn review_decision_transition(
     review_phase: impl Into<String>,
-    meta: Value,
+    meta: ReviewDecisionMeta,
     answer: ReviewDecision,
     forced_progress_guard: bool,
     forced_progress_by_subjective_retry: bool,
@@ -220,10 +220,7 @@ pub fn publish_auto_approved(publish_observation: Value) -> Value {
     })
 }
 
-pub fn publish_failure(
-    publish_observation: Value,
-    publish_failure_retry_count: usize,
-) -> Value {
+pub fn publish_failure(publish_observation: Value, publish_failure_retry_count: usize) -> Value {
     to_value(&PublishFailureDetail {
         publish_observation,
         publish_failure_retry_count,
@@ -238,9 +235,7 @@ pub fn plan_missing(plan_kind: TrackKind, note: impl Into<String>) -> Value {
 }
 
 pub fn plan_not_approved(status: PlanStatus) -> Value {
-    to_value(&PlanNotApprovedDetail {
-        status,
-    })
+    to_value(&PlanNotApprovedDetail { status })
 }
 
 pub fn plan_key(plan_key: impl Into<String>) -> Value {
@@ -248,4 +243,3 @@ pub fn plan_key(plan_key: impl Into<String>) -> Value {
         plan_key: plan_key.into(),
     })
 }
-

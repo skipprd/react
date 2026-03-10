@@ -3,11 +3,11 @@ pub mod server;
 pub mod terminal;
 mod terminal_dbt;
 
-mod util;
-mod mapping;
 mod conn_state;
-pub(crate) mod thread_state;
-mod suite_runner;
-mod history;
 mod handlers;
+mod history;
+mod mapping;
 mod protocol;
+mod suite_runner;
+pub(crate) mod thread_state;
+mod util;

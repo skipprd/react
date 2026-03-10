@@ -1,7 +1,11 @@
 pub fn getenv_nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().and_then(|v| {
         let t = v.trim();
-        if t.is_empty() { None } else { Some(t.to_string()) }
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
     })
 }
 
@@ -68,7 +72,8 @@ pub mod env_keys {
     pub const LLM_REVIEW_MAX_TOKENS_MODEL: &str = "LLM_REVIEW_MAX_TOKENS_MODEL";
     pub const LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY: &str = "LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY";
     pub const LLM_REVIEW_MAX_TOKENS_POSTPUBLISH: &str = "LLM_REVIEW_MAX_TOKENS_POSTPUBLISH";
-    pub const LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY: &str = "LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY";
+    pub const LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY: &str =
+        "LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY";
 
     // SQL-first
     pub const REACT_SQL_FIRST_MAX_OUTPUT_TOKENS: &str = "REACT_SQL_FIRST_MAX_OUTPUT_TOKENS";
@@ -150,9 +155,7 @@ pub fn model_plan_min_score() -> i32 {
 
 pub fn headless_mode_enabled() -> bool {
     static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *CACHE.get_or_init(|| {
-        env_bool_truthy(env_keys::REACT_HEADLESS).unwrap_or(false)
-    })
+    *CACHE.get_or_init(|| env_bool_truthy(env_keys::REACT_HEADLESS).unwrap_or(false))
 }
 
 pub fn catalog_bootstrap_timeout_secs() -> u64 {

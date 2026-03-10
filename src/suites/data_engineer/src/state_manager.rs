@@ -40,9 +40,9 @@ fn validate_loaded_state(parsed: &ExecutionState) -> Result<(), StateError> {
             ),
         });
     }
-    parsed.validate_invariants().map_err(|e| {
-        StateError::ValidationFailed(format!("invariant check failed on load: {e}"))
-    })
+    parsed
+        .validate_invariants()
+        .map_err(|e| StateError::ValidationFailed(format!("invariant check failed on load: {e}")))
 }
 
 pub async fn load_execution_state(
@@ -112,8 +112,7 @@ pub async fn apply_execution_event(
     thread_id: &str,
     event: DataEngineerEvent,
 ) -> Result<ExecutionState, StateError> {
-    mutate_execution_state(control, thread_id, |st| st.apply_event(event))
-        .await
+    mutate_execution_state(control, thread_id, |st| st.apply_event(event)).await
 }
 
 #[cfg(test)]
@@ -136,23 +135,28 @@ mod tests {
         let control = test_control_store();
         let tid = "tid-state-manager-invariant-save";
         let mut st = ExecutionState::new();
-        st.repair.repair_mode =
-            crate::progress_controller::RepairModeState::SqlTarget(
-                crate::progress_controller::SqlTargetRepairMode {
-                    target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_x.sql".to_string()).expect("valid sql model path"),
-                    core: crate::progress_controller::RepairModeCore {
-                        ladder_step: crate::progress_controller::RepairLadderStep::Stop,
-                        attempt_count: 1,
-                        repair_started_mutation_epoch: None,
-                        consecutive_noop_patches: 0,
-                    },
+        st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+            crate::progress_controller::SqlTargetRepairMode {
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_x.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+                core: crate::progress_controller::RepairModeCore {
+                    ladder_step: crate::progress_controller::RepairLadderStep::Stop,
+                    attempt_count: 1,
+                    repair_started_mutation_epoch: None,
+                    consecutive_noop_patches: 0,
                 },
-            );
+            },
+        );
         let err = replace_execution_state(&control, tid, st)
             .await
             .expect_err("invalid state must fail save");
         assert!(
-            matches!(err, StateError::ValidationFailed(_) | StateError::StorageFailed(_)),
+            matches!(
+                err,
+                StateError::ValidationFailed(_) | StateError::StorageFailed(_)
+            ),
             "expected validation or storage error, got: {err}"
         );
     }
@@ -162,12 +166,10 @@ mod tests {
         let control = test_control_store();
         let tid = "tid-state-manager-invariant-mutate";
         let err = mutate_execution_state(&control, tid, |st| {
-            st.telemetry.last_validate = Some(
-                crate::progress_controller::LastValidateState {
-                    ok: Some(true),
-                    ..crate::progress_controller::LastValidateState::default()
-                },
-            );
+            st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+                ok: Some(true),
+                ..crate::progress_controller::LastValidateState::default()
+            });
             st.telemetry.probe.required = true;
         })
         .await

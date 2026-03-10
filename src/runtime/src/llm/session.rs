@@ -53,19 +53,18 @@ impl RouterModel {
 fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
     // Keep per-call budgets flexible, but enforce one global hard ceiling so a
     // bad prompt cannot explode token usage.
-    let cap =
-        crate::runtime_settings::getenv("LLM_MAX_OUTPUT_TOKENS_HARD_CAP", "256000")
-            .parse::<u32>()
-            .ok()
-            .filter(|v| *v > 0)
-            .unwrap_or(256000);
+    let cap = crate::runtime_settings::getenv("LLM_MAX_OUTPUT_TOKENS_HARD_CAP", "256000")
+        .parse::<u32>()
+        .ok()
+        .filter(|v| *v > 0)
+        .unwrap_or(256000);
     requested.map(|v| v.min(cap))
 }
 
 impl LargeLanguageModel for RouterModel {
     fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String> {
-        let model = crate::runtime_settings::llm_chat_model()
-            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+        let model =
+            crate::runtime_settings::llm_chat_model().unwrap_or_else(|| "gpt-4o-mini".to_string());
 
         let default_max_output_tokens = crate::runtime_settings::llm_max_tokens().or_else(|| {
             crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
@@ -97,8 +96,8 @@ impl LargeLanguageModel for RouterModel {
         let prompt_id = Some(options.prompt_id.to_string());
 
         fn should_use_background_mode(model: &str) -> bool {
-            let mode = crate::runtime_settings::getenv("LLM_BACKGROUND_MODE", "auto")
-                .to_ascii_lowercase();
+            let mode =
+                crate::runtime_settings::getenv("LLM_BACKGROUND_MODE", "auto").to_ascii_lowercase();
             match mode.as_str() {
                 "1" | "true" | "on" | "always" => true,
                 "0" | "false" | "off" | "never" => false,

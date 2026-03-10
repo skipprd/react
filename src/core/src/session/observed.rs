@@ -200,7 +200,9 @@ impl ThreadStore {
                     let msg = format!("failed to build observation for {}: {}", meta.name, e);
                     (
                         ToolStepStatus::Failed,
-                        ToolObservation::normalize(serde_json::json!({"ok": false, "errors": [msg.clone()]})),
+                        ToolObservation::normalize(
+                            serde_json::json!({"ok": false, "errors": [msg.clone()]}),
+                        ),
                         Err(msg),
                     )
                 }

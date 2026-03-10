@@ -106,7 +106,9 @@ async fn get_artifact(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
     match ctx.storage().get_bytes(&key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
-            Ok(serde_json::json!({"ok": true, "kind": kind, "path": rel_path, "key": key, "content": text}))
+            Ok(
+                serde_json::json!({"ok": true, "kind": kind, "path": rel_path, "key": key, "content": text}),
+            )
         }
         Err(e) => Err(format!("not found or failed to fetch: {}", e)),
     }

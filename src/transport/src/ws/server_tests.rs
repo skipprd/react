@@ -8,14 +8,11 @@ use futures_util::sink::Sink;
 use react_core::keyspace::DefaultKeyspace;
 use react_core::keyspace::Keyspace;
 use react_core::llm::NullModel;
-use react_core::scope::RequestScope;
-use react_core::session::{
-    Observation, ThreadLog, ThreadStep, ThreadStore,
-    ToolObservation,
-};
-use react_view::ThreadLogViewCache as CoreThreadLogViewCache;
 use react_core::provider_traits::NullSecretsProvider;
+use react_core::scope::RequestScope;
+use react_core::session::{Observation, ThreadLog, ThreadStep, ThreadStore, ToolObservation};
 use react_module_storage_memory::InMemoryStorageAdapter;
+use react_view::ThreadLogViewCache as CoreThreadLogViewCache;
 use serde_json::json;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -37,11 +34,17 @@ fn thread_state_snapshot_maps_ctx_from_core_event_field() {
         ts: "t".to_string(),
         ctx: Some({
             let mut ctx = react_core::session::ExecutionContext::default();
-            ctx.set("plan_kind", serde_json::Value::String("test_plan_kind".to_string()));
+            ctx.set(
+                "plan_kind",
+                serde_json::Value::String("test_plan_kind".to_string()),
+            );
             ctx.set("plan_key", serde_json::Value::String("p1".to_string()));
             ctx.set("workgroup_id", serde_json::Value::String("wg1".to_string()));
             ctx.set("task_id", serde_json::Value::String("task1".to_string()));
-            ctx.set("checklist_item_id", serde_json::Value::String("sql_model".to_string()));
+            ctx.set(
+                "checklist_item_id",
+                serde_json::Value::String("sql_model".to_string()),
+            );
             ctx.set("suite", serde_json::json!("suite_x"));
             ctx
         }),
@@ -65,10 +68,7 @@ struct CollectSink {
 impl Sink<Message> for CollectSink {
     type Error = std::convert::Infallible;
 
-    fn poll_ready(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
@@ -79,17 +79,11 @@ impl Sink<Message> for CollectSink {
         Ok(())
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<(), Self::Error>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 }
@@ -113,7 +107,15 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Complete {
             kind: react_core::suite::FlowKind::new("ask"),
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
@@ -130,7 +132,15 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Complete {
             kind: react_core::suite::FlowKind::new("ask"),
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
@@ -147,9 +157,20 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
-        let store =
-            ThreadStore::new(ctx.storage().clone(), ctx.scope().clone(), ctx.keyspace().clone());
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
+        let store = ThreadStore::new(
+            ctx.storage().clone(),
+            ctx.scope().clone(),
+            ctx.keyspace().clone(),
+        );
         let tool_id = "t1".to_string();
         let _ = store
             .append_step(
@@ -215,7 +236,15 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
@@ -231,7 +260,15 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
@@ -247,7 +284,15 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
@@ -276,7 +321,15 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
@@ -292,7 +345,15 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
@@ -308,7 +369,15 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<react_core::suite::FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(thread_id, agent_type, Some(self.id()), self.initial_phase()).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = vec![react_core::suite::FlowFrame::Interrupt {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
@@ -320,10 +389,22 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
 
 #[test]
 fn normalize_agent_includes_agent_and_review() {
-    assert_eq!(normalize_agent_new(api::new_request::AgentType::Agent), "agent");
-    assert_eq!(normalize_agent_new(api::new_request::AgentType::Review), "review");
-    assert_eq!(normalize_agent_open(api::open_request::AgentType::Agent), "agent");
-    assert_eq!(normalize_agent_open(api::open_request::AgentType::Review), "review");
+    assert_eq!(
+        normalize_agent_new(api::new_request::AgentType::Agent),
+        "agent"
+    );
+    assert_eq!(
+        normalize_agent_new(api::new_request::AgentType::Review),
+        "review"
+    );
+    assert_eq!(
+        normalize_agent_open(api::open_request::AgentType::Agent),
+        "agent"
+    );
+    assert_eq!(
+        normalize_agent_open(api::open_request::AgentType::Review),
+        "review"
+    );
 }
 
 #[test]
@@ -493,10 +574,9 @@ async fn headless_run_exits_with_error_on_ask_user_prompt() {
     let msg = json!({"v":1,"type":"new","cid":"headless","suiteId":"suite_x","agentType":"agent","question":"go"});
     let mut sink = CollectSink::default();
     let err = process_new(&msg, &mut state, &mut sink).await.unwrap_err();
-    assert!(
-        err.to_ascii_lowercase()
-            .contains("ask_user_not_supported_in_headless")
-    );
+    assert!(err
+        .to_ascii_lowercase()
+        .contains("ask_user_not_supported_in_headless"));
 }
 
 #[tokio::test]
@@ -836,7 +916,10 @@ async fn open_persists_final_step_in_thread_log() {
 
     let reader = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
     let log = reader.get(&thread_id).await.unwrap();
-    assert!(matches!(log.steps.last(), Some(ThreadStep::Complete { .. })));
+    assert!(matches!(
+        log.steps.last(),
+        Some(ThreadStep::Complete { .. })
+    ));
 }
 
 #[tokio::test]

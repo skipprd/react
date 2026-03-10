@@ -134,4 +134,3 @@ pub(crate) struct ModelSchemaBatchContract {
 pub(crate) fn to_json_value<T: Serialize>(v: T) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| format!("failed to serialize batch contract: {e}"))
 }
-

@@ -5,8 +5,8 @@ use crate::ws::api_gen::src::models as api;
 use react_core::session::{ThreadLogReader, ThreadStep};
 
 use super::conn_state::{
-    build_suites_catalog, default_suite_id, load_latest_plans,
-    resolve_suite_id_for_thread, resolve_thread_context, ConnState,
+    build_suites_catalog, default_suite_id, load_latest_plans, resolve_suite_id_for_thread,
+    resolve_thread_context, ConnState,
 };
 use super::history::{build_history, compute_unread_for_log};
 use super::mapping::final_display_text_from_payload;
@@ -16,7 +16,10 @@ use super::thread_state::{
 };
 use super::util::now_iso;
 
-pub(super) async fn handle_message(text: &str, state: &mut ConnState) -> Result<Vec<String>, String> {
+pub(super) async fn handle_message(
+    text: &str,
+    state: &mut ConnState,
+) -> Result<Vec<String>, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let typ = v
         .get("type")
@@ -36,8 +39,7 @@ pub(super) async fn handle_message(text: &str, state: &mut ConnState) -> Result<
 
 async fn handle_list_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let _req: api::ListRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let _req: api::ListRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let ids = {
         let reader = state.log_reader();
         reader.list_thread_ids().await
@@ -62,10 +64,11 @@ async fn handle_list_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
                     ThreadStep::Complete {
                         payload, display, ..
                     } => {
-                        preview =
-                            Some(display.clone().unwrap_or_else(|| {
-                                final_display_text_from_payload(payload)
-                            }));
+                        preview = Some(
+                            display
+                                .clone()
+                                .unwrap_or_else(|| final_display_text_from_payload(payload)),
+                        );
                         break;
                     }
                     _ => {}
@@ -73,8 +76,7 @@ async fn handle_list_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
             }
             item.last_message_preview = preview;
             let seen = state.seen.get(&tid).copied().unwrap_or(0);
-            let (assistant_seq_max, assistant_after_seen) =
-                compute_unread_for_log(&log, seen);
+            let (assistant_seq_max, assistant_after_seen) = compute_unread_for_log(&log, seen);
             let unread = assistant_after_seen;
             item.unread_count = Some(unread);
             let entry = state.thread_seq.entry(tid.clone()).or_insert(0);
@@ -91,17 +93,18 @@ async fn handle_list_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
         state.next_seq(),
         threads,
     );
-    out.push(serde_json::to_string(&resp).unwrap_or_else(|_| {
-        "{\"type\":\"error\",\"error\":\"serialization error\"}".to_string()
-    }));
+    out.push(
+        serde_json::to_string(&resp).unwrap_or_else(|_| {
+            "{\"type\":\"error\",\"error\":\"serialization error\"}".to_string()
+        }),
+    );
     state.buffer_last(&out[out.len() - 1]);
     Ok(out)
 }
 
 async fn handle_suites_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let _req: api::SuitesRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let _req: api::SuitesRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let suites = build_suites_catalog(&state.reg);
     let mut resp = api::SuitesResponse::new(
         1,
@@ -119,8 +122,7 @@ async fn handle_suites_message(v: &Value, state: &mut ConnState) -> Result<Vec<S
 
 async fn handle_history_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let req: api::HistoryRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::HistoryRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let thread_id = req.thread_id.clone();
     if thread_id.is_empty() {
         return Err("thread_id required".into());
@@ -140,7 +142,10 @@ async fn handle_history_message(v: &Value, state: &mut ConnState) -> Result<Vec<
         thread_id.clone(),
         messages,
     );
-    let log = reader.get_log(&thread_id).await.map_err(|e| e.to_string())?;
+    let log = reader
+        .get_log(&thread_id)
+        .await
+        .map_err(|e| e.to_string())?;
     resp.title = log.title;
     resp.suite_id = Some(suite_id);
     resp.agent_type = Some(agent_type);
@@ -154,12 +159,14 @@ async fn handle_history_message(v: &Value, state: &mut ConnState) -> Result<Vec<
 
 async fn handle_seen_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let req: api::SeenRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::SeenRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let thread_id = req.thread_id.clone();
     state.seen.insert(thread_id.clone(), req.up_to_thread_seq);
     let reader = state.log_reader();
-    let log = reader.get_log(&thread_id).await.map_err(|e| e.to_string())?;
+    let log = reader
+        .get_log(&thread_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let (_max_assistant, unread) = compute_unread_for_log(&log, req.up_to_thread_seq);
     let resp = api::ServerMessage::Unread(api::UnreadResponse::new(
         1,
@@ -177,8 +184,7 @@ async fn handle_seen_message(v: &Value, state: &mut ConnState) -> Result<Vec<Str
 
 async fn handle_plans_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let req: api::PlansRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::PlansRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let thread_id = req.thread_id.clone();
     if thread_id.is_empty() {
         return Err("thread_id required".into());
@@ -189,8 +195,7 @@ async fn handle_plans_message(v: &Value, state: &mut ConnState) -> Result<Vec<St
 
     let suite_id = resolve_suite_id_for_thread(state, &thread_id).await;
     let plans =
-        load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id)
-            .await;
+        load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id).await;
     let mut resp = api::PlansResponse::new(
         1,
         m::plans_response::Type::Plans,
@@ -212,7 +217,10 @@ async fn handle_plans_message(v: &Value, state: &mut ConnState) -> Result<Vec<St
     Ok(out)
 }
 
-async fn handle_thread_state_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
+async fn handle_thread_state_message(
+    v: &Value,
+    state: &mut ConnState,
+) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
     let req: api::ThreadStateRequest =
         serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
@@ -225,13 +233,15 @@ async fn handle_thread_state_message(v: &Value, state: &mut ConnState) -> Result
     }
 
     let suite_id = resolve_suite_id_for_thread(state, &thread_id).await;
-    let plans = load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id).await;
+    let plans =
+        load_latest_plans(state.reg.as_ref(), &suite_id, &state.suite_ctx, &thread_id).await;
     let reader = state.log_reader();
     let st = load_materialized_state(&reader, &thread_id)
         .await
         .ok_or_else(|| "thread not found".to_string())?;
     let timeline_events = load_timeline_events(&reader, &thread_id).await;
-    let snap = ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
+    let snap =
+        ws_thread_state_snapshot_from_core(&st, &timeline_events, state.reg.as_ref(), &plans);
     if let Some(t) = state.term() {
         t.emit(TerminalEvent::ThreadState(snap.clone()));
     }
@@ -252,8 +262,7 @@ async fn handle_thread_state_message(v: &Value, state: &mut ConnState) -> Result
 
 async fn handle_delete_message(v: &Value, state: &mut ConnState) -> Result<Vec<String>, String> {
     let mut out: Vec<String> = Vec::new();
-    let req: api::DeleteRequest =
-        serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let req: api::DeleteRequest = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
     let cid = req.cid.clone();
     let thread_id = req.thread_id.clone();
     if thread_id.is_empty() {
@@ -276,4 +285,3 @@ async fn handle_delete_message(v: &Value, state: &mut ConnState) -> Result<Vec<S
     out.push(serde_json::to_string(&api::ServerMessage::Ok(ok)).unwrap());
     Ok(out)
 }
-

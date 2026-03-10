@@ -1,10 +1,10 @@
 use react_core::agent::{AgentCtxBuilder, DefaultPolicy};
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::NullModel;
-use react_suite_data_engineer::providers::{QueryProvider, QueryResult};
 use react_core::scope::RequestScope;
-use react_module_storage_memory::InMemoryStorageAdapter;
 use react_core::tools::Tool;
+use react_module_storage_memory::InMemoryStorageAdapter;
+use react_suite_data_engineer::providers::{QueryProvider, QueryResult};
 use react_suite_data_engineer::tools::sql_run::SqlRunTool;
 use serde_json::json;
 use std::sync::Arc;

@@ -168,7 +168,11 @@ mod inner {
         }
     }
 
-    pub fn chat(cfg: &LlmConfig, messages: &[ChatMessage], options: &react_core::llm::LlmCallOptions) -> Result<String, String> {
+    pub fn chat(
+        cfg: &LlmConfig,
+        messages: &[ChatMessage],
+        options: &react_core::llm::LlmCallOptions,
+    ) -> Result<String, String> {
         let shared = match get_or_load_shared(cfg) {
             Ok(s) => s,
             Err(_) => {
@@ -413,7 +417,11 @@ mod inner {
 #[cfg(not(feature = "llama_cpp"))]
 mod inner {
     use super::*;
-    pub fn chat(_cfg: &LlmConfig, messages: &[ChatMessage], _options: &react_core::llm::LlmCallOptions) -> Result<String, String> {
+    pub fn chat(
+        _cfg: &LlmConfig,
+        messages: &[ChatMessage],
+        _options: &react_core::llm::LlmCallOptions,
+    ) -> Result<String, String> {
         let prompt = messages
             .iter()
             .map(|m| format!("{}: {}\n", m.role, m.content))

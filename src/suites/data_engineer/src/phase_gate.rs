@@ -2,8 +2,7 @@ use crate::domain_types::GuardBlockKind;
 
 use crate::control_flow::Phase;
 use crate::progress_controller::{
-    ExecutionMode, ExecutionState, RepairLadderStep,
-    DEFAULT_MAX_STALL_COUNT,
+    ExecutionMode, ExecutionState, RepairLadderStep, DEFAULT_MAX_STALL_COUNT,
 };
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
@@ -30,23 +29,35 @@ pub fn evaluate_pre_turn_directive(
     {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
-            reason: guard_reason("stall_count_exceeded", &[
-                ("stall_count", &repair_state.stall_count.to_string()),
-                ("max_stall_count", &DEFAULT_MAX_STALL_COUNT.to_string()),
-                ("mode", "mutate"),
-            ]),
+            reason: guard_reason(
+                "stall_count_exceeded",
+                &[
+                    ("stall_count", &repair_state.stall_count.to_string()),
+                    ("max_stall_count", &DEFAULT_MAX_STALL_COUNT.to_string()),
+                    ("mode", "mutate"),
+                ],
+            ),
         };
     }
 
     if phase_state.replan_backtracks >= max_replan_backtracks {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::BatchLocked,
-            reason: guard_reason("replan_backtrack_limit", &[
-                ("replan_backtracks", &phase_state.replan_backtracks.to_string()),
-                ("limit", &max_replan_backtracks.to_string()),
-                ("phase", phase.as_str()),
-                ("action", "inspect validate/review errors and apply a targeted fix"),
-            ]),
+            reason: guard_reason(
+                "replan_backtrack_limit",
+                &[
+                    (
+                        "replan_backtracks",
+                        &phase_state.replan_backtracks.to_string(),
+                    ),
+                    ("limit", &max_replan_backtracks.to_string()),
+                    ("phase", phase.as_str()),
+                    (
+                        "action",
+                        "inspect validate/review errors and apply a targeted fix",
+                    ),
+                ],
+            ),
         };
     }
 
@@ -58,11 +69,14 @@ pub fn evaluate_pre_turn_directive(
         let target = single_target_repair_path.as_deref().unwrap_or("(unknown)");
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
-            reason: guard_reason("repair_ladder_stop", &[
-                ("target", target.trim()),
-                ("attempts", &repair_state.attempt_count().to_string()),
-                ("action", "apply a manual fix and rerun"),
-            ]),
+            reason: guard_reason(
+                "repair_ladder_stop",
+                &[
+                    ("target", target.trim()),
+                    ("attempts", &repair_state.attempt_count().to_string()),
+                    ("action", "apply a manual fix and rerun"),
+                ],
+            ),
         };
     }
 

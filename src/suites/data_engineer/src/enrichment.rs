@@ -187,10 +187,8 @@ impl DataEngineerSuite {
             if !allowed_task_ids.iter().any(|t| t == &task_id) {
                 continue;
             }
-            match Self::parse_impl_spec_value_with_sanitize::<T::Spec>(
-                spec_value,
-                T::track_kind(),
-            ) {
+            match Self::parse_impl_spec_value_with_sanitize::<T::Spec>(spec_value, T::track_kind())
+            {
                 Ok((spec, stripped)) => {
                     if !stripped.is_empty() {
                         Self::push_snapshot_array_event(
@@ -204,7 +202,8 @@ impl DataEngineerSuite {
                             200,
                         );
                     }
-                    if let Some(task) = plan.tasks.iter_mut().find(|task| task.task_id() == task_id) {
+                    if let Some(task) = plan.tasks.iter_mut().find(|task| task.task_id() == task_id)
+                    {
                         T::apply_spec(task, spec);
                     }
                 }
@@ -250,8 +249,7 @@ impl DataEngineerSuite {
             batch: None,
             repair: None,
         };
-        crate::prompt_packets::render_envelope(&envelope)
-            .unwrap_or_else(|_| "{}".to_string())
+        crate::prompt_packets::render_envelope(&envelope).unwrap_or_else(|_| "{}".to_string())
     }
 
     pub(super) fn compile_prompt_from_reason(reason_memo: &str, base_user: &str) -> String {
@@ -322,24 +320,26 @@ impl DataEngineerSuite {
                     &[],
                 )
             );
-            let reason_memo = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: prompts::plan::plan_enrichment_reason_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: reason_user,
-                    },
-                ],
-                &Self::planning_llm_options(
-                    PlanningLlmProfile::EnrichmentReason,
-                    T::reason_prompt_id(),
-                    ctx.thread_id().clone(),
-                )?,
-            )
-            .await.map_err(|e| e.to_string())?;
+            let reason_memo = ctx
+                .llm_chat(
+                    &[
+                        ChatMessage {
+                            role: ChatRole::System,
+                            content: prompts::plan::plan_enrichment_reason_system_prompt(),
+                        },
+                        ChatMessage {
+                            role: ChatRole::User,
+                            content: reason_user,
+                        },
+                    ],
+                    &Self::planning_llm_options(
+                        PlanningLlmProfile::EnrichmentReason,
+                        T::reason_prompt_id(),
+                        ctx.thread_id().clone(),
+                    )?,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             let compile_user = Self::compile_prompt_from_reason(&reason_memo, &base_user);
             let mut opts = Self::planning_llm_options(
                 PlanningLlmProfile::EnrichmentCompile,
@@ -350,26 +350,25 @@ impl DataEngineerSuite {
                 name: T::compile_schema_name().to_string(),
                 schema: crate::plan_schema::strict_schema_for::<T::EnrichmentResponse>()?,
             };
-            let raw = ctx.llm_chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: T::enrichment_system_prompt(),
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: compile_user,
-                    },
-                ],
-                &opts,
-            )
-            .await.map_err(|e| e.to_string())?;
+            let raw = ctx
+                .llm_chat(
+                    &[
+                        ChatMessage {
+                            role: ChatRole::System,
+                            content: T::enrichment_system_prompt(),
+                        },
+                        ChatMessage {
+                            role: ChatRole::User,
+                            content: compile_user,
+                        },
+                    ],
+                    &opts,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             let enrich = Self::parse_json_typed_strict::<T::EnrichmentResponse>(&raw)?;
-            let (failed, failure_errors) = Self::apply_enrichment_items::<T>(
-                plan,
-                &chunk_vec,
-                T::response_items(enrich),
-            );
+            let (failed, failure_errors) =
+                Self::apply_enrichment_items::<T>(plan, &chunk_vec, T::response_items(enrich));
             if !failed.is_empty() {
                 let retry_hint = T::retry_hint(&failure_errors);
                 let retry_user = format!(
@@ -393,20 +392,22 @@ impl DataEngineerSuite {
                     prompt_id: T::retry_prompt_id(),
                     ..opts
                 };
-                let retry_raw = ctx.llm_chat(
-                    &[
-                        ChatMessage {
-                            role: ChatRole::System,
-                            content: T::enrichment_system_prompt(),
-                        },
-                        ChatMessage {
-                            role: ChatRole::User,
-                            content: retry_user,
-                        },
-                    ],
-                    &retry_opts,
-                )
-                .await.map_err(|e| e.to_string())?;
+                let retry_raw = ctx
+                    .llm_chat(
+                        &[
+                            ChatMessage {
+                                role: ChatRole::System,
+                                content: T::enrichment_system_prompt(),
+                            },
+                            ChatMessage {
+                                role: ChatRole::User,
+                                content: retry_user,
+                            },
+                        ],
+                        &retry_opts,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let retry_enrich =
                     Self::parse_json_typed_strict::<T::EnrichmentResponse>(&retry_raw)?;
                 let (retry_failed, retry_errors) = Self::apply_enrichment_items::<T>(
@@ -534,20 +535,22 @@ impl DataEngineerSuite {
             Self::excerpt(planning_context, 80_000),
             Self::excerpt(memo, 40_000)
         );
-        let raw = ctx.llm_chat(
-            &[
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: sys,
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: user,
-                },
-            ],
-            &opts,
-        )
-        .await.map_err(|e| e.to_string())?;
+        let raw = ctx
+            .llm_chat(
+                &[
+                    ChatMessage {
+                        role: ChatRole::System,
+                        content: sys,
+                    },
+                    ChatMessage {
+                        role: ChatRole::User,
+                        content: user,
+                    },
+                ],
+                &opts,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
         Self::parse_json_typed_strict::<crate::plan_schema::PlanDesignCritiqueV1>(&raw)
     }
 
@@ -597,26 +600,16 @@ impl DataEngineerSuite {
         ctx: &AgentCtx,
         track: TrackKind,
         planning_context: &str,
-    ) -> Result<
-        (
-            String,
-            crate::plan_schema::PlanDesignCritiqueV1,
-        ),
-        String,
-    > {
+    ) -> Result<(String, crate::plan_schema::PlanDesignCritiqueV1), String> {
         let mut memo = Self::generate_design_memo(ctx, track, planning_context).await?;
-        let mut critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
-            .await?;
+        let mut critique = Self::critique_design_memo(ctx, track, planning_context, &memo).await?;
         // Bounded revision loop: critique feedback must update memo reasoning before extraction.
         for _ in 0..1 {
             if critique.ok {
                 break;
             }
-            memo =
-                Self::revise_design_memo(ctx, track, planning_context, &memo, &critique)
-                    .await?;
-            critique = Self::critique_design_memo(ctx, track, planning_context, &memo)
-                .await?;
+            memo = Self::revise_design_memo(ctx, track, planning_context, &memo, &critique).await?;
+            critique = Self::critique_design_memo(ctx, track, planning_context, &memo).await?;
         }
         Ok((memo, critique))
     }
@@ -710,20 +703,22 @@ Apply these fixes in the output.",
             Self::excerpt(memo, 30_000),
             Self::critique_guidance(critique)
         );
-        let raw = ctx.llm_chat(
-            &[
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: sys.to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: user,
-                },
-            ],
-            &opts,
-        )
-        .await.map_err(|e| e.to_string())?;
+        let raw = ctx
+            .llm_chat(
+                &[
+                    ChatMessage {
+                        role: ChatRole::System,
+                        content: sys.to_string(),
+                    },
+                    ChatMessage {
+                        role: ChatRole::User,
+                        content: user,
+                    },
+                ],
+                &opts,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
         Self::parse_json_typed_strict::<crate::plan_schema::ModelPlanCandidatesV1>(&raw)
     }
 
@@ -738,24 +733,24 @@ Apply these fixes in the output.",
             .collect();
         let tasks: Vec<crate::plan::CleanseTask> = task_ids
             .iter()
-            .map(|dataset_id| {
-                crate::plan::CleanseTask {
-                    dataset_id: dataset_id.to_string(),
-                    expected_model_path: None,
-                    invariants: vec![],
-                    implementation_spec: None,
-                    status: Default::default(),
-                    checklist: crate::plan::canonical_task_checklist(TrackKind::Cleanse),
-                }
+            .map(|dataset_id| crate::plan::CleanseTask {
+                dataset_id: dataset_id.to_string(),
+                expected_model_path: None,
+                invariants: vec![],
+                implementation_spec: None,
+                status: Default::default(),
+                checklist: crate::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
             .collect();
         let batches: Vec<Vec<String>> = if skeleton.batches.is_empty() {
-            task_ids.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect()
+            task_ids
+                .chunks(plan_progress::MAX_BATCH_SIZE)
+                .map(|c| c.to_vec())
+                .collect()
         } else {
             skeleton.batches.clone()
         };
-        let work_groups =
-            crate::plan::canonical_work_groups_from_batches(&batches, "cleanse");
+        let work_groups = crate::plan::canonical_work_groups_from_batches(&batches, "cleanse");
         crate::plan::CleansePlan {
             plan_key: String::new(),
             status: crate::plan::PlanStatus::Draft,
@@ -796,25 +791,25 @@ Apply these fixes in the output.",
     ) -> crate::plan::ModelPlan {
         let selected = Self::select_high_value_model_candidates(&candidates.candidates);
         let task_names: Vec<String> = selected.into_iter().map(|c| c.name).collect();
-        let batches: Vec<Vec<String>> = task_names.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect();
+        let batches: Vec<Vec<String>> = task_names
+            .chunks(plan_progress::MAX_BATCH_SIZE)
+            .map(|c| c.to_vec())
+            .collect();
         let tasks: Vec<crate::plan::ModelTask> = task_names
             .into_iter()
-            .map(|name| {
-                crate::plan::ModelTask {
-                    name,
-                    folder: crate::plan::ModelFolder::default(),
-                    goal: String::new(),
-                    inputs: vec![],
-                    expected_model_path: None,
-                    invariants: vec![],
-                    implementation_spec: None,
-                    status: Default::default(),
-                    checklist: crate::plan::canonical_task_checklist(TrackKind::Model),
-                }
+            .map(|name| crate::plan::ModelTask {
+                name,
+                folder: crate::plan::ModelFolder::default(),
+                goal: String::new(),
+                inputs: vec![],
+                expected_model_path: None,
+                invariants: vec![],
+                implementation_spec: None,
+                status: Default::default(),
+                checklist: crate::plan::canonical_task_checklist(TrackKind::Model),
             })
             .collect();
-        let work_groups =
-            crate::plan::canonical_work_groups_from_batches(&batches, "model");
+        let work_groups = crate::plan::canonical_work_groups_from_batches(&batches, "model");
         crate::plan::ModelPlan {
             plan_key: String::new(),
             status: crate::plan::PlanStatus::Draft,
@@ -922,7 +917,10 @@ mod tests {
         assert!(failed.is_empty(), "failed={failed:?} errors={errors:?}");
         assert!(errors.is_empty(), "errors={errors:?}");
         assert_eq!(plan.tasks[0].inputs, vec!["stg_orders".to_string()]);
-        assert_eq!(plan.tasks[0].goal, "Build fct_orders from grounded staging inputs.");
+        assert_eq!(
+            plan.tasks[0].goal,
+            "Build fct_orders from grounded staging inputs."
+        );
         assert!(plan.tasks[0].implementation_spec.is_some());
     }
 }

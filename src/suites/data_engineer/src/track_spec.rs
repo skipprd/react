@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::control_flow::Phase;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,8 +25,13 @@ impl TrackKind {
 
     pub fn from_any_phase(phase: Phase) -> Option<Self> {
         match phase {
-            Phase::CleansePlan | Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview => Some(Self::Cleanse),
-            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => Some(Self::Model),
+            Phase::CleansePlan
+            | Phase::CleanseAuthor
+            | Phase::CleanseValidate
+            | Phase::CleanseReview => Some(Self::Cleanse),
+            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => {
+                Some(Self::Model)
+            }
             _ => None,
         }
     }
@@ -70,4 +75,3 @@ impl TrackKind {
         }
     }
 }
-

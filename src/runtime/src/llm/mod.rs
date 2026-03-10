@@ -41,16 +41,22 @@ pub fn create_llm(_cfg: &LlmConfig) -> Arc<dyn LargeLanguageModel> {
 ///
 /// `LLM_API_KEY` remains env-driven and is intentionally not stored in YAML.
 pub fn config_from_resolved(cfg: &crate::config::ReactResolvedConfig) -> LlmConfig {
-    use react_core::resolved_config::LlmProvider;
     use crate::runtime_settings as rs;
+    use react_core::resolved_config::LlmProvider;
     let provider = match cfg.llm.provider {
-        LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => LlmProviderType::OpenAICompat,
+        LlmProvider::Openai | LlmProvider::OpenaiCompat | LlmProvider::Http => {
+            LlmProviderType::OpenAICompat
+        }
         LlmProvider::LlamaCpp | LlmProvider::Null => LlmProviderType::Local,
     };
     LlmConfig {
         provider,
         chat_model: cfg.llm.chat_model.clone().or_else(|| rs::llm_chat_model()),
-        embed_model: cfg.llm.embed_model.clone().or_else(|| rs::llm_embed_model()),
+        embed_model: cfg
+            .llm
+            .embed_model
+            .clone()
+            .or_else(|| rs::llm_embed_model()),
         base_url: cfg.llm.base_url.clone().or_else(|| rs::llm_base_url()),
         api_key: rs::llm_api_key(),
         gpu_layers: cfg.llm.gpu_layers.or_else(|| rs::llm_gpu_layers()),

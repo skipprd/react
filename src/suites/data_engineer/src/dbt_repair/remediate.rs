@@ -1,10 +1,10 @@
-use react_core::resolved_config::ReactResolvedConfig;
-use react_core::agent::AgentCtx;
-use react_core::llm::{ChatMessage, ChatRole};
-use react_core::llm::LlmCallOptions;
 use crate::providers::{DatasetCatalogProvider, DatasetId};
-use serde::{Deserialize, Serialize};
+use react_core::agent::AgentCtx;
+use react_core::llm::LlmCallOptions;
+use react_core::llm::{ChatMessage, ChatRole};
+use react_core::resolved_config::ReactResolvedConfig;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
@@ -98,7 +98,10 @@ pub struct LlmRemediationDecision {
 pub fn active_provider_dialect(cfg: &ReactResolvedConfig) -> String {
     use crate::de_config::WarehouseKind;
     let providers = crate::de_config::de_config_from_resolved(cfg);
-    let kind = providers.as_ref().map(|p| p.warehouse.kind.clone()).unwrap_or(WarehouseKind::Athena);
+    let kind = providers
+        .as_ref()
+        .map(|p| p.warehouse.kind.clone())
+        .unwrap_or(WarehouseKind::Athena);
     match kind {
         WarehouseKind::Athena => "Amazon Athena (engine v3 / Trino SQL)".to_string(),
         WarehouseKind::Postgres => "PostgreSQL".to_string(),
@@ -464,26 +467,25 @@ pub async fn remediate_dbt_sql_keys_with_llm(
             })
             .to_string();
 
-            let (outcome, _notes) =
-                crate::patch_protocol::llm_patch_loop_single_file(
-                    ctx,
-                    None,
-                    sys_prompt,
-                    user_payload,
-                    &rel,
-                    4,
-                    Some(LlmCallOptions {
-                        prompt_id: "data_engineer.dbt_dialect_remediation_patch",
-                        thread_id: ctx.thread_id().clone(),
-                        expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                        max_output_tokens: None,
-                        temperature: Some(0.0),
-                        top_p: Some(1.0),
-                        reasoning_effort: None,
-                        timeout_secs: None,
-                    }),
-                )
-                .await?;
+            let (outcome, _notes) = crate::patch_protocol::llm_patch_loop_single_file(
+                ctx,
+                None,
+                sys_prompt,
+                user_payload,
+                &rel,
+                4,
+                Some(LlmCallOptions {
+                    prompt_id: "data_engineer.dbt_dialect_remediation_patch",
+                    thread_id: ctx.thread_id().clone(),
+                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+                    max_output_tokens: None,
+                    temperature: Some(0.0),
+                    top_p: Some(1.0),
+                    reasoning_effort: None,
+                    timeout_secs: None,
+                }),
+            )
+            .await?;
 
             if !expected_base.is_empty() && outcome.base_sha256 != expected_base {
                 return Err(format!(
@@ -571,21 +573,20 @@ async fn best_effort_samples_for_source(
     let Some(ref wh) = wh else {
         return None;
     };
-    let header: Vec<String> = crate::transient_retry::retry_transient_default(
-        "remediate_schema",
-        || async { wh.schema(&fqn).await },
-    )
-    .await
-    .ok()
-    .unwrap_or_default()
-    .into_iter()
-    .map(|(n, _t)| n)
-    .collect();
+    let header: Vec<String> =
+        crate::transient_retry::retry_transient_default("remediate_schema", || async {
+            wh.schema(&fqn).await
+        })
+        .await
+        .ok()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(n, _t)| n)
+        .collect();
 
-    let rows = crate::transient_retry::retry_transient_default(
-        "remediate_sample",
-        || async { wh.sample(&fqn, limit).await },
-    )
+    let rows = crate::transient_retry::retry_transient_default("remediate_sample", || async {
+        wh.sample(&fqn, limit).await
+    })
     .await
     .ok()?;
     Some(serde_json::json!({
@@ -722,7 +723,10 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
     };
     let dialect = active_provider_dialect(cfg);
     let providers = crate::de_config::de_config_from_resolved(cfg);
-    let catalog = providers.as_ref().map(|p| p.warehouse.container.clone()).unwrap_or_default();
+    let catalog = providers
+        .as_ref()
+        .map(|p| p.warehouse.container.clone())
+        .unwrap_or_default();
 
     let mut keys: Vec<String> = keys.iter().cloned().collect();
     keys.sort();
@@ -802,9 +806,7 @@ pub async fn remediate_dbt_failures_grounded_with_llm(
         let Some(content) = f.get("content").and_then(|v| v.as_str()) else {
             continue;
         };
-        for (src_schema, src_table) in
-            crate::naming::extract_source_calls(content).into_iter()
-        {
+        for (src_schema, src_table) in crate::naming::extract_source_calls(content).into_iter() {
             if !src_schema.trim().is_empty() && !src_table.trim().is_empty() {
                 sources_set.insert((src_schema, src_table));
             }
@@ -1073,11 +1075,11 @@ async fn best_effort_schema_columns_for_source(
     let ds_id = format!("{}.{}.{}", catalog, source_schema, source_table);
     let wh = crate::ctx_ext::actx_warehouse(ctx);
     if let Some(ref wh) = wh {
-        if let Ok(cols) = crate::transient_retry::retry_transient_default(
-            "remediate_resolve_schema",
-            || async { wh.schema(&ds_id).await },
-        )
-        .await
+        if let Ok(cols) =
+            crate::transient_retry::retry_transient_default("remediate_resolve_schema", || async {
+                wh.schema(&ds_id).await
+            })
+            .await
         {
             return cols;
         }
@@ -1120,7 +1122,10 @@ pub async fn remediate_unresolved_columns_with_llm(
     };
     let dialect = active_provider_dialect(cfg);
     let providers_cfg = crate::de_config::de_config_from_resolved(cfg);
-    let catalog = providers_cfg.as_ref().map(|p| p.warehouse.container.clone()).unwrap_or_default();
+    let catalog = providers_cfg
+        .as_ref()
+        .map(|p| p.warehouse.container.clone())
+        .unwrap_or_default();
 
     let mut keys: Vec<String> = keys.iter().cloned().collect();
     keys.sort();
@@ -1257,7 +1262,10 @@ pub async fn remediate_unresolved_columns_with_llm(
     let provider_dialect_rules = {
         let mut out = String::new();
         let wh_for_rules = crate::ctx_ext::actx_warehouse(ctx);
-        for rule in wh_for_rules.iter().flat_map(|w| w.sql_remediation_rules().into_iter()) {
+        for rule in wh_for_rules
+            .iter()
+            .flat_map(|w| w.sql_remediation_rules().into_iter())
+        {
             out.push_str("         - ");
             out.push_str(rule);
             out.push('\n');
@@ -1467,7 +1475,11 @@ mod tests {
     fn minimal_cfg_athena() -> Arc<ReactResolvedConfig> {
         Arc::new(ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -1484,13 +1496,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
             Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg_athena()))
-            .build();
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg_athena()))
+        .build();
         actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         actx
     }

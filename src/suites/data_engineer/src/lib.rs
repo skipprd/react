@@ -1,26 +1,26 @@
 use async_trait::async_trait;
 
-use self::policy_sql_validated::SqlValidatedPolicy;
 use self::policy_sql_validated::DatasetCandidate;
+use self::policy_sql_validated::SqlValidatedPolicy;
 use self::preflight::PreflightProvider;
-use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
+use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
+use crate::phase_contract::{commit_guard_block as apply_guard_block, plan_status_reason_detail};
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
-use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
 use react_core::keyspace::encode_key_component;
 use react_core::llm::LlmCallOptions;
 use react_core::session::ThreadStore;
+use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
 use react_core::tools::ToolRegistry;
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
-use crate::phase_contract::{
-    commit_guard_block as apply_guard_block, plan_status_reason_detail,
-};
 
 pub struct DataEngineerSuite;
 
-pub(crate) fn resolved_config_from_ctx(ctx: &AgentCtx) -> Option<&react_core::resolved_config::ReactResolvedConfig> {
+pub(crate) fn resolved_config_from_ctx(
+    ctx: &AgentCtx,
+) -> Option<&react_core::resolved_config::ReactResolvedConfig> {
     ctx.resolved_config().as_ref().map(|c| c.as_ref())
 }
 
@@ -76,10 +76,11 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
 impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
     type Node = crate::control_flow::Phase;
 
-    fn node_from_state(
-        state: &crate::progress_controller::ExecutionState,
-    ) -> Self::Node {
-        state.phase.current_phase.unwrap_or(crate::control_flow::Phase::Preflight)
+    fn node_from_state(state: &crate::progress_controller::ExecutionState) -> Self::Node {
+        state
+            .phase
+            .current_phase
+            .unwrap_or(crate::control_flow::Phase::Preflight)
     }
 
     fn phase_from_node(node: Self::Node) -> Self::Phase {
@@ -87,80 +88,80 @@ impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
     }
 }
 
-pub mod providers;
-pub(crate) mod env_util;
-pub mod de_config;
-pub mod ctx_ext;
+mod agent_modes;
+pub(crate) mod authoring_driver;
+pub(crate) mod authoring_ir;
+mod catalog_bootstrap;
+pub(crate) mod chunk_progress_contract;
+pub(crate) mod control_flow;
 pub(crate) mod controller_event;
 pub(crate) mod controller_kernel;
-pub(crate) mod control_flow;
-pub(crate) mod domain_types;
-pub(crate) mod thread_cache;
+pub mod ctx_ext;
 pub(crate) mod dataset_truth;
 pub(crate) mod dbt;
 pub(crate) mod dbt_error;
+pub(crate) mod dbt_repair;
+pub mod de_config;
+pub(crate) mod domain_types;
+mod enrichment;
+pub(crate) mod env_util;
+pub(crate) mod facts;
 pub mod failure_kind;
 pub mod failure_text;
-pub(crate) mod transient_retry;
-pub(crate) mod dbt_repair;
-pub(crate) mod facts;
+mod llm_profiles;
 pub(crate) mod naming;
 pub(crate) mod patch_contract;
 pub(crate) mod patch_protocol;
-pub(crate) mod phase_contract;
-pub(crate) mod phase_gate;
-pub(crate) mod phase_reason_detail;
+pub(crate) mod patch_schemas;
 mod phase_author;
 mod phase_author_lifecycle;
+pub(crate) mod phase_contract;
+pub(crate) mod phase_gate;
 mod phase_plan;
 mod phase_plan_lifecycle;
 mod phase_preflight;
 mod phase_publish;
+pub(crate) mod phase_reason_detail;
 mod phase_review;
 mod phase_validate;
-mod plan_review_helpers;
+pub(crate) mod plan;
 mod plan_grounding;
+pub(crate) mod plan_kind;
 pub(crate) mod plan_progress;
+mod plan_review_helpers;
+pub(crate) mod plan_schema;
 mod plan_storage;
 mod plan_types;
 mod plan_validation;
-pub(crate) mod plan;
-pub(crate) mod ws_plans;
-pub(crate) mod plan_kind;
-pub(crate) mod patch_schemas;
-pub(crate) mod plan_schema;
+pub(crate) mod policy_sql_validated;
+pub(crate) mod preflight;
 pub(crate) mod probe_target;
 pub(crate) mod progress_controller;
 pub(crate) mod project_fs;
 pub(crate) mod prompt_packets;
 pub(crate) mod prompts;
-pub(crate) mod authoring_ir;
-pub(crate) mod authoring_driver;
-pub(crate) mod chunk_progress_contract;
+pub mod providers;
 pub(crate) mod references;
-mod review_batched;
-mod review_prompts;
-mod review_persistence;
 pub(crate) mod retry_budget;
+mod review_batched;
+mod review_persistence;
+mod review_prompts;
 pub(crate) mod schema_policy;
 pub(crate) mod sql_first;
 pub(crate) mod state_manager;
+pub(crate) mod thread_cache;
 pub(crate) mod tool_ops;
 mod tool_policies;
 mod tool_registry_builder;
-mod track_spec;
-pub(crate) mod transition_dispatcher;
 pub mod tools;
-pub(crate) mod policy_sql_validated;
-pub(crate) mod preflight;
-mod llm_profiles;
-mod enrichment;
-mod catalog_bootstrap;
-mod agent_modes;
-pub(crate) use track_spec::TrackKind;
+mod track_spec;
+pub(crate) mod transient_retry;
+pub(crate) mod transition_dispatcher;
+pub(crate) mod ws_plans;
+use agent_modes::{AgentMode, AgentToolCapability};
 pub use ctx_ext::copy_capabilities_to_actx;
 use llm_profiles::PlanningLlmProfile;
-use agent_modes::{AgentMode, AgentToolCapability};
+pub(crate) use track_spec::TrackKind;
 
 pub(crate) enum PhaseExecutorOutcome {
     /// Phase is still active and this turn made durable forward progress.
@@ -256,18 +257,19 @@ impl AgentPolicy for InterruptOnlyPolicy {
 
     fn timeout_for_tool(&self, action_name: &str) -> Option<u64> {
         use crate::env_util::{
-            TOOL_TIMEOUT_FAST_SECS, TOOL_TIMEOUT_MEDIUM_SECS,
-            TOOL_TIMEOUT_SLOW_SECS, TOOL_TIMEOUT_EXTRA_SLOW_SECS,
+            TOOL_TIMEOUT_EXTRA_SLOW_SECS, TOOL_TIMEOUT_FAST_SECS, TOOL_TIMEOUT_MEDIUM_SECS,
+            TOOL_TIMEOUT_SLOW_SECS,
         };
         let secs = match action_name {
-            "staging_model" | "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" =>
-                TOOL_TIMEOUT_SLOW_SECS,
+            "staging_model" | "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => {
+                TOOL_TIMEOUT_SLOW_SECS
+            }
 
-            "gold_model" | "apply_next_model_batch" | "apply_next_model_schema_batch" =>
-                TOOL_TIMEOUT_MEDIUM_SECS,
+            "gold_model" | "apply_next_model_batch" | "apply_next_model_schema_batch" => {
+                TOOL_TIMEOUT_MEDIUM_SECS
+            }
 
-            "dbt_validate" | "publish_dbt_to_provider" =>
-                TOOL_TIMEOUT_EXTRA_SLOW_SECS,
+            "dbt_validate" | "publish_dbt_to_provider" => TOOL_TIMEOUT_EXTRA_SLOW_SECS,
 
             "preflight_catalog_all" => TOOL_TIMEOUT_SLOW_SECS,
             "preflight_catalog_dataset" | "preflight_catalog_schema" => TOOL_TIMEOUT_MEDIUM_SECS,
@@ -302,7 +304,6 @@ mod interrupt_only_policy_tests {
         assert_eq!(p.timeout_for_tool("gold_model"), Some(300));
     }
 }
-
 
 // TODO(item-93): PlanState encodes track + mode in variant names. Consider restructuring as
 // a struct with `track: TrackKind` + `mode: AuthoringMode` fields, with `AuthoringMode` being
@@ -344,7 +345,6 @@ impl NonEmptyCleanseDatasetIds {
 }
 
 impl DataEngineerSuite {
-
     fn first_column_name_from_sql_schema_observation(obs: &serde_json::Value) -> Option<String> {
         obs.get("columns")
             .and_then(|v| v.as_array())
@@ -398,13 +398,14 @@ impl DataEngineerSuite {
                 checklist: crate::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
             .collect::<Vec<_>>();
-        let batches = ids.chunks(plan_progress::MAX_BATCH_SIZE).map(|c| c.to_vec()).collect::<Vec<_>>();
+        let batches = ids
+            .chunks(plan_progress::MAX_BATCH_SIZE)
+            .map(|c| c.to_vec())
+            .collect::<Vec<_>>();
         plan.tasks = tasks;
         plan.batches = batches;
-        plan.work_groups = crate::plan::canonical_work_groups_from_batches(
-            &plan.batches,
-            "cleanse",
-        );
+        plan.work_groups =
+            crate::plan::canonical_work_groups_from_batches(&plan.batches, "cleanse");
         true
     }
 
@@ -462,7 +463,6 @@ impl DataEngineerSuite {
         let table = ds.table.to_ascii_lowercase();
         schema.contains("raw") || table.starts_with("raw_")
     }
-
 
     async fn discovered_raw_relations_from_catalog(
         datasets: Option<&Arc<dyn crate::providers::DatasetCatalogProvider>>,
@@ -690,7 +690,6 @@ impl DataEngineerSuite {
             }
         }
     }
-
 }
 
 #[async_trait]
@@ -704,11 +703,7 @@ impl Suite for DataEngineerSuite {
     }
 
     fn supported_agent_types(&self) -> Vec<String> {
-        vec![
-            "ask".to_string(),
-            "agent".to_string(),
-            "review".to_string(),
-        ]
+        vec!["ask".to_string(), "agent".to_string(), "review".to_string()]
     }
 
     fn default_agent_type(&self) -> &'static str {
@@ -756,10 +751,18 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
-        let frames = self.dispatch_agent(thread_id, question, agent_type, ctx).await?;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
+        let frames = self
+            .dispatch_agent(thread_id, question, agent_type, ctx)
+            .await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }
@@ -771,10 +774,18 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
-        let frames = self.dispatch_agent(thread_id, question, agent_type, ctx).await?;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
+        let frames = self
+            .dispatch_agent(thread_id, question, agent_type, ctx)
+            .await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }
@@ -786,10 +797,18 @@ impl Suite for DataEngineerSuite {
         agent_type: &str,
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
-        let frames = self.dispatch_agent(thread_id, text, agent_type, ctx).await?;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
+        let frames = self
+            .dispatch_agent(thread_id, text, agent_type, ctx)
+            .await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }

@@ -89,7 +89,10 @@ pub fn compile_sql_first_draft(
             .filter(|n| !n.is_empty())
             .collect();
         if plan_cols.is_empty() && !has_wildcard_projection {
-            return Err("authoring_ir: final SELECT has no output columns and plan_output_fields is empty".to_string());
+            return Err(
+                "authoring_ir: final SELECT has no output columns and plan_output_fields is empty"
+                    .to_string(),
+            );
         }
         if !plan_cols.is_empty() {
             return Ok(ModelIntent {

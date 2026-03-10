@@ -28,13 +28,23 @@ impl AgentCtx {
         let agent = self.agent_name_or_default();
 
         let obs_ctx = self
-            .prepare_observability(messages, options, thread_id_opt.as_deref(), store_opt.as_ref(), &agent)
+            .prepare_observability(
+                messages,
+                options,
+                thread_id_opt.as_deref(),
+                store_opt.as_ref(),
+                &agent,
+            )
             .await;
 
         self.emit_llm_start_step(
-            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
-            &obs_ctx.phase, &agent,
-        ).await;
+            obs_ctx.call_id,
+            thread_id_opt.as_deref(),
+            store_opt.as_ref(),
+            &obs_ctx.phase,
+            &agent,
+        )
+        .await;
 
         let mut options = options.clone();
         if options.thread_id.is_none() {
@@ -44,14 +54,26 @@ impl AgentCtx {
         let res = self.invoke_llm(messages, &options).await;
 
         self.emit_llm_end_step(
-            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
-            &obs_ctx.phase, &agent, &res,
-        ).await;
+            obs_ctx.call_id,
+            thread_id_opt.as_deref(),
+            store_opt.as_ref(),
+            &obs_ctx.phase,
+            &agent,
+            &res,
+        )
+        .await;
 
         self.record_llm_observation(
-            obs_ctx.call_id, thread_id_opt.as_deref(), store_opt.as_ref(),
-            obs_ctx.parts_built, &obs_ctx.phase, &agent, &obs_ctx.prompt_hash, &res,
-        ).await;
+            obs_ctx.call_id,
+            thread_id_opt.as_deref(),
+            store_opt.as_ref(),
+            obs_ctx.parts_built,
+            &obs_ctx.phase,
+            &agent,
+            &obs_ctx.prompt_hash,
+            &res,
+        )
+        .await;
 
         res
     }
@@ -74,7 +96,10 @@ impl AgentCtx {
                 Ok(join_result) => join_result
                     .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
                     .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e))),
-                Err(_) => Err(CoreError::Agent(format!("LLM call timed out after {}s", timeout))),
+                Err(_) => Err(CoreError::Agent(format!(
+                    "LLM call timed out after {}s",
+                    timeout
+                ))),
             }
         } else {
             tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options))
@@ -138,7 +163,11 @@ impl AgentCtx {
 
         tracing::debug!(
             "LLM_CALL thread_id={} call_id={} agent={} phase={} prompt_id={}",
-            tid, call_id, agent, phase, options.prompt_id
+            tid,
+            call_id,
+            agent,
+            phase,
+            options.prompt_id
         );
 
         ObservabilityContext {

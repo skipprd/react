@@ -132,9 +132,7 @@ pub fn max_consecutive_batch_failures() -> usize {
 #[cfg(test)]
 pub(crate) fn batch_lock_reason_message(reason: BatchLockReason) -> &'static str {
     match reason {
-        BatchLockReason::ConsecutiveFailureBudgetExhausted => {
-            reason.message()
-        }
+        BatchLockReason::ConsecutiveFailureBudgetExhausted => reason.message(),
     }
 }
 
@@ -150,8 +148,7 @@ mod tests {
 
     #[test]
     fn batch_lock_error_message_is_stable() {
-        let msg =
-            batch_lock_error_message(BatchLockReason::ConsecutiveFailureBudgetExhausted);
+        let msg = batch_lock_error_message(BatchLockReason::ConsecutiveFailureBudgetExhausted);
         assert!(msg.contains("too many consecutive batch failures"));
     }
 }

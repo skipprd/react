@@ -21,7 +21,8 @@ pub trait StorageAdapter: Send + Sync {
     ) -> Result<ConditionalWriteStatus, CoreError>;
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError>;
-    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), CoreError>;
+    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str)
+        -> Result<(), CoreError>;
 
     async fn delete_object(&self, key: &str) -> Result<(), CoreError>;
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError>;

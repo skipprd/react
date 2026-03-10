@@ -666,36 +666,37 @@ fn apply_event(m: &mut Model, ev: TerminalEvent) {
             };
             let effective_phase: Option<String> =
                 ev.phase.clone().or_else(|| tv.current_phase.clone());
-            let (detail, description) = if ev.name == DBT_VALIDATE_TOOL_NAME && st == SpanStatus::Failed {
-                // Prefer condensed, accurate error summary when available in payload.
-                let from_payload = ev
-                    .payload
-                    .as_ref()
-                    .and_then(|m| m.get("error_summary"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+            let (detail, description) =
+                if ev.name == DBT_VALIDATE_TOOL_NAME && st == SpanStatus::Failed {
+                    // Prefer condensed, accurate error summary when available in payload.
+                    let from_payload = ev
+                        .payload
+                        .as_ref()
+                        .and_then(|m| m.get("error_summary"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
 
-                // Multiline description: show under the span.
-                let desc = from_payload
-                    .clone()
-                    .map(|s| clean_multiline(&s, 14, 4000))
-                    .filter(|s| !s.trim().is_empty());
+                    // Multiline description: show under the span.
+                    let desc = from_payload
+                        .clone()
+                        .map(|s| clean_multiline(&s, 14, 4000))
+                        .filter(|s| !s.trim().is_empty());
 
-                // One-line detail: keep the main span line short.
-                let detail_src = from_payload
-                    .as_deref()
-                    .and_then(first_nonempty_line)
-                    .map(|s| s.to_string())
-                    .or_else(|| ev.error.clone());
-                let dt = detail_src
-                    .as_deref()
-                    .map(|s| condense_one_line(s, 180))
-                    .filter(|s| !s.trim().is_empty());
+                    // One-line detail: keep the main span line short.
+                    let detail_src = from_payload
+                        .as_deref()
+                        .and_then(first_nonempty_line)
+                        .map(|s| s.to_string())
+                        .or_else(|| ev.error.clone());
+                    let dt = detail_src
+                        .as_deref()
+                        .map(|s| condense_one_line(s, 180))
+                        .filter(|s| !s.trim().is_empty());
 
-                (dt, desc)
-            } else {
-                (None, None)
-            };
+                    (dt, desc)
+                } else {
+                    (None, None)
+                };
             tv.tool_spans
                 .entry(ev.tool_id.clone())
                 .and_modify(|s| {
@@ -889,8 +890,8 @@ fn fmt_ms(ms: i64) -> String {
 }
 
 use super::terminal_dbt::{
-    DBT_VALIDATE_TOOL_NAME, DbtValidateKind, dbt_validate_kind_from_label,
-    is_dbt_validate_label, normalize_validate_dbt_label, validate_dbt_sort_rank,
+    dbt_validate_kind_from_label, is_dbt_validate_label, normalize_validate_dbt_label,
+    validate_dbt_sort_rank, DbtValidateKind, DBT_VALIDATE_TOOL_NAME,
 };
 
 fn condense_one_line(s: &str, max_len: usize) -> String {
@@ -1169,7 +1170,13 @@ fn summarize_plan_workgroups(
 /// by the suite via metadata (e.g. `SuiteManifest::phase_stage_workgroups`) so
 /// the terminal renderer is fully suite-agnostic.
 const PHASE_STAGE_WORKGROUP_MAP: &[(&str, &[api::PlanWorkGroupKind])] = &[
-    ("author", &[api::PlanWorkGroupKind::AuthorSql, api::PlanWorkGroupKind::AuthorSchema]),
+    (
+        "author",
+        &[
+            api::PlanWorkGroupKind::AuthorSql,
+            api::PlanWorkGroupKind::AuthorSchema,
+        ],
+    ),
     ("validate", &[api::PlanWorkGroupKind::Validate]),
 ];
 

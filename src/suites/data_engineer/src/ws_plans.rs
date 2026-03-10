@@ -136,10 +136,7 @@ fn model_plan_to_value(p: de_plan::ModelPlan) -> Value {
     })
 }
 
-pub async fn load_latest_plans_ws(
-    ctx: &SuiteCtx,
-    thread_id: &str,
-) -> Vec<Value> {
+pub async fn load_latest_plans_ws(ctx: &SuiteCtx, thread_id: &str) -> Vec<Value> {
     let base = ctx
         .keyspace()
         .threads_prefix(ctx.scope())

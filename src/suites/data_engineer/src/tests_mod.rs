@@ -8,7 +8,9 @@ fn test_sctx() -> SuiteCtx {
         Arc::new(react_core::provider_traits::NullSecretsProvider::default()),
         Arc::new(react_core::llm::NullModel::new()),
         react_core::scope::RequestScope::parse("default", "default", "default").unwrap(),
-        Arc::new(react_core::keyspace::DefaultKeyspace::new("test".to_string())),
+        Arc::new(react_core::keyspace::DefaultKeyspace::new(
+            "test".to_string(),
+        )),
     )
 }
 
@@ -35,11 +37,7 @@ impl crate::providers::QueryProvider for MockWarehouseOk {
         }
     }
 
-    async fn sample(
-        &self,
-        _dataset_fqn: &str,
-        _limit: usize,
-    ) -> Result<Vec<Vec<String>>, String> {
+    async fn sample(&self, _dataset_fqn: &str, _limit: usize) -> Result<Vec<Vec<String>>, String> {
         Ok(vec![])
     }
 }
@@ -78,10 +76,7 @@ impl crate::providers::WarehouseNaming for MockWarehouseOk {
         crate::de_config::WarehouseKind::default()
     }
 
-    fn parse_dataset_fqn(
-        &self,
-        dataset_fqn: &str,
-    ) -> Result<crate::providers::DatasetId, String> {
+    fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<crate::providers::DatasetId, String> {
         let parts: Vec<&str> = dataset_fqn.split('.').collect();
         if parts.len() != 3 {
             return Err("expected <catalog>.<schema>.<table>".to_string());
@@ -112,11 +107,7 @@ impl crate::providers::QueryProvider for MockQuery {
     async fn schema(&self, _dataset_fqn: &str) -> Result<Vec<(String, String)>, String> {
         Ok(vec![])
     }
-    async fn sample(
-        &self,
-        _dataset_fqn: &str,
-        _limit: usize,
-    ) -> Result<Vec<Vec<String>>, String> {
+    async fn sample(&self, _dataset_fqn: &str, _limit: usize) -> Result<Vec<Vec<String>>, String> {
         Ok(vec![])
     }
 }
@@ -325,26 +316,28 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
     let store = actx.thread_store().as_ref().expect("thread_store");
 
     let mut st = crate::progress_controller::ExecutionState::new();
-    st.telemetry.last_validate = Some(
-        crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
+    st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+        ok: Some(false),
+        ..crate::progress_controller::LastValidateState::default()
+    });
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+        crate::progress_controller::SqlTargetRepairMode {
+            target_path: crate::progress_controller::SqlModelPath::parse(
+                "models/staging/stg_probe.sql".to_string(),
+            )
+            .expect("valid sql model path"),
+            core: crate::progress_controller::RepairModeCore {
+                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         },
     );
-    st.repair.repair_mode =
-        crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_probe.sql".to_string()).expect("valid sql model path"),
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
     st.telemetry.probe.required = true;
-    st.save(&store.control_store(), "probe-thread").await.expect("save state");
+    st.save(&store.control_store(), "probe-thread")
+        .await
+        .expect("save state");
 
     let guard = crate::control_flow::DerivedGuardState {
         last_validate_failed: true,
@@ -375,10 +368,11 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
         .expect_err("run_sql should not be exposed in hard mutation mode");
     assert!(err.contains("unknown tool"));
 
-    let updated = crate::progress_controller::ExecutionState::load(&store.control_store(), "probe-thread")
-        .await
-        .expect("state should load")
-        .expect("state should exist");
+    let updated =
+        crate::progress_controller::ExecutionState::load(&store.control_store(), "probe-thread")
+            .await
+            .expect("state should load")
+            .expect("state should exist");
     assert_eq!(updated.telemetry.probe.attempts_total, 0);
     assert_eq!(updated.telemetry.probe.meaningful_attempts, 0);
 }
@@ -391,24 +385,24 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
     let store = actx.thread_store().as_ref().expect("thread_store");
 
     let mut st = crate::progress_controller::ExecutionState::new();
-    st.telemetry.last_validate = Some(
-        crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
+    st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+        ok: Some(false),
+        ..crate::progress_controller::LastValidateState::default()
+    });
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+        crate::progress_controller::SqlTargetRepairMode {
+            target_path: crate::progress_controller::SqlModelPath::parse(
+                "models/staging/stg_probe.sql".to_string(),
+            )
+            .expect("valid sql model path"),
+            core: crate::progress_controller::RepairModeCore {
+                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
         },
     );
-    st.repair.repair_mode =
-        crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_probe.sql".to_string()).expect("valid sql model path"),
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
     st.telemetry.probe.required = true;
     let sig = crate::progress_controller::ProbeSignature::from_run_sql(
         "select * from t limit 10",
@@ -471,9 +465,7 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::CleanseSqlDatasetIds(vec![
-            "AwsDataCatalog.db.t1".to_string(),
-        ]),
+        &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
     )
@@ -503,9 +495,7 @@ async fn hard_mutation_single_target_hides_schema_batch_tools() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::CleanseSchemaDatasetIds(vec![
-            "AwsDataCatalog.db.t1".to_string(),
-        ]),
+        &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         Some("models/staging/stg_test_raw_raw_order_items.sql".to_string()),
         false,
     )
@@ -555,15 +545,16 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
     // Seed valid hard-repair execution state for deterministic single-target tool calls.
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(
-            crate::progress_controller::LastValidateState {
-                ok: Some(false),
-                ..crate::progress_controller::LastValidateState::default()
-            },
-        );
+        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+            ok: Some(false),
+            ..crate::progress_controller::LastValidateState::default()
+        });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/marts/fct_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -621,15 +612,16 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
 
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(
-            crate::progress_controller::LastValidateState {
-                ok: Some(false),
-                ..crate::progress_controller::LastValidateState::default()
-            },
-        );
+        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+            ok: Some(false),
+            ..crate::progress_controller::LastValidateState::default()
+        });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/marts/fct_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -683,15 +675,16 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
 
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(
-            crate::progress_controller::LastValidateState {
-                ok: Some(false),
-                ..crate::progress_controller::LastValidateState::default()
-            },
-        );
+        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+            ok: Some(false),
+            ..crate::progress_controller::LastValidateState::default()
+        });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/marts/fct_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::ReplaceContents,
                     attempt_count: 0,
@@ -758,15 +751,16 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
 
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(
-            crate::progress_controller::LastValidateState {
-                ok: Some(false),
-                ..crate::progress_controller::LastValidateState::default()
-            },
-        );
+        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+            ok: Some(false),
+            ..crate::progress_controller::LastValidateState::default()
+        });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/marts/fct_orders.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/marts/fct_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::FsOp,
                     attempt_count: 2,
@@ -878,9 +872,7 @@ async fn plan_batched_staging_model_is_not_exposed_to_agent() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::CleanseSqlDatasetIds(vec![
-            "AwsDataCatalog.db.t1".to_string(),
-        ]),
+        &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
     )
@@ -915,9 +907,7 @@ async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::CleanseSchemaDatasetIds(vec![
-            "AwsDataCatalog.db.t1".to_string(),
-        ]),
+        &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
     )
@@ -946,9 +936,7 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::ModelSqlItemNames(vec![
-            "fct_orders".to_string()
-        ]),
+        &super::PlanState::ModelSqlItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
     )
@@ -982,9 +970,7 @@ async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::ModelSchemaItemNames(vec![
-            "fct_orders".to_string(),
-        ]),
+        &super::PlanState::ModelSchemaItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
     )
@@ -1073,9 +1059,7 @@ fn review_question_includes_entry_reason_when_review_started_from_validate_pass(
 #[test]
 fn patch_impl_intent_requires_mutation_epoch_advance() {
     use crate::control_flow::Phase;
-    use crate::progress_controller::{
-        ExecutionState, PatchImplIntent,
-    };
+    use crate::progress_controller::{ExecutionState, PatchImplIntent};
 
     let mut st = ExecutionState::new();
     st.repair.mutation_epoch = 4;
@@ -1098,18 +1082,20 @@ fn patch_impl_intent_requires_mutation_epoch_advance() {
 fn derive_single_target_repair_path_prefers_execution_state_target() {
     use crate::progress_controller::{ExecutionState, FailedModelRef};
     let mut st = ExecutionState::new();
-    st.repair.repair_mode =
-        crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+        crate::progress_controller::SqlTargetRepairMode {
+            target_path: crate::progress_controller::SqlModelPath::parse(
+                "models/staging/stg_orders.sql".to_string(),
+            )
+            .expect("valid sql model path"),
+            core: crate::progress_controller::RepairModeCore {
+                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
             },
-        );
+        },
+    );
     let _failed = vec![FailedModelRef {
         name: "stg_other".to_string(),
         file: "models/staging/stg_other.sql".to_string(),
@@ -1145,19 +1131,16 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
 
     // Seed failing validate state directly in canonical control state.
     let mut state = crate::progress_controller::ExecutionState::new();
-    state.telemetry.last_validate = Some(
-        crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        },
-    );
+    state.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
+        ok: Some(false),
+        ..crate::progress_controller::LastValidateState::default()
+    });
     state
         .save(&store.control_store(), tid)
         .await
         .expect("save failing validate state");
 
-    let before =
-        DataEngineerSuite::authoring_complete_reason_detail(&store, tid, true, true).await;
+    let before = DataEngineerSuite::authoring_complete_reason_detail(&store, tid, true, true).await;
     assert_eq!(
         before
             .get("guard_state")
@@ -1167,18 +1150,20 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     );
 
     // A recorded patch mutation flips patched_since_fail via typed mutation receipt.
-    state.repair.repair_mode =
-        crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
+    state.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+        crate::progress_controller::SqlTargetRepairMode {
+            target_path: crate::progress_controller::SqlModelPath::parse(
+                "models/staging/stg_orders.sql".to_string(),
+            )
+            .expect("valid sql model path"),
+            core: crate::progress_controller::RepairModeCore {
+                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
             },
-        );
+        },
+    );
     state.set_last_mutation_summary(
         crate::progress_controller::MutationOp::Patch,
         vec!["models/staging/stg_orders.sql".to_string()],
@@ -1189,8 +1174,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
         .await
         .expect("save patched state");
 
-    let after =
-        DataEngineerSuite::authoring_complete_reason_detail(&store, tid, true, true).await;
+    let after = DataEngineerSuite::authoring_complete_reason_detail(&store, tid, true, true).await;
     assert_eq!(
         after
             .get("guard_state")
@@ -1251,10 +1235,9 @@ fn model_plan_manifest_retry_state_detects_repeated_failures() {
     let mut st = ExecutionState::new();
     let path_kind = classify_manifest_lookup_path("manifest.json")
         .expect("manifest.json should classify as manifest lookup path");
-    let failure_kind = classify_manifest_lookup_failure(&[
-        "not found or failed to fetch: NoSuchKey".to_string(),
-    ])
-    .expect("NoSuchKey failure should classify");
+    let failure_kind =
+        classify_manifest_lookup_failure(&["not found or failed to fetch: NoSuchKey".to_string()])
+            .expect("NoSuchKey failure should classify");
 
     st.note_manifest_lookup_attempt(path_kind, false, Some(failure_kind));
     st.note_manifest_lookup_attempt(path_kind, false, Some(failure_kind));
@@ -1262,7 +1245,8 @@ fn model_plan_manifest_retry_state_detects_repeated_failures() {
     assert!(st.manifest.manifest_lookup.retry_suppressed);
     assert_eq!(st.manifest.manifest_lookup.canonical_success_count, 0);
     assert!(
-        st.manifest.manifest_lookup
+        st.manifest
+            .manifest_lookup
             .failure_signature
             .as_deref()
             .unwrap_or("")
@@ -1308,8 +1292,7 @@ fn run_agent_source_enforces_kernel_transition_and_guard_paths() {
         "execute_publish_await_approval_phase(",
         "execute_publish_phase(",
     ] {
-        let found = mod_src.contains(marker)
-            || include_str!("agent_modes.rs").contains(marker);
+        let found = mod_src.contains(marker) || include_str!("agent_modes.rs").contains(marker);
         assert!(
             found,
             "run loop should route through typed phase executors: missing {marker}"
@@ -1339,10 +1322,7 @@ fn run_agent_source_enforces_kernel_transition_and_guard_paths() {
 fn control_state_thread_log_read_guardrails_are_enforced_in_rust_tests() {
     let forbidden = ["thread_store.get(", "store.get(thread_id)"];
     let sources = [
-        (
-            "control_flow.rs",
-            include_str!("control_flow.rs"),
-        ),
+        ("control_flow.rs", include_str!("control_flow.rs")),
         (
             "progress_controller.rs",
             include_str!("progress_controller.rs"),

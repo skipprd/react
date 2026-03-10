@@ -1,8 +1,11 @@
-use super::*;
 use super::tool_policies::*;
+use super::*;
 
 impl DataEngineerSuite {
-    pub(super) fn build_tools(agent_mode: AgentMode, sctx: &SuiteCtx) -> Result<ToolRegistry, String> {
+    pub(super) fn build_tools(
+        agent_mode: AgentMode,
+        sctx: &SuiteCtx,
+    ) -> Result<ToolRegistry, String> {
         use crate::tools::{
             artifacts::ArtifactsTool, files_tool::FilesTool, sql_run::SqlRunTool,
             sql_sample::SqlSampleTool, sql_schema::SqlSchemaTool, sql_stats::SqlStatsTool,
@@ -11,8 +14,8 @@ impl DataEngineerSuite {
 
         let mut registry = ToolRegistry::new();
 
-        let query = crate::ctx_ext::sctx_query(sctx)
-            .ok_or_else(|| "query provider missing".to_string())?;
+        let query =
+            crate::ctx_ext::sctx_query(sctx).ok_or_else(|| "query provider missing".to_string())?;
 
         registry.register(SqlSchemaTool {
             query: query.clone(),
@@ -173,8 +176,8 @@ impl DataEngineerSuite {
             sql_stats::SqlStatsTool, vect_query::VectQueryTool,
         };
 
-        let query = crate::ctx_ext::sctx_query(sctx)
-            .ok_or_else(|| "query provider missing".to_string())?;
+        let query =
+            crate::ctx_ext::sctx_query(sctx).ok_or_else(|| "query provider missing".to_string())?;
         let datasets_opt = crate::ctx_ext::sctx_datasets(sctx);
 
         let mut reg = ToolRegistry::new();
@@ -280,7 +283,10 @@ impl DataEngineerSuite {
                         crate::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
                     ) {
                         let batch_tool_name = register_batch_tool_for_plan_state(
-                            &mut reg, phase, plan_state, &datasets_opt,
+                            &mut reg,
+                            phase,
+                            plan_state,
+                            &datasets_opt,
                         );
                         if let Some(name) = batch_tool_name {
                             tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
@@ -310,7 +316,10 @@ impl DataEngineerSuite {
                 } else {
                     // Normal authoring: batch tool from PlanState + read/explore tools.
                     let batch_tool_name = register_batch_tool_for_plan_state(
-                        &mut reg, phase, plan_state, &datasets_opt,
+                        &mut reg,
+                        phase,
+                        plan_state,
+                        &datasets_opt,
                     );
                     if matches!(plan_state, PlanState::Unconstrained) {
                         if phase == control_flow::Phase::CleanseAuthor {

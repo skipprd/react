@@ -67,23 +67,32 @@ impl DataEngineerSuite {
                 candidates.dedup();
                 let wh = crate::ctx_ext::actx_warehouse(actx)
                     .ok_or_else(|| "warehouse provider missing for plan grounding".to_string())?;
-                let grounded = crate::dataset_truth::build_grounded_raw_dataset_set(
-                    actx, &wh, &candidates,
-                ).await;
+                let grounded =
+                    crate::dataset_truth::build_grounded_raw_dataset_set(actx, &wh, &candidates)
+                        .await;
                 crate::plan::prune_cleanse_plan_to_grounded_raw_datasets(p, &grounded.allowed);
             }
             TrackPlanDoc::Model(p) => {
-                let stg = staging_grounding.as_ref().expect("pre-computed for model track");
+                let stg = staging_grounding
+                    .as_ref()
+                    .expect("pre-computed for model track");
                 crate::plan::prune_model_plan_to_grounded_staging_models(p, &stg.allowed_models);
             }
         }
 
         if doc.is_empty() {
-            doc.cancel().map_err(|e| format!("plan cancel failed: {e}"))?;
-            save_plan(actx, &doc).await
-                .map_err(|e| format!("failed to persist pruned-empty {} plan: {e}", track.as_str()))?;
+            doc.cancel()
+                .map_err(|e| format!("plan cancel failed: {e}"))?;
+            save_plan(actx, &doc).await.map_err(|e| {
+                format!(
+                    "failed to persist pruned-empty {} plan: {e}",
+                    track.as_str()
+                )
+            })?;
             commit_phase_decision(
-                thread_store, thread_id, Some(phase),
+                thread_store,
+                thread_id,
+                Some(phase),
                 PhaseDecision::annotation(
                     phase,
                     Some(PhaseReasonCode::PlanPrunedEmpty),
@@ -93,7 +102,8 @@ impl DataEngineerSuite {
                         },
                     )),
                 ),
-            ).await?;
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -103,7 +113,9 @@ impl DataEngineerSuite {
                 crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(p)
             }
             TrackPlanDoc::Model(p) => {
-                let stg = staging_grounding.as_ref().expect("pre-computed for model track");
+                let stg = staging_grounding
+                    .as_ref()
+                    .expect("pre-computed for model track");
                 crate::plan::ensure_model_plan_semantically_valid_or_repaired(
                     p,
                     &stg.allowed_models,
@@ -111,11 +123,18 @@ impl DataEngineerSuite {
             }
         };
         if !v.ok {
-            doc.cancel().map_err(|e| format!("plan cancel failed: {e}"))?;
-            save_plan(actx, &doc).await
-                .map_err(|e| format!("failed to persist semantically-invalid {} plan: {e}", track.as_str()))?;
+            doc.cancel()
+                .map_err(|e| format!("plan cancel failed: {e}"))?;
+            save_plan(actx, &doc).await.map_err(|e| {
+                format!(
+                    "failed to persist semantically-invalid {} plan: {e}",
+                    track.as_str()
+                )
+            })?;
             commit_phase_decision(
-                thread_store, thread_id, Some(phase),
+                thread_store,
+                thread_id,
+                Some(phase),
                 PhaseDecision::annotation(
                     phase,
                     Some(PhaseReasonCode::PlanSemanticInvalid),
@@ -126,27 +145,36 @@ impl DataEngineerSuite {
                         },
                     )),
                 ),
-            ).await?;
+            )
+            .await?;
             return Ok(true);
         }
 
-        doc.approve().map_err(|e| format!("plan approval failed: {e}"))?;
+        doc.approve()
+            .map_err(|e| format!("plan approval failed: {e}"))?;
         doc.progress_mut().last_applied_step_idx = log_len;
-        save_plan(actx, &doc).await
+        save_plan(actx, &doc)
+            .await
             .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
         crate::state_manager::mutate_execution_state(
-            &thread_store.control_store(), thread_id,
+            &thread_store.control_store(),
+            thread_id,
             |es| es.clear_pending_patch_impl(),
-        ).await.map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
+        )
+        .await
+        .map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
 
         commit_phase_decision(
-            thread_store, thread_id, Some(phase),
+            thread_store,
+            thread_id,
+            Some(phase),
             PhaseDecision::forward(
                 track.author_phase(),
                 Some(transition_reason_code),
                 Some(transition_reason_detail),
             ),
-        ).await?;
+        )
+        .await?;
         Ok(true)
     }
 
@@ -257,20 +285,27 @@ impl DataEngineerSuite {
         let mut prior_review_block: Option<String> = None;
         if matches!(
             entry_reason_code,
-            Some(
-                PhaseReasonCode::ReviewProceed
-                    | PhaseReasonCode::ReviewPatchImpl
-            )
+            Some(PhaseReasonCode::ReviewProceed | PhaseReasonCode::ReviewPatchImpl)
         ) {
-            let rd = entry_reason_detail.clone();
-            let review_phase = rd
-                .get("review_phase")
-                .and_then(|v| v.as_str())
+            let parsed = serde_json::from_value::<
+                crate::phase_reason_detail::ReviewDecisionTransitionDetail,
+            >(entry_reason_detail.clone())
+            .ok();
+            let review_phase = parsed
+                .as_ref()
+                .map(|rd| rd.review_phase.as_str())
                 .unwrap_or("unknown");
-            let meta = rd.get("meta").cloned().unwrap_or(serde_json::Value::Null);
-            let ans = rd.get("answer").and_then(|v| v.as_str()).unwrap_or("");
+            let meta = parsed
+                .as_ref()
+                .and_then(|rd| serde_json::to_value(&rd.meta).ok())
+                .unwrap_or(serde_json::Value::Null);
+            let ans = parsed
+                .as_ref()
+                .and_then(|rd| serde_json::to_value(rd.answer).ok())
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_default();
             let excerpt = {
-                let cleaned = Self::strip_meta_line(ans);
+                let cleaned = Self::strip_meta_line(&ans);
                 let max = 700usize;
                 if cleaned.len() > max {
                     format!("{}...", &cleaned[..max])

@@ -82,9 +82,7 @@ impl ControlStateStore {
             payload,
         })
         .map_err(|e| {
-            CoreError::Session(format!(
-                "encode_control_state(suite_id='{suite_id}'): {e}"
-            ))
+            CoreError::Session(format!("encode_control_state(suite_id='{suite_id}'): {e}"))
         })
     }
 
@@ -174,14 +172,12 @@ impl ControlStateStore {
         };
         let current = match loaded {
             LoadState::Missing => None,
-            LoadState::Loaded(raw) => {
-                match Self::decode(&raw.value, suite_id)? {
-                    Some(payload) => Some(serde_json::from_value::<T>(payload).map_err(|e| {
-                        CoreError::Session(format!("failed to parse control state payload: {e}"))
-                    })?),
-                    None => None,
-                }
-            }
+            LoadState::Loaded(raw) => match Self::decode(&raw.value, suite_id)? {
+                Some(payload) => Some(serde_json::from_value::<T>(payload).map_err(|e| {
+                    CoreError::Session(format!("failed to parse control state payload: {e}"))
+                })?),
+                None => None,
+            },
         };
         let next = mutate(current)?;
         let payload = serde_json::to_value(&next).map_err(|e| {

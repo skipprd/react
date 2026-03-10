@@ -1,14 +1,12 @@
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
-use react_core::agent::AgentCtx;
-use react_core::llm::{ChatMessage, ChatRole};
-use react_core::llm::LlmCallOptions;
 use crate::providers::DatasetCatalogProvider;
+use react_core::agent::AgentCtx;
+use react_core::llm::LlmCallOptions;
+use react_core::llm::{ChatMessage, ChatRole};
 
-use crate::patch_contract::{
-    normalize_hunks_only_patch_text, LlmSingleFilePatchResponse,
-};
+use crate::patch_contract::{normalize_hunks_only_patch_text, LlmSingleFilePatchResponse};
 use crate::project_fs;
 
 fn sha256_hex(s: &str) -> String {
@@ -43,11 +41,9 @@ fn excerpt_for_error(s: &str, max_chars: usize) -> String {
 }
 
 pub fn default_patch_loop_max_output_tokens() -> u32 {
-    crate::env_util::env_u32(
-        crate::env_util::env_keys::REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS,
-    )
-    .filter(|v| *v >= 512)
-    .unwrap_or(3200)
+    crate::env_util::env_u32(crate::env_util::env_keys::REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS)
+        .filter(|v| *v >= 512)
+        .unwrap_or(3200)
 }
 
 #[derive(Clone, Debug)]
@@ -539,7 +535,8 @@ pub async fn llm_patch_loop_single_file(
             parsed.patch_text.as_str(),
             &base_state,
         )
-        .await {
+        .await
+        {
             Ok(outcome) => {
                 if outcome.base_sha256 == outcome.new_sha256 {
                     no_op_failures = no_op_failures.saturating_add(1);
@@ -659,7 +656,11 @@ mod tests {
     fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -745,15 +746,22 @@ mod tests {
             ]),
         });
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>

@@ -84,11 +84,8 @@ pub(crate) async fn compile_and_write_model<V>(
 where
     V: FnOnce(&str) -> Result<(), String>,
 {
-    let intent = authoring_ir::compile_sql_first_draft(
-        &draft.sql,
-        &draft.notes,
-        plan_output_fields,
-    )?;
+    let intent =
+        authoring_ir::compile_sql_first_draft(&draft.sql, &draft.notes, plan_output_fields)?;
 
     let dbt_sql = sql_first::apply_placeholders(&intent.sql, materialize_replacements);
 

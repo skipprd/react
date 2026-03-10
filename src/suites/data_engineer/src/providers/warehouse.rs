@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
+use super::catalog_types::DatasetStats;
 use super::dataset_catalog::{DatasetCatalogProvider, DatasetId};
 use super::query::{QueryProvider, QueryResult};
-use super::catalog_types::DatasetStats;
 use super::stats::DatasetFieldStats;
 
 // TODO(item-67): All provider traits return `Result<..., String>`. Replace with a

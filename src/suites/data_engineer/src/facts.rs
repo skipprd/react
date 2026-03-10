@@ -493,13 +493,13 @@ pub fn merge_relation_fqns(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use react_core::resolved_config as config;
-    use crate::de_config as de_config;
+    use crate::de_config;
+    use crate::providers::{DbtProvider, QueryProvider};
     use async_trait::async_trait;
     use react_core::agent::{AgentCtx, DefaultPolicy};
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::NullModel;
-    use crate::providers::{DbtProvider, QueryProvider};
+    use react_core::resolved_config as config;
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -508,7 +508,11 @@ mod tests {
     fn minimal_cfg() -> Arc<config::ReactResolvedConfig> {
         Arc::new(config::ReactResolvedConfig {
             server: config::ServerResolved { port: 1 },
-            storage: config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
@@ -604,17 +608,27 @@ mod tests {
     fn make_ctx(storage: Arc<dyn StorageAdapter>, query: Arc<dyn QueryProvider>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut actx = react_core::agent::AgentCtxBuilder::new(Arc::new(NullModel::new()), storage, scope, keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            Arc::new(NullModel::new()),
+            storage,
+            scope,
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         actx.set_capability(Arc::new(crate::ctx_ext::QueryCap(query)));
-        actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(Arc::new(crate::providers::warehouse::NullWarehouseProvider::default()))));
+        actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(Arc::new(
+            crate::providers::warehouse::NullWarehouseProvider::default(),
+        ))));
         actx.set_capability(Arc::new(crate::ctx_ext::DbtCap(Arc::new(NoopDbtProvider))));
-        actx.set_capability(Arc::new(crate::ctx_ext::ProvidersCfgCap(minimal_providers())));
+        actx.set_capability(Arc::new(crate::ctx_ext::ProvidersCfgCap(
+            minimal_providers(),
+        )));
         actx
     }
 
@@ -686,10 +700,8 @@ mod tests {
                 }
             }
         });
-        let contract = crate::controller_event::validate_contract_from_observation(
-            validate_obs,
-        )
-        .expect("validate contract");
+        let contract = crate::controller_event::validate_contract_from_observation(validate_obs)
+            .expect("validate contract");
         let facts = build_validate_fail_facts(
             &ctx,
             SqlDialect("Amazon Athena (engine v3 / Trino SQL)".to_string()),

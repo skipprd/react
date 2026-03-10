@@ -1,7 +1,7 @@
-use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
-use react_core::suite::SuiteCtx;
 use crate::domain_types::PhaseReasonCode;
+use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
 use react_core::session::ThreadStore;
+use react_core::suite::SuiteCtx;
 
 impl DataEngineerSuite {
     pub(super) async fn execute_preflight_phase(
@@ -23,13 +23,17 @@ impl DataEngineerSuite {
             )
             .await
             {
-                let key = sctx.keyspace().scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
+                let key = sctx
+                    .keyspace()
+                    .scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
                 return Err(format!(
                     "failed to create the dbt project in storage. expected file: {key}. error: {e}. this is usually an s3 permission/prefix issue."
                 ).into());
             }
         }
-        let key = sctx.keyspace().scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
+        let key = sctx
+            .keyspace()
+            .scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
         match sctx.storage().head_etag(&key).await {
             Ok(Some(_)) => {}
             Ok(None) => {
@@ -61,4 +65,3 @@ impl DataEngineerSuite {
         Ok(PhaseExecutorOutcome::TransitionCommitted)
     }
 }
-

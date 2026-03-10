@@ -4,7 +4,9 @@ use crate::event_hub::EventHub;
 const SENT_BUFFER_CAPACITY: usize = 500;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalSink};
-use react_core::session::{ControlStateStore, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore};
+use react_core::session::{
+    ControlStateStore, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore,
+};
 use react_core::suite::{SuiteCtx, SuiteRegistry};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
@@ -102,7 +104,10 @@ pub(super) fn default_suite_id(reg: &SuiteRegistry) -> Option<String> {
 ///
 /// Never reads from ViewCache — per the state hierarchy rule, the view cache
 /// is a disposable display projection and must never drive control flow.
-pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &str) -> (String, String) {
+pub(super) async fn resolve_thread_context(
+    state: &mut ConnState,
+    thread_id: &str,
+) -> (String, String) {
     let cached_suite = state.current_suite.get(thread_id).cloned();
     let cached_agent = state.current_agent.get(thread_id).cloned();
     if let (Some(s), Some(a)) = (cached_suite.as_ref(), cached_agent.as_ref()) {
@@ -127,10 +132,14 @@ pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &st
         if let Ok(log) = state.log_reader().get_log(thread_id).await {
             for step in log.steps.iter().rev() {
                 match step {
-                    ThreadStep::SwitchSuite { to, .. } if suite_id.trim().is_empty() && !to.trim().is_empty() => {
+                    ThreadStep::SwitchSuite { to, .. }
+                        if suite_id.trim().is_empty() && !to.trim().is_empty() =>
+                    {
                         suite_id = to.clone();
                     }
-                    ThreadStep::SwitchAgent { to, .. } if agent_type.trim().is_empty() && !to.trim().is_empty() => {
+                    ThreadStep::SwitchAgent { to, .. }
+                        if agent_type.trim().is_empty() && !to.trim().is_empty() =>
+                    {
                         agent_type = to.clone();
                     }
                     _ => {}
@@ -149,8 +158,12 @@ pub(super) async fn resolve_thread_context(state: &mut ConnState, thread_id: &st
         agent_type = DEFAULT_AGENT_TYPE.to_string();
     }
 
-    state.current_suite.insert(thread_id.to_string(), suite_id.clone());
-    state.current_agent.insert(thread_id.to_string(), agent_type.clone());
+    state
+        .current_suite
+        .insert(thread_id.to_string(), suite_id.clone());
+    state
+        .current_agent
+        .insert(thread_id.to_string(), agent_type.clone());
     (suite_id, agent_type)
 }
 
@@ -162,10 +175,8 @@ pub(super) fn build_suites_catalog(reg: &SuiteRegistry) -> Vec<api::SuitesRespon
     let mut out: Vec<api::SuitesResponseSuitesInner> = Vec::new();
     for id in reg.list_ids() {
         if let Some(suite) = reg.get(id) {
-            let mut s = api::SuitesResponseSuitesInner::new(
-                id.to_string(),
-                suite.supported_agent_types(),
-            );
+            let mut s =
+                api::SuitesResponseSuitesInner::new(id.to_string(), suite.supported_agent_types());
             s.label = Some(suite.label().to_string());
             s.default_agent_type = Some(suite.default_agent_type().to_string());
             out.push(s);

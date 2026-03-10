@@ -2,15 +2,15 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
+use crate::providers::DatasetCatalogProvider;
 use react_core::agent::AgentCtx;
 use react_core::llm::LlmCallOptions;
-use crate::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 use crate::chunk_progress_contract;
+use crate::controller_kernel;
 use crate::naming;
 use crate::plan;
-use crate::controller_kernel;
 use crate::project_fs;
 use crate::references::DatasetRef;
 use crate::schema_policy;
@@ -240,14 +240,18 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 crate::tools::batch_contracts::CleanseSchemaBatchContract {
                     ok: false,
                     kind: Some("batch_locked".to_string()),
-                    reason_code: Some(serde_json::to_value(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .map_err(|e| format!("failed to encode batch lock reason: {e}"))?),
-                    message: Some(controller_kernel::batch_lock_error_message(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .to_string()),
+                    reason_code: Some(
+                        serde_json::to_value(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .map_err(|e| format!("failed to encode batch lock reason: {e}"))?,
+                    ),
+                    message: Some(
+                        controller_kernel::batch_lock_error_message(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .to_string(),
+                    ),
                     checklist_item_id: checklist_item_id.clone(),
                     attempted_dataset_ids: Vec::new(),
                     succeeded_dataset_ids: Vec::new(),
@@ -265,9 +269,10 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
 
         let batch = plan::cleanse_pending_schema_contracts(&plan);
         if batch.is_empty() {
-            let has_incomplete = plan.tasks.iter().any(|t| {
-                !matches!(t.status, crate::plan_types::TaskStatus::Done)
-            });
+            let has_incomplete = plan
+                .tasks
+                .iter()
+                .any(|t| !matches!(t.status, crate::plan_types::TaskStatus::Done));
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::CleanseSchemaBatchContract {
                     ok: !has_incomplete,
@@ -289,9 +294,11 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 },
             );
         }
-        if let Err(e) =
-            chunk_progress_contract::enforce_chunk_contract(&batch, crate::plan_progress::MAX_BATCH_SIZE, "cleanse_schema")
-        {
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(
+            &batch,
+            crate::plan_progress::MAX_BATCH_SIZE,
+            "cleanse_schema",
+        ) {
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::CleanseSchemaBatchContract {
                     ok: false,
@@ -325,7 +332,8 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         let mut failed: Vec<String> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
         let mut auto_healed_wildcard_sql_dataset_ids: Vec<String> = Vec::new();
-        let mut plan_violations: Vec<crate::tools::batch_contracts::PlanViolationBrief> = Vec::new();
+        let mut plan_violations: Vec<crate::tools::batch_contracts::PlanViolationBrief> =
+            Vec::new();
 
         for ds in batch.iter() {
             let Some(ds_ref) = DatasetRef::parse(ds) else {
@@ -359,15 +367,13 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                         .iter()
                         .find(|t| t.dataset_id == *ds)
                         .and_then(|t| {
-                            t.implementation_spec
-                                .as_ref()
-                                .map(|spec| {
-                                    spec.output_fields
-                                        .iter()
-                                        .map(|f| f.name.trim().to_string())
-                                        .filter(|n| !n.is_empty())
-                                        .collect::<Vec<String>>()
-                                })
+                            t.implementation_spec.as_ref().map(|spec| {
+                                spec.output_fields
+                                    .iter()
+                                    .map(|f| f.name.trim().to_string())
+                                    .filter(|n| !n.is_empty())
+                                    .collect::<Vec<String>>()
+                            })
                         })
                         .unwrap_or_default();
                     if !from_plan.is_empty() {
@@ -403,12 +409,10 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                              The plan must provide concrete output_fields for this dataset."
                         );
                         errors.push(msg.clone());
-                        plan_violations.push(
-                            crate::tools::batch_contracts::PlanViolationBrief {
-                                task_id: ds.clone(),
-                                evidence: msg,
-                            },
-                        );
+                        plan_violations.push(crate::tools::batch_contracts::PlanViolationBrief {
+                            task_id: ds.clone(),
+                            evidence: msg,
+                        });
                         continue;
                     }
                 }
@@ -446,7 +450,8 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     timeout_secs: None,
                 }),
             )
-            .await {
+            .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     failed.push(ds.clone());
@@ -509,9 +514,11 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
         let failure_kind = if failed.is_empty() {
             None
         } else {
-            Some(crate::tools::batch_sql_runner::classify_schema_batch_failure_kind(
-                &errors.join("\n"),
-            ))
+            Some(
+                crate::tools::batch_sql_runner::classify_schema_batch_failure_kind(
+                    &errors.join("\n"),
+                ),
+            )
         };
         let budget = controller_kernel::note_batch_result_with_failure_kind(
             &mut plan.progress,
@@ -527,14 +534,18 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 crate::tools::batch_contracts::CleanseSchemaBatchContract {
                     ok: false,
                     kind: Some("batch_locked".to_string()),
-                    reason_code: Some(serde_json::to_value(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .map_err(|e| format!("failed to encode batch lock reason: {e}"))?),
-                    message: Some(controller_kernel::batch_lock_error_message(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .to_string()),
+                    reason_code: Some(
+                        serde_json::to_value(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .map_err(|e| format!("failed to encode batch lock reason: {e}"))?,
+                    ),
+                    message: Some(
+                        controller_kernel::batch_lock_error_message(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .to_string(),
+                    ),
                     checklist_item_id: checklist_item_id.clone(),
                     attempted_dataset_ids: batch,
                     succeeded_dataset_ids: succeeded,
@@ -592,12 +603,9 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         }
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
-        let stg =
-            crate::dataset_truth::discover_staging_models_from_storage(ctx).await;
-        let v = plan::ensure_model_plan_semantically_valid_or_repaired(
-            &mut plan,
-            &stg.allowed_models,
-        );
+        let stg = crate::dataset_truth::discover_staging_models_from_storage(ctx).await;
+        let v =
+            plan::ensure_model_plan_semantically_valid_or_repaired(&mut plan, &stg.allowed_models);
         if !v.ok {
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::ModelSchemaBatchContract {
@@ -623,14 +631,18 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     ok: false,
                     checklist_item_id: checklist_item_id.clone(),
                     kind: Some("batch_locked".to_string()),
-                    reason_code: Some(serde_json::to_value(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .map_err(|e| format!("failed to encode batch lock reason: {e}"))?),
-                    message: Some(controller_kernel::batch_lock_error_message(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .to_string()),
+                    reason_code: Some(
+                        serde_json::to_value(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .map_err(|e| format!("failed to encode batch lock reason: {e}"))?,
+                    ),
+                    message: Some(
+                        controller_kernel::batch_lock_error_message(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .to_string(),
+                    ),
                     errors: vec![controller_kernel::batch_lock_error_message(
                         controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
                     )
@@ -647,9 +659,10 @@ impl Tool for ApplyNextModelSchemaBatchTool {
 
         let names = plan::model_pending_schema_contracts(&plan);
         if names.is_empty() {
-            let has_incomplete = plan.tasks.iter().any(|t| {
-                !matches!(t.status, crate::plan_types::TaskStatus::Done)
-            });
+            let has_incomplete = plan
+                .tasks
+                .iter()
+                .any(|t| !matches!(t.status, crate::plan_types::TaskStatus::Done));
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::ModelSchemaBatchContract {
                     ok: !has_incomplete,
@@ -671,7 +684,11 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 },
             );
         }
-        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&names, crate::plan_progress::MAX_BATCH_SIZE, "model_schema") {
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(
+            &names,
+            crate::plan_progress::MAX_BATCH_SIZE,
+            "model_schema",
+        ) {
             return crate::tools::batch_contracts::to_json_value(
                 crate::tools::batch_contracts::ModelSchemaBatchContract {
                     ok: false,
@@ -760,42 +777,40 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         })
         .to_string();
 
-        let (outcome, _notes) =
-            match crate::patch_protocol::llm_patch_loop_single_file(
-                ctx,
-                self.datasets.as_ref(),
-                schema_yml_sys_prompt_models_schema_yml(),
-                user_payload,
-                expected_rel,
-                6,
-                Some(LlmCallOptions {
-                    prompt_id: "data_engineer.apply_next_schema_batch.models_schema_patch",
-                    thread_id: ctx.thread_id().clone(),
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.05),
-                    top_p: Some(1.0),
-                    max_output_tokens: Some(
-                        crate::patch_protocol::default_patch_loop_max_output_tokens(
-                        ),
-                    ),
-                    reasoning_effort: None,
-                    timeout_secs: None,
-                }),
-            )
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    return crate::tools::batch_schema_runner::fail_model_schema_batch(
-                        ctx,
-                        &mut plan,
-                        &attempted_names,
-                        &checklist_item_id,
-                        format!("models/schema.yml patch failed: {e}"),
-                    )
-                    .await;
-                }
-            };
+        let (outcome, _notes) = match crate::patch_protocol::llm_patch_loop_single_file(
+            ctx,
+            self.datasets.as_ref(),
+            schema_yml_sys_prompt_models_schema_yml(),
+            user_payload,
+            expected_rel,
+            6,
+            Some(LlmCallOptions {
+                prompt_id: "data_engineer.apply_next_schema_batch.models_schema_patch",
+                thread_id: ctx.thread_id().clone(),
+                expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+                temperature: Some(0.05),
+                top_p: Some(1.0),
+                max_output_tokens: Some(
+                    crate::patch_protocol::default_patch_loop_max_output_tokens(),
+                ),
+                reasoning_effort: None,
+                timeout_secs: None,
+            }),
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                return crate::tools::batch_schema_runner::fail_model_schema_batch(
+                    ctx,
+                    &mut plan,
+                    &attempted_names,
+                    &checklist_item_id,
+                    format!("models/schema.yml patch failed: {e}"),
+                )
+                .await;
+            }
+        };
 
         // Deterministic post-check: enforce schema ownership + strip unsafe tests for touched models.
         let (sanitized_text, warnings) = match schema_policy::sanitize_models_schema_yml(
@@ -835,11 +850,8 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         for n in names.iter() {
             plan::model_schema_contract_mark_done(&mut plan, n);
         }
-        let budget = controller_kernel::note_batch_result_with_failure_kind(
-            &mut plan.progress,
-            true,
-            None,
-        );
+        let budget =
+            controller_kernel::note_batch_result_with_failure_kind(&mut plan.progress, true, None);
         plan::save_model_plan(ctx, &plan)
             .await
             .map_err(|e| format!("failed to persist model schema batch result state: {e}"))?;
@@ -850,14 +862,18 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                     ok: false,
                     checklist_item_id: checklist_item_id.clone(),
                     kind: Some("batch_locked".to_string()),
-                    reason_code: Some(serde_json::to_value(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .map_err(|e| format!("failed to encode batch lock reason: {e}"))?),
-                    message: Some(controller_kernel::batch_lock_error_message(
-                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                    )
-                    .to_string()),
+                    reason_code: Some(
+                        serde_json::to_value(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .map_err(|e| format!("failed to encode batch lock reason: {e}"))?,
+                    ),
+                    message: Some(
+                        controller_kernel::batch_lock_error_message(
+                            controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                        )
+                        .to_string(),
+                    ),
                     attempted_item_names: attempted_names.clone(),
                     succeeded_item_names: attempted_names.clone(),
                     failed_item_names: Vec::new(),
@@ -990,7 +1006,11 @@ mod tests {
     fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -1033,15 +1053,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1070,23 +1097,26 @@ mod tests {
                 implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
                     row_preserving: true,
-                    output_fields: vec![plan::OutputFieldSpec {
-                        name: "customer_id_raw".to_string(),
-                        kind: plan::FieldKind::Raw,
-                        source_columns: vec!["customer_id".to_string()],
-                        expression: "customer_id as customer_id_raw (raw)".to_string(),
-                        data_type: None,
-                        nullable: true,
-                        description: None,
-                    }, plan::OutputFieldSpec {
-                        name: "email_raw".to_string(),
-                        kind: plan::FieldKind::Raw,
-                        source_columns: vec!["email".to_string()],
-                        expression: "email as email_raw (raw)".to_string(),
-                        data_type: None,
-                        nullable: true,
-                        description: None,
-                    }],
+                    output_fields: vec![
+                        plan::OutputFieldSpec {
+                            name: "customer_id_raw".to_string(),
+                            kind: plan::FieldKind::Raw,
+                            source_columns: vec!["customer_id".to_string()],
+                            expression: "customer_id as customer_id_raw (raw)".to_string(),
+                            data_type: None,
+                            nullable: true,
+                            description: None,
+                        },
+                        plan::OutputFieldSpec {
+                            name: "email_raw".to_string(),
+                            kind: plan::FieldKind::Raw,
+                            source_columns: vec!["email".to_string()],
+                            expression: "email as email_raw (raw)".to_string(),
+                            data_type: None,
+                            nullable: true,
+                            description: None,
+                        },
+                    ],
                     prohibited_ops: vec![],
                 }),
                 status: plan::TaskStatus::InProgress,
@@ -1135,11 +1165,9 @@ mod tests {
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        assert!(
-            healed_ds
-                .iter()
-                .any(|v| v.as_str() == Some("AwsDataCatalog.test_raw.raw_customers"))
-        );
+        assert!(healed_ds
+            .iter()
+            .any(|v| v.as_str() == Some("AwsDataCatalog.test_raw.raw_customers")));
     }
 
     #[tokio::test]
@@ -1150,15 +1178,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid_lock".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid_lock".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1211,7 +1246,10 @@ mod tests {
 
         let tool = ApplyNextCleanseSchemaBatchTool { datasets: None };
         let res = tool.call(serde_json::json!({}), &ctx).await.unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("batch_locked"));
+        assert_eq!(
+            res.get("kind").and_then(|v| v.as_str()),
+            Some("batch_locked")
+        );
         assert_eq!(
             res.get("attempted_dataset_ids")
                 .and_then(|v| v.as_array())
@@ -1232,15 +1270,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid_ctx".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid_ctx".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1249,11 +1294,20 @@ mod tests {
         let plan_key = plan::new_cleanse_plan_key(&ctx);
         ctx.set_exec_ctx(Some({
             let mut ectx = ExecutionContext::default();
-            ectx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+            ectx.set(
+                "plan_kind",
+                serde_json::Value::String("cleanse".to_string()),
+            );
             ectx.set("plan_key", serde_json::Value::String(plan_key.clone()));
             ectx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
-            ectx.set("task_id", serde_json::Value::String("AwsDataCatalog.test_raw.raw_customers".to_string()));
-            ectx.set("checklist_item_id", serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()));
+            ectx.set(
+                "task_id",
+                serde_json::Value::String("AwsDataCatalog.test_raw.raw_customers".to_string()),
+            );
+            ectx.set(
+                "checklist_item_id",
+                serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()),
+            );
             ectx
         }));
 
@@ -1345,15 +1399,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid2".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid2".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1429,15 +1490,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid_model_lock".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid_model_lock".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1494,7 +1562,10 @@ mod tests {
 
         let tool = ApplyNextModelSchemaBatchTool { datasets: None };
         let res = tool.call(serde_json::json!({}), &ctx).await.unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("batch_locked"));
+        assert_eq!(
+            res.get("kind").and_then(|v| v.as_str()),
+            Some("batch_locked")
+        );
         assert_eq!(
             res.get("attempted_item_names")
                 .and_then(|v| v.as_array())
@@ -1515,15 +1586,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid_model_ctx".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid_model_ctx".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1535,8 +1613,14 @@ mod tests {
             ectx.set("plan_kind", serde_json::Value::String("model".to_string()));
             ectx.set("plan_key", serde_json::Value::String(plan_key.clone()));
             ectx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
-            ectx.set("task_id", serde_json::Value::String("dim_customers".to_string()));
-            ectx.set("checklist_item_id", serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()));
+            ectx.set(
+                "task_id",
+                serde_json::Value::String("dim_customers".to_string()),
+            );
+            ectx.set(
+                "checklist_item_id",
+                serde_json::Value::String(plan::CHECKLIST_SQL_MODEL.to_string()),
+            );
             ectx
         }));
 
@@ -1603,7 +1687,10 @@ mod tests {
             res
         );
 
-        let got_plan = plan::load_model_plan_by_key(&ctx, &plan_key).await.unwrap().unwrap();
+        let got_plan = plan::load_model_plan_by_key(&ctx, &plan_key)
+            .await
+            .unwrap()
+            .unwrap();
         let t = got_plan
             .tasks
             .iter()
@@ -1632,15 +1719,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm.clone(), storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid3".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm.clone(),
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid3".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>
@@ -1729,15 +1823,22 @@ mod tests {
         });
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id("tid4".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
-        let providers = de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id("tid4".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
+        let providers =
+            de_config::de_config_from_resolved(ctx.resolved_config().as_ref().unwrap()).unwrap();
         ctx.set_capability(Arc::new(ProvidersCfgCap(providers)));
         ctx.set_capability(Arc::new(WarehouseCap(
             Arc::new(NullWarehouseProvider) as Arc<dyn crate::providers::WarehouseProvider>

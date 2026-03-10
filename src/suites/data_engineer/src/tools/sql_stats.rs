@@ -3,8 +3,8 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::probe_target::ProbeTarget;
-use react_core::agent::AgentCtx;
 use crate::providers::{CatalogProvider, DatasetCatalogProvider, DatasetId};
+use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 
 pub struct SqlStatsTool {
@@ -166,4 +166,3 @@ impl Tool for SqlStatsTool {
         }}))
     }
 }
-

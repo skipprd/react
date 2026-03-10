@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::patch_contract::normalize_hunks_only_patch_text;
+use crate::providers::DatasetCatalogProvider;
 use diffy::Patch;
 use react_core::agent::AgentCtx;
-use crate::providers::DatasetCatalogProvider;
-use crate::patch_contract::normalize_hunks_only_patch_text;
 
 #[derive(Debug)]
 pub struct PatchOutcome {
@@ -157,8 +157,7 @@ pub fn apply_replace_range(
     let end_idx_excl = end_line;
 
     let mut new_lines: Vec<String> = new_text.split('\n').map(|x| x.to_string()).collect();
-    if !new_text.ends_with('\n') {
-    }
+    if !new_text.ends_with('\n') {}
 
     lines.splice(start_idx..end_idx_excl, new_lines.drain(..));
     Ok(join_lines_preserve_trailing_newline(
@@ -168,7 +167,10 @@ pub fn apply_replace_range(
 }
 
 #[cfg(test)]
-pub fn apply_replace_list(old_text: &str, edits: &[super::ReplaceListEdit]) -> Result<String, String> {
+pub fn apply_replace_list(
+    old_text: &str,
+    edits: &[super::ReplaceListEdit],
+) -> Result<String, String> {
     if edits.is_empty() {
         return Ok(old_text.to_string());
     }
@@ -294,10 +296,7 @@ pub async fn apply_patch(
                             match Patch::from_str(patch_src.as_ref()) {
                                 Ok(p) => p,
                                 Err(e2) => {
-                                    if e2
-                                        .to_string()
-                                        .contains("unable to parse hunk header")
-                                    {
+                                    if e2.to_string().contains("unable to parse hunk header") {
                                         if let Some(repl) = try_apply_unified_hunks_flexible(
                                             patch_src.as_ref(),
                                             &old,
@@ -317,7 +316,8 @@ pub async fn apply_patch(
                             }
                         } else {
                             if emsg.contains("unable to parse hunk header") {
-                                if let Some(repl) = try_apply_unified_hunks_flexible(&unified, &old) {
+                                if let Some(repl) = try_apply_unified_hunks_flexible(&unified, &old)
+                                {
                                     apply_result_code =
                                         PatchApplyResultCode::AppliedUnifiedByFlexibleFallback;
                                     parse_error_fallback_content = Some(repl);
@@ -824,21 +824,20 @@ select * from {{ source('test_raw','raw_customers') }}
             ),
         ]);
         let ctx = make_ctx(storage, Some(Arc::new(q)));
-        let datasets: Arc<dyn crate::providers::DatasetCatalogProvider> =
-            Arc::new(MockDatasets {
-                items: vec![
-                    DatasetId {
-                        catalog: "AwsDataCatalog".to_string(),
-                        database: "test_raw".to_string(),
-                        table: "raw_customers".to_string(),
-                    },
-                    DatasetId {
-                        catalog: "AwsDataCatalog".to_string(),
-                        database: "test_raw".to_string(),
-                        table: "raw_orders".to_string(),
-                    },
-                ],
-            });
+        let datasets: Arc<dyn crate::providers::DatasetCatalogProvider> = Arc::new(MockDatasets {
+            items: vec![
+                DatasetId {
+                    catalog: "AwsDataCatalog".to_string(),
+                    database: "test_raw".to_string(),
+                    table: "raw_customers".to_string(),
+                },
+                DatasetId {
+                    catalog: "AwsDataCatalog".to_string(),
+                    database: "test_raw".to_string(),
+                    table: "raw_orders".to_string(),
+                },
+            ],
+        });
         let existing = "version: 2\nmodels:\n  - name: stg_raw_customers\n";
         let patch_text =
             create_git_patch_text("", existing, "models/schema.yml", false).expect("patch");

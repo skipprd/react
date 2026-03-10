@@ -63,7 +63,9 @@ impl Default for TaskStatus {
 }
 
 /// Trait abstracting over cleanse/model task types so `Plan<T>` can be generic.
-pub trait PlanTask: Clone + std::fmt::Debug + Serialize + serde::de::DeserializeOwned + Send + Sync {
+pub trait PlanTask:
+    Clone + std::fmt::Debug + Serialize + serde::de::DeserializeOwned + Send + Sync
+{
     fn task_id(&self) -> &str;
     fn expected_model_path(&self) -> Option<&str>;
     fn set_status(&mut self, status: TaskStatus);
@@ -371,12 +373,24 @@ pub struct CleanseTask {
 }
 
 impl PlanTask for CleanseTask {
-    fn task_id(&self) -> &str { &self.dataset_id }
-    fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
-    fn set_status(&mut self, status: TaskStatus) { self.status = status; }
-    fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
-    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
-    fn work_group_prefix() -> &'static str { "cleanse" }
+    fn task_id(&self) -> &str {
+        &self.dataset_id
+    }
+    fn expected_model_path(&self) -> Option<&str> {
+        self.expected_model_path.as_deref()
+    }
+    fn set_status(&mut self, status: TaskStatus) {
+        self.status = status;
+    }
+    fn checklist(&self) -> &[PlanChecklistItem] {
+        &self.checklist
+    }
+    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> {
+        &mut self.checklist
+    }
+    fn work_group_prefix() -> &'static str {
+        "cleanse"
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -406,12 +420,24 @@ pub struct ModelTask {
 }
 
 impl PlanTask for ModelTask {
-    fn task_id(&self) -> &str { &self.name }
-    fn expected_model_path(&self) -> Option<&str> { self.expected_model_path.as_deref() }
-    fn set_status(&mut self, status: TaskStatus) { self.status = status; }
-    fn checklist(&self) -> &[PlanChecklistItem] { &self.checklist }
-    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> { &mut self.checklist }
-    fn work_group_prefix() -> &'static str { "model" }
+    fn task_id(&self) -> &str {
+        &self.name
+    }
+    fn expected_model_path(&self) -> Option<&str> {
+        self.expected_model_path.as_deref()
+    }
+    fn set_status(&mut self, status: TaskStatus) {
+        self.status = status;
+    }
+    fn checklist(&self) -> &[PlanChecklistItem] {
+        &self.checklist
+    }
+    fn checklist_mut(&mut self) -> &mut Vec<PlanChecklistItem> {
+        &mut self.checklist
+    }
+    fn work_group_prefix() -> &'static str {
+        "model"
+    }
 }
 
 // ---------- Generic Plan ----------
@@ -480,12 +506,24 @@ pub trait TrackPlan {
 }
 
 impl<T: PlanTask> TrackPlan for Plan<T> {
-    fn plan_key(&self) -> &str { &self.plan_key }
-    fn status(&self) -> PlanStatus { self.status }
-    fn set_status(&mut self, status: PlanStatus) { self.status = status; }
-    fn tasks_len(&self) -> usize { self.tasks.len() }
-    fn batches_len(&self) -> usize { self.batches.len() }
-    fn progress_mut(&mut self) -> &mut PlanProgress { &mut self.progress }
+    fn plan_key(&self) -> &str {
+        &self.plan_key
+    }
+    fn status(&self) -> PlanStatus {
+        self.status
+    }
+    fn set_status(&mut self, status: PlanStatus) {
+        self.status = status;
+    }
+    fn tasks_len(&self) -> usize {
+        self.tasks.len()
+    }
+    fn batches_len(&self) -> usize {
+        self.batches.len()
+    }
+    fn progress_mut(&mut self) -> &mut PlanProgress {
+        &mut self.progress
+    }
     fn executable_plan_issues(&self) -> Vec<String> {
         crate::plan_progress::executable_plan_issues(self)
     }

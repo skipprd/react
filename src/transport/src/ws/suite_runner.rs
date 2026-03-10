@@ -1,9 +1,8 @@
-use super::conn_state::{ConnState, load_latest_plans};
+use super::conn_state::{load_latest_plans, ConnState};
 use super::mapping::{map_exec_ctx, ws_final_result_from_typed_final};
 use super::thread_state::{
-    load_materialized_state, load_timeline_events, log_thread_steps_if_enabled,
-    phase_at_step_idx, phase_runs_from_steps,
-    total_completed_runtime_ms, ws_thread_state_snapshot_from_core,
+    load_materialized_state, load_timeline_events, log_thread_steps_if_enabled, phase_at_step_idx,
+    phase_runs_from_steps, total_completed_runtime_ms, ws_thread_state_snapshot_from_core,
 };
 use super::util::{env_bool, now_iso, truncate_str, ws_log_out};
 use crate::models as m;
@@ -91,9 +90,7 @@ async fn emit_ws(
                 thread_id: r.thread_id.clone(),
                 plans: r.plans.clone(),
             }),
-            api::ServerMessage::PlansChanged(r) => {
-                t.emit(TerminalEvent::PlansChanged(r.clone()))
-            }
+            api::ServerMessage::PlansChanged(r) => t.emit(TerminalEvent::PlansChanged(r.clone())),
             api::ServerMessage::Phase(r) => t.emit(TerminalEvent::Phase(r.clone())),
             api::ServerMessage::ToolStart(r) => t.emit(TerminalEvent::ToolStart(r.clone())),
             api::ServerMessage::ToolEnd(r) => t.emit(TerminalEvent::ToolEnd(r.clone())),
@@ -120,7 +117,6 @@ async fn run_agent_with_processing_suite(
     write: &mut (impl SinkExt<Message> + Unpin),
     interrupt_policy: &dyn InterruptPolicy,
 ) -> Result<(), String> {
-
     let sctx2 = state.suite_ctx.clone();
 
     let suite = state
@@ -764,4 +760,3 @@ async fn run_agent_with_processing_suite(
         }
     }
 }
-

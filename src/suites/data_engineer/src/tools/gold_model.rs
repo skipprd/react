@@ -148,9 +148,9 @@ impl Tool for GoldModelTool {
             .map(|p| p.warehouse.kind.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         let wh = crate::ctx_ext::actx_warehouse(ctx);
-        let provider_prompt_rules =
-            build_provider_prompt_rules(wh.as_ref().map(|w| w.as_ref()));
-        let sys = build_gold_sys_prompt(&provider_name, &dialect, max_items, &provider_prompt_rules);
+        let provider_prompt_rules = build_provider_prompt_rules(wh.as_ref().map(|w| w.as_ref()));
+        let sys =
+            build_gold_sys_prompt(&provider_name, &dialect, max_items, &provider_prompt_rules);
 
         // Plan-first authoring: if there is an active model plan, use task invariants/notes as the
         // default authoring instructions (and merge with any explicit item.instructions overrides).
@@ -159,7 +159,13 @@ impl Tool for GoldModelTool {
             .storage()
             .get_json(&ctx.keyspace().scoped_key(
                 ctx.scope(),
-                &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+                &[
+                    "semantic",
+                    &format!(
+                        "{}.yaml",
+                        encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID)
+                    ),
+                ],
             ))
             .await
             .ok()
@@ -370,7 +376,8 @@ impl Tool for GoldModelTool {
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
             if plan_output_field_names.is_empty() {
                 if let Some(spec) = plan_implementation_spec.as_ref() {
-                    plan_output_field_names = spec.output_fields.iter().map(|f| f.name.clone()).collect();
+                    plan_output_field_names =
+                        spec.output_fields.iter().map(|f| f.name.clone()).collect();
                 }
             }
             let plan_instr = render_plan_driven_instructions(&plan_invariants, &plan_checklist);
@@ -532,7 +539,8 @@ impl Tool for GoldModelTool {
                     }
                 }
                 Err(e) => {
-                    if let Some(h) = athena_alias_reuse_hint(&e, &rel_path_for_hint, &name_for_hint) {
+                    if let Some(h) = athena_alias_reuse_hint(&e, &rel_path_for_hint, &name_for_hint)
+                    {
                         remediation_hints.push(h);
                     }
                     errors.push(format!("{name}: {e}"));
@@ -551,12 +559,14 @@ impl Tool for GoldModelTool {
             "gold_model finished"
         );
 
-        let classified_kind = errors.iter().fold(
-            crate::failure_kind::FailureKind::Unknown,
-            |acc, e| {
-                acc.merge(crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e))
-            },
-        );
+        let classified_kind =
+            errors
+                .iter()
+                .fold(crate::failure_kind::FailureKind::Unknown, |acc, e| {
+                    acc.merge(
+                        crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e),
+                    )
+                });
         let mut result = serde_json::json!({
             "ok": errors.is_empty(),
             "batch_failure_kind": if errors.is_empty() {
@@ -581,11 +591,11 @@ impl Tool for GoldModelTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{QueryProvider, QueryResult};
     use async_trait::async_trait;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
     use react_core::llm::LargeLanguageModel;
-    use crate::providers::{QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -685,7 +695,11 @@ mod tests {
     fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -702,13 +716,19 @@ mod tests {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
             Arc::new(MockWarehouse::default());
-        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         actx
     }
@@ -1064,9 +1084,7 @@ mod tests {
             mutations: vec![],
             progress: crate::plan::PlanProgress::default(),
         };
-        crate::plan::save_model_plan(&ctx, &plan)
-            .await
-            .unwrap();
+        crate::plan::save_model_plan(&ctx, &plan).await.unwrap();
 
         let tool = GoldModelTool;
         let out = tool

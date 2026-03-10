@@ -1,8 +1,8 @@
+use crate::domain_types::PhaseReasonCode;
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::{control_flow, tools, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
-use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
-use crate::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
+use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 fn check_publish_retry_limit(
     es: &mut crate::progress_controller::ExecutionState,
@@ -14,9 +14,7 @@ fn check_publish_retry_limit(
     let retry_limit = crate::controller_kernel::publish_retry_limit();
     let retry_count = es.bump_publish_retry(kind, retry_limit);
     let err = if retry_count > retry_limit {
-        Some(Err(format!(
-            "{error_prefix}: retries={retry_count}"
-        ).into()))
+        Some(Err(format!("{error_prefix}: retries={retry_count}").into()))
     } else {
         None
     };
@@ -47,25 +45,27 @@ impl DataEngineerSuite {
                 &format!("publish_await_approval_not_converged_after_retries; reason={reason}"),
             );
             if let Some(err) = err {
-                es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                    format!("failed to persist publish await-approval retry state: {e}")
-                })?;
+                es.save(&thread_store.control_store(), thread_id)
+                    .await
+                    .map_err(|e| {
+                        format!("failed to persist publish await-approval retry state: {e}")
+                    })?;
                 return err;
             }
-            es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                format!("failed to persist publish await-approval retry state: {e}")
-            })?;
+            es.save(&thread_store.control_store(), thread_id)
+                .await
+                .map_err(|e| {
+                    format!("failed to persist publish await-approval retry state: {e}")
+                })?;
             return Ok(PhaseExecutorOutcome::stayed_waiting(format!(
                 "publish await-approval gate remains unsatisfied: {reason}"
             )));
         }
 
-        es.reset_publish_retry(
-            crate::progress_controller::PublishRetryKind::AwaitApprovalLoop,
-        );
-        es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-            format!("failed to persist publish approval consumption state: {e}")
-        })?;
+        es.reset_publish_retry(crate::progress_controller::PublishRetryKind::AwaitApprovalLoop);
+        es.save(&thread_store.control_store(), thread_id)
+            .await
+            .map_err(|e| format!("failed to persist publish approval consumption state: {e}"))?;
         let approval_detail = crate::phase_reason_detail::publish_approval_state(
             serde_json::to_value(&es.publish.publish_approval).unwrap_or(serde_json::Value::Null),
         );
@@ -123,9 +123,9 @@ impl DataEngineerSuite {
         if ok && (stage == "published" || stage == "no_change") {
             es.clear_publish_approval();
             es.reset_publish_retries();
-            es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                format!("failed to persist publish confirmed-success state: {e}")
-            })?;
+            es.save(&thread_store.control_store(), thread_id)
+                .await
+                .map_err(|e| format!("failed to persist publish confirmed-success state: {e}"))?;
             commit_phase_decision(
                 thread_store,
                 thread_id,
@@ -133,9 +133,7 @@ impl DataEngineerSuite {
                 PhaseDecision::forward(
                     control_flow::Phase::PostPublishReview,
                     Some(PhaseReasonCode::PublishConfirmedSuccess),
-                    Some(crate::phase_reason_detail::publish_observation(
-                        obs.clone(),
-                    )),
+                    Some(crate::phase_reason_detail::publish_observation(obs.clone())),
                 ),
             )
             .await?;
@@ -151,15 +149,17 @@ impl DataEngineerSuite {
             );
             if let Some(err) = err {
                 es.clear_publish_approval();
-                es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                    format!("failed to persist publish approval fallback state: {e}")
-                })?;
+                es.save(&thread_store.control_store(), thread_id)
+                    .await
+                    .map_err(|e| {
+                        format!("failed to persist publish approval fallback state: {e}")
+                    })?;
                 return err;
             }
             es.clear_publish_approval();
-            es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                format!("failed to persist publish approval fallback state: {e}")
-            })?;
+            es.save(&thread_store.control_store(), thread_id)
+                .await
+                .map_err(|e| format!("failed to persist publish approval fallback state: {e}"))?;
             commit_phase_decision(
                 thread_store,
                 thread_id,
@@ -185,15 +185,15 @@ impl DataEngineerSuite {
         );
         if let Some(err) = err {
             es.clear_publish_approval();
-            es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                format!("failed to persist publish confirmed-failure state: {e}")
-            })?;
+            es.save(&thread_store.control_store(), thread_id)
+                .await
+                .map_err(|e| format!("failed to persist publish confirmed-failure state: {e}"))?;
             return err;
         }
         es.clear_publish_approval();
-        es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-            format!("failed to persist publish confirmed-failure state: {e}")
-        })?;
+        es.save(&thread_store.control_store(), thread_id)
+            .await
+            .map_err(|e| format!("failed to persist publish confirmed-failure state: {e}"))?;
         commit_phase_decision(
             thread_store,
             thread_id,
@@ -230,4 +230,3 @@ impl DataEngineerSuite {
         Ok(PhaseExecutorOutcome::Return(out_frames.clone()))
     }
 }
-

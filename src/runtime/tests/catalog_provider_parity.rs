@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use react_module_provider_catalog::DefaultCatalogProvider;
 use react_core::keyspace::{encode_key_component, DefaultKeyspace, Keyspace};
 use react_core::llm::{LargeLanguageModel, NullModel};
+use react_core::scope::RequestScope;
+use react_core::storage::StorageAdapter;
+use react_module_provider_catalog::DefaultCatalogProvider;
+use react_module_storage_memory::InMemoryStorageAdapter;
 use react_suite_data_engineer::providers::{
     CatalogProvider, DataCatalog, GlobalSemanticContext, SemanticModel,
 };
-use react_core::scope::RequestScope;
-use react_core::storage::StorageAdapter;
-use react_module_storage_memory::InMemoryStorageAdapter;
 
 #[tokio::test]
 async fn provider_write_semantic_uses_keyspace_key_and_roundtrips() {
@@ -34,7 +34,10 @@ async fn provider_write_semantic_uses_keyspace_key_and_roundtrips() {
         .await
         .expect("write_semantic");
 
-    let key = keyspace.scoped_key(&scope, &["semantic", &format!("{}.yaml", encode_key_component(ns))]);
+    let key = keyspace.scoped_key(
+        &scope,
+        &["semantic", &format!("{}.yaml", encode_key_component(ns))],
+    );
     let raw = storage.get_json(&key).await.expect("semantic stored");
     // Stored as YAML-equivalent JSON; should still deserialize back into SemanticModel.
     let sem2: SemanticModel = serde_json::from_value(raw).expect("semantic deserializable");
@@ -69,7 +72,10 @@ async fn provider_write_catalog_uses_keyspace_key_and_roundtrips() {
         .await
         .expect("write_catalog");
 
-    let key = keyspace.scoped_key(&scope, &["catalog", &format!("{}.yaml", encode_key_component(ns))]);
+    let key = keyspace.scoped_key(
+        &scope,
+        &["catalog", &format!("{}.yaml", encode_key_component(ns))],
+    );
     let raw = storage.get_json(&key).await.expect("catalog stored");
     let cat2: DataCatalog = serde_json::from_value(raw).expect("catalog deserializable");
     assert_eq!(cat2.dataset_id, ns);
@@ -127,7 +133,10 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
 
     // Seed two dataset catalogs (minimal fields/description) so the global pass has inputs.
     for ds in ["AwsDataCatalog.db.orders", "AwsDataCatalog.db.customers"] {
-        let key = keyspace.scoped_key(&scope, &["catalog", &format!("{}.yaml", encode_key_component(ds))]);
+        let key = keyspace.scoped_key(
+            &scope,
+            &["catalog", &format!("{}.yaml", encode_key_component(ds))],
+        );
         storage
             .put_json(
                 &key,
@@ -167,7 +176,15 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
 
     let gkey = keyspace.scoped_key(
         &scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(react_suite_data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+        &[
+            "semantic",
+            &format!(
+                "{}.yaml",
+                encode_key_component(
+                    react_suite_data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID
+                )
+            ),
+        ],
     );
     let raw = storage
         .get_json(&gkey)

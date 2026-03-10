@@ -1,6 +1,5 @@
 use react_core::resolved_config::ReactResolvedConfig;
 
-
 #[derive(Clone, Debug)]
 pub enum ActiveWarehouse {
     Athena,
@@ -400,7 +399,11 @@ mod tests {
     fn generate_athena_profiles_requires_result_s3() {
         let cfg = ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({

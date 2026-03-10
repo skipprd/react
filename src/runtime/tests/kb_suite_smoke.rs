@@ -2,14 +2,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use react_core::agent::{
-    Agent, AgentCtxBuilder, AgentPolicy, CompleteDecision, CompleteEnvelope, DefaultPolicy, InterruptKind, RunOutcome,
+    Agent, AgentCtxBuilder, AgentPolicy, CompleteDecision, CompleteEnvelope, DefaultPolicy,
+    InterruptKind, RunOutcome,
 };
 use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
 use react_core::scope::RequestScope;
 use react_core::session::ThreadStore;
-use react_module_storage_memory::InMemoryStorageAdapter;
 use react_core::tools::{Tool, ToolRegistry};
+use react_module_storage_memory::InMemoryStorageAdapter;
 use serde_json::Value;
 
 struct FixedJsonModel {

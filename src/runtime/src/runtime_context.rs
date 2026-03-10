@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use react_core::resolved_config::ReactResolvedConfig;
+use std::sync::Arc;
 
 /// Shared runtime context, threaded through the application rather than stored in globals.
 /// Currently wraps the resolved config.

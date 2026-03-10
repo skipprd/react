@@ -73,7 +73,10 @@ mod tests {
     }
 }
 
-pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -> Result<(), String> {
+pub(crate) async fn emit_batch_event(
+    ctx: &AgentCtx,
+    event: DataEngineerEvent,
+) -> Result<(), String> {
     let Some(thread_store) = ctx.thread_store().as_ref() else {
         return Ok(());
     };

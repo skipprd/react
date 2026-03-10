@@ -1,9 +1,12 @@
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::sync::Arc;
 
+use crate::domain_types::{
+    PhaseReasonCode, ReviewArtifactRef, ReviewBatchOutput, ReviewSummaryOutput, ReviewTier,
+    ReviewUnifyOutput,
+};
 use react_core::agent::AgentCtx;
-use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
 use react_core::keyspace::encode_key_component;
 use react_core::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
 use react_core::session::ThreadStore;
@@ -12,11 +15,11 @@ use react_core::tools::Tool;
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 use super::control_flow::Phase;
-use super::track_spec::PlanKind;
 use super::plan as de_plan;
 use super::tools::files_tool::FilesTool;
 use super::tools::json_file::JsonFileTool;
 use super::tools::sql_schema::SqlSchemaTool;
+use super::track_spec::PlanKind;
 use crate::{facts, naming};
 
 use super::review_persistence::*;
@@ -187,11 +190,10 @@ struct ReviewLlmConfig {
 
 impl ReviewLlmConfig {
     fn for_phase(phase: Phase, step_name: &str) -> Self {
-        use crate::env_util::{env_u32 as parse_u32_env, env_keys};
+        use crate::env_util::{env_keys, env_u32 as parse_u32_env};
 
-        let reasoning_effort =
-            parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
-                .unwrap_or(ReasoningEffort::Medium);
+        let reasoning_effort = parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
+            .unwrap_or(ReasoningEffort::Medium);
 
         let default_non_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS)
             .unwrap_or(12_000)
@@ -322,11 +324,12 @@ impl ReviewLlmConfig {
             },
         ];
 
+        let expected_format = self.expected_format()?;
         let mut opts = if let Some(temp) = self.temperature {
             LlmCallOptions {
                 prompt_id: self.prompt_id,
                 thread_id: Some(thread_id.to_string()),
-                expected_format: LlmExpectedFormat::JsonObject,
+                expected_format: expected_format.clone(),
                 temperature: Some(temp),
                 top_p: Some(1.0),
                 max_output_tokens: Some(final_budget),
@@ -337,7 +340,7 @@ impl ReviewLlmConfig {
             LlmCallOptions {
                 prompt_id: "data_engineer.review_batched.llm_json",
                 thread_id: None,
-                expected_format: LlmExpectedFormat::JsonObject,
+                expected_format: expected_format.clone(),
                 max_output_tokens: None,
                 temperature: None,
                 top_p: None,
@@ -345,17 +348,46 @@ impl ReviewLlmConfig {
                 timeout_secs: None,
             }
         };
-        opts.expected_format = LlmExpectedFormat::JsonObject;
+        opts.expected_format = expected_format;
         actx.llm_chat_json::<Value>(&messages, &opts)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    fn expected_format(&self) -> Result<LlmExpectedFormat, String> {
+        let (name, schema) = match self.step_name.as_str() {
+            "summary" => (
+                format!("{}.summary_output.v1", self.prompt_id),
+                crate::plan_schema::strict_schema_for::<ReviewSummaryOutput>()?,
+            ),
+            "batch" => (
+                format!("{}.batch_output.v1", self.prompt_id),
+                crate::plan_schema::strict_schema_for::<ReviewBatchOutput>()?,
+            ),
+            _ => (
+                format!("{}.unify_output.v1", self.prompt_id),
+                crate::plan_schema::strict_schema_for::<ReviewUnifyOutput>()?,
+            ),
+        };
+        Ok(LlmExpectedFormat::JsonSchemaSpec { name, schema })
+    }
+
+    fn parse_typed<T: DeserializeOwned>(&self, value: Value, label: &str) -> Result<T, String> {
+        serde_json::from_value(value)
+            .map_err(|e| format!("review {label} output did not match schema: {e}"))
     }
 }
 
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {
     let key = sctx.keyspace().scoped_key(
         sctx.scope(),
-        &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+        &[
+            "semantic",
+            &format!(
+                "{}.yaml",
+                encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID)
+            ),
+        ],
     );
     actx.storage()
         .get_json(&key)
@@ -370,16 +402,10 @@ fn include_global_semantic_context(phase: Phase) -> bool {
     matches!(phase, Phase::ModelReview | Phase::PostPublishReview)
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReviewUnifyTextOutput {
-    final_review_text: String,
-}
-
-fn deterministic_unify_meta(
+fn deterministic_unify_defaults(
     phase: Phase,
     all_batch_notes: &[Value],
-) -> (ReviewDecision, ReviewTier, Vec<String>) {
+) -> (ReviewTier, Vec<String>) {
     let tier = match phase {
         Phase::CleanseReview => ReviewTier::Silver,
         Phase::ModelReview | Phase::PostPublishReview => ReviewTier::Gold,
@@ -401,19 +427,7 @@ fn deterministic_unify_meta(
     dataset_ids.sort();
     dataset_ids.dedup();
 
-    let has_actionable_hints = all_batch_notes.iter().any(|v| {
-        v.get("actionable_hints")
-            .and_then(|vv| vv.as_array())
-            .map(|arr| arr.iter().any(|x| x.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false)))
-            .unwrap_or(false)
-    });
-    let decision = if has_actionable_hints {
-        ReviewDecision::PatchImpl
-    } else {
-        ReviewDecision::Proceed
-    };
-
-    (decision, tier, dataset_ids)
+    (tier, dataset_ids)
 }
 
 fn resolve_cleanse_batch_paths(
@@ -486,14 +500,29 @@ fn resolve_model_batch_paths(
     out
 }
 
-type PlanAndBatches = (Option<PlanKind>, Option<String>, Vec<Vec<String>>, Option<Value>);
+type PlanAndBatches = (
+    Option<PlanKind>,
+    Option<String>,
+    Vec<Vec<String>>,
+    Option<Value>,
+);
 
 async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key).await.ok().flatten() {
-        let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
+    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key)
+        .await
+        .ok()
+        .flatten()
+    {
+        let batches = if !p.batches.is_empty() {
+            p.batches.clone()
+        } else {
+            vec![]
+        };
         let mut map: Vec<Value> = Vec::new();
         for b in batches.iter() {
-            for (ds, path, inv, checklist, implementation_spec) in resolve_cleanse_batch_paths(&p, b) {
+            for (ds, path, inv, checklist, implementation_spec) in
+                resolve_cleanse_batch_paths(&p, b)
+            {
                 map.push(serde_json::json!({
                     "item": ds,
                     "expected_model_path": path,
@@ -503,18 +532,33 @@ async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBat
                 }));
             }
         }
-        (Some(PlanKind::Cleanse), Some(key.to_string()), batches, Some(Value::Array(map)))
+        (
+            Some(PlanKind::Cleanse),
+            Some(key.to_string()),
+            batches,
+            Some(Value::Array(map)),
+        )
     } else {
         (None, None, vec![], None)
     }
 }
 
 async fn load_model_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_model_plan_by_key(actx, key).await.ok().flatten() {
-        let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
+    if let Some(p) = de_plan::load_model_plan_by_key(actx, key)
+        .await
+        .ok()
+        .flatten()
+    {
+        let batches = if !p.batches.is_empty() {
+            p.batches.clone()
+        } else {
+            vec![]
+        };
         let mut map: Vec<Value> = Vec::new();
         for b in batches.iter() {
-            for (name, path, inv, checklist, implementation_spec) in resolve_model_batch_paths(&p, b) {
+            for (name, path, inv, checklist, implementation_spec) in
+                resolve_model_batch_paths(&p, b)
+            {
                 map.push(serde_json::json!({
                     "item": name,
                     "expected_model_path": path,
@@ -524,7 +568,12 @@ async fn load_model_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatch
                 }));
             }
         }
-        (Some(PlanKind::Model), Some(key.to_string()), batches, Some(Value::Array(map)))
+        (
+            Some(PlanKind::Model),
+            Some(key.to_string()),
+            batches,
+            Some(Value::Array(map)),
+        )
     } else {
         (None, None, vec![], None)
     }
@@ -666,8 +715,7 @@ async fn build_project_summary(
     let marts_paths = list_model_files(actx, "models/marts/", 2000).await;
     let core_paths = list_model_files(actx, "models/core/", 2000).await;
 
-    let manifest_meta =
-        read_project_json_pointer(actx, "target/manifest.json", "/metadata").await;
+    let manifest_meta = read_project_json_pointer(actx, "target/manifest.json", "/metadata").await;
     let manifest_meta_small = manifest_meta
         .as_ref()
         .and_then(|m| m.as_object())
@@ -703,14 +751,9 @@ async fn build_project_summary(
 
     let config = ReviewLlmConfig::for_phase(phase, "summary");
     let summary_v = config.call(actx, thread_id, summary_user).await?;
-    let project_notes = clamp_lines(
-        str_list(summary_v.get("project_notes").unwrap_or(&Value::Null)),
-        MAX_PROJECT_NOTES,
-    );
-    let project_risks = clamp_lines(
-        str_list(summary_v.get("project_risks").unwrap_or(&Value::Null)),
-        MAX_PROJECT_NOTES,
-    );
+    let summary_out: ReviewSummaryOutput = config.parse_typed(summary_v, "summary")?;
+    let project_notes = clamp_lines(summary_out.project_notes, MAX_PROJECT_NOTES);
+    let project_risks = clamp_lines(summary_out.project_risks, MAX_PROJECT_NOTES);
 
     append_review_step(
         thread_store,
@@ -836,14 +879,9 @@ async fn review_single_batch(
 
     let config = ReviewLlmConfig::for_phase(phase, "batch");
     let v = config.call(actx, thread_id, batch_user).await?;
-    let notes = clamp_lines(
-        str_list(v.get("notes").unwrap_or(&Value::Null)),
-        MAX_NOTES_PER_BATCH,
-    );
-    let actionable_hints = clamp_lines(
-        str_list(v.get("actionable_hints").unwrap_or(&Value::Null)),
-        MAX_NOTES_PER_BATCH,
-    );
+    let batch_out: ReviewBatchOutput = config.parse_typed(v, "batch")?;
+    let notes = clamp_lines(batch_out.notes, MAX_NOTES_PER_BATCH);
+    let actionable_hints = clamp_lines(batch_out.actionable_hints, MAX_NOTES_PER_BATCH);
 
     let detail = serde_json::json!({
         "batch_idx": batch_idx,
@@ -913,20 +951,25 @@ async fn unify_reviews(
 
     let config = ReviewLlmConfig::for_phase(phase, "unify");
     let unify_v = config.call(actx, thread_id, unify_user).await?;
-    let unify_text: ReviewUnifyTextOutput = serde_json::from_value(serde_json::json!({
-        "final_review_text": unify_v
-            .get("final_review_text")
-            .and_then(|v| v.as_str())
-            .or_else(|| unify_v.get("text").and_then(|v| v.as_str()))
-            .unwrap_or("")
-    }))
-    .map_err(|e| format!("batched review unify text output did not match schema: {e}"))?;
-    let final_review_text = unify_text.final_review_text;
+    let mut unify_out: ReviewUnifyOutput = config.parse_typed(unify_v, "unify")?;
+    let (default_tier, default_dataset_ids) = deterministic_unify_defaults(phase, all_batch_notes);
+    if unify_out.tier == ReviewTier::Unknown {
+        unify_out.tier = default_tier;
+    }
+    if unify_out.dataset_ids.is_empty() {
+        unify_out.dataset_ids = default_dataset_ids;
+    } else {
+        unify_out.dataset_ids.sort();
+        unify_out.dataset_ids.dedup();
+    }
+    let final_review_text = unify_out.final_review_text.trim().to_string();
     if final_review_text.trim().is_empty() {
         return Err("batched review unify produced empty final_review_text".to_string());
     }
 
-    let (decision, tier, dataset_ids) = deterministic_unify_meta(phase, all_batch_notes);
+    let decision = unify_out.decision;
+    let tier = unify_out.tier;
+    let dataset_ids = unify_out.dataset_ids;
     let review_sha256 = react_core::llm_observability::sha256_hex_str(&final_review_text);
     let review_bytes = final_review_text.as_bytes().len() as u64;
     let review_key = {
@@ -945,11 +988,11 @@ async fn unify_reviews(
         .await
         .map_err(|e| format!("failed to persist final review artifact: {e}"))?;
 
-    let review_ref = serde_json::json!({
-        "key": review_key,
-        "sha256": review_sha256,
-        "bytes": review_bytes
-    });
+    let review_ref = ReviewArtifactRef {
+        key: review_key,
+        sha256: review_sha256,
+        bytes: review_bytes,
+    };
 
     append_review_step(
         thread_store,
@@ -1106,8 +1149,8 @@ pub async fn run_batched_review(
     // Precompute global semantic context block (shared across all LLM calls).
     let global_ctx_block = if include_global_semantic_context(phase) {
         let global_ctx = load_global_semantic_context_json(&actx, sctx).await;
-        let global_ctx_txt = serde_json::to_string_pretty(&global_ctx)
-            .unwrap_or_else(|_| "null".to_string());
+        let global_ctx_txt =
+            serde_json::to_string_pretty(&global_ctx).unwrap_or_else(|_| "null".to_string());
         format!(
             "IMMUTABLE CONTEXT (global_semantic_context):\n{gctx}\n\n",
             gctx = global_ctx_txt
@@ -1212,7 +1255,10 @@ mod tests {
             messages: &[react_core::llm::ChatMessage],
             _options: &react_core::llm::LlmCallOptions,
         ) -> Result<String, String> {
-            if let Some(u) = messages.iter().find(|m| m.role == react_core::llm::ChatRole::User) {
+            if let Some(u) = messages
+                .iter()
+                .find(|m| m.role == react_core::llm::ChatRole::User)
+            {
                 if let Ok(mut g) = self.captured_user_prompts.lock() {
                     g.push(u.content.clone());
                 }
@@ -1266,14 +1312,20 @@ mod tests {
         let sctx = make_suite_ctx(storage.clone(), llm);
 
         // Seed a minimal dbt project and a cleanse plan with 2 batches.
-        let actx = react_core::agent::AgentCtxBuilder::new(sctx.llm().clone(), sctx.storage().clone(), sctx.scope().clone(), sctx.keyspace().clone(), Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .thread_id("tid".to_string())
-            .agent_name("test".to_string())
-            .vector(sctx.vector().clone())
-            .build();
+        let actx = react_core::agent::AgentCtxBuilder::new(
+            sctx.llm().clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id("tid".to_string())
+        .agent_name("test".to_string())
+        .vector(sctx.vector().clone())
+        .build();
 
         // dbt files
         let base = actx
@@ -1459,8 +1511,11 @@ mod tests {
         assert!(matches!(out[0], FlowFrame::Complete { .. }));
 
         // Thread log step should store review by reference (not the full text).
-        let thread_store =
-            ThreadStore::new(storage.clone(), sctx.scope().clone(), sctx.keyspace().clone());
+        let thread_store = ThreadStore::new(
+            storage.clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+        );
         let log = thread_store.get("tid").await.expect("thread log");
         let last = log.steps.last().cloned().expect("step");
         match last {
@@ -1509,7 +1564,13 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let gkey = keyspace.scoped_key(
             &scope,
-            &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+            &[
+                "semantic",
+                &format!(
+                    "{}.yaml",
+                    encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID)
+                ),
+            ],
         );
         storage
             .put_bytes(
@@ -1600,31 +1661,111 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_unify_meta_derives_tier_and_dataset_ids() {
+    fn deterministic_unify_defaults_derives_tier_and_dataset_ids() {
         let notes = vec![
             serde_json::json!({"batch_items":["a.b.c","x.y.z"],"notes":[],"actionable_hints":[]}),
             serde_json::json!({"batch_items":["x.y.z"],"notes":[],"actionable_hints":[]}),
         ];
-        let (decision, tier, dataset_ids) =
-            deterministic_unify_meta(Phase::CleanseReview, &notes);
-        assert_eq!(decision, ReviewDecision::Proceed);
+        let (tier, dataset_ids) = deterministic_unify_defaults(Phase::CleanseReview, &notes);
         assert_eq!(tier, ReviewTier::Silver);
-        assert_eq!(
-            dataset_ids,
-            vec!["a.b.c".to_string(), "x.y.z".to_string()]
-        );
+        assert_eq!(dataset_ids, vec!["a.b.c".to_string(), "x.y.z".to_string()]);
     }
 
-    #[test]
-    fn deterministic_unify_meta_promotes_patch_impl_on_actionable_hints() {
-        let notes = vec![serde_json::json!({
-            "batch_items":["a.b.c"],
-            "notes":["n"],
-            "actionable_hints":["fix col mapping"]
-        })];
-        let (decision, tier, dataset_ids) = deterministic_unify_meta(Phase::ModelReview, &notes);
-        assert_eq!(decision, ReviewDecision::PatchImpl);
-        assert_eq!(tier, ReviewTier::Gold);
-        assert_eq!(dataset_ids, vec!["a.b.c".to_string()]);
+    #[tokio::test]
+    async fn unify_decision_is_not_overridden_by_actionable_hints() {
+        let storage: Arc<dyn react_core::storage::StorageAdapter> =
+            Arc::new(InMemoryStorageAdapter::default());
+        let llm = Arc::new(ScriptedModel {
+            replies: Arc::new(Mutex::new(vec![
+                serde_json::json!({"project_notes":[],"project_risks":[]}).to_string(),
+                serde_json::json!({"notes":["requires plan change"],"actionable_hints":["do not use hallucinated fields"]}).to_string(),
+                serde_json::json!({
+                    "decision":"plan_change",
+                    "tier":"silver",
+                    "dataset_ids":["a.b.c"],
+                    "final_review_text":"REQUIRES PLAN CHANGE: the approved plan references fields that do not exist."
+                })
+                .to_string(),
+            ])),
+        });
+        let sctx = make_suite_ctx(storage.clone(), llm);
+
+        let actx = react_core::agent::AgentCtxBuilder::new(
+            sctx.llm().clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id("tid_plan_change".to_string())
+        .agent_name("test".to_string())
+        .vector(sctx.vector().clone())
+        .build();
+
+        let base = actx
+            .keyspace()
+            .scoped_prefix(actx.scope(), &["dbt"])
+            .trim_end_matches('/')
+            .to_string();
+        storage
+            .put_bytes(
+                &format!("{}/dbt_project.yml", base),
+                "name: x\n".as_bytes(),
+                "text/plain",
+            )
+            .await
+            .unwrap();
+        storage
+            .put_bytes(
+                &format!("{}/models/schema.yml", base),
+                "version: 2\n".as_bytes(),
+                "text/plain",
+            )
+            .await
+            .unwrap();
+        storage
+            .put_bytes(
+                &format!("{}/models/staging/stg_a.sql", base),
+                "select 1 as a\n".as_bytes(),
+                "text/plain",
+            )
+            .await
+            .unwrap();
+
+        let plan = de_plan::CleansePlan {
+            plan_key: de_plan::new_cleanse_plan_key(&actx),
+            status: de_plan::PlanStatus::Approved,
+            project_snapshot: serde_json::json!({}),
+            tasks: vec![de_plan::CleanseTask {
+                dataset_id: "a.b.c".to_string(),
+                expected_model_path: Some("models/staging/stg_a.sql".to_string()),
+                invariants: vec![],
+                implementation_spec: None,
+                status: de_plan::TaskStatus::Done,
+                checklist: vec![],
+            }],
+            batches: vec![vec!["a.b.c".to_string()]],
+            work_groups: vec![],
+            mutations: vec![],
+            progress: de_plan::PlanProgress::default(),
+        };
+        de_plan::save_cleanse_plan(&actx, &plan).await.unwrap();
+
+        let out = run_batched_review("tid_plan_change", "goal", Phase::CleanseReview, &sctx)
+            .await
+            .expect("ok");
+        let FlowFrame::Complete { payload, .. } = &out[0] else {
+            panic!("expected complete frame");
+        };
+        let meta: crate::domain_types::ReviewDecisionMeta =
+            serde_json::from_value(payload.get("meta").cloned().expect("meta"))
+                .expect("typed meta");
+        assert_eq!(
+            meta.decision,
+            crate::domain_types::ReviewDecision::PlanChange
+        );
     }
 }

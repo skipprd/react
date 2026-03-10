@@ -1,9 +1,17 @@
 // Declared as `mod review_prompts;` in data_engineer/mod.rs
 
+use schemars::JsonSchema;
 use serde_json::Value;
 
 use super::review_batched::ProjectFile;
 use super::track_spec::PlanKind;
+
+fn render_output_schema<T: JsonSchema>() -> String {
+    crate::plan_schema::strict_schema_for::<T>()
+        .ok()
+        .and_then(|v| serde_json::to_string_pretty(&v).ok())
+        .unwrap_or_else(|| "{\"type\":\"object\"}".to_string())
+}
 
 pub(super) fn system_prompt_for_summary(plan_kind: Option<PlanKind>) -> String {
     let is_cleanse = plan_kind == Some(PlanKind::Cleanse);
@@ -26,13 +34,14 @@ pub(super) fn system_prompt_for_summary(plan_kind: Option<PlanKind>) -> String {
          You will be given:\n\
          - The original goal and review context (brief)\n\
          - A small, deterministic project snapshot (dbt_project.yml, sources list, model file index, and minimal manifest metadata)\n\n\
-         Output one JSON object with this schema:\n\
-         {{\n  \"project_notes\": [string, ...],\n  \"project_risks\": [string, ...]\n}}\n\n\
+         Output one JSON object matching this JSON schema:\n\
+         {schema}\n\n\
          Rules:\n\
          - Be pragmatic, not pedantic. Focus on business correctness and usability.\n\
          - Do NOT suggest edits in-line; just describe risks/gaps.\n\
          - Keep notes concise and high-signal.\n\
-         {tier_focus}{insightfulness}"
+         {tier_focus}{insightfulness}",
+        schema = render_output_schema::<crate::domain_types::ReviewSummaryOutput>(),
     )
 }
 
@@ -52,11 +61,8 @@ You will be given:
 - Any invariants/notes from planning
 - The authoritative schema (columns/types) for each dataset in the batch (when available)
 
-Output one JSON object with this schema:
-{{
-  "notes": [string, ...],
-  "actionable_hints": [string, ...]
-}}
+Output one JSON object matching this JSON schema:
+{schema}
 
 Rules:
 - CRITICAL: The planning artifacts you receive (invariants/notes and any implementation_spec) are the authoritative design contract for this phase.
@@ -81,7 +87,8 @@ Rules:
   - Impacted metric/decision.
   - Concrete evidence from provided SQL/schema.
   - Smallest next action to reduce risk.
-- No tool calls and no file edits."#
+- No tool calls and no file edits."#,
+        schema = render_output_schema::<crate::domain_types::ReviewBatchOutput>(),
     )
 }
 
@@ -107,24 +114,23 @@ pub(super) fn system_prompt_for_unify(plan_kind: Option<PlanKind>) -> String {
          - The original goal and review context\n\
          - Project-level notes/risks\n\
          - Notes from ALL review batches\n\n\
-         You must output one JSON object with this schema:\n\
-         {{\n\
-         \x20 \"decision\": \"proceed\" | \"patch_impl\",\n\
-         \x20 \"tier\": \"silver\" | \"gold\" | \"unknown\",\n\
-         \x20 \"dataset_ids\": [string],\n\
-         \x20 \"final_review_text\": string\n\
-         }}\n\n\
+         You must output one JSON object matching this JSON schema:\n\
+         {schema}\n\n\
          Interpretation rules (CRITICAL):\n\
          - decision=\"proceed\" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.\n\
          - decision=\"patch_impl\" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.\n\n\
+         - decision=\"plan_change\" means: the implementation should NOT be patched now because the blocker is in the approved plan/spec itself; request plan revision instead of implementation edits.\n\n\
          {tier_rule}\n\n\
          Unify requirements (CRITICAL):\n\
          - Produce a concise, business-focused review that prioritizes decision usefulness.\n\
          - Delta-first output: include only net-new or still-unresolved high-value issues since prior review context. Suppress repeated advice that has no meaningful change in evidence or priority.\n\
          - If no net-new/still-unresolved blocker/high items exist, set decision=\"proceed\" and keep the body brief.\n\
+         - If the main blocker is labeled or implied as \"REQUIRES PLAN CHANGE\", set decision=\"plan_change\".\n\
+         - Set decision=\"patch_impl\" only when a concrete implementation edit is required now without changing the plan/spec.\n\
          - Hard cap: list at most 5 issues total across the final review body.\n\
          {insightfulness}\n\
-         - Include an \"Assumptions & evidence gaps\" section listing the most important semantic assumptions and the smallest probes to validate them."
+         - Include an \"Assumptions & evidence gaps\" section listing the most important semantic assumptions and the smallest probes to validate them.",
+        schema = render_output_schema::<crate::domain_types::ReviewUnifyOutput>(),
     )
 }
 

@@ -18,7 +18,8 @@ pub struct LocalFileStorageAdapter {
 impl LocalFileStorageAdapter {
     pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self, CoreError> {
         let p: PathBuf = base_dir.into();
-        std::fs::create_dir_all(&p).map_err(|e| CoreError::Storage(format!("failed to create base dir: {e}")))?;
+        std::fs::create_dir_all(&p)
+            .map_err(|e| CoreError::Storage(format!("failed to create base dir: {e}")))?;
         Ok(Self {
             base_dir: Arc::new(p),
         })
@@ -32,10 +33,14 @@ impl LocalFileStorageAdapter {
         let mut out = (*self.base_dir).clone();
         for seg in k.split('/') {
             if seg.is_empty() {
-                return Err(CoreError::Storage("invalid key (empty path segment)".to_string()));
+                return Err(CoreError::Storage(
+                    "invalid key (empty path segment)".to_string(),
+                ));
             }
             if seg == "." || seg == ".." || seg.contains("..") {
-                return Err(CoreError::Storage("invalid key (path traversal)".to_string()));
+                return Err(CoreError::Storage(
+                    "invalid key (path traversal)".to_string(),
+                ));
             }
             if seg.contains('\\') {
                 return Err(CoreError::Storage("invalid key (backslash)".to_string()));
@@ -90,13 +95,21 @@ impl LocalFileStorageAdapter {
 impl StorageAdapter for LocalFileStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
-        serde_json::from_slice::<Value>(&bytes)
-            .map_err(|e| CoreError::Storage(format!("get_json('{}'): failed to deserialize JSON: {}", key, e)))
+        serde_json::from_slice::<Value>(&bytes).map_err(|e| {
+            CoreError::Storage(format!(
+                "get_json('{}'): failed to deserialize JSON: {}",
+                key, e
+            ))
+        })
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
-        let bytes = serde_json::to_vec_pretty(value)
-            .map_err(|e| CoreError::Storage(format!("put_json('{}'): failed to serialize JSON: {}", key, e)))?;
+        let bytes = serde_json::to_vec_pretty(value).map_err(|e| {
+            CoreError::Storage(format!(
+                "put_json('{}'): failed to serialize JSON: {}",
+                key, e
+            ))
+        })?;
         self.put_bytes(key, &bytes, "application/json").await
     }
 
@@ -126,9 +139,7 @@ impl StorageAdapter for LocalFileStorageAdapter {
                     )))
                 }
             };
-            let current_etag = current_bytes
-                .as_ref()
-                .map(|b| Self::etag_for_bytes(b));
+            let current_etag = current_bytes.as_ref().map(|b| Self::etag_for_bytes(b));
             if current_etag != expected {
                 return Ok(ConditionalWriteStatus::Conflict { current_etag });
             }
@@ -168,17 +179,24 @@ impl StorageAdapter for LocalFileStorageAdapter {
         .map_err(|e| CoreError::Storage(format!("get_bytes('{}'): join error: {}", key, e)))?
     }
 
-    async fn put_bytes(&self, key: &str, bytes: &[u8], _content_type: &str) -> Result<(), CoreError> {
+    async fn put_bytes(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        _content_type: &str,
+    ) -> Result<(), CoreError> {
         let path = self.resolve_key(key)?;
         let b = bytes.to_vec();
         let key_owned = key.to_string();
         tokio::task::spawn_blocking(move || {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): mkdir: {}", key_owned, e)))?;
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    CoreError::Storage(format!("put_bytes('{}'): mkdir: {}", key_owned, e))
+                })?;
             }
-            std::fs::write(&path, &b)
-                .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): write: {}", key_owned, e)))
+            std::fs::write(&path, &b).map_err(|e| {
+                CoreError::Storage(format!("put_bytes('{}'): write: {}", key_owned, e))
+            })
         })
         .await
         .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): join error: {}", key, e)))?
@@ -190,7 +208,10 @@ impl StorageAdapter for LocalFileStorageAdapter {
         tokio::task::spawn_blocking(move || match std::fs::remove_file(&path) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(CoreError::Storage(format!("delete_object('{}'): {}", key_owned, e))),
+            Err(e) => Err(CoreError::Storage(format!(
+                "delete_object('{}'): {}",
+                key_owned, e
+            ))),
         })
         .await
         .map_err(|e| CoreError::Storage(format!("delete_object('{}'): join error: {}", key, e)))?
@@ -202,7 +223,10 @@ impl StorageAdapter for LocalFileStorageAdapter {
         tokio::task::spawn_blocking(move || match std::fs::read(&path) {
             Ok(bytes) => Ok(Some(Self::etag_for_bytes(&bytes))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(CoreError::Storage(format!("head_etag('{}'): {}", key_owned, e))),
+            Err(e) => Err(CoreError::Storage(format!(
+                "head_etag('{}'): {}",
+                key_owned, e
+            ))),
         })
         .await
         .map_err(|e| CoreError::Storage(format!("head_etag('{}'): join error: {}", key, e)))?
@@ -230,7 +254,12 @@ impl StorageAdapter for LocalFileStorageAdapter {
             Ok(keys)
         })
         .await
-        .map_err(|e| CoreError::Storage(format!("list_prefix('{}'): join error: {}", prefix_owned, e)))?
+        .map_err(|e| {
+            CoreError::Storage(format!(
+                "list_prefix('{}'): join error: {}",
+                prefix_owned, e
+            ))
+        })?
     }
 }
 
@@ -305,7 +334,12 @@ mod tests {
             .put_json_if_etag_matches("a/state.json", &second, None)
             .await
             .expect("conflict");
-        assert_eq!(conflict, ConditionalWriteStatus::Conflict { current_etag: etag.clone() });
+        assert_eq!(
+            conflict,
+            ConditionalWriteStatus::Conflict {
+                current_etag: etag.clone()
+            }
+        );
 
         let updated = st
             .put_json_if_etag_matches("a/state.json", &second, etag.as_deref())

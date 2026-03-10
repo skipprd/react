@@ -200,13 +200,16 @@ async fn llm_compile_pass_json(
         .ok()
 }
 
-fn global_semantic_key(
-    keyspace: &Arc<dyn Keyspace>,
-    scope: &RequestScope,
-) -> String {
+fn global_semantic_key(keyspace: &Arc<dyn Keyspace>, scope: &RequestScope) -> String {
     keyspace.scoped_key(
         scope,
-        &["semantic", &format!("{}.yaml", encode_key_component(crate::types::GLOBAL_SEMANTIC_DATASET_ID))],
+        &[
+            "semantic",
+            &format!(
+                "{}.yaml",
+                encode_key_component(crate::types::GLOBAL_SEMANTIC_DATASET_ID)
+            ),
+        ],
     )
 }
 
@@ -228,7 +231,10 @@ async fn write_global_semantic_context(
 ) -> Result<(), String> {
     let key = global_semantic_key(keyspace, scope);
     let json_equiv = crate::utils::yaml_to_json_value(ctx)?;
-    storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())
+    storage
+        .put_json(&key, &json_equiv)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn clamp_and_filter_global_context(
@@ -519,16 +525,22 @@ Output JSON only:",
                 }
             }
         }
-        if let Some(text) = summary_raw.filter(|s| {
-            valid_ascii_span(s, 8, 220) && !invalid_placeholder_text(s)
-        }) {
+        if let Some(text) =
+            summary_raw.filter(|s| valid_ascii_span(s, 8, 220) && !invalid_placeholder_text(s))
+        {
             debug!(
                 "{} LLM Enrich: dataset description compiled for dataset_id='{}': {}",
                 chrono::Utc::now().to_rfc3339(),
                 dataset_id,
                 text
             );
-            let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
+            let key = keyspace.scoped_key(
+                scope,
+                &[
+                    "catalog",
+                    &format!("{}.yaml", encode_key_component(dataset_id)),
+                ],
+            );
             if let Ok(mut v) = storage.get_json(&key).await {
                 let mut should_write = true;
                 if let Some(obj) = v.as_object() {
@@ -548,7 +560,10 @@ Output JSON only:",
                             serde_json::Value::String(text.clone()),
                         )
                     });
-                    storage.put_json(&key, &v).await.map_err(|e| e.to_string())?;
+                    storage
+                        .put_json(&key, &v)
+                        .await
+                        .map_err(|e| e.to_string())?;
                 }
             }
         } else {
@@ -560,7 +575,13 @@ Output JSON only:",
     }
 
     let ns_stats: Option<react_suite_data_engineer::providers::DatasetFieldStats> = {
-        let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
+        let key = keyspace.scoped_key(
+            scope,
+            &[
+                "catalog",
+                &format!("{}.yaml", encode_key_component(dataset_id)),
+            ],
+        );
         match storage.get_json(&key).await {
             Ok(val) => {
                 crate::stats_from_catalog::dataset_field_stats_from_catalog_json(dataset_id, &val)
@@ -568,7 +589,13 @@ Output JSON only:",
             Err(_) => None,
         }
     };
-    let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(dataset_id))]);
+    let key = keyspace.scoped_key(
+        scope,
+        &[
+            "catalog",
+            &format!("{}.yaml", encode_key_component(dataset_id)),
+        ],
+    );
     if let Ok(val) = storage.get_json(&key).await {
         let mut catalog = DataCatalog {
             dataset_id: dataset_id.to_string(),
@@ -995,7 +1022,10 @@ Dataset: {ns}\nFieldNames: {fnames}\nReasoning notes:\n{memo}\n\nOutput JSON onl
         }
 
         let json_equiv = crate::utils::yaml_to_json_value(&catalog)?;
-        storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
+        storage
+            .put_json(&key, &json_equiv)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(true)
 }
@@ -1119,37 +1149,31 @@ Reasoning memo:\n{memo}\n\nOutput JSON only:",
                 context_bullets: parsed
                     .context_bullets
                     .into_iter()
-                    .map(
-                        |b| crate::types::GlobalContextBullet {
-                            text: b.text,
-                            confidence: b.confidence,
-                            evidence: b.evidence,
-                        },
-                    )
+                    .map(|b| crate::types::GlobalContextBullet {
+                        text: b.text,
+                        confidence: b.confidence,
+                        evidence: b.evidence,
+                    })
                     .collect(),
                 dataset_groups: parsed
                     .dataset_groups
                     .into_iter()
-                    .map(
-                        |g| crate::types::GlobalDatasetGroup {
-                            group_name: g.group_name,
-                            dataset_ids: g.dataset_ids,
-                            confidence: g.confidence,
-                            evidence: g.evidence,
-                        },
-                    )
+                    .map(|g| crate::types::GlobalDatasetGroup {
+                        group_name: g.group_name,
+                        dataset_ids: g.dataset_ids,
+                        confidence: g.confidence,
+                        evidence: g.evidence,
+                    })
                     .collect(),
                 assumptions_and_gaps: parsed
                     .assumptions_and_gaps
                     .into_iter()
-                    .map(
-                        |a| crate::types::GlobalAssumptionGap {
-                            text: a.text,
-                            confidence: a.confidence,
-                            evidence: a.evidence,
-                            suggested_probe: a.suggested_probe,
-                        },
-                    )
+                    .map(|a| crate::types::GlobalAssumptionGap {
+                        text: a.text,
+                        confidence: a.confidence,
+                        evidence: a.evidence,
+                        suggested_probe: a.suggested_probe,
+                    })
                     .collect(),
             };
             next = Some(clamp_and_filter_global_context(typed));
@@ -1193,7 +1217,10 @@ pub async fn run_llm_global_context_enrichment_all(
     let mut wrote = false;
 
     for ds in dss.iter() {
-        let key = keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(ds))]);
+        let key = keyspace.scoped_key(
+            scope,
+            &["catalog", &format!("{}.yaml", encode_key_component(ds))],
+        );
         let Ok(cat_json) = storage.get_json(&key).await else {
             continue;
         };

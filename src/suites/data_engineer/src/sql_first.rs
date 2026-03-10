@@ -181,7 +181,10 @@ pub async fn llm_draft_sql_json(
         reasoning_effort: None,
         timeout_secs: None,
     };
-    let raw = ctx.llm_chat(&messages, &opts).await.map_err(|e| e.to_string())?;
+    let raw = ctx
+        .llm_chat(&messages, &opts)
+        .await
+        .map_err(|e| e.to_string())?;
     let payload: SqlFirstDraftPayload = parse_json_object_lenient(&raw)?;
     let sql = payload.sql.trim().to_string();
     if sql.is_empty() {
@@ -210,10 +213,9 @@ pub async fn validate_sql_quick(
         return Err(msg);
     }
     let probe = wrap_sql_for_validation(&expanded, 1);
-    let res = crate::transient_retry::retry_transient_default(
-        "validate_sql_quick",
-        || async { wh.query(&probe).await },
-    )
+    let res = crate::transient_retry::retry_transient_default("validate_sql_quick", || async {
+        wh.query(&probe).await
+    })
     .await?;
     let dups = duplicate_output_columns(&res.header);
     if !dups.is_empty() {

@@ -1,11 +1,9 @@
+use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::review_batched;
-use crate::{
-    control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome,
-};
-use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
-use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
+use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
 use react_core::session::ThreadStore;
+use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 fn effective_review_tier(phase: control_flow::Phase, tier: ReviewTier) -> ReviewTier {
     if tier != ReviewTier::Unknown {
@@ -13,7 +11,9 @@ fn effective_review_tier(phase: control_flow::Phase, tier: ReviewTier) -> Review
     }
     match phase {
         control_flow::Phase::CleanseReview => ReviewTier::Silver,
-        control_flow::Phase::ModelReview | control_flow::Phase::PostPublishReview => ReviewTier::Gold,
+        control_flow::Phase::ModelReview | control_flow::Phase::PostPublishReview => {
+            ReviewTier::Gold
+        }
         _ => ReviewTier::Unknown,
     }
 }
@@ -71,18 +71,28 @@ impl DataEngineerSuite {
             "phase_reason_detail": execution_state.phase.phase_reason_detail.clone(),
         });
 
-        let mut meta: ReviewDecisionMeta = decision_meta_v
-            .and_then(|v| serde_json::from_value(v).ok())
-            .unwrap_or(ReviewDecisionMeta {
-                decision: ReviewDecision::Proceed,
-                tier: ReviewTier::Unknown,
-                dataset_ids: vec![],
-                review_ref: None,
-            });
-        let review_ref_from_trigger = trigger_step
-            .get("phase_reason_detail")
-            .and_then(|v| v.get("review_ref"))
-            .cloned();
+        let mut meta: ReviewDecisionMeta = match decision_meta_v {
+            Some(v) => serde_json::from_value(v).map_err(|e| {
+                PhaseError::ToolContractViolation(format!("review meta did not match schema: {e}"))
+            })?,
+            None => {
+                return Err(PhaseError::ToolContractViolation(
+                    "review meta missing from review result".to_string(),
+                ))
+            }
+        };
+        let review_ref_from_trigger = match trigger_step.get("phase_reason_detail").cloned() {
+            Some(v) if !v.is_null() => {
+                let detail: crate::phase_reason_detail::ReviewDecisionTransitionDetail =
+                    serde_json::from_value(v).map_err(|e| {
+                        PhaseError::ToolContractViolation(format!(
+                            "trigger phase_reason_detail did not match review transition schema: {e}"
+                        ))
+                    })?;
+                detail.meta.review_ref
+            }
+            _ => None,
+        };
         if meta.review_ref.is_none() {
             meta.review_ref = review_ref_from_trigger;
         }
@@ -108,17 +118,22 @@ impl DataEngineerSuite {
                         evidence
                     );
                     Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
-                        matches!(k, crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl)
-                    }).await?;
-                    let violation = crate::progress_controller::PlanViolation::new(
-                        phase,
-                        None,
-                        evidence,
-                    );
+                        matches!(
+                            k,
+                            crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
+                        )
+                    })
+                    .await?;
+                    let violation =
+                        crate::progress_controller::PlanViolation::new(phase, None, evidence);
                     crate::phase_contract::commit_plan_revision_loopback(
-                        thread_store, thread_id, phase, vec![violation],
+                        thread_store,
+                        thread_id,
+                        phase,
+                        vec![violation],
                         crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                    ).await?;
+                    )
+                    .await?;
                     return Ok(PhaseExecutorOutcome::TransitionCommitted);
                 }
                 SubjectiveRetryOutcome::WithinBudget(tries) => {
@@ -128,17 +143,25 @@ impl DataEngineerSuite {
         } else {
             review_retry_count = 0;
             Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
-                matches!(k, crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl)
-            }).await?;
+                matches!(
+                    k,
+                    crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
+                )
+            })
+            .await?;
         }
         out_frames.push(FlowFrame::Review {
             text: answer.clone(),
-            meta: serde_json::to_value(&meta).ok(),
+            meta: Some(
+                serde_json::to_value(&meta).map_err(|e| {
+                    PhaseError::Fatal(format!("failed to serialize review meta: {e}"))
+                })?,
+            ),
         });
 
         let reason_detail = crate::phase_reason_detail::review_decision_transition(
             phase.as_str(),
-            serde_json::to_value(&meta).unwrap_or(serde_json::Value::Null),
+            meta.clone(),
             meta.decision,
             false,
             false,
@@ -163,15 +186,12 @@ impl DataEngineerSuite {
                     _ => control_flow::Phase::Done,
                 };
                 if next == control_flow::Phase::PublishAwaitApproval {
-                    let mut st =
-                        crate::progress_controller::ExecutionState::load_strict(
-                            &thread_store.control_store(),
-                            thread_id,
-                        )
-                        .await?
-                        .unwrap_or_else(
-                            crate::progress_controller::ExecutionState::new,
-                        );
+                    let mut st = crate::progress_controller::ExecutionState::load_strict(
+                        &thread_store.control_store(),
+                        thread_id,
+                    )
+                    .await?
+                    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
                     st.set_publish_approval(
                         crate::progress_controller::PublishApprovalDecision::Approved,
                     );
@@ -216,7 +236,39 @@ impl DataEngineerSuite {
                 .await?;
                 Ok(PhaseExecutorOutcome::TransitionCommitted)
             }
+            ReviewDecision::PlanChange => {
+                crate::state_manager::mutate_execution_state(
+                    &thread_store.control_store(),
+                    thread_id,
+                    |es| es.clear_pending_patch_impl(),
+                )
+                .await
+                .map(|_| ())?;
+                let cleaned = DataEngineerSuite::strip_meta_line(&answer);
+                let evidence = {
+                    let trimmed = cleaned.trim();
+                    let max = 1_000usize;
+                    if trimmed.len() > max {
+                        format!("{}...", &trimmed[..max])
+                    } else {
+                        trimmed.to_string()
+                    }
+                };
+                let violation = crate::progress_controller::PlanViolation::new(
+                    phase,
+                    None,
+                    format!("Review requested plan change: {evidence}"),
+                );
+                crate::phase_contract::commit_plan_revision_loopback(
+                    thread_store,
+                    thread_id,
+                    phase,
+                    vec![violation],
+                    crate::progress_controller::PlanRevisionStrategy::Rewrite,
+                )
+                .await?;
+                Ok(PhaseExecutorOutcome::TransitionCommitted)
+            }
         }
     }
 }
-

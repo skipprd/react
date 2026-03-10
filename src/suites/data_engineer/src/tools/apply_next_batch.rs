@@ -2,19 +2,17 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-use react_core::agent::AgentCtx;
 use crate::providers::DatasetCatalogProvider;
+use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 
-use crate::dataset_truth;
-use crate::failure_kind::FailureKind;
 use crate::chunk_progress_contract;
 use crate::controller_kernel;
+use crate::dataset_truth;
+use crate::failure_kind::FailureKind;
 use crate::plan;
 use crate::plan::{CleansePlan, ModelPlan};
-use crate::progress_controller::{
-    DataEngineerEvent, ExecutionTier, FailedModelRef,
-};
+use crate::progress_controller::{DataEngineerEvent, ExecutionTier, FailedModelRef};
 use crate::tools;
 
 use super::model_authoring_engine::extract_string_arg;
@@ -163,7 +161,11 @@ impl Tool for ApplyNextCleanseBatchTool {
                 "failed_dataset_ids": [],
             }));
         }
-        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(&batch, crate::plan_progress::MAX_BATCH_SIZE, "cleanse_sql") {
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(
+            &batch,
+            crate::plan_progress::MAX_BATCH_SIZE,
+            "cleanse_sql",
+        ) {
             return Ok(serde_json::json!({
                 "ok": false,
                 "kind": "chunk_contract_violation",
@@ -192,9 +194,9 @@ impl Tool for ApplyNextCleanseBatchTool {
                     "dataset schema lookup failed; dataset not usable",
                 );
                 controller_kernel::note_batch_result(&mut plan.progress, false);
-                plan::save_cleanse_plan(ctx, &plan)
-                    .await
-                    .map_err(|e| format!("failed to save cleanse plan after schema gating failure: {e}"))?;
+                plan::save_cleanse_plan(ctx, &plan).await.map_err(|e| {
+                    format!("failed to save cleanse plan after schema gating failure: {e}")
+                })?;
                 return Ok(serde_json::json!({
                     "ok": false,
                     "attempted_dataset_ids": batch.clone(),
@@ -248,12 +250,15 @@ impl Tool for ApplyNextCleanseBatchTool {
                     Some(FailureKind::Unknown),
                 );
                 emit_batch_failure(ctx, ExecutionTier::Cleanse, &batch, &err_brief, |ds| {
-                    plan.tasks.iter().find(|t| t.dataset_id == *ds)
+                    plan.tasks
+                        .iter()
+                        .find(|t| t.dataset_id == *ds)
                         .and_then(|t| t.expected_model_path.clone())
-                }).await?;
-                plan::save_cleanse_plan(ctx, &plan)
-                    .await
-                    .map_err(|e| format!("failed to save cleanse plan after batch tool failure: {e}"))?;
+                })
+                .await?;
+                plan::save_cleanse_plan(ctx, &plan).await.map_err(|e| {
+                    format!("failed to save cleanse plan after batch tool failure: {e}")
+                })?;
                 return Ok(serde_json::json!({
                     "ok": false,
                     "attempted_dataset_ids": batch,
@@ -266,17 +271,11 @@ impl Tool for ApplyNextCleanseBatchTool {
 
         let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         let succeeded =
-            crate::tools::batch_sql_runner::parse_succeeded_ids(
-                &res,
-                "succeeded_dataset_ids",
-            );
+            crate::tools::batch_sql_runner::parse_succeeded_ids(&res, "succeeded_dataset_ids");
         let attempted: Vec<String> = batch.clone();
 
         // Compute failed as attempted - succeeded.
-        let failed = crate::tools::batch_sql_runner::derive_failed_ids(
-            &attempted,
-            &succeeded,
-        );
+        let failed = crate::tools::batch_sql_runner::derive_failed_ids(&attempted, &succeeded);
 
         // Update task statuses.
         for ds in succeeded.iter() {
@@ -293,10 +292,7 @@ impl Tool for ApplyNextCleanseBatchTool {
         }
         let mut failure_kind_for_budget: Option<FailureKind> = None;
         if !failed.is_empty() || !ok {
-            let err = crate::tools::batch_sql_runner::extract_first_error(
-                &res,
-                "batch failed",
-            );
+            let err = crate::tools::batch_sql_runner::extract_first_error(&res, "batch failed");
             let note = format!("apply_next_cleanse_batch failed: {}", err.trim());
             let _ = note;
             for ds in failed.iter() {
@@ -409,10 +405,8 @@ impl Tool for ApplyNextModelBatchTool {
 
         // Plan auto-heal (semantic): validate + single repair attempt before executing.
         let stg = dataset_truth::discover_staging_models_from_storage(ctx).await;
-        let v = plan::ensure_model_plan_semantically_valid_or_repaired(
-            &mut plan,
-            &stg.allowed_models,
-        );
+        let v =
+            plan::ensure_model_plan_semantically_valid_or_repaired(&mut plan, &stg.allowed_models);
         if !v.ok {
             return Ok(serde_json::json!({
                 "ok": false,
@@ -450,9 +444,11 @@ impl Tool for ApplyNextModelBatchTool {
                 "failed_item_names": [],
             }));
         }
-        if let Err(e) =
-            chunk_progress_contract::enforce_chunk_contract(&batch_names, crate::plan_progress::MAX_BATCH_SIZE, "model_sql")
-        {
+        if let Err(e) = chunk_progress_contract::enforce_chunk_contract(
+            &batch_names,
+            crate::plan_progress::MAX_BATCH_SIZE,
+            "model_sql",
+        ) {
             return Ok(serde_json::json!({
                 "ok": false,
                 "kind": "chunk_contract_violation",
@@ -487,16 +483,20 @@ impl Tool for ApplyNextModelBatchTool {
             }
         }
         if !gating_errors.is_empty() {
-            let err_brief = "gold inputs are not grounded in existing silver models under models/staging/";
+            let err_brief =
+                "gold inputs are not grounded in existing silver models under models/staging/";
             mark_needs_update_model(&mut plan, &batch_names, err_brief);
             controller_kernel::note_batch_result(&mut plan.progress, false);
             emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, err_brief, |n| {
-                plan.tasks.iter().find(|t| t.name == *n)
+                plan.tasks
+                    .iter()
+                    .find(|t| t.name == *n)
                     .and_then(|t| t.expected_model_path.clone())
-            }).await?;
-            plan::save_model_plan(ctx, &plan)
-                .await
-                .map_err(|e| format!("failed to save model plan after input gating failure: {e}"))?;
+            })
+            .await?;
+            plan::save_model_plan(ctx, &plan).await.map_err(|e| {
+                format!("failed to save model plan after input gating failure: {e}")
+            })?;
             return Ok(serde_json::json!({
                 "ok": false,
                 "attempted_item_names": batch_names,
@@ -560,12 +560,15 @@ impl Tool for ApplyNextModelBatchTool {
                     Some(FailureKind::Unknown),
                 );
                 emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, &err_brief, |n| {
-                    plan.tasks.iter().find(|t| t.name == *n)
+                    plan.tasks
+                        .iter()
+                        .find(|t| t.name == *n)
                         .and_then(|t| t.expected_model_path.clone())
-                }).await?;
-                plan::save_model_plan(ctx, &plan)
-                    .await
-                    .map_err(|e| format!("failed to save model plan after batch tool failure: {e}"))?;
+                })
+                .await?;
+                plan::save_model_plan(ctx, &plan).await.map_err(|e| {
+                    format!("failed to save model plan after batch tool failure: {e}")
+                })?;
                 return Ok(serde_json::json!({
                     "ok": false,
                     "attempted_item_names": batch_names,
@@ -578,14 +581,8 @@ impl Tool for ApplyNextModelBatchTool {
 
         let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         let succeeded =
-            crate::tools::batch_sql_runner::parse_succeeded_ids(
-                &res,
-                "succeeded_item_names",
-            );
-        let failed = crate::tools::batch_sql_runner::derive_failed_ids(
-            &batch_names,
-            &succeeded,
-        );
+            crate::tools::batch_sql_runner::parse_succeeded_ids(&res, "succeeded_item_names");
+        let failed = crate::tools::batch_sql_runner::derive_failed_ids(&batch_names, &succeeded);
 
         for n in succeeded.iter() {
             if checklist_item_id == plan::CHECKLIST_SQL_MODEL {
@@ -601,10 +598,7 @@ impl Tool for ApplyNextModelBatchTool {
         }
         let mut failure_kind_for_budget: Option<FailureKind> = None;
         if !failed.is_empty() || !ok {
-            let err = crate::tools::batch_sql_runner::extract_first_error(
-                &res,
-                "batch failed",
-            );
+            let err = crate::tools::batch_sql_runner::extract_first_error(&res, "batch failed");
             for n in failed.iter() {
                 if checklist_item_id == plan::CHECKLIST_SQL_MODEL {
                     plan::model_mark_needs_update(&mut plan, n, Some(err.as_str()));
@@ -756,14 +750,20 @@ mod tests {
         });
         let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
             Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = react_core::agent::AgentCtxBuilder::new(llm, storage, RequestScope::parse("t", "w", "p").expect("valid test scope"), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(2)
-            .thread_id(thread_id.to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            RequestScope::parse("t", "w", "p").expect("valid test scope"),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(2)
+        .thread_id(thread_id.to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         actx
     }
@@ -793,7 +793,8 @@ mod tests {
         let batches = vec![vec!["AwsDataCatalog.test_raw.raw_customers".to_string()]];
         let mut progress = plan::PlanProgress::default();
         if locked {
-            progress.consecutive_batch_failures = controller_kernel::max_consecutive_batch_failures();
+            progress.consecutive_batch_failures =
+                controller_kernel::max_consecutive_batch_failures();
         }
         let plan_doc = plan::CleansePlan {
             plan_key: plan::new_cleanse_plan_key(ctx),
@@ -801,7 +802,9 @@ mod tests {
             project_snapshot: serde_json::json!({}),
             tasks: vec![plan::CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
-                expected_model_path: Some("models/staging/stg_test_raw_raw_customers.sql".to_string()),
+                expected_model_path: Some(
+                    "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                ),
                 invariants: vec![],
                 implementation_spec: Some(plan::CleanseImplementationSpec {
                     spec_version: 1,
@@ -864,7 +867,8 @@ mod tests {
         let batches = vec![vec!["dim_customers".to_string()]];
         let mut progress = plan::PlanProgress::default();
         if locked {
-            progress.consecutive_batch_failures = controller_kernel::max_consecutive_batch_failures();
+            progress.consecutive_batch_failures =
+                controller_kernel::max_consecutive_batch_failures();
         }
         let plan_doc = plan::ModelPlan {
             plan_key: plan::new_model_plan_key(ctx),
@@ -913,9 +917,14 @@ mod tests {
             .call(serde_json::json!({}), &ctx)
             .await
             .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("batch_locked"));
         assert_eq!(
-            res.get("attempted_dataset_ids").and_then(|v| v.as_array()).map(|a| a.len()),
+            res.get("kind").and_then(|v| v.as_str()),
+            Some("batch_locked")
+        );
+        assert_eq!(
+            res.get("attempted_dataset_ids")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len()),
             Some(0)
         );
     }
@@ -928,9 +937,14 @@ mod tests {
             .call(serde_json::json!({}), &ctx)
             .await
             .unwrap();
-        assert_eq!(res.get("kind").and_then(|v| v.as_str()), Some("batch_locked"));
         assert_eq!(
-            res.get("attempted_item_names").and_then(|v| v.as_array()).map(|a| a.len()),
+            res.get("kind").and_then(|v| v.as_str()),
+            Some("batch_locked")
+        );
+        assert_eq!(
+            res.get("attempted_item_names")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len()),
             Some(0)
         );
     }

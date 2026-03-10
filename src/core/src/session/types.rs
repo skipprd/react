@@ -642,10 +642,23 @@ macro_rules! thread_step_ts {
 }
 
 thread_step_ts!(
-    SwitchSuite, SwitchAgent, User, ToolStart, ToolEnd,
-    LlmStart, LlmEnd, LlmCall, Phase, GuardBlock, RunLoopStop,
-    ArtifactFocus, ArtifactSaved, Interrupt, ReviewResponse,
-    Complete, Checkpoint,
+    SwitchSuite,
+    SwitchAgent,
+    User,
+    ToolStart,
+    ToolEnd,
+    LlmStart,
+    LlmEnd,
+    LlmCall,
+    Phase,
+    GuardBlock,
+    RunLoopStop,
+    ArtifactFocus,
+    ArtifactSaved,
+    Interrupt,
+    ReviewResponse,
+    Complete,
+    Checkpoint,
 );
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

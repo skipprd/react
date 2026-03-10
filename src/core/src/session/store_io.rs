@@ -38,17 +38,28 @@ impl ThreadStore {
     }
 
     pub fn control_store(&self) -> super::ControlStateStore {
-        super::ControlStateStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+        super::ControlStateStore::new(
+            self.storage.clone(),
+            self.scope.clone(),
+            self.keyspace.clone(),
+        )
     }
 
     pub(crate) fn key(&self, thread_id: &str) -> CoreResult<String> {
         self.keyspace
             .thread_key(&self.scope, thread_id)
-            .map_err(|e| CoreError::Session(format!("failed to build thread key for '{thread_id}': {e}")))
+            .map_err(|e| {
+                CoreError::Session(format!("failed to build thread key for '{thread_id}': {e}"))
+            })
     }
 
     fn list_prefix(&self) -> String {
-        format!("{}/", self.keyspace.threads_prefix(&self.scope).trim_end_matches('/'))
+        format!(
+            "{}/",
+            self.keyspace
+                .threads_prefix(&self.scope)
+                .trim_end_matches('/')
+        )
     }
 
     fn ensure_thread_log_schema(log: &ThreadLog) -> CoreResult<()> {
@@ -130,7 +141,13 @@ impl ThreadStore {
         log.steps.push(step);
         self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
             .await?;
-        self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
+        self.cache.insert(
+            key.clone(),
+            CacheEntry {
+                log,
+                ts: Instant::now(),
+            },
+        );
         Ok(())
     }
 
@@ -200,7 +217,13 @@ impl ThreadStore {
         let idx = log.steps.len().saturating_sub(1);
         self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
             .await?;
-        self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
+        self.cache.insert(
+            key.clone(),
+            CacheEntry {
+                log,
+                ts: Instant::now(),
+            },
+        );
         Ok(Some((idx, initial_phase.to_string())))
     }
 
@@ -234,7 +257,10 @@ impl ThreadStore {
         let mut out: Vec<String> = Vec::new();
         if let Ok(keys) = self.storage.list_prefix(&prefix).await {
             for k in keys {
-                if let Some(name) = k.strip_prefix(&prefix).and_then(|s| s.strip_suffix(".json")) {
+                if let Some(name) = k
+                    .strip_prefix(&prefix)
+                    .and_then(|s| s.strip_suffix(".json"))
+                {
                     if name.contains('.') {
                         continue;
                     }
@@ -250,7 +276,9 @@ impl ThreadStore {
         let key = self.key(thread_id)?;
         let thread_prefix = format!(
             "{}/{}.",
-            self.keyspace.threads_prefix(&self.scope).trim_end_matches('/'),
+            self.keyspace
+                .threads_prefix(&self.scope)
+                .trim_end_matches('/'),
             thread_id
         );
         self.storage.delete_object(&key).await?;
@@ -280,7 +308,13 @@ impl ThreadStore {
             log.title = Some(title.to_string());
             self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
                 .await?;
-            self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
+            self.cache.insert(
+                key.clone(),
+                CacheEntry {
+                    log,
+                    ts: Instant::now(),
+                },
+            );
         }
         Ok(())
     }
@@ -303,7 +337,13 @@ impl ThreadStore {
             log.title_locked = true;
             self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
                 .await?;
-            self.cache.insert(key.clone(), CacheEntry { log, ts: Instant::now() });
+            self.cache.insert(
+                key.clone(),
+                CacheEntry {
+                    log,
+                    ts: Instant::now(),
+                },
+            );
         }
         Ok(())
     }

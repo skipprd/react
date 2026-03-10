@@ -70,7 +70,10 @@ async fn list_plan_keys(ctx: &AgentCtx, suffix: &str) -> Result<Vec<String>, Pla
 /// Plan keys are timestamp-prefixed, so lexicographic ordering matches recency.
 /// This is intentionally different from `load_cleanse_plan`/`load_model_plan`, which prefer the
 /// oldest non-terminal plan to match the deterministic pipeline behavior.
-pub async fn newest_plan_key_any(ctx: &AgentCtx, suffix: &str) -> Result<Option<String>, PlanError> {
+pub async fn newest_plan_key_any(
+    ctx: &AgentCtx,
+    suffix: &str,
+) -> Result<Option<String>, PlanError> {
     let keys = list_plan_keys(ctx, suffix).await?;
     Ok(keys.last().cloned())
 }
@@ -174,8 +177,8 @@ pub async fn save_cleanse_plan(ctx: &AgentCtx, plan: &CleansePlan) -> Result<(),
     if plan.plan_key.trim().is_empty() {
         return Err(PlanError::MissingPlanKey);
     }
-    let bytes = serde_json::to_vec_pretty(plan)
-        .map_err(|e| PlanError::SaveFailed(e.to_string()))?;
+    let bytes =
+        serde_json::to_vec_pretty(plan).map_err(|e| PlanError::SaveFailed(e.to_string()))?;
     ctx.storage()
         .put_bytes(&plan.plan_key, &bytes, "application/json")
         .await
@@ -191,8 +194,7 @@ pub async fn save_cleanse_plan_grounded(
     let mut candidate = plan.clone();
     ensure_expected_model_paths_cleanse(Some(ctx), &mut candidate);
     prune_cleanse_plan_to_grounded_raw_datasets(&mut candidate, allowed_raw);
-    let grounded = GroundedCleansePlan::try_from(candidate)
-        .map_err(PlanError::GroundingFailed)?;
+    let grounded = GroundedCleansePlan::try_from(candidate).map_err(PlanError::GroundingFailed)?;
     save_cleanse_plan(ctx, &grounded.0).await
 }
 
@@ -228,12 +230,11 @@ pub async fn load_model_plan_by_key(
             )));
         }
     };
-    let mut p = serde_json::from_slice::<ModelPlan>(&bytes).map_err(|e| {
-        PlanError::DeserializeFailed {
+    let mut p =
+        serde_json::from_slice::<ModelPlan>(&bytes).map_err(|e| PlanError::DeserializeFailed {
             key: key.to_string(),
             detail: e.to_string(),
-        }
-    })?;
+        })?;
     if p.plan_key.trim().is_empty() {
         p.plan_key = key.to_string();
     }
@@ -248,8 +249,8 @@ pub async fn save_model_plan(ctx: &AgentCtx, plan: &ModelPlan) -> Result<(), Pla
     if plan.plan_key.trim().is_empty() {
         return Err(PlanError::MissingPlanKey);
     }
-    let bytes = serde_json::to_vec_pretty(plan)
-        .map_err(|e| PlanError::SaveFailed(e.to_string()))?;
+    let bytes =
+        serde_json::to_vec_pretty(plan).map_err(|e| PlanError::SaveFailed(e.to_string()))?;
     ctx.storage()
         .put_bytes(&plan.plan_key, &bytes, "application/json")
         .await

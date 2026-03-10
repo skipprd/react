@@ -54,7 +54,9 @@ pub async fn search_examples(
     // Note: current VectorStore API doesn't support server-side filtering.
     // We upsert `kind="dbt_example"` and filter client-side.
     let mut hits = vector.query(&scope, &v, k * 3, None).await?;
-    hits.retain(|h| h.item.kind == react_core::provider_traits::ChunkKind::Other("dbt_example".to_string()));
+    hits.retain(|h| {
+        h.item.kind == react_core::provider_traits::ChunkKind::Other("dbt_example".to_string())
+    });
     hits.truncate(k.max(1));
     Ok(hits)
 }

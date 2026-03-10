@@ -23,8 +23,7 @@ pub(crate) fn render_plan_driven_instructions(
             .as_ref()
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false);
-        let include =
-            it.status != crate::plan::ChecklistItemStatus::Done || has_details;
+        let include = it.status != crate::plan::ChecklistItemStatus::Done || has_details;
         if !include {
             continue;
         }

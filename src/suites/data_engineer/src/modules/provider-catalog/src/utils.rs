@@ -12,10 +12,7 @@ pub fn yaml_to_json_value<T: Serialize>(value: &T) -> Result<serde_json::Value, 
     serde_json::to_value(yaml_value).map_err(|e| e.to_string())
 }
 
-pub fn classify_field(
-    _name: &str,
-    stats: Option<&FieldStats>,
-) -> SemanticFieldRole {
+pub fn classify_field(_name: &str, stats: Option<&FieldStats>) -> SemanticFieldRole {
     if let Some(s) = stats {
         if s.min_numeric.is_some() || s.max_numeric.is_some() {
             return SemanticFieldRole::Metric;

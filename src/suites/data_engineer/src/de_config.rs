@@ -87,7 +87,7 @@ pub(crate) struct VectorFile {
 // resolve_providers_from_yaml – builds the normalised suite_config JSON
 // ---------------------------------------------------------------------------
 
-use super::env_util::{getenv_nonempty, env_keys};
+use super::env_util::{env_keys, getenv_nonempty};
 
 fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
     match w {
@@ -154,7 +154,9 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
 }
 
 /// Resolve the raw YAML `providers:` value into the normalised suite_config JSON.
-pub fn resolve_providers_from_yaml(providers_yaml: serde_json::Value) -> Result<serde_json::Value, String> {
+pub fn resolve_providers_from_yaml(
+    providers_yaml: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let pf: ProvidersFile = serde_json::from_value(providers_yaml)
         .map_err(|e| format!("failed to parse providers config: {}", e))?;
 
@@ -332,6 +334,8 @@ pub struct DbtResolved {
 }
 
 /// Deserialize the data_engineer-specific config from the suite_config Value.
-pub fn de_config_from_resolved(cfg: &react_core::resolved_config::ReactResolvedConfig) -> Option<ProvidersResolved> {
+pub fn de_config_from_resolved(
+    cfg: &react_core::resolved_config::ReactResolvedConfig,
+) -> Option<ProvidersResolved> {
     serde_json::from_value::<ProvidersResolved>(cfg.suite_config.clone()).ok()
 }

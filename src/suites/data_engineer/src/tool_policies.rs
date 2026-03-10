@@ -40,9 +40,7 @@ pub(super) fn register_batch_tool_for_plan_state(
 }
 
 pub(super) enum FileAccessPolicy {
-    ReadOnly {
-        error_message: &'static str,
-    },
+    ReadOnly { error_message: &'static str },
 }
 
 pub(super) struct PolicyFilesTool {
@@ -90,20 +88,16 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
         let build = args.get("build").and_then(|v| v.as_bool()).unwrap_or(false);
         let run = args.get("run").and_then(|v| v.as_bool()).unwrap_or(false);
         let runtime_validate = build || run;
-        if let (Some(store), Some(tid)) =
-            (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
+        if let (Some(store), Some(tid)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
-            let guard = crate::progress_controller::ExecutionState::load(
-                &store.control_store(), tid,
-            )
-            .await
-            .map_err(|e| format!("failed to load execution state for tool policy guard: {e}"))?
-            .map(|st| {
-                crate::control_flow::derive_guard_state_from_execution_state(
-                    &st,
-                )
-            })
-            .unwrap_or_default();
+            let guard =
+                crate::progress_controller::ExecutionState::load(&store.control_store(), tid)
+                    .await
+                    .map_err(|e| {
+                        format!("failed to load execution state for tool policy guard: {e}")
+                    })?
+                    .map(|st| crate::control_flow::derive_guard_state_from_execution_state(&st))
+                    .unwrap_or_default();
             if guard.last_validate_failed && !guard.mutated_since_fail {
                 return Err(crate::controller_kernel::guard_block_error(
                     crate::controller_kernel::GuardReason::MutationRequiredAfterValidateFailure,
@@ -134,14 +128,11 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
         ctx: &react_core::agent::AgentCtx,
     ) -> Result<serde_json::Value, String> {
         let op = args.get("op").and_then(|x| x.as_str()).unwrap_or("get");
-        let is_repair_mutation =
-            crate::tool_ops::is_file_mutation_op(&args);
+        let is_repair_mutation = crate::tool_ops::is_file_mutation_op(&args);
         if self.single_target_path.is_some() && !is_repair_mutation {
             return Err("file is in deterministic single-target repair mode; only repair mutation ops are allowed.".to_string());
         }
-        if self.single_target_path.is_none()
-            && !is_repair_mutation
-        {
+        if self.single_target_path.is_none() && !is_repair_mutation {
             return Err("file is mutation-only right now (a mutating fix is required before any further validation). Allowed ops: patch/rm/mv.".to_string());
         }
         if let Some(want) = self.single_target_path.as_ref() {
@@ -186,13 +177,14 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
         ) {
             if is_repair_mutation {
                 let es = crate::progress_controller::ExecutionState::load(
-                    &store.control_store(), thread_id,
+                    &store.control_store(),
+                    thread_id,
                 )
                 .await
-                .map_err(|e| format!("failed to load execution state for deterministic repair ladder: {e}"))?
-                .unwrap_or_else(
-                    crate::progress_controller::ExecutionState::new,
-                );
+                .map_err(|e| {
+                    format!("failed to load execution state for deterministic repair ladder: {e}")
+                })?
+                .unwrap_or_else(crate::progress_controller::ExecutionState::new);
 
                 match es.ladder_step() {
                     crate::progress_controller::RepairLadderStep::Stop => {
@@ -263,29 +255,21 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
             self.single_target_path.as_ref(),
         ) {
             if is_repair_mutation {
-                let mut es =
-                    crate::progress_controller::ExecutionState::load(
-                        &store.control_store(), thread_id,
-                    )
-                    .await
-                    .map_err(|e| format!("failed to load execution state for repair persistence: {e}"))?
-                    .unwrap_or_else(
-                        crate::progress_controller::ExecutionState::new,
-                    );
+                let mut es = crate::progress_controller::ExecutionState::load(
+                    &store.control_store(),
+                    thread_id,
+                )
+                .await
+                .map_err(|e| format!("failed to load execution state for repair persistence: {e}"))?
+                .unwrap_or_else(crate::progress_controller::ExecutionState::new);
                 if let Ok(path) = crate::progress_controller::SqlModelPath::parse(want.clone()) {
                     es.ensure_repair_target_path(path);
                 }
 
                 match &res {
                     Ok(v) => {
-                        let ok = v
-                            .get("ok")
-                            .and_then(|x| x.as_bool())
-                            .unwrap_or(false);
-                        let mutated = v
-                            .get("mutated")
-                            .and_then(|x| x.as_bool())
-                            .unwrap_or(false);
+                        let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+                        let mutated = v.get("mutated").and_then(|x| x.as_bool()).unwrap_or(false);
                         es.note_patch_attempt(ok, mutated);
                     }
                     Err(_) => {
@@ -322,14 +306,13 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
         if let (Some(store), Some(thread_id)) =
             (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
-            let mut es = crate::progress_controller::ExecutionState::load(
-                &store.control_store(), thread_id,
-            )
-            .await
-            .map_err(|e| format!("failed to load execution state for probe-aware run_sql: {e}"))?
-            .unwrap_or_else(
-                crate::progress_controller::ExecutionState::new,
-            );
+            let mut es =
+                crate::progress_controller::ExecutionState::load(&store.control_store(), thread_id)
+                    .await
+                    .map_err(|e| {
+                        format!("failed to load execution state for probe-aware run_sql: {e}")
+                    })?
+                    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
             if matches!(
                 es.probe_requirement_status(),
                 crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation
@@ -337,21 +320,13 @@ impl react_core::tools::Tool for ProbeAwareRunSqlTool {
                 return Err("run_sql probe loop exhausted for this validate-failure cycle; apply a mutating file fix before probing again.".to_string());
             }
             let res = self.inner.call(args, ctx).await;
-            if es
-                .telemetry
-                .last_validate
-                .as_ref()
-                .and_then(|lv| lv.ok)
-                == Some(false)
+            if es.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false)
                 && es.hard_mutation_repair_mode()
             {
                 match &res {
                     Ok(v) => {
-                        let ok =
-                            v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
-                        let sig = crate::progress_controller::ProbeSignature::from_run_sql(
-                            &sql, v,
-                        );
+                        let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+                        let sig = crate::progress_controller::ProbeSignature::from_run_sql(&sql, v);
                         let _ = es.note_probe_attempt(&sql, ok, sig);
                     }
                     Err(_) => {

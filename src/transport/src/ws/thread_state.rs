@@ -2,13 +2,11 @@ use super::mapping::{map_exec_ctx, map_thread_event_kind, map_tool_event_status}
 use super::util::{env_truthy, truncate_str, DEFAULT_AGENT_TYPE, DEFAULT_INITIAL_PHASE};
 use crate::ws::api_gen::src::models as api;
 use react_core::session::{ThreadLog as CoreThreadLog, ThreadLogReader, ThreadStep};
-use react_view::{
-    ThreadItemState as CoreThreadItemState,
-    ThreadItemStatus as CoreThreadItemStatus,
-    ThreadLogViewCache as CoreThreadLogViewCache,
-    THREAD_STATE_SCHEMA_VERSION,
-};
 use react_core::suite::SuiteRegistry;
+use react_view::{
+    ThreadItemState as CoreThreadItemState, ThreadItemStatus as CoreThreadItemStatus,
+    ThreadLogViewCache as CoreThreadLogViewCache, THREAD_STATE_SCHEMA_VERSION,
+};
 use std::collections::BTreeMap;
 
 pub(super) fn ws_thread_state_snapshot_from_core(
@@ -68,9 +66,12 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     }
 
     fn task_error_from_checklist(cl: &[api::PlanChecklistItem]) -> Option<String> {
-        let pick = cl.iter().find(|it| matches!(it.status,
-            api::PlanChecklistItemStatus::NeedsUpdate | api::PlanChecklistItemStatus::Blocked
-        ));
+        let pick = cl.iter().find(|it| {
+            matches!(
+                it.status,
+                api::PlanChecklistItemStatus::NeedsUpdate | api::PlanChecklistItemStatus::Blocked
+            )
+        });
         let it = pick?;
         let details = it.details.as_deref().unwrap_or("").trim();
         if details.is_empty() {
@@ -83,17 +84,24 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     let mut plan_summaries: std::collections::HashMap<String, serde_json::Value> =
         std::collections::HashMap::new();
     for p in plans {
-        let kind = if p.plan_kind.trim().is_empty() { "plan" } else { &p.plan_kind };
+        let kind = if p.plan_kind.trim().is_empty() {
+            "plan"
+        } else {
+            &p.plan_kind
+        };
         let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
         for t in p.tasks.iter() {
             let k = format!("{:?}", t.status).to_lowercase();
             *counts.entry(k).or_insert(0) += 1;
         }
-        plan_summaries.insert(kind.to_string(), serde_json::json!({
-            "planKey": p.plan_key,
-            "status": format!("{:?}", p.status).to_lowercase(),
-            "taskCounts": counts,
-        }));
+        plan_summaries.insert(
+            kind.to_string(),
+            serde_json::json!({
+                "planKey": p.plan_key,
+                "status": format!("{:?}", p.status).to_lowercase(),
+                "taskCounts": counts,
+            }),
+        );
 
         for t in p.tasks.iter() {
             let item_id = format!("task:plan:{}:{}", p.plan_key, t.task_id);
@@ -103,14 +111,11 @@ pub(super) fn ws_thread_state_snapshot_from_core(
                 "label": t.label,
                 "details": t.details,
             });
-            let mut wi = api::ThreadStateItem::new(
-                item_id,
-                "task".to_string(),
-                status.as_str().to_string(),
-            );
-            wi.outputs = outputs.as_object().map(|obj| {
-                obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-            });
+            let mut wi =
+                api::ThreadStateItem::new(item_id, "task".to_string(), status.as_str().to_string());
+            wi.outputs = outputs
+                .as_object()
+                .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
             if let Some(err) = task_error_from_checklist(&t.checklist) {
                 wi.last_error = Some(api::ThreadStateItemError::new(err));
             }
@@ -190,7 +195,10 @@ pub(super) fn ws_thread_state_snapshot_from_core(
     snap
 }
 
-pub(crate) fn materialize_state_from_log(thread_id: &str, log: &CoreThreadLog) -> CoreThreadLogViewCache {
+pub(crate) fn materialize_state_from_log(
+    thread_id: &str,
+    log: &CoreThreadLog,
+) -> CoreThreadLogViewCache {
     let mut st = CoreThreadLogViewCache {
         thread_state_schema_version: THREAD_STATE_SCHEMA_VERSION,
         thread_id: thread_id.to_string(),
@@ -353,8 +361,7 @@ pub(super) fn derive_completed_phases(
     }
     for (key, it) in items.iter() {
         if let Some(phase_name) = key.strip_prefix("phase:") {
-            if it.status == CoreThreadItemStatus::Ok && !completed.iter().any(|p| p == phase_name)
-            {
+            if it.status == CoreThreadItemStatus::Ok && !completed.iter().any(|p| p == phase_name) {
                 completed.push(phase_name.to_string());
             }
         }

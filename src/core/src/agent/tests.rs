@@ -550,11 +550,17 @@ async fn patch_protocol_response_is_wrapped_as_file_patch_action() {
         thread_store: None,
         exec_ctx: Some({
             let mut ctx = ExecutionContext::default();
-            ctx.set("plan_kind", serde_json::Value::String("cleanse".to_string()));
+            ctx.set(
+                "plan_kind",
+                serde_json::Value::String("cleanse".to_string()),
+            );
             ctx.set("plan_key", serde_json::Value::String("k".to_string()));
             ctx.set("workgroup_id", serde_json::Value::String("wg".to_string()));
             ctx.set("task_id", serde_json::Value::String("t".to_string()));
-            ctx.set("checklist_item_id", serde_json::Value::String("schema_contract".to_string()));
+            ctx.set(
+                "checklist_item_id",
+                serde_json::Value::String("schema_contract".to_string()),
+            );
             ctx.set("suite", serde_json::json!("suite_x"));
             ctx
         }),
@@ -747,7 +753,10 @@ async fn run_until_block_non_interactive_returns_step_boundary_on_step_budget_ex
             assert_eq!(thread_id, "tid".to_string());
             assert_eq!(reason, StepBoundaryReason::StepBudgetExhausted);
         }
-        other => panic!("expected StepBoundary, got unexpected outcome: {:?}", std::mem::discriminant(&other)),
+        other => panic!(
+            "expected StepBoundary, got unexpected outcome: {:?}",
+            std::mem::discriminant(&other)
+        ),
     }
 }
 

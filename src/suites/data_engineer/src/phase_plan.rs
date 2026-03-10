@@ -22,7 +22,9 @@ struct PlanPhaseCtx<'a> {
 // Small, pre-existing helpers (unchanged)
 // ---------------------------------------------------------------------------
 
-fn auto_approved_plan_detail(source: crate::phase_reason_detail::AutoApprovalSource) -> serde_json::Value {
+fn auto_approved_plan_detail(
+    source: crate::phase_reason_detail::AutoApprovalSource,
+) -> serde_json::Value {
     crate::phase_reason_detail::plan_auto_approved(source)
 }
 
@@ -88,17 +90,28 @@ async fn handle_plan_semantic_failure(
         "Plan failed semantic validation (design-first). Errors:\n- {}",
         sem_errors.join("\n- ")
     );
-    apply_guard_block(thread_store, thread_id, phase, GuardBlockKind::PlanSemanticInvalid, reason).await?;
+    apply_guard_block(
+        thread_store,
+        thread_id,
+        phase,
+        GuardBlockKind::PlanSemanticInvalid,
+        reason,
+    )
+    .await?;
     use crate::retry_budget::SubjectiveRetryOutcome;
     match DataEngineerSuite::check_subjective_retry_budget(
         thread_store,
         thread_id,
         crate::progress_controller::SubjectiveRetryKind::PlanSemanticInvalid,
-    ).await? {
+    )
+    .await?
+    {
         SubjectiveRetryOutcome::Exhausted(tries) => Err(format!(
             "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
-            tries, sem.messages().join(" | ")
-        ).into()),
+            tries,
+            sem.messages().join(" | ")
+        )
+        .into()),
         SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::stayed_waiting(
             "plan semantic validation failed but remains within retry budget",
         )),
@@ -143,8 +156,8 @@ async fn run_plan_bootstrap(
     if !execution_state.needs_plan_bootstrap(phase) {
         return Ok(None);
     }
-    let query = crate::ctx_ext::sctx_query(sctx)
-        .ok_or_else(|| "query provider missing".to_string())?;
+    let query =
+        crate::ctx_ext::sctx_query(sctx).ok_or_else(|| "query provider missing".to_string())?;
     let files_tool = tools::files_tool::FilesTool {
         datasets: crate::ctx_ext::sctx_datasets(sctx),
     };
@@ -290,9 +303,9 @@ async fn run_plan_bootstrap(
     if bootstrap_sufficient {
         let mut st = execution_state.clone();
         st.mark_plan_bootstrap_done(phase);
-        st.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-            format!("failed to persist plan bootstrap state: {e}")
-        })?;
+        st.save(&thread_store.control_store(), thread_id)
+            .await
+            .map_err(|e| format!("failed to persist plan bootstrap state: {e}"))?;
     }
     Ok(Some(summary))
 }
@@ -309,26 +322,33 @@ async fn consume_plan_revision(
 ) -> Result<(Vec<crate::progress_controller::PlanViolation>, bool), PhaseError> {
     let plan_revision: Option<crate::progress_controller::PlanRevisionIntent> = {
         let mut es = crate::state_manager::load_execution_state_strict(
-            &pctx.thread_store.control_store(), pctx.thread_id,
+            &pctx.thread_store.control_store(),
+            pctx.thread_id,
         )
         .await?
         .unwrap_or_else(crate::progress_controller::ExecutionState::new);
         let rev = es.take_pending_plan_revision();
         if rev.is_some() {
-            es.save(&pctx.thread_store.control_store(), pctx.thread_id).await.map_err(|e| {
-                format!("failed to persist execution state after consuming plan revision: {e}")
-            })?;
+            es.save(&pctx.thread_store.control_store(), pctx.thread_id)
+                .await
+                .map_err(|e| {
+                    format!("failed to persist execution state after consuming plan revision: {e}")
+                })?;
         }
         rev
     };
-    let plan_violations: Vec<crate::progress_controller::PlanViolation> =
-        plan_revision.as_ref().map(|r| r.violations.clone()).unwrap_or_default();
+    let plan_violations: Vec<crate::progress_controller::PlanViolation> = plan_revision
+        .as_ref()
+        .map(|r| r.violations.clone())
+        .unwrap_or_default();
     let is_plan_revision = plan_revision.is_some();
 
     if let Some(ref revision) = plan_revision {
         match revision.strategy {
             crate::progress_controller::PlanRevisionStrategy::Rewrite => {
-                if let Some(mut existing_plan) = load_active_plan_for_track_spec(&pctx.actx, pctx.track).await {
+                if let Some(mut existing_plan) =
+                    load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
+                {
                     tracing::info!(
                         "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
                         existing_plan.plan_key(),
@@ -358,8 +378,7 @@ async fn consume_plan_revision(
 async fn check_existing_plan(
     pctx: &PlanPhaseCtx<'_>,
 ) -> Result<Option<PhaseExecutorOutcome>, PhaseError> {
-    let Some(mut existing_plan) =
-        load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
+    let Some(mut existing_plan) = load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
     else {
         return Ok(None);
     };
@@ -423,9 +442,7 @@ async fn check_existing_plan(
                 crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan)
                     .await
                     .map_err(|e| {
-                        format!(
-                            "failed to persist cleanse draft after raw-only enforcement: {e}"
-                        )
+                        format!("failed to persist cleanse draft after raw-only enforcement: {e}")
                     })?;
             }
         }
@@ -454,7 +471,11 @@ async fn check_existing_plan(
                 pctx.thread_store,
                 pctx.thread_id,
                 Some(pctx.phase),
-                PhaseDecision::annotation(pctx.phase, Some(PhaseReasonCode::PlanInvalidEmpty), Some(detail)),
+                PhaseDecision::annotation(
+                    pctx.phase,
+                    Some(PhaseReasonCode::PlanInvalidEmpty),
+                    Some(detail),
+                ),
             )
             .await?;
             return Ok(Some(PhaseExecutorOutcome::stayed_with_progress(
@@ -469,7 +490,9 @@ async fn check_existing_plan(
             &pctx.actx,
             pctx.thread_state_step_count,
             PhaseReasonCode::PlanAutoApproved,
-            auto_approved_plan_detail(crate::phase_reason_detail::AutoApprovalSource::ExistingDraftPlan),
+            auto_approved_plan_detail(
+                crate::phase_reason_detail::AutoApprovalSource::ExistingDraftPlan,
+            ),
         )
         .await?;
         if advanced {
@@ -549,14 +572,17 @@ async fn build_plan_query(
     if !is_cleanse {
         let global_key = sctx.keyspace().scoped_key(
             sctx.scope(),
-            &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+            &[
+                "semantic",
+                &format!(
+                    "{}.yaml",
+                    encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID)
+                ),
+            ],
         );
         if let Ok(v) = sctx.storage().get_json(&global_key).await {
             q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
-            q.push_str(
-                &serde_json::to_string_pretty(&v)
-                    .unwrap_or_else(|_| "{}".to_string()),
-            );
+            q.push_str(&serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string()));
             q.push('\n');
         }
     }
@@ -567,7 +593,9 @@ async fn build_plan_query(
     }
     if !plan_violations.is_empty() {
         q.push_str("\n");
-        q.push_str(&crate::progress_controller::format_plan_violations(plan_violations));
+        q.push_str(&crate::progress_controller::format_plan_violations(
+            plan_violations,
+        ));
     }
     if let Some(bs) = bootstrap_summary {
         q.push_str("\n\n");
@@ -576,8 +604,7 @@ async fn build_plan_query(
     }
     if let Some(ds) = crate::ctx_ext::sctx_datasets(sctx).as_ref() {
         if let Ok(items) = ds.list_datasets().await {
-            let mut tables: Vec<String> =
-                items.into_iter().map(|d| d.fqn()).collect();
+            let mut tables: Vec<String> = items.into_iter().map(|d| d.fqn()).collect();
             tables.sort();
             if !tables.is_empty() {
                 q.push_str("\n\nIMMUTABLE FACTS (available_relations, bounded):\n");
@@ -609,10 +636,9 @@ async fn compile_and_ground_cleanse_plan(
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
 ) -> Result<PhaseExecutorOutcome, PhaseError> {
     let datasets_for_catalog = crate::ctx_ext::sctx_datasets(sctx);
-    let discovered_raw = DataEngineerSuite::discovered_raw_relations_from_catalog(
-        datasets_for_catalog.as_ref(),
-    )
-    .await;
+    let discovered_raw =
+        DataEngineerSuite::discovered_raw_relations_from_catalog(datasets_for_catalog.as_ref())
+            .await;
 
     tracing::info!("data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets");
     let skeleton =
@@ -676,9 +702,14 @@ async fn compile_and_ground_cleanse_plan(
         candidates.len(),
         candidates
     );
-    let grounded =
-        crate::dataset_truth::build_grounded_raw_dataset_set(&pctx.actx, &crate::ctx_ext::actx_warehouse(&pctx.actx).ok_or_else(|| "warehouse provider required for plan grounding but not configured".to_string())?, &candidates)
-            .await;
+    let grounded = crate::dataset_truth::build_grounded_raw_dataset_set(
+        &pctx.actx,
+        &crate::ctx_ext::actx_warehouse(&pctx.actx).ok_or_else(|| {
+            "warehouse provider required for plan grounding but not configured".to_string()
+        })?,
+        &candidates,
+    )
+    .await;
     if !grounded.rejected.is_empty() {
         for rej in grounded.rejected.iter() {
             tracing::warn!(
@@ -716,11 +747,14 @@ async fn compile_and_ground_cleanse_plan(
                 candidates={:?}, allowed={:?}, rejected=[{}]",
                 grounded.candidates,
                 grounded.allowed,
-                grounded.rejected.iter()
+                grounded
+                    .rejected
+                    .iter()
                     .map(|r| format!("{}:{}", r.dataset_id, r.reason))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ).into());
+            )
+            .into());
         }
     }
 
@@ -731,7 +765,12 @@ async fn compile_and_ground_cleanse_plan(
         .filter(|s| !s.is_empty())
         .collect();
     DataEngineerSuite::enrich_cleanse_tasks(
-        &pctx.actx, q, design_memo, design_critique, &mut plan, &enrich_ids,
+        &pctx.actx,
+        q,
+        design_memo,
+        design_critique,
+        &mut plan,
+        &enrich_ids,
     )
     .await?;
 
@@ -749,7 +788,12 @@ async fn compile_and_ground_cleanse_plan(
         let targeted = DataEngineerSuite::collect_targeted_semantic_tasks(&sem.issues, &candidates);
         if !targeted.is_empty() {
             DataEngineerSuite::enrich_cleanse_tasks(
-                &pctx.actx, q, design_memo, design_critique, &mut plan, &targeted,
+                &pctx.actx,
+                q,
+                design_memo,
+                design_critique,
+                &mut plan,
+                &targeted,
             )
             .await?;
             crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan)
@@ -827,7 +871,10 @@ async fn compile_and_ground_model_plan(
 
     tracing::info!("data_engineer: [model] compiling plan from candidate models");
     let candidates = DataEngineerSuite::generate_model_candidates(
-        &pctx.actx, &q_enriched, design_memo, design_critique,
+        &pctx.actx,
+        &q_enriched,
+        design_memo,
+        design_critique,
     )
     .await?;
     let mut plan = DataEngineerSuite::compile_model_candidates_plan(&candidates);
@@ -838,9 +885,8 @@ async fn compile_and_ground_model_plan(
         }
     }
 
-    let selected_candidates = DataEngineerSuite::select_high_value_model_candidates(
-        &candidates.candidates,
-    );
+    let selected_candidates =
+        DataEngineerSuite::select_high_value_model_candidates(&candidates.candidates);
     if plan.project_snapshot.is_null() {
         plan.project_snapshot = serde_json::json!({});
     }
@@ -904,7 +950,12 @@ async fn compile_and_ground_model_plan(
         .filter(|s| !s.is_empty())
         .collect();
     DataEngineerSuite::enrich_model_tasks(
-        &pctx.actx, &q_enriched, design_memo, design_critique, &mut plan, &enrich_ids,
+        &pctx.actx,
+        &q_enriched,
+        design_memo,
+        design_critique,
+        &mut plan,
+        &enrich_ids,
     )
     .await?;
     crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
@@ -924,7 +975,12 @@ async fn compile_and_ground_model_plan(
         let targeted = DataEngineerSuite::collect_targeted_semantic_tasks(&sem.issues, &candidates);
         if !targeted.is_empty() {
             DataEngineerSuite::enrich_model_tasks(
-                &pctx.actx, &q_enriched, design_memo, design_critique, &mut plan, &targeted,
+                &pctx.actx,
+                &q_enriched,
+                design_memo,
+                design_critique,
+                &mut plan,
+                &targeted,
             )
             .await?;
             crate::plan::ensure_model_plan_semantically_valid_or_repaired(
@@ -1000,14 +1056,26 @@ impl DataEngineerSuite {
         // 3. Deterministic bootstrap.
         Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
         let bootstrap_summary: Option<String> = run_plan_bootstrap(
-            thread_store, thread_id, phase, sctx, &pctx.actx, execution_state,
-        ).await?;
+            thread_store,
+            thread_id,
+            phase,
+            sctx,
+            &pctx.actx,
+            execution_state,
+        )
+        .await?;
 
         // 4. Build enriched query and agent inputs.
         let (q, manifest_retry_signal) = build_plan_query(
-            &pctx, sctx, question, execution_state,
-            repair_ctx, &plan_violations, bootstrap_summary.as_deref(),
-        ).await;
+            &pctx,
+            sctx,
+            question,
+            execution_state,
+            repair_ctx,
+            &plan_violations,
+            bootstrap_summary.as_deref(),
+        )
+        .await;
 
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
             prompts::cleanse_plan_system_prompt()

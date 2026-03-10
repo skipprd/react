@@ -1,5 +1,6 @@
 use react_core::session::{
-    LlmStepStatus, ThreadEvent, ThreadEventKind, ThreadEventStatus, ThreadLog, ThreadStep, ToolStepStatus,
+    LlmStepStatus, ThreadEvent, ThreadEventKind, ThreadEventStatus, ThreadLog, ThreadStep,
+    ToolStepStatus,
 };
 
 pub fn build_thread_events_from_log(log: &ThreadLog, max_events: usize) -> Vec<ThreadEvent> {

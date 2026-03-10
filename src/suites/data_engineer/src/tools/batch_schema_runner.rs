@@ -23,23 +23,25 @@ pub(crate) async fn fail_model_schema_batch(
         )),
     );
     plan::save_model_plan(ctx, plan).await.map_err(|save_err| {
-        format!(
-            "failed to persist model schema batch failure state: {save_err}"
-        )
+        format!("failed to persist model schema batch failure state: {save_err}")
     })?;
     if budget.exhausted() {
         return crate::tools::batch_contracts::to_json_value(
             crate::tools::batch_contracts::ModelSchemaBatchContract {
                 ok: false,
                 kind: Some("batch_locked".to_string()),
-                reason_code: Some(serde_json::to_value(
-                    controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                )
-                .map_err(|e| format!("failed to encode batch lock reason: {e}"))?),
-                message: Some(controller_kernel::batch_lock_error_message(
-                    controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
-                )
-                .to_string()),
+                reason_code: Some(
+                    serde_json::to_value(
+                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                    )
+                    .map_err(|e| format!("failed to encode batch lock reason: {e}"))?,
+                ),
+                message: Some(
+                    controller_kernel::batch_lock_error_message(
+                        controller_kernel::BatchLockReason::ConsecutiveFailureBudgetExhausted,
+                    )
+                    .to_string(),
+                ),
                 checklist_item_id: checklist_item_id.to_string(),
                 attempted_item_names: attempted_names.to_vec(),
                 succeeded_item_names: Vec::new(),

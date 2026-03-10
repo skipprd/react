@@ -6,9 +6,7 @@ use crate::keyspace::Keyspace;
 use crate::provider_traits::VectorStore;
 use crate::schema_registry::{AgentStepTypeV1, AgentStepV1, SchemaId};
 use crate::scope::RequestScope;
-use crate::session::{
-    ExecutionContext, Observation, ThreadResult, ThreadStep, ThreadStore,
-};
+use crate::session::{ExecutionContext, Observation, ThreadResult, ThreadStep, ThreadStore};
 use crate::storage::StorageAdapter;
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
@@ -57,33 +55,86 @@ impl std::fmt::Debug for AgentCtx {
 
 impl AgentCtx {
     // ── Accessors ──────────────────────────────────────────────
-    pub fn top_k(&self) -> usize { self.top_k }
-    pub fn per_step_timeout_secs(&self) -> u64 { self.per_step_timeout_secs }
-    pub fn max_steps(&self) -> usize { self.max_steps }
-    pub fn thread_id(&self) -> &Option<String> { &self.thread_id }
-    pub fn progress_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<usize>> { &self.progress_tx }
-    pub fn pre_step_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<String>> { &self.pre_step_tx }
-    pub fn trace_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<String>> { &self.trace_tx }
-    pub fn agent_name(&self) -> &Option<String> { &self.agent_name }
-    pub fn policy(&self) -> &Arc<dyn AgentPolicy> { &self.policy }
-    pub fn llm(&self) -> &Arc<dyn crate::llm::LargeLanguageModel> { &self.llm }
-    pub fn storage(&self) -> &Arc<dyn StorageAdapter> { &self.storage }
-    pub fn scope(&self) -> &RequestScope { &self.scope }
-    pub fn keyspace(&self) -> &Arc<dyn Keyspace> { &self.keyspace }
-    pub fn vector(&self) -> &Option<Arc<dyn VectorStore>> { &self.vector }
-    pub fn thread_store(&self) -> &Option<ThreadStore> { &self.thread_store }
-    pub fn exec_ctx(&self) -> &Option<ExecutionContext> { &self.exec_ctx }
-    pub fn resolved_config(&self) -> &Option<Arc<crate::resolved_config::ReactResolvedConfig>> { &self.resolved_config }
-    pub fn capabilities_ref(&self) -> &CapabilityMap { &self.capabilities }
+    pub fn top_k(&self) -> usize {
+        self.top_k
+    }
+    pub fn per_step_timeout_secs(&self) -> u64 {
+        self.per_step_timeout_secs
+    }
+    pub fn max_steps(&self) -> usize {
+        self.max_steps
+    }
+    pub fn thread_id(&self) -> &Option<String> {
+        &self.thread_id
+    }
+    pub fn progress_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<usize>> {
+        &self.progress_tx
+    }
+    pub fn pre_step_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<String>> {
+        &self.pre_step_tx
+    }
+    pub fn trace_tx(&self) -> &Option<tokio::sync::mpsc::UnboundedSender<String>> {
+        &self.trace_tx
+    }
+    pub fn agent_name(&self) -> &Option<String> {
+        &self.agent_name
+    }
+    pub fn policy(&self) -> &Arc<dyn AgentPolicy> {
+        &self.policy
+    }
+    pub fn llm(&self) -> &Arc<dyn crate::llm::LargeLanguageModel> {
+        &self.llm
+    }
+    pub fn storage(&self) -> &Arc<dyn StorageAdapter> {
+        &self.storage
+    }
+    pub fn scope(&self) -> &RequestScope {
+        &self.scope
+    }
+    pub fn keyspace(&self) -> &Arc<dyn Keyspace> {
+        &self.keyspace
+    }
+    pub fn vector(&self) -> &Option<Arc<dyn VectorStore>> {
+        &self.vector
+    }
+    pub fn thread_store(&self) -> &Option<ThreadStore> {
+        &self.thread_store
+    }
+    pub fn exec_ctx(&self) -> &Option<ExecutionContext> {
+        &self.exec_ctx
+    }
+    pub fn resolved_config(&self) -> &Option<Arc<crate::resolved_config::ReactResolvedConfig>> {
+        &self.resolved_config
+    }
+    pub fn capabilities_ref(&self) -> &CapabilityMap {
+        &self.capabilities
+    }
 
     // ── Setters ────────────────────────────────────────────────
-    pub fn set_policy(&mut self, v: Arc<dyn AgentPolicy>) { self.policy = v; }
-    pub fn set_thread_id(&mut self, v: Option<String>) { self.thread_id = v; }
-    pub fn set_thread_store(&mut self, v: Option<ThreadStore>) { self.thread_store = v; }
-    pub fn set_exec_ctx(&mut self, v: Option<ExecutionContext>) { self.exec_ctx = v; }
-    pub fn set_resolved_config(&mut self, v: Option<Arc<crate::resolved_config::ReactResolvedConfig>>) { self.resolved_config = v; }
-    pub fn set_progress_tx(&mut self, v: Option<tokio::sync::mpsc::UnboundedSender<usize>>) { self.progress_tx = v; }
-    pub fn set_pre_step_tx(&mut self, v: Option<tokio::sync::mpsc::UnboundedSender<String>>) { self.pre_step_tx = v; }
+    pub fn set_policy(&mut self, v: Arc<dyn AgentPolicy>) {
+        self.policy = v;
+    }
+    pub fn set_thread_id(&mut self, v: Option<String>) {
+        self.thread_id = v;
+    }
+    pub fn set_thread_store(&mut self, v: Option<ThreadStore>) {
+        self.thread_store = v;
+    }
+    pub fn set_exec_ctx(&mut self, v: Option<ExecutionContext>) {
+        self.exec_ctx = v;
+    }
+    pub fn set_resolved_config(
+        &mut self,
+        v: Option<Arc<crate::resolved_config::ReactResolvedConfig>>,
+    ) {
+        self.resolved_config = v;
+    }
+    pub fn set_progress_tx(&mut self, v: Option<tokio::sync::mpsc::UnboundedSender<usize>>) {
+        self.progress_tx = v;
+    }
+    pub fn set_pre_step_tx(&mut self, v: Option<tokio::sync::mpsc::UnboundedSender<String>>) {
+        self.pre_step_tx = v;
+    }
 
     /// Retrieve a suite-specific capability by concrete type.
     pub fn capability<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
@@ -154,19 +205,61 @@ impl AgentCtxBuilder {
         }
     }
 
-    pub fn top_k(mut self, v: usize) -> Self { self.top_k = v; self }
-    pub fn per_step_timeout_secs(mut self, v: u64) -> Self { self.per_step_timeout_secs = v; self }
-    pub fn max_steps(mut self, v: usize) -> Self { self.max_steps = v; self }
-    pub fn thread_id(mut self, v: impl Into<String>) -> Self { self.thread_id = Some(v.into()); self }
-    pub fn progress_tx(mut self, v: tokio::sync::mpsc::UnboundedSender<usize>) -> Self { self.progress_tx = Some(v); self }
-    pub fn pre_step_tx(mut self, v: tokio::sync::mpsc::UnboundedSender<String>) -> Self { self.pre_step_tx = Some(v); self }
-    pub fn trace_tx(mut self, v: Option<tokio::sync::mpsc::UnboundedSender<String>>) -> Self { self.trace_tx = v; self }
-    pub fn agent_name(mut self, v: impl Into<String>) -> Self { self.agent_name = Some(v.into()); self }
-    pub fn vector(mut self, v: Option<Arc<dyn VectorStore>>) -> Self { self.vector = v; self }
-    pub fn thread_store(mut self, v: ThreadStore) -> Self { self.thread_store = Some(v); self }
-    pub fn exec_ctx(mut self, v: ExecutionContext) -> Self { self.exec_ctx = Some(v); self }
-    pub fn resolved_config(mut self, v: Option<Arc<crate::resolved_config::ReactResolvedConfig>>) -> Self { self.resolved_config = v; self }
-    pub fn capabilities(mut self, v: CapabilityMap) -> Self { self.capabilities = v; self }
+    pub fn top_k(mut self, v: usize) -> Self {
+        self.top_k = v;
+        self
+    }
+    pub fn per_step_timeout_secs(mut self, v: u64) -> Self {
+        self.per_step_timeout_secs = v;
+        self
+    }
+    pub fn max_steps(mut self, v: usize) -> Self {
+        self.max_steps = v;
+        self
+    }
+    pub fn thread_id(mut self, v: impl Into<String>) -> Self {
+        self.thread_id = Some(v.into());
+        self
+    }
+    pub fn progress_tx(mut self, v: tokio::sync::mpsc::UnboundedSender<usize>) -> Self {
+        self.progress_tx = Some(v);
+        self
+    }
+    pub fn pre_step_tx(mut self, v: tokio::sync::mpsc::UnboundedSender<String>) -> Self {
+        self.pre_step_tx = Some(v);
+        self
+    }
+    pub fn trace_tx(mut self, v: Option<tokio::sync::mpsc::UnboundedSender<String>>) -> Self {
+        self.trace_tx = v;
+        self
+    }
+    pub fn agent_name(mut self, v: impl Into<String>) -> Self {
+        self.agent_name = Some(v.into());
+        self
+    }
+    pub fn vector(mut self, v: Option<Arc<dyn VectorStore>>) -> Self {
+        self.vector = v;
+        self
+    }
+    pub fn thread_store(mut self, v: ThreadStore) -> Self {
+        self.thread_store = Some(v);
+        self
+    }
+    pub fn exec_ctx(mut self, v: ExecutionContext) -> Self {
+        self.exec_ctx = Some(v);
+        self
+    }
+    pub fn resolved_config(
+        mut self,
+        v: Option<Arc<crate::resolved_config::ReactResolvedConfig>>,
+    ) -> Self {
+        self.resolved_config = v;
+        self
+    }
+    pub fn capabilities(mut self, v: CapabilityMap) -> Self {
+        self.capabilities = v;
+        self
+    }
 
     pub fn build(self) -> AgentCtx {
         AgentCtx {
@@ -427,7 +520,6 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
             .await
     }
 }
-
 
 #[cfg(test)]
 mod tests;

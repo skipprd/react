@@ -56,10 +56,7 @@ fn decide_author_validate_trigger(
     if last_validate_failed {
         return None;
     }
-    if matches!(
-        next_action,
-        crate::plan::AuthoringNextAction::Validate
-    ) {
+    if matches!(next_action, crate::plan::AuthoringNextAction::Validate) {
         return Some(AuthorValidateTrigger::WorkGroupValidate);
     }
     if completion_snapshot.completion_state() == crate::plan::PlanCompletionState::Complete {
@@ -117,21 +114,20 @@ mod tests {
     #[test]
     fn missing_target_abort_reason_includes_structured_context() {
         let mut st = crate::progress_controller::ExecutionState::new();
-        st.repair.repair_mode =
-            crate::progress_controller::RepairModeState::SqlTarget(
-                crate::progress_controller::SqlTargetRepairMode {
-                    target_path: crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                    core: crate::progress_controller::RepairModeCore {
-                        ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                        attempt_count: 2,
-                        repair_started_mutation_epoch: None,
-                        consecutive_noop_patches: 0,
-                    },
+        st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+            crate::progress_controller::SqlTargetRepairMode {
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+                core: crate::progress_controller::RepairModeCore {
+                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
+                    attempt_count: 2,
+                    repair_started_mutation_epoch: None,
+                    consecutive_noop_patches: 0,
                 },
-            );
+            },
+        );
         let repair_ctx = crate::progress_controller::RepairPromptContext {
             brief: Some("compile failed".to_string()),
             ..Default::default()
@@ -231,9 +227,7 @@ async fn transition_plan_not_approved(
         crate::phase_contract::PhaseDecision::loopback(
             track.plan_phase(),
             Some(PhaseReasonCode::PlanNotApproved),
-            Some(crate::phase_reason_detail::plan_not_approved(
-                status,
-            )),
+            Some(crate::phase_reason_detail::plan_not_approved(status)),
         ),
     )
     .await
@@ -332,9 +326,7 @@ fn build_repair_mode_context(
     ctx
 }
 
-fn is_patch_based_repair_step(
-    ladder: &crate::progress_controller::RepairLadderStep,
-) -> bool {
+fn is_patch_based_repair_step(ladder: &crate::progress_controller::RepairLadderStep) -> bool {
     matches!(
         ladder,
         crate::progress_controller::RepairLadderStep::PatchTarget
@@ -412,9 +404,7 @@ async fn check_batch_lock_and_loopback(
     next_ids: &[String],
     expected_paths: &[String],
 ) -> Result<Option<PhaseExecutorOutcome>, String> {
-    if consecutive_batch_failures
-        < crate::controller_kernel::max_consecutive_batch_failures()
-    {
+    if consecutive_batch_failures < crate::controller_kernel::max_consecutive_batch_failures() {
         return Ok(None);
     }
     let reason = crate::controller_kernel::build_batch_lock_prompt(
@@ -433,7 +423,11 @@ async fn check_batch_lock_and_loopback(
         reason.clone(),
     )
     .await?;
-    let label = if track.is_cleanse() { "Cleanse" } else { "Model" };
+    let label = if track.is_cleanse() {
+        "Cleanse"
+    } else {
+        "Model"
+    };
     let violation = crate::progress_controller::PlanViolation::new(
         phase,
         None,
@@ -472,8 +466,16 @@ async fn load_cleanse_author_context(
     let plan = match crate::plan::load_cleanse_plan_any(actx).await? {
         Some(p) => p,
         None => {
-            transition_plan_missing(params.thread_store, params.thread_id, params.phase, params.track).await?;
-            return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+            transition_plan_missing(
+                params.thread_store,
+                params.thread_id,
+                params.phase,
+                params.track,
+            )
+            .await?;
+            return Ok(AuthorPlanLoadResult::EarlyReturn(
+                PhaseExecutorOutcome::TransitionCommitted,
+            ));
         }
     };
     if let control_flow::AuthoringGate::Block { reason } =
@@ -485,10 +487,16 @@ async fn load_cleanse_author_context(
             format!("Plan is not executable: {reason}"),
         );
         crate::phase_contract::commit_plan_revision_loopback(
-            params.thread_store, params.thread_id, params.phase, vec![violation],
+            params.thread_store,
+            params.thread_id,
+            params.phase,
+            vec![violation],
             crate::progress_controller::PlanRevisionStrategy::Rewrite,
-        ).await?;
-        return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+        )
+        .await?;
+        return Ok(AuthorPlanLoadResult::EarlyReturn(
+            PhaseExecutorOutcome::TransitionCommitted,
+        ));
     }
     if !params.hard_mutation_repair_mode {
         let _ = crate::plan::save_cleanse_plan(actx, &plan).await;
@@ -510,12 +518,18 @@ async fn load_cleanse_author_context(
             |task| task.expected_model_path.as_deref(),
         );
         if let Some(outcome) = check_batch_lock_and_loopback(
-            params.thread_store, params.thread_id, params.phase, params.track,
+            params.thread_store,
+            params.thread_id,
+            params.phase,
+            params.track,
             &plan.plan_key,
             plan.progress.consecutive_batch_failures,
             plan.progress.total_batch_failures,
-            &next, &expected_paths,
-        ).await? {
+            &next,
+            &expected_paths,
+        )
+        .await?
+        {
             return Ok(AuthorPlanLoadResult::EarlyReturn(outcome));
         }
     }
@@ -528,8 +542,11 @@ async fn load_cleanse_author_context(
             params.phase,
             params.track,
             plan.status,
-        ).await?;
-        return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+        )
+        .await?;
+        return Ok(AuthorPlanLoadResult::EarlyReturn(
+            PhaseExecutorOutcome::TransitionCommitted,
+        ));
     }
 
     let next_action = crate::plan::cleanse_next_authoring_action(&plan);
@@ -565,7 +582,11 @@ async fn load_cleanse_author_context(
                 |task| task.expected_model_path.as_deref(),
             );
             let ctx = build_schema_checklist_context(
-                params.track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
+                params.track,
+                &plan.plan_key,
+                &checklist_item_id,
+                ids,
+                &expected_paths,
             );
             Ok(AuthorPlanLoadResult::Ready {
                 plan_context: ctx,
@@ -598,7 +619,11 @@ async fn load_cleanse_author_context(
                 |task| task.expected_model_path.as_deref(),
             );
             let ctx = build_schema_checklist_context(
-                params.track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
+                params.track,
+                &plan.plan_key,
+                &checklist_item_id,
+                ids,
+                &expected_paths,
             );
             Ok(AuthorPlanLoadResult::Ready {
                 plan_context: ctx,
@@ -622,8 +647,11 @@ async fn load_cleanse_author_context(
                     params.track,
                     reason_code,
                     plan.plan_key.clone(),
-                ).await?;
-                return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+                )
+                .await?;
+                return Ok(AuthorPlanLoadResult::EarlyReturn(
+                    PhaseExecutorOutcome::TransitionCommitted,
+                ));
             }
 
             if params.guard.last_validate_failed {
@@ -647,10 +675,16 @@ async fn load_cleanse_author_context(
                     "Approved cleanse plan is not executable: no next work-group action while checklist work remains",
                 );
                 crate::phase_contract::commit_plan_revision_loopback(
-                    params.thread_store, params.thread_id, params.phase, vec![violation],
+                    params.thread_store,
+                    params.thread_id,
+                    params.phase,
+                    vec![violation],
                     crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                ).await?;
-                Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted))
+                )
+                .await?;
+                Ok(AuthorPlanLoadResult::EarlyReturn(
+                    PhaseExecutorOutcome::TransitionCommitted,
+                ))
             }
         }
     } else {
@@ -676,8 +710,16 @@ async fn load_model_author_context(
     let mut plan = match crate::plan::load_model_plan_any(actx).await? {
         Some(p) => p,
         None => {
-            transition_plan_missing(params.thread_store, params.thread_id, params.phase, params.track).await?;
-            return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+            transition_plan_missing(
+                params.thread_store,
+                params.thread_id,
+                params.phase,
+                params.track,
+            )
+            .await?;
+            return Ok(AuthorPlanLoadResult::EarlyReturn(
+                PhaseExecutorOutcome::TransitionCommitted,
+            ));
         }
     };
     if let control_flow::AuthoringGate::Block { reason } =
@@ -689,10 +731,16 @@ async fn load_model_author_context(
             format!("Plan is not executable: {reason}"),
         );
         crate::phase_contract::commit_plan_revision_loopback(
-            params.thread_store, params.thread_id, params.phase, vec![violation],
+            params.thread_store,
+            params.thread_id,
+            params.phase,
+            vec![violation],
             crate::progress_controller::PlanRevisionStrategy::Rewrite,
-        ).await?;
-        return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+        )
+        .await?;
+        return Ok(AuthorPlanLoadResult::EarlyReturn(
+            PhaseExecutorOutcome::TransitionCommitted,
+        ));
     }
     if !params.hard_mutation_repair_mode {
         let _ = crate::plan::save_model_plan(actx, &plan).await;
@@ -714,12 +762,18 @@ async fn load_model_author_context(
             |task| task.expected_model_path.as_deref(),
         );
         if let Some(outcome) = check_batch_lock_and_loopback(
-            params.thread_store, params.thread_id, params.phase, params.track,
+            params.thread_store,
+            params.thread_id,
+            params.phase,
+            params.track,
             &plan.plan_key,
             plan.progress.consecutive_batch_failures,
             plan.progress.total_batch_failures,
-            &next, &expected_paths,
-        ).await? {
+            &next,
+            &expected_paths,
+        )
+        .await?
+        {
             return Ok(AuthorPlanLoadResult::EarlyReturn(outcome));
         }
     }
@@ -732,8 +786,11 @@ async fn load_model_author_context(
             params.phase,
             params.track,
             plan.status,
-        ).await?;
-        return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+        )
+        .await?;
+        return Ok(AuthorPlanLoadResult::EarlyReturn(
+            PhaseExecutorOutcome::TransitionCommitted,
+        ));
     }
 
     let next_action = crate::plan::model_next_authoring_action(&plan);
@@ -769,7 +826,11 @@ async fn load_model_author_context(
                 |task| task.expected_model_path.as_deref(),
             );
             let ctx = build_schema_checklist_context(
-                params.track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
+                params.track,
+                &plan.plan_key,
+                &checklist_item_id,
+                ids,
+                &expected_paths,
             );
             Ok(AuthorPlanLoadResult::Ready {
                 plan_context: ctx,
@@ -795,10 +856,8 @@ async fn load_model_author_context(
     } else if next_names.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
             {
-                let key = crate::project_fs::join_storage_key(
-                    actx,
-                    crate::project_fs::MODELS_SCHEMA_YML,
-                );
+                let key =
+                    crate::project_fs::join_storage_key(actx, crate::project_fs::MODELS_SCHEMA_YML);
                 if let Ok(bytes) = actx.storage().get_bytes(&key).await {
                     let content = String::from_utf8_lossy(&bytes).to_string();
                     if let Ok(vy) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
@@ -831,9 +890,7 @@ async fn load_model_author_context(
                                     .checklist
                                     .iter()
                                     .find(|it| it.checklist_item_id == checklist_item_id)
-                                    .map(|it| {
-                                        it.status == crate::plan::ChecklistItemStatus::Done
-                                    })
+                                    .map(|it| it.status == crate::plan::ChecklistItemStatus::Done)
                                     .unwrap_or(false);
                                 if !done {
                                     changed = true;
@@ -866,7 +923,11 @@ async fn load_model_author_context(
             );
             let checklist_item_id = resolve_checklist_item_id(actx);
             let ctx = build_schema_checklist_context(
-                params.track, &plan.plan_key, &checklist_item_id, ids, &expected_paths,
+                params.track,
+                &plan.plan_key,
+                &checklist_item_id,
+                ids,
+                &expected_paths,
             );
             Ok(AuthorPlanLoadResult::Ready {
                 plan_context: ctx,
@@ -890,8 +951,11 @@ async fn load_model_author_context(
                     params.track,
                     reason_code,
                     plan.plan_key.clone(),
-                ).await?;
-                return Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted));
+                )
+                .await?;
+                return Ok(AuthorPlanLoadResult::EarlyReturn(
+                    PhaseExecutorOutcome::TransitionCommitted,
+                ));
             }
 
             if params.guard.last_validate_failed {
@@ -915,10 +979,16 @@ async fn load_model_author_context(
                     "Approved model plan is not executable: no next work-group action while checklist work remains",
                 );
                 crate::phase_contract::commit_plan_revision_loopback(
-                    params.thread_store, params.thread_id, params.phase, vec![violation],
+                    params.thread_store,
+                    params.thread_id,
+                    params.phase,
+                    vec![violation],
                     crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                ).await?;
-                Ok(AuthorPlanLoadResult::EarlyReturn(PhaseExecutorOutcome::TransitionCommitted))
+                )
+                .await?;
+                Ok(AuthorPlanLoadResult::EarlyReturn(
+                    PhaseExecutorOutcome::TransitionCommitted,
+                ))
             }
         }
     } else {
@@ -973,9 +1043,7 @@ async fn build_author_prompt(
             let mut rels: Vec<String> = keys
                 .into_iter()
                 .filter(|k| k.ends_with(".sql") && !k.contains("/_versions/"))
-                .filter_map(|k| {
-                    k.strip_prefix(&(base.clone() + "/")).map(|s| s.to_string())
-                })
+                .filter_map(|k| k.strip_prefix(&(base.clone() + "/")).map(|s| s.to_string()))
                 .collect();
             rels.sort();
             rels.dedup();
@@ -1052,33 +1120,25 @@ async fn build_author_prompt(
         }
 
         if !batch_relations.is_empty() {
-            let limits = crate::facts::FactsLimits::for_scope(
+            let limits =
+                crate::facts::FactsLimits::for_scope(crate::facts::FactsScope::AuthorBatch);
+            let bundle = crate::facts::build_facts_bundle_from_relations(
+                actx,
                 crate::facts::FactsScope::AuthorBatch,
-            );
-            let bundle =
-                crate::facts::build_facts_bundle_from_relations(
-                    actx,
-                    crate::facts::FactsScope::AuthorBatch,
-                    dialect.clone(),
-                    crate::facts::TargetFacts::default(),
-                    &batch_relations,
-                    limits,
-                )
-                .await;
+                dialect.clone(),
+                crate::facts::TargetFacts::default(),
+                &batch_relations,
+                limits,
+            )
+            .await;
             q.push_str("\n\nIMMUTABLE FACTS (author_batch_schema):\n");
-            q.push_str(
-                &serde_json::to_string_pretty(&bundle)
-                    .unwrap_or_else(|_| "{}".to_string()),
-            );
+            q.push_str(&serde_json::to_string_pretty(&bundle).unwrap_or_else(|_| "{}".to_string()));
             q.push('\n');
             q.push_str("Rules:\n- You MUST NOT reference any column not present in facts.relations[].columns for that relation.\n- If required facts are missing, call sql_schema and then patch.\n");
         }
         if let Some(vf) = prior_validate_facts {
             q.push_str("\n\nIMMUTABLE FACTS (latest_validate_fail_facts):\n");
-            q.push_str(
-                &serde_json::to_string_pretty(&vf)
-                    .unwrap_or_else(|_| "{}".to_string()),
-            );
+            q.push_str(&serde_json::to_string_pretty(&vf).unwrap_or_else(|_| "{}".to_string()));
             q.push('\n');
         }
     }
@@ -1091,10 +1151,14 @@ async fn build_author_prompt(
     }
     if let Some(target) = single_target_repair_path {
         q.push_str("\n\nDETERMINISTIC SINGLE-TARGET REPAIR MODE:\n");
-        q.push_str("- You MUST mutate ONLY this file path in your next mutation (file op=patch|rm|mv):\n");
+        q.push_str(
+            "- You MUST mutate ONLY this file path in your next mutation (file op=patch|rm|mv):\n",
+        );
         q.push_str("- ");
         q.push_str(target);
-        q.push_str("\n- Do NOT patch, move, or remove any other file until this target validates.\n");
+        q.push_str(
+            "\n- Do NOT patch, move, or remove any other file until this target validates.\n",
+        );
     }
 
     if params.hard_mutation_repair_mode && !params.repair_ctx.failed_models.is_empty() {
@@ -1138,15 +1202,19 @@ async fn build_author_prompt(
         }
     }
     if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl) {
-        if let Some(key) = params.execution_state
+        if let Some(key) = params
+            .execution_state
             .phase
             .phase_reason_detail
             .as_ref()
-            .and_then(|v| v.get("meta"))
-            .and_then(|v| v.get("review_ref"))
-            .and_then(|v| v.get("key"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_string())
+            .and_then(|v| {
+                serde_json::from_value::<
+                        crate::phase_reason_detail::ReviewDecisionTransitionDetail,
+                    >(v.clone())
+                    .ok()
+            })
+            .and_then(|detail| detail.meta.review_ref)
+            .map(|review_ref| review_ref.key.trim().to_string())
             .filter(|s| !s.is_empty())
         {
             if let Ok(bytes) = actx.storage().get_bytes(&key).await {
@@ -1190,10 +1258,13 @@ async fn build_author_prompt(
         )
         .await
         .map_err(|e| format!("failed to load execution state for deterministic repair mode: {e}"))?
-        .unwrap_or_else(
-            crate::progress_controller::ExecutionState::new,
-        );
-        if es.single_target_repair_path().as_deref().unwrap_or("").trim().is_empty()
+        .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+        if es
+            .single_target_repair_path()
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
             && !target.is_empty()
         {
             if let Ok(path) = crate::progress_controller::SqlModelPath::parse(target.clone()) {
@@ -1262,14 +1333,12 @@ async fn build_author_prompt(
                 ladder_step: ladder.clone(),
                 last_validate_brief: params.repair_ctx.brief.clone(),
                 patch_contract: Some(
-                    crate::prompts::patch_contract::file_patch_contract()
-                        .to_string(),
+                    crate::prompts::patch_contract::file_patch_contract().to_string(),
                 ),
             }),
         };
-        let mut repair =
-            crate::prompt_packets::render_envelope(&envelope)
-                .map_err(|e| format!("invalid repair prompt envelope: {e}"))?;
+        let mut repair = crate::prompt_packets::render_envelope(&envelope)
+            .map_err(|e| format!("invalid repair prompt envelope: {e}"))?;
 
         repair.push_str("\nRules:\n");
         repair.push_str("- You MUST call file with a mutating op next.\n");
@@ -1289,7 +1358,8 @@ async fn build_author_prompt(
                 repair.push_str("- REQUIRED OP MODE: fs_op. Use file op='mv' or op='rm' only (no patch in this step).\n");
             }
             crate::progress_controller::RepairLadderStep::Stop => {
-                repair.push_str("- STOP: prior repair attempts did not converge. Do not continue.\n");
+                repair
+                    .push_str("- STOP: prior repair attempts did not converge. Do not continue.\n");
             }
         }
 
@@ -1317,12 +1387,11 @@ async fn build_author_prompt(
     }
 
     let llm_options = if params.track.is_cleanse() {
-        let author_max_tokens: u32 = crate::env_util::env_u32(
-            crate::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_CLEANSE,
-        )
-        .unwrap_or(24_000)
-        .max(2_000)
-        .min(64_000);
+        let author_max_tokens: u32 =
+            crate::env_util::env_u32(crate::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_CLEANSE)
+                .unwrap_or(24_000)
+                .max(2_000)
+                .min(64_000);
         LlmCallOptions {
             prompt_id: "data_engineer.cleanse_author",
             thread_id: None,
@@ -1334,12 +1403,11 @@ async fn build_author_prompt(
             timeout_secs: None,
         }
     } else {
-        let author_max_tokens: u32 = crate::env_util::env_u32(
-            crate::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_MODEL,
-        )
-        .unwrap_or(32_000)
-        .max(2_000)
-        .min(64_000);
+        let author_max_tokens: u32 =
+            crate::env_util::env_u32(crate::env_util::env_keys::LLM_AUTHOR_MAX_TOKENS_MODEL)
+                .unwrap_or(32_000)
+                .max(2_000)
+                .min(64_000);
         LlmCallOptions {
             prompt_id: "data_engineer.model_author",
             thread_id: None,
@@ -1389,10 +1457,9 @@ async fn handle_author_run_outcome(
             )
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            if let Err(reason) = crate::progress_controller::gate_authoring_progress(
-                &gate_state,
-                params.phase,
-            ) {
+            if let Err(reason) =
+                crate::progress_controller::gate_authoring_progress(&gate_state, params.phase)
+            {
                 apply_guard_block(
                     params.thread_store,
                     params.thread_id,
@@ -1403,10 +1470,7 @@ async fn handle_author_run_outcome(
                 .await?;
                 return Ok(PhaseExecutorOutcome::stayed_waiting(reason));
             }
-            if crate::phase_gate::patch_impl_intent_unsatisfied(
-                &gate_state,
-                params.phase,
-            ) {
+            if crate::phase_gate::patch_impl_intent_unsatisfied(&gate_state, params.phase) {
                 let reason = format!(
                     "progress_gate_blocked: review requested implementation patch for phase '{}' and no successful mutation has been recorded since loopback. Apply a mutating file op (patch/rm/mv) before re-validating.",
                     params.phase.as_str()
@@ -1431,9 +1495,7 @@ async fn handle_author_run_outcome(
                     |es| es.clear_pending_patch_impl(),
                 )
                 .await
-                .map_err(|e| {
-                    format!("failed to clear pending patch-impl intent: {e}")
-                })?;
+                .map_err(|e| format!("failed to clear pending patch-impl intent: {e}"))?;
             }
 
             if !params.track.is_cleanse() {
@@ -1498,22 +1560,21 @@ async fn handle_author_run_outcome(
                     post_state.repair.mutation_epoch,
                     post_state.repair.stall_count,
                 );
-                match crate::authoring_driver::AuthoringDriver::run_turn(
-                    authoring_ctx,
-                    &snapshot,
-                ) {
-                    crate::authoring_driver::AuthoringTurnResult::HardError {
-                        message,
-                    } => {
+                match crate::authoring_driver::AuthoringDriver::run_turn(authoring_ctx, &snapshot) {
+                    crate::authoring_driver::AuthoringTurnResult::HardError { message } => {
                         let violation = crate::progress_controller::PlanViolation::new(
                             params.phase,
                             None,
                             format!("Authoring repair stall: {message}"),
                         );
                         crate::phase_contract::commit_plan_revision_loopback(
-                            params.thread_store, params.thread_id, params.phase, vec![violation],
+                            params.thread_store,
+                            params.thread_id,
+                            params.phase,
+                            vec![violation],
                             crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                        ).await?;
+                        )
+                        .await?;
                         return Ok(PhaseExecutorOutcome::TransitionCommitted);
                     }
                     crate::authoring_driver::AuthoringTurnResult::Continue => {}
@@ -1604,12 +1665,18 @@ impl DataEngineerSuite {
         let (plan_context, plan_state) = if params.track.is_cleanse() {
             match load_cleanse_author_context(&params, &mut actx).await? {
                 AuthorPlanLoadResult::EarlyReturn(outcome) => return Ok(outcome),
-                AuthorPlanLoadResult::Ready { plan_context, plan_state } => (plan_context, plan_state),
+                AuthorPlanLoadResult::Ready {
+                    plan_context,
+                    plan_state,
+                } => (plan_context, plan_state),
             }
         } else {
             match load_model_author_context(&params, &mut actx).await? {
                 AuthorPlanLoadResult::EarlyReturn(outcome) => return Ok(outcome),
-                AuthorPlanLoadResult::Ready { plan_context, plan_state } => (plan_context, plan_state),
+                AuthorPlanLoadResult::Ready {
+                    plan_context,
+                    plan_state,
+                } => (plan_context, plan_state),
             }
         };
 
@@ -1635,7 +1702,8 @@ impl DataEngineerSuite {
             &plan_context,
             &plan_state,
             single_target_repair_path.as_deref(),
-        ).await?;
+        )
+        .await?;
 
         let pre_mutation_epoch = params.execution_state.repair.mutation_epoch;
         match Agent::run_until_block_non_interactive(
@@ -1648,14 +1716,17 @@ impl DataEngineerSuite {
         )
         .await
         {
-            Ok(outcome) => handle_author_run_outcome(
-                &params,
-                &actx,
-                sctx,
-                &authoring_ctx,
-                pre_mutation_epoch,
-                outcome,
-            ).await,
+            Ok(outcome) => {
+                handle_author_run_outcome(
+                    &params,
+                    &actx,
+                    sctx,
+                    &authoring_ctx,
+                    pre_mutation_epoch,
+                    outcome,
+                )
+                .await
+            }
             Err(e) => Err(e.to_string().into()),
         }
     }

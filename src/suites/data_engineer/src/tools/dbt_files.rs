@@ -5,8 +5,8 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use react_core::agent::AgentCtx;
 use crate::providers::DatasetCatalogProvider;
+use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 
 use crate::patch_contract::{normalize_hunks_only_patch_text, SingleFilePatchArgs};
@@ -38,7 +38,8 @@ fn select_terms_from_paths(paths: &[String]) -> Vec<String> {
 }
 
 async fn was_recently_removed_in_repair(ctx: &AgentCtx, rel_path: &str) -> bool {
-    let (Some(store), Some(thread_id)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref()) else {
+    let (Some(store), Some(thread_id)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
+    else {
         return false;
     };
     let want = project_fs::normalize_rel_path(rel_path)
@@ -673,20 +674,15 @@ impl Tool for FilesTool {
 
                 validate_sql_model_folder_policy(&want_rel)?;
 
-                let base_state =
-                    crate::patch_protocol::read_patch_base_state(
-                        ctx, &want_rel,
-                    )
-                    .await;
-                let outcome =
-                    crate::patch_protocol::apply_single_file_patch_with_base(
-                        ctx,
-                        self.datasets.as_ref(),
-                        &want_rel,
-                        patch_in.as_str(),
-                        &base_state,
-                    )
-                    .await?;
+                let base_state = crate::patch_protocol::read_patch_base_state(ctx, &want_rel).await;
+                let outcome = crate::patch_protocol::apply_single_file_patch_with_base(
+                    ctx,
+                    self.datasets.as_ref(),
+                    &want_rel,
+                    patch_in.as_str(),
+                    &base_state,
+                )
+                .await?;
 
                 if outcome.base_sha256 == outcome.new_sha256
                     && (outcome.lines_added + outcome.lines_removed) == 0
@@ -770,13 +766,13 @@ impl Tool for FilesTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use react_core::resolved_config as config;
-    use crate::project_fs as project_fs;
     use crate::progress_controller::ExecutionState;
+    use crate::project_fs;
     use crate::state_manager;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::NullModel;
+    use react_core::resolved_config as config;
     use react_core::scope::RequestScope;
     use react_core::session::ThreadStore;
     use react_core::storage::StorageAdapter;
@@ -786,7 +782,11 @@ mod tests {
     fn minimal_cfg() -> Arc<config::ReactResolvedConfig> {
         Arc::new(config::ReactResolvedConfig {
             server: config::ServerResolved { port: 1 },
-            storage: config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
@@ -796,13 +796,19 @@ mod tests {
     fn make_ctx(storage: Arc<dyn StorageAdapter>) -> AgentCtx {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-        react_core::agent::AgentCtxBuilder::new(Arc::new(NullModel::new()), storage, scope, keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build()
+        react_core::agent::AgentCtxBuilder::new(
+            Arc::new(NullModel::new()),
+            storage,
+            scope,
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build()
     }
 
     #[tokio::test]
@@ -962,7 +968,10 @@ mod tests {
         let mut es = ExecutionState::new();
         es.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/m.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/m.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
@@ -1009,7 +1018,10 @@ mod tests {
         let mut es = ExecutionState::new();
         es.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
             crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse("models/staging/m.sql".to_string()).expect("valid sql model path"),
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/m.sql".to_string(),
+                )
+                .expect("valid sql model path"),
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,

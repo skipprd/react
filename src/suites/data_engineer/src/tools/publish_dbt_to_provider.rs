@@ -6,12 +6,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use react_core::resolved_config::ReactResolvedConfig;
 use crate::progress_controller::ExecutionState;
-use crate::state_manager;
-use react_core::agent::AgentCtx;
 use crate::providers::{CatalogProvider, DatasetCatalogProvider};
+use crate::state_manager;
 use crate::thread_cache::ThreadCacheStore;
+use react_core::agent::AgentCtx;
+use react_core::resolved_config::ReactResolvedConfig;
 use react_core::tools::Tool;
 use std::sync::Arc;
 
@@ -32,12 +32,11 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish started");
         let cfg = resolved_config(ctx)?;
 
-        let max_iters: usize = crate::env_util::env_usize(
-            crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS,
-        )
-        .unwrap_or(8)
-        .max(1)
-            .min(25);
+        let max_iters: usize =
+            crate::env_util::env_usize(crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS)
+                .unwrap_or(8)
+                .max(1)
+                .min(25);
 
         // Enforce single active warehouse provider for publishing.
         let threads = crate::ctx_ext::actx_query(ctx).map(|q| q.max_concurrency());
@@ -62,8 +61,8 @@ impl Tool for PublishDbtToProviderTool {
             })
             .filter(|v| !v.is_empty());
 
-        let dbt = crate::ctx_ext::actx_dbt(ctx)
-            .ok_or_else(|| "dbt provider missing".to_string())?;
+        let dbt =
+            crate::ctx_ext::actx_dbt(ctx).ok_or_else(|| "dbt provider missing".to_string())?;
         let query = crate::ctx_ext::actx_query(ctx);
 
         // Write generated profiles.yml into a temp dir and run compile.
@@ -73,25 +72,24 @@ impl Tool for PublishDbtToProviderTool {
         fs::write(&p, gen.profiles_yml.as_bytes()).map_err(|e| e.to_string())?;
 
         // Eagerly repair/refresh + compile until the project compiles cleanly (bounded).
-        let (compile_res, compile_repair) =
-            crate::dbt_repair::repair_loop::run_repair_loop(
-                ctx,
-                &dbt,
-                &crate::providers::DbtValidateArgs {
-                    project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
-                    profiles_dir: Some(td.path().to_string_lossy().to_string()),
-                    target: provider_target.clone(),
-                    run: false,
-                    build: false,
-                    select: None,
-                    exclude: None,
-                },
-                max_iters,
-                self.datasets.as_ref(),
-                self.catalog.as_ref(),
-                dataset_ids.as_deref(),
-            )
-            .await?;
+        let (compile_res, compile_repair) = crate::dbt_repair::repair_loop::run_repair_loop(
+            ctx,
+            &dbt,
+            &crate::providers::DbtValidateArgs {
+                project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
+                profiles_dir: Some(td.path().to_string_lossy().to_string()),
+                target: provider_target.clone(),
+                run: false,
+                build: false,
+                select: None,
+                exclude: None,
+            },
+            max_iters,
+            self.datasets.as_ref(),
+            self.catalog.as_ref(),
+            dataset_ids.as_deref(),
+        )
+        .await?;
 
         if !compile_res.ok || !compile_res.compile_ok {
             emit_trace(ctx, "publish failed");
@@ -129,9 +127,7 @@ impl Tool for PublishDbtToProviderTool {
             if let Some(store) = ctx.thread_store().as_ref() {
                 let es = state_manager::load_execution_state_strict(&store.control_store(), &tid)
                     .await
-                    .map_err(|e| {
-                        format!("failed to load strict execution state for publish: {e}")
-                    })?
+                    .map_err(|e| format!("failed to load strict execution state for publish: {e}"))?
                     .unwrap_or_else(ExecutionState::new);
                 last_published_digest = es.publish.publish_plan.last_published_plan_sha256.clone();
                 pending_plan_digest = es.publish.publish_plan.pending_plan_sha256.clone();
@@ -205,25 +201,24 @@ impl Tool for PublishDbtToProviderTool {
         }
 
         // Run dbt build to publish, with eager repair until success (bounded).
-        let (build_res, build_repair) =
-            crate::dbt_repair::repair_loop::run_repair_loop(
-                ctx,
-                &dbt,
-                &crate::providers::DbtValidateArgs {
-                    project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
-                    profiles_dir: Some(td.path().to_string_lossy().to_string()),
-                    target: provider_target.clone(),
-                    run: false,
-                    build: true,
-                    select: None,
-                    exclude: None,
-                },
-                max_iters,
-                self.datasets.as_ref(),
-                self.catalog.as_ref(),
-                dataset_ids.as_deref(),
-            )
-            .await?;
+        let (build_res, build_repair) = crate::dbt_repair::repair_loop::run_repair_loop(
+            ctx,
+            &dbt,
+            &crate::providers::DbtValidateArgs {
+                project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
+                profiles_dir: Some(td.path().to_string_lossy().to_string()),
+                target: provider_target.clone(),
+                run: false,
+                build: true,
+                select: None,
+                exclude: None,
+            },
+            max_iters,
+            self.datasets.as_ref(),
+            self.catalog.as_ref(),
+            dataset_ids.as_deref(),
+        )
+        .await?;
 
         if !build_res.ok || build_res.run_ok == Some(false) {
             emit_trace(ctx, "publish failed");
@@ -240,7 +235,10 @@ impl Tool for PublishDbtToProviderTool {
         if let Some(tid) = ctx.thread_id().as_deref() {
             if !tid.trim().is_empty() {
                 let providers = crate::de_config::de_config_from_resolved(cfg);
-                let wh_container = providers.as_ref().map(|p| p.warehouse.container.as_str()).unwrap_or("");
+                let wh_container = providers
+                    .as_ref()
+                    .map(|p| p.warehouse.container.as_str())
+                    .unwrap_or("");
                 let fqns = relations
                     .iter()
                     .map(|r| {
@@ -249,10 +247,7 @@ impl Tool for PublishDbtToProviderTool {
                         } else {
                             r.database.clone()
                         };
-                        format!(
-                            "{}.{}.{}",
-                            wh_container, db, r.identifier
-                        )
+                        format!("{}.{}.{}", wh_container, db, r.identifier)
                     })
                     .collect::<Vec<_>>();
                 ThreadCacheStore::update_published(tid, &plan_sha256, fqns);
@@ -287,7 +282,10 @@ async fn check_existing_relations(
     relations: &[PublishedRelation],
 ) -> BTreeMap<String, bool> {
     let providers = crate::de_config::de_config_from_resolved(cfg);
-    let wh_container = providers.as_ref().map(|p| p.warehouse.container.as_str()).unwrap_or("");
+    let wh_container = providers
+        .as_ref()
+        .map(|p| p.warehouse.container.as_str())
+        .unwrap_or("");
     let mut out = BTreeMap::<String, bool>::new();
     let Some(q) = query else {
         // If we can't check existence, require approval (conservative).
@@ -297,10 +295,7 @@ async fn check_existing_relations(
             } else {
                 r.database.clone()
             };
-            let fqn = format!(
-                "{}.{}.{}",
-                wh_container, db, r.identifier
-            );
+            let fqn = format!("{}.{}.{}", wh_container, db, r.identifier);
             out.insert(fqn, true);
         }
         return out;
@@ -313,16 +308,13 @@ async fn check_existing_relations(
         } else {
             r.database.clone()
         };
-        let fqn = format!(
-            "{}.{}.{}",
-            wh_container, db, r.identifier
-        );
-        let exists = crate::transient_retry::retry_transient_default(
-            "publish_check_schema",
-            || async { q.schema(&fqn).await },
-        )
-        .await
-        .is_ok();
+        let fqn = format!("{}.{}.{}", wh_container, db, r.identifier);
+        let exists =
+            crate::transient_retry::retry_transient_default("publish_check_schema", || async {
+                q.schema(&fqn).await
+            })
+            .await
+            .is_ok();
         out.insert(fqn, exists);
     }
     out
@@ -420,10 +412,10 @@ fn resolved_config(ctx: &AgentCtx) -> Result<&ReactResolvedConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::DbtProvider;
     use async_trait::async_trait;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
-    use crate::providers::DbtProvider;
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -443,7 +435,11 @@ mod tests {
     async fn check_existing_relations_is_conservative_without_query_provider() {
         let cfg = react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -545,7 +541,11 @@ mod tests {
 
         let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({

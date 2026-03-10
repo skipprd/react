@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-use crate::references::ColumnRef;
 use crate::probe_target::ProbeTarget;
-use react_core::agent::AgentCtx;
 use crate::providers::QueryProvider;
+use crate::references::ColumnRef;
+use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 
 pub struct SqlSampleTool {
@@ -60,10 +60,9 @@ impl Tool for SqlSampleTool {
                 "field": field,
             }));
         }
-        match crate::transient_retry::retry_transient_default(
-            "sql_sample_schema",
-            || async { self.query.schema(&table).await },
-        )
+        match crate::transient_retry::retry_transient_default("sql_sample_schema", || async {
+            self.query.schema(&table).await
+        })
         .await
         {
             Ok(cols) => {
@@ -94,10 +93,9 @@ impl Tool for SqlSampleTool {
             t = table,
             k = k
         );
-        match crate::transient_retry::retry_transient_default(
-            "sql_sample_query",
-            || async { self.query.query(&sql).await },
-        )
+        match crate::transient_retry::retry_transient_default("sql_sample_query", || async {
+            self.query.query(&sql).await
+        })
         .await
         {
             Ok(qr) => {

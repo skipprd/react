@@ -1,14 +1,13 @@
 use serde_json::Value;
 
 pub use crate::domain_types::{
-    ControllerEvent, FailureSignature, ValidateFailingTarget,
-    ValidateObservationContract, ValidateOutcomeV2, ValidateTargetPath,
+    ControllerEvent, FailureSignature, ValidateFailingTarget, ValidateObservationContract,
+    ValidateOutcomeV2, ValidateTargetPath,
 };
 use crate::failure_kind::FailureKind;
 
 fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> FailureKind {
-    obj
-        .get("failure_class")
+    obj.get("failure_class")
         .cloned()
         .and_then(|v| serde_json::from_value::<FailureKind>(v).ok())
         .unwrap_or(FailureKind::Unknown)
@@ -102,27 +101,28 @@ fn build_failing_targets_from_logs(
     failure_class: FailureKind,
 ) -> Vec<ValidateFailingTarget> {
     let error_code = failure_class_key(failure_class).to_string();
-    let mut out: Vec<ValidateFailingTarget> = crate::dbt_error::extract_failed_models_from_logs(logs)
-        .into_iter()
-        .filter_map(|fm| {
-            let node_id = fm
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())?;
-            let canonical_path = fm
-                .get("file")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())?;
-            let target_path = ValidateTargetPath::parse(canonical_path).ok()?;
-            Some(ValidateFailingTarget {
-                node_id,
-                target_path,
-                error_code: error_code.clone(),
+    let mut out: Vec<ValidateFailingTarget> =
+        crate::dbt_error::extract_failed_models_from_logs(logs)
+            .into_iter()
+            .filter_map(|fm| {
+                let node_id = fm
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())?;
+                let canonical_path = fm
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())?;
+                let target_path = ValidateTargetPath::parse(canonical_path).ok()?;
+                Some(ValidateFailingTarget {
+                    node_id,
+                    target_path,
+                    error_code: error_code.clone(),
+                })
             })
-        })
-        .collect();
+            .collect();
     if out.is_empty() {
         // dbt test failures can report only FAIL lines; derive deterministic targets from those lines.
         let runtime_failures = crate::dbt_error::extract_runtime_failures_from_logs(logs);
@@ -204,7 +204,10 @@ pub fn attach_validate_outcome_v2(obs: &mut Value) -> Result<ValidateOutcomeV2, 
         build_failing_targets_from_logs(&logs, &errors, class)
     };
     if !ok && failing_targets.is_empty() {
-        return Err("validate_outcome_v2_contract_error: missing failing_targets for failed validate".to_string());
+        return Err(
+            "validate_outcome_v2_contract_error: missing failing_targets for failed validate"
+                .to_string(),
+        );
     }
     let failure_signature = failing_targets.first().map(|t| FailureSignature {
         class,
@@ -226,7 +229,9 @@ pub fn attach_validate_outcome_v2(obs: &mut Value) -> Result<ValidateOutcomeV2, 
     Ok(outcome)
 }
 
-pub fn validate_contract_from_observation(mut obs: Value) -> Result<ValidateObservationContract, String> {
+pub fn validate_contract_from_observation(
+    mut obs: Value,
+) -> Result<ValidateObservationContract, String> {
     let outcome_v2 = attach_validate_outcome_v2(&mut obs)?;
     Ok(ValidateObservationContract {
         observation: obs,
@@ -284,10 +289,7 @@ mod tests {
         assert!(contract.outcome_v2.compile_ok);
         assert!(contract.outcome_v2.run_ok);
         assert!(
-            contract
-                .observation
-                .get("validate_outcome_v2")
-                .is_some(),
+            contract.observation.get("validate_outcome_v2").is_some(),
             "expected validate_outcome_v2 to be attached"
         );
         assert_eq!(

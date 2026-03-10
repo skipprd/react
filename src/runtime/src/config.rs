@@ -4,8 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::wiring::RequestScope;
-use react_core::resolved_config as rc;
 use rc::{LlmProvider, StorageMode};
+use react_core::resolved_config as rc;
 
 /// # `react` configuration
 ///
@@ -140,10 +140,10 @@ pub struct LlmFile {
     pub top_p: Option<f32>,
 }
 
+pub use rc::LlmResolved;
 pub use rc::ReactResolvedConfig;
 pub use rc::ServerResolved;
 pub use rc::StorageResolved;
-pub use rc::LlmResolved;
 
 use crate::runtime_settings::getenv_nonempty;
 
@@ -181,127 +181,129 @@ fn resolve_suite_providers(providers_yaml: serde_json::Value) -> Result<serde_js
     react_suite_data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
 }
 
-pub fn resolve_config(file: ReactConfigFile, ov: ServeOverrides) -> Result<ReactResolvedConfig, String> {
-        let server_port = ov
-            .port
-            .or_else(|| file.server.as_ref().and_then(|s| s.port))
-            .unwrap_or(DEFAULT_SERVER_PORT);
+pub fn resolve_config(
+    file: ReactConfigFile,
+    ov: ServeOverrides,
+) -> Result<ReactResolvedConfig, String> {
+    let server_port = ov
+        .port
+        .or_else(|| file.server.as_ref().and_then(|s| s.port))
+        .unwrap_or(DEFAULT_SERVER_PORT);
 
-        // Storage mode: CLI > env > YAML > default(local)
-        let mode_str = ov
-            .storage_mode
-            .or_else(|| getenv_nonempty("REACT_STORAGE_MODE"))
-            .or_else(|| file.storage.as_ref().and_then(|s| s.mode.clone()))
-            .unwrap_or_else(|| "local".to_string());
-        let mode = match mode_str.trim().to_ascii_lowercase().as_str() {
-            "local" => StorageMode::Local,
-            "s3" => StorageMode::S3,
-            other => {
-                return Err(format!(
-                    "unsupported storage.mode '{other}' (expected local|s3)"
-                ))
-            }
-        };
-
-        fn abs_path(p: &str) -> Result<String, String> {
-            let t = p.trim();
-            if t.is_empty() {
-                return Err("empty storage.path".to_string());
-            }
-            let pb = PathBuf::from(t);
-            if pb.is_absolute() {
-                return Ok(pb.to_string_lossy().to_string());
-            }
-            let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            Ok(cwd.join(pb).to_string_lossy().to_string())
+    // Storage mode: CLI > env > YAML > default(local)
+    let mode_str = ov
+        .storage_mode
+        .or_else(|| getenv_nonempty("REACT_STORAGE_MODE"))
+        .or_else(|| file.storage.as_ref().and_then(|s| s.mode.clone()))
+        .unwrap_or_else(|| "local".to_string());
+    let mode = match mode_str.trim().to_ascii_lowercase().as_str() {
+        "local" => StorageMode::Local,
+        "s3" => StorageMode::S3,
+        other => {
+            return Err(format!(
+                "unsupported storage.mode '{other}' (expected local|s3)"
+            ))
         }
+    };
 
-        // Resolve storage fields based on mode.
-        let (bucket, path) = if mode == StorageMode::S3 {
-            // Bucket: CLI > env > YAML
-            let b = ov
+    fn abs_path(p: &str) -> Result<String, String> {
+        let t = p.trim();
+        if t.is_empty() {
+            return Err("empty storage.path".to_string());
+        }
+        let pb = PathBuf::from(t);
+        if pb.is_absolute() {
+            return Ok(pb.to_string_lossy().to_string());
+        }
+        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+        Ok(cwd.join(pb).to_string_lossy().to_string())
+    }
+
+    // Resolve storage fields based on mode.
+    let (bucket, path) = if mode == StorageMode::S3 {
+        // Bucket: CLI > env > YAML
+        let b = ov
                 .bucket
                 .or_else(|| getenv_nonempty("SKIPPR_S3_BUCKET"))
                 .or_else(|| file.storage.as_ref().and_then(|s| s.bucket.clone()))
                 .ok_or_else(|| {
                     "missing storage bucket for s3 mode (set --bucket, env SKIPPR_S3_BUCKET, or storage.bucket in YAML)".to_string()
                 })?;
-            (Some(b), None)
-        } else {
-            // Path: CLI > env > YAML > default(./.react)
-            let p = ov
-                .storage_path
-                .or_else(|| getenv_nonempty("REACT_STORAGE_PATH"))
-                .or_else(|| file.storage.as_ref().and_then(|s| s.path.clone()))
-                .unwrap_or_else(|| DEFAULT_LOCAL_STORAGE_PATH.to_string());
-            (None, Some(abs_path(&p)?))
-        };
+        (Some(b), None)
+    } else {
+        // Path: CLI > env > YAML > default(./.react)
+        let p = ov
+            .storage_path
+            .or_else(|| getenv_nonempty("REACT_STORAGE_PATH"))
+            .or_else(|| file.storage.as_ref().and_then(|s| s.path.clone()))
+            .unwrap_or_else(|| DEFAULT_LOCAL_STORAGE_PATH.to_string());
+        (None, Some(abs_path(&p)?))
+    };
 
-        let tenant = ov
-            .tenant
-            .or_else(|| file.scope.as_ref().and_then(|s| s.tenant.clone()))
-            .unwrap_or_else(|| "default".to_string());
-        let workspace = ov
-            .workspace
-            .or_else(|| file.scope.as_ref().and_then(|s| s.workspace.clone()))
-            .unwrap_or_else(|| "default".to_string());
-        let project_id = ov
-            .project_id
-            .or_else(|| file.scope.as_ref().and_then(|s| s.project_id.clone()))
-            .unwrap_or_else(|| "default".to_string());
+    let tenant = ov
+        .tenant
+        .or_else(|| file.scope.as_ref().and_then(|s| s.tenant.clone()))
+        .unwrap_or_else(|| "default".to_string());
+    let workspace = ov
+        .workspace
+        .or_else(|| file.scope.as_ref().and_then(|s| s.workspace.clone()))
+        .unwrap_or_else(|| "default".to_string());
+    let project_id = ov
+        .project_id
+        .or_else(|| file.scope.as_ref().and_then(|s| s.project_id.clone()))
+        .unwrap_or_else(|| "default".to_string());
 
-        ensure_safe_segment("tenant", &tenant)?;
-        ensure_safe_segment("workspace", &workspace)?;
-        ensure_safe_segment("project_id", &project_id)?;
+    ensure_safe_segment("tenant", &tenant)?;
+    ensure_safe_segment("workspace", &workspace)?;
+    ensure_safe_segment("project_id", &project_id)?;
 
-        // Providers – delegate to suite-specific resolver
-        let providers_yaml = file.providers.unwrap_or(serde_json::json!({}));
-        let providers = resolve_suite_providers(providers_yaml)?;
+    // Providers – delegate to suite-specific resolver
+    let providers_yaml = file.providers.unwrap_or(serde_json::json!({}));
+    let providers = resolve_suite_providers(providers_yaml)?;
 
-        // LLM env surface
-        let llmf = file.llm.unwrap_or_default();
-        let llm_provider_raw = getenv_nonempty("LLM_PROVIDER").or(llmf.provider);
-        let provider = match llm_provider_raw {
-            Some(raw) => raw.parse::<LlmProvider>().map_err(|e| e.to_string())?,
-            None => LlmProvider::default(),
-        };
-        let llm = LlmResolved {
-            provider,
-            base_url: getenv_nonempty("LLM_BASE_URL").or(llmf.base_url),
-            chat_model: getenv_nonempty("LLM_CHAT_MODEL").or(llmf.chat_model),
-            embed_model: getenv_nonempty("LLM_EMBED_MODEL").or(llmf.embed_model),
-            context_length: getenv_nonempty("LLM_CONTEXT_LENGTH")
-                .and_then(|v| v.parse::<usize>().ok())
-                .or(llmf.context_length),
-            gpu_layers: getenv_nonempty("LLM_GPU_LAYERS")
-                .and_then(|v| v.parse::<usize>().ok())
-                .or(llmf.gpu_layers),
-            http_timeout_secs: getenv_nonempty("LLM_HTTP_TIMEOUT_SECS")
-                .and_then(|v| v.parse::<u64>().ok())
-                .or(llmf.http_timeout_secs),
-            max_tokens: getenv_nonempty("LLM_MAX_TOKENS")
-                .and_then(|v| v.parse::<u32>().ok())
-                .or(llmf.max_tokens),
-            temperature: getenv_nonempty("LLM_TEMPERATURE")
-                .and_then(|v| v.parse::<f32>().ok())
-                .or(llmf.temperature),
-            top_p: getenv_nonempty("LLM_TOP_P")
-                .and_then(|v| v.parse::<f32>().ok())
-                .or(llmf.top_p),
-        };
+    // LLM env surface
+    let llmf = file.llm.unwrap_or_default();
+    let llm_provider_raw = getenv_nonempty("LLM_PROVIDER").or(llmf.provider);
+    let provider = match llm_provider_raw {
+        Some(raw) => raw.parse::<LlmProvider>().map_err(|e| e.to_string())?,
+        None => LlmProvider::default(),
+    };
+    let llm = LlmResolved {
+        provider,
+        base_url: getenv_nonempty("LLM_BASE_URL").or(llmf.base_url),
+        chat_model: getenv_nonempty("LLM_CHAT_MODEL").or(llmf.chat_model),
+        embed_model: getenv_nonempty("LLM_EMBED_MODEL").or(llmf.embed_model),
+        context_length: getenv_nonempty("LLM_CONTEXT_LENGTH")
+            .and_then(|v| v.parse::<usize>().ok())
+            .or(llmf.context_length),
+        gpu_layers: getenv_nonempty("LLM_GPU_LAYERS")
+            .and_then(|v| v.parse::<usize>().ok())
+            .or(llmf.gpu_layers),
+        http_timeout_secs: getenv_nonempty("LLM_HTTP_TIMEOUT_SECS")
+            .and_then(|v| v.parse::<u64>().ok())
+            .or(llmf.http_timeout_secs),
+        max_tokens: getenv_nonempty("LLM_MAX_TOKENS")
+            .and_then(|v| v.parse::<u32>().ok())
+            .or(llmf.max_tokens),
+        temperature: getenv_nonempty("LLM_TEMPERATURE")
+            .and_then(|v| v.parse::<f32>().ok())
+            .or(llmf.temperature),
+        top_p: getenv_nonempty("LLM_TOP_P")
+            .and_then(|v| v.parse::<f32>().ok())
+            .or(llmf.top_p),
+    };
 
-        let cfg = ReactResolvedConfig {
-            server: ServerResolved { port: server_port },
-            storage: StorageResolved {
-                mode: mode.clone(),
-                bucket: bucket.clone(),
-                path: path.clone(),
-            },
-            scope: RequestScope::parse(tenant, workspace, project_id)
-                .map_err(|e| e.to_string())?,
-            llm,
-            suite_config: providers,
-        };
+    let cfg = ReactResolvedConfig {
+        server: ServerResolved { port: server_port },
+        storage: StorageResolved {
+            mode: mode.clone(),
+            bucket: bucket.clone(),
+            path: path.clone(),
+        },
+        scope: RequestScope::parse(tenant, workspace, project_id).map_err(|e| e.to_string())?,
+        llm,
+        suite_config: providers,
+    };
 
     Ok(cfg)
 }
@@ -407,9 +409,7 @@ mod tests {
                 storage_mode: Some("s3".into()),
                 ..Default::default()
             };
-            let err = resolve_config(file, ov)
-                .err()
-                .unwrap_or_default();
+            let err = resolve_config(file, ov).err().unwrap_or_default();
             assert!(err.contains("missing storage bucket for s3 mode"));
         });
     }

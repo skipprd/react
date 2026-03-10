@@ -111,7 +111,9 @@ impl RunThreadLogs {
 
         // For local mode, rename temp file into final `{scope}/logs/{thread_id}.log`.
         if let Mode::Local { ref root_dir } = self.inner.mode {
-            let key = keyspace.thread_log_key(&self.inner.scope, thread_id).map_err(|e| e.to_string())?;
+            let key = keyspace
+                .thread_log_key(&self.inner.scope, thread_id)
+                .map_err(|e| e.to_string())?;
             let final_path = root_dir.join(key);
             if let Some(parent) = final_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -141,13 +143,18 @@ impl RunThreadLogs {
         }
 
         // Buffered mode: upload entire temp file at end.
-        let key = keyspace.thread_log_key(&self.inner.scope, thread_id).map_err(|e| e.to_string())?;
+        let key = keyspace
+            .thread_log_key(&self.inner.scope, thread_id)
+            .map_err(|e| e.to_string())?;
         let path = self.inner.tmp_path.clone();
         let bytes =
             tokio::task::spawn_blocking(move || std::fs::read(&path).map_err(|e| e.to_string()))
                 .await
                 .map_err(|e| e.to_string())??;
-        storage.put_bytes(&key, &bytes, "text/plain").await.map_err(|e| e.to_string())?;
+        storage
+            .put_bytes(&key, &bytes, "text/plain")
+            .await
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }

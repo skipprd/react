@@ -25,28 +25,51 @@ macro_rules! delegate_track_plan {
 }
 
 impl TrackPlan for TrackPlanDoc {
-    fn plan_key(&self) -> &str { delegate_track_plan!(self, plan_key) }
-    fn status(&self) -> PlanStatus { delegate_track_plan!(self, status) }
-    fn set_status(&mut self, status: PlanStatus) { delegate_track_plan!(self, set_status, status: PlanStatus) }
-    fn tasks_len(&self) -> usize { delegate_track_plan!(self, tasks_len) }
-    fn batches_len(&self) -> usize { delegate_track_plan!(self, batches_len) }
-    fn progress_mut(&mut self) -> &mut crate::plan_types::PlanProgress { delegate_track_plan!(self, progress_mut) }
-    fn executable_plan_issues(&self) -> Vec<String> { delegate_track_plan!(self, executable_plan_issues) }
+    fn plan_key(&self) -> &str {
+        delegate_track_plan!(self, plan_key)
+    }
+    fn status(&self) -> PlanStatus {
+        delegate_track_plan!(self, status)
+    }
+    fn set_status(&mut self, status: PlanStatus) {
+        delegate_track_plan!(self, set_status, status: PlanStatus)
+    }
+    fn tasks_len(&self) -> usize {
+        delegate_track_plan!(self, tasks_len)
+    }
+    fn batches_len(&self) -> usize {
+        delegate_track_plan!(self, batches_len)
+    }
+    fn progress_mut(&mut self) -> &mut crate::plan_types::PlanProgress {
+        delegate_track_plan!(self, progress_mut)
+    }
+    fn executable_plan_issues(&self) -> Vec<String> {
+        delegate_track_plan!(self, executable_plan_issues)
+    }
 }
 
-pub(super) async fn load_plan_for_track(
-    actx: &AgentCtx,
-    track: TrackKind,
-) -> Option<TrackPlanDoc> {
+pub(super) async fn load_plan_for_track(actx: &AgentCtx, track: TrackKind) -> Option<TrackPlanDoc> {
     match track {
-        TrackKind::Cleanse => plan::load_cleanse_plan(actx).await.ok().flatten().map(TrackPlanDoc::Cleanse),
-        TrackKind::Model => plan::load_model_plan(actx).await.ok().flatten().map(TrackPlanDoc::Model),
+        TrackKind::Cleanse => plan::load_cleanse_plan(actx)
+            .await
+            .ok()
+            .flatten()
+            .map(TrackPlanDoc::Cleanse),
+        TrackKind::Model => plan::load_model_plan(actx)
+            .await
+            .ok()
+            .flatten()
+            .map(TrackPlanDoc::Model),
     }
 }
 
 pub(super) async fn save_plan(actx: &AgentCtx, plan: &TrackPlanDoc) -> Result<(), String> {
     match plan {
-        TrackPlanDoc::Cleanse(plan) => crate::plan::save_cleanse_plan(actx, plan).await.map_err(|e| e.to_string()),
-        TrackPlanDoc::Model(plan) => crate::plan::save_model_plan(actx, plan).await.map_err(|e| e.to_string()),
+        TrackPlanDoc::Cleanse(plan) => crate::plan::save_cleanse_plan(actx, plan)
+            .await
+            .map_err(|e| e.to_string()),
+        TrackPlanDoc::Model(plan) => crate::plan::save_model_plan(actx, plan)
+            .await
+            .map_err(|e| e.to_string()),
     }
 }

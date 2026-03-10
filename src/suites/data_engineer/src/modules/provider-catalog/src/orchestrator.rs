@@ -352,27 +352,30 @@ impl Orchestrator {
                         };
                     let has_stats = ns_stats_opt.is_some();
 
-                    let ns_stats_seeded: Option<react_suite_data_engineer::providers::DatasetFieldStats> =
-                        if ns_stats_opt.is_some() {
-                            ns_stats_opt
+                    let ns_stats_seeded: Option<
+                        react_suite_data_engineer::providers::DatasetFieldStats,
+                    > = if ns_stats_opt.is_some() {
+                        ns_stats_opt
+                    } else {
+                        if schema_cols.is_empty() {
+                            None
                         } else {
-                            if schema_cols.is_empty() {
-                                None
-                            } else {
-                                let mut ns = react_suite_data_engineer::providers::DatasetFieldStats::new(&ds_id);
-                                for (name, _ty) in schema_cols.iter() {
-                                    for (path, _leaf_ty) in
-                                        crate::type_parse::flatten_type_paths(name, _ty)
-                                            .into_iter()
-                                    {
-                                        ns.fields.entry(path).or_insert_with(
-                                            react_core::discover::stats::FieldStats::default,
-                                        );
-                                    }
+                            let mut ns =
+                                react_suite_data_engineer::providers::DatasetFieldStats::new(
+                                    &ds_id,
+                                );
+                            for (name, _ty) in schema_cols.iter() {
+                                for (path, _leaf_ty) in
+                                    crate::type_parse::flatten_type_paths(name, _ty).into_iter()
+                                {
+                                    ns.fields.entry(path).or_insert_with(
+                                        react_core::discover::stats::FieldStats::default,
+                                    );
                                 }
-                                Some(ns)
                             }
-                        };
+                            Some(ns)
+                        }
+                    };
 
                     let mut cat = crate::builder::CatalogBuilder::build_with_stats(
                         &ds,

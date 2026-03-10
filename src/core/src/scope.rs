@@ -130,10 +130,14 @@ impl RequestScope {
 
 pub fn ensure_safe_scope_segment(field: &str, value: &str) -> Result<(), CoreError> {
     if value.trim().is_empty() {
-        return Err(CoreError::generic(format!("invalid {field}: empty segment")));
+        return Err(CoreError::generic(format!(
+            "invalid {field}: empty segment"
+        )));
     }
     if value.contains("..") {
-        return Err(CoreError::generic(format!("invalid {field}: path traversal '..' is not allowed")));
+        return Err(CoreError::generic(format!(
+            "invalid {field}: path traversal '..' is not allowed"
+        )));
     }
     if value.contains('/') || value.contains('\\') {
         return Err(CoreError::generic(format!(
@@ -158,8 +162,8 @@ mod tests {
 
     #[test]
     fn parse_scope_rejects_path_segments() {
-        let err = RequestScope::parse("tenant/../x", "w", "p")
-            .expect_err("unsafe scope should fail");
+        let err =
+            RequestScope::parse("tenant/../x", "w", "p").expect_err("unsafe scope should fail");
         assert!(err.to_string().contains("invalid tenant"));
     }
 }

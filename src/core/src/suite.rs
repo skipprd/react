@@ -3,13 +3,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::capability::CapabilityMap;
+use crate::error::CoreError;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::llm::{DynLlm, NullModel};
 use crate::provider_traits::{NullSecretsProvider, SecretsProvider, StateStore, VectorStore};
 use crate::resolved_config::ReactResolvedConfig;
 use crate::scope::RequestScope;
-use crate::session::{ControlStateStore, Observation, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore};
-use crate::error::CoreError;
+use crate::session::{
+    ControlStateStore, Observation, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore,
+};
 use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
 use serde::{Deserialize, Serialize};
@@ -114,34 +116,74 @@ impl SuiteCtx {
     }
 
     // ── Accessors ──────────────────────────────────────────────
-    pub fn storage(&self) -> &Arc<dyn StorageAdapter> { &self.storage }
-    pub fn scope(&self) -> &RequestScope { &self.scope }
-    pub fn keyspace(&self) -> &Arc<dyn Keyspace> { &self.keyspace }
-    pub fn secrets(&self) -> &Arc<dyn SecretsProvider> { &self.secrets }
-    pub fn llm(&self) -> &DynLlm { &self.llm }
-    pub fn resolved_config(&self) -> &Option<Arc<ReactResolvedConfig>> { &self.resolved_config }
-    pub fn trace_tx(&self) -> &Option<UnboundedSender<String>> { &self.trace_tx }
-    pub fn vector(&self) -> &Option<Arc<dyn VectorStore>> { &self.vector }
-    pub fn state(&self) -> &Option<Arc<dyn StateStore>> { &self.state }
-    pub fn capabilities_ref(&self) -> &CapabilityMap { &self.capabilities }
+    pub fn storage(&self) -> &Arc<dyn StorageAdapter> {
+        &self.storage
+    }
+    pub fn scope(&self) -> &RequestScope {
+        &self.scope
+    }
+    pub fn keyspace(&self) -> &Arc<dyn Keyspace> {
+        &self.keyspace
+    }
+    pub fn secrets(&self) -> &Arc<dyn SecretsProvider> {
+        &self.secrets
+    }
+    pub fn llm(&self) -> &DynLlm {
+        &self.llm
+    }
+    pub fn resolved_config(&self) -> &Option<Arc<ReactResolvedConfig>> {
+        &self.resolved_config
+    }
+    pub fn trace_tx(&self) -> &Option<UnboundedSender<String>> {
+        &self.trace_tx
+    }
+    pub fn vector(&self) -> &Option<Arc<dyn VectorStore>> {
+        &self.vector
+    }
+    pub fn state(&self) -> &Option<Arc<dyn StateStore>> {
+        &self.state
+    }
+    pub fn capabilities_ref(&self) -> &CapabilityMap {
+        &self.capabilities
+    }
 
     // ── Setters ────────────────────────────────────────────────
-    pub fn set_resolved_config(&mut self, v: Option<Arc<ReactResolvedConfig>>) { self.resolved_config = v; }
-    pub fn set_trace_tx(&mut self, v: Option<UnboundedSender<String>>) { self.trace_tx = v; }
-    pub fn set_vector(&mut self, v: Option<Arc<dyn VectorStore>>) { self.vector = v; }
-    pub fn set_state(&mut self, v: Option<Arc<dyn StateStore>>) { self.state = v; }
+    pub fn set_resolved_config(&mut self, v: Option<Arc<ReactResolvedConfig>>) {
+        self.resolved_config = v;
+    }
+    pub fn set_trace_tx(&mut self, v: Option<UnboundedSender<String>>) {
+        self.trace_tx = v;
+    }
+    pub fn set_vector(&mut self, v: Option<Arc<dyn VectorStore>>) {
+        self.vector = v;
+    }
+    pub fn set_state(&mut self, v: Option<Arc<dyn StateStore>>) {
+        self.state = v;
+    }
 
     pub fn control_store(&self) -> ControlStateStore {
-        ControlStateStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+        ControlStateStore::new(
+            self.storage.clone(),
+            self.scope.clone(),
+            self.keyspace.clone(),
+        )
     }
 
     pub fn log_writer(&self) -> ThreadLogWriter {
-        ThreadLogWriter::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+        ThreadLogWriter::new(
+            self.storage.clone(),
+            self.scope.clone(),
+            self.keyspace.clone(),
+        )
     }
 
     /// Read-only ThreadLog access for display/projection consumers.
     pub fn log_reader(&self) -> impl ThreadLogReader {
-        ThreadStore::new(self.storage.clone(), self.scope.clone(), self.keyspace.clone())
+        ThreadStore::new(
+            self.storage.clone(),
+            self.scope.clone(),
+            self.keyspace.clone(),
+        )
     }
 
     pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
@@ -160,7 +202,12 @@ impl SuiteCtx {
 
     /// Record `FlowFrame`s as `ThreadStep`s in the audit log before returning
     /// them to the transport. The suite owns writes; transport only observes.
-    pub async fn record_flow_frames(&self, thread_id: &str, agent_type: &str, frames: &[FlowFrame]) {
+    pub async fn record_flow_frames(
+        &self,
+        thread_id: &str,
+        agent_type: &str,
+        frames: &[FlowFrame],
+    ) {
         let writer = self.log_writer();
         for frame in frames {
             let step = flow_frame_to_step(frame, agent_type);
@@ -181,7 +228,11 @@ fn flow_frame_to_step(frame: &FlowFrame, agent_type: &str) -> ThreadStep {
     let agent = agent_type.to_string();
     let observation = Observation::ok();
     match frame {
-        FlowFrame::Complete { kind, payload, display } => ThreadStep::Complete {
+        FlowFrame::Complete {
+            kind,
+            payload,
+            display,
+        } => ThreadStep::Complete {
             kind: kind.0.clone(),
             payload: payload.clone(),
             display: display.clone(),
@@ -196,7 +247,11 @@ fn flow_frame_to_step(frame: &FlowFrame, agent_type: &str) -> ThreadStep {
             ts,
             agent,
         },
-        FlowFrame::Checkpoint { kind, payload, display } => ThreadStep::Checkpoint {
+        FlowFrame::Checkpoint {
+            kind,
+            payload,
+            display,
+        } => ThreadStep::Checkpoint {
             kind: kind.0.clone(),
             payload: payload.clone(),
             display: display.clone(),
@@ -250,11 +305,26 @@ impl SuiteCtxBuilder {
         }
     }
 
-    pub fn resolved_config(mut self, v: Option<Arc<ReactResolvedConfig>>) -> Self { self.resolved_config = v; self }
-    pub fn trace_tx(mut self, v: Option<UnboundedSender<String>>) -> Self { self.trace_tx = v; self }
-    pub fn vector(mut self, v: Option<Arc<dyn VectorStore>>) -> Self { self.vector = v; self }
-    pub fn state(mut self, v: Option<Arc<dyn StateStore>>) -> Self { self.state = v; self }
-    pub fn capabilities(mut self, v: CapabilityMap) -> Self { self.capabilities = v; self }
+    pub fn resolved_config(mut self, v: Option<Arc<ReactResolvedConfig>>) -> Self {
+        self.resolved_config = v;
+        self
+    }
+    pub fn trace_tx(mut self, v: Option<UnboundedSender<String>>) -> Self {
+        self.trace_tx = v;
+        self
+    }
+    pub fn vector(mut self, v: Option<Arc<dyn VectorStore>>) -> Self {
+        self.vector = v;
+        self
+    }
+    pub fn state(mut self, v: Option<Arc<dyn StateStore>>) -> Self {
+        self.state = v;
+        self
+    }
+    pub fn capabilities(mut self, v: CapabilityMap) -> Self {
+        self.capabilities = v;
+        self
+    }
 
     pub fn build(self) -> SuiteCtx {
         SuiteCtx {
@@ -280,10 +350,16 @@ struct NullStorageAdapter;
 #[async_trait]
 impl StorageAdapter for NullStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: get_json('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: get_json('{}')",
+            key
+        )))
     }
     async fn put_json(&self, key: &str, _value: &Value) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: put_json('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: put_json('{}')",
+            key
+        )))
     }
     async fn put_json_if_etag_matches(
         &self,
@@ -297,19 +373,34 @@ impl StorageAdapter for NullStorageAdapter {
         )))
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: get_bytes('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: get_bytes('{}')",
+            key
+        )))
     }
     async fn put_bytes(&self, key: &str, _bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: put_bytes('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: put_bytes('{}')",
+            key
+        )))
     }
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: delete_object('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: delete_object('{}')",
+            key
+        )))
     }
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: head_etag('{}')", key)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: head_etag('{}')",
+            key
+        )))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
-        Err(CoreError::Storage(format!("NullStorageAdapter: list_prefix('{}')", prefix)))
+        Err(CoreError::Storage(format!(
+            "NullStorageAdapter: list_prefix('{}')",
+            prefix
+        )))
     }
 }
 

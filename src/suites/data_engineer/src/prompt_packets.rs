@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::control_flow::Phase;
-use crate::track_spec::PlanKind;
 use crate::progress_controller::RepairLadderStep;
+use crate::track_spec::PlanKind;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

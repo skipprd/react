@@ -11,12 +11,21 @@ pub(super) fn bind_execution_context(
 ) {
     actx.set_exec_ctx(Some({
         let mut ctx = react_core::session::ExecutionContext::default();
-        ctx.set("plan_kind", serde_json::Value::String(track.execution_plan_kind().0));
+        ctx.set(
+            "plan_kind",
+            serde_json::Value::String(track.execution_plan_kind().0),
+        );
         ctx.set("plan_key", serde_json::Value::String(plan_key));
         if let Some(ref x) = next_item {
-            ctx.set("workgroup_id", serde_json::Value::String(x.workgroup_id.clone()));
+            ctx.set(
+                "workgroup_id",
+                serde_json::Value::String(x.workgroup_id.clone()),
+            );
             ctx.set("task_id", serde_json::Value::String(x.task_id.clone()));
-            ctx.set("checklist_item_id", serde_json::Value::String(x.checklist_item_id.clone()));
+            ctx.set(
+                "checklist_item_id",
+                serde_json::Value::String(x.checklist_item_id.clone()),
+            );
         }
         ctx
     }));

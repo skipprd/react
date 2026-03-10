@@ -38,8 +38,6 @@ impl PreflightProvider for CatalogPreflightProvider {
             sctx,
         )
         .await;
-        PreflightBundle {
-            discovery,
-        }
+        PreflightBundle { discovery }
     }
 }

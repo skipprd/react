@@ -96,8 +96,7 @@ pub async fn get_file(ctx: &AgentCtx, path: &str, max_chars: usize) -> Result<Va
         }
         Err(e) => {
             let err_text = e.to_string();
-            let bootstrap_missing = (rel == PACKAGES_YML
-                || rel == MODELS_SCHEMA_YML)
+            let bootstrap_missing = (rel == PACKAGES_YML || rel == MODELS_SCHEMA_YML)
                 && is_missing_storage_error(&err_text);
             if bootstrap_missing {
                 return Ok(serde_json::json!({
@@ -147,7 +146,10 @@ pub async fn remove_file(
     }
 
     if existed {
-        ctx.storage().delete_object(&key).await.map_err(|e| e.to_string())?;
+        ctx.storage()
+            .delete_object(&key)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(serde_json::json!({
@@ -197,8 +199,14 @@ pub async fn move_file(
         return Err(format!("destination already exists: {}", to_rel));
     }
 
-    ctx.storage().put_bytes(&to_key, &bytes, "text/plain").await.map_err(|e| e.to_string())?;
-    ctx.storage().delete_object(&from_key).await.map_err(|e| e.to_string())?;
+    ctx.storage()
+        .put_bytes(&to_key, &bytes, "text/plain")
+        .await
+        .map_err(|e| e.to_string())?;
+    ctx.storage()
+        .delete_object(&from_key)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "ok": true,
@@ -249,10 +257,10 @@ fn is_missing_storage_error(err: &str) -> bool {
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use super::*;
+    use crate::providers::{DatasetId, QueryProvider, QueryResult};
     use async_trait::async_trait;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{ChatMessage, LargeLanguageModel};
-    use crate::providers::{DatasetId, QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use std::collections::HashMap;
@@ -308,7 +316,11 @@ pub(crate) mod test_helpers {
     pub fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -428,13 +440,19 @@ pub(crate) mod test_helpers {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
             Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
-        let mut actx = react_core::agent::AgentCtxBuilder::new(Arc::new(DummyLlm::default()), storage, scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let mut actx = react_core::agent::AgentCtxBuilder::new(
+            Arc::new(DummyLlm::default()),
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         actx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         if let Some(q) = query {
             actx.set_capability(Arc::new(crate::ctx_ext::QueryCap(q)));

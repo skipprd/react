@@ -1,9 +1,9 @@
-use react_core::agent::AgentCtx;
 use crate::providers::WarehouseProvider;
+use crate::references::DatasetRef;
+use react_core::agent::AgentCtx;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use crate::references::DatasetRef;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RejectedDataset {
@@ -182,7 +182,8 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
                 "discover_staging_models_from_storage: list_prefix({}) failed: {e}",
                 staging_prefix
             );
-            out.warnings.push(format!("list_prefix failed for {staging_prefix}: {e}"));
+            out.warnings
+                .push(format!("list_prefix failed for {staging_prefix}: {e}"));
             Vec::new()
         }
     };

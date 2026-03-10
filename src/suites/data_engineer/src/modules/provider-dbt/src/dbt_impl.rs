@@ -67,7 +67,6 @@ impl DbtRunnerMode {
             )),
         }
     }
-
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1028,8 +1027,19 @@ impl DbtProjectProvider {
         project_name: &str,
     ) -> Result<(), String> {
         let project_key = self.keyspace.scoped_key(scope, &["dbt", "dbt_project.yml"]);
-        let existing = if self.storage.head_etag(&project_key).await.map_err(|e| e.to_string())?.is_some() {
-            Some(self.storage.get_bytes(&project_key).await.map_err(|e| e.to_string())?)
+        let existing = if self
+            .storage
+            .head_etag(&project_key)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            Some(
+                self.storage
+                    .get_bytes(&project_key)
+                    .await
+                    .map_err(|e| e.to_string())?,
+            )
         } else {
             None
         };
@@ -1043,7 +1053,8 @@ impl DbtProjectProvider {
         if existing.is_none() || sanitized.changed {
             self.storage
                 .put_bytes(&project_key, sanitized.text.as_bytes(), "text/yaml")
-                .await.map_err(|e| e.to_string())?;
+                .await
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -1104,7 +1115,10 @@ impl DbtProjectProvider {
                     "txt" => "text/plain",
                     _ => "application/octet-stream",
                 };
-                self.storage.put_bytes(&key, &bytes, content_type).await.map_err(|e| e.to_string())?;
+                self.storage
+                    .put_bytes(&key, &bytes, content_type)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 uploaded += 1;
             }
         }
@@ -1132,7 +1146,8 @@ impl DbtProvider for DbtProjectProvider {
         let key = format!("{}{}", self.keyspace.scoped_prefix(scope, &["dbt"]), rel);
         self.storage
             .put_bytes(&key, sql.as_bytes(), "text/sql")
-            .await.map_err(|e| e.to_string())?;
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(key)
     }
 
@@ -1149,7 +1164,8 @@ impl DbtProvider for DbtProjectProvider {
         let key = format!("{}{}", self.keyspace.scoped_prefix(scope, &["dbt"]), rel);
         self.storage
             .put_bytes(&key, yaml_text.as_bytes(), "text/yaml")
-            .await.map_err(|e| e.to_string())?;
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(key)
     }
 
@@ -1192,7 +1208,11 @@ impl DbtProvider for DbtProjectProvider {
         std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 
         // Populate temp project from storage prefix
-        let keys = self.storage.list_prefix(&s3_prefix_base).await.map_err(|e| e.to_string())?;
+        let keys = self
+            .storage
+            .list_prefix(&s3_prefix_base)
+            .await
+            .map_err(|e| e.to_string())?;
         let mut file_count = 0usize;
         for key in keys {
             if key.ends_with('/') {
@@ -1203,13 +1223,18 @@ impl DbtProvider for DbtProjectProvider {
             if let Some(parent) = dest.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let bytes = self.storage.get_bytes(&key).await.map_err(|e| e.to_string())?;
+            let bytes = self
+                .storage
+                .get_bytes(&key)
+                .await
+                .map_err(|e| e.to_string())?;
             write_file(&dest, &bytes)?;
             file_count += 1;
         }
 
         let proj = root.join("dbt_project.yml");
-        self.ensure_local_project_yaml(scope, &project_name, &proj).await?;
+        self.ensure_local_project_yaml(scope, &project_name, &proj)
+            .await?;
 
         let mut envs: Vec<(&str, String)> = Vec::new();
         if let Some(pd) = profiles_dir.as_ref() {
@@ -1374,7 +1399,8 @@ impl DbtProvider for DbtProjectProvider {
         for e in combine_errors(&compile_res, run_or_build_res.as_ref().unwrap_or(&empty)) {
             errs_vec.push(e);
         }
-        let failure_class = react_suite_data_engineer::failure_text::classify_dbt_failure(&errs_vec);
+        let failure_class =
+            react_suite_data_engineer::failure_text::classify_dbt_failure(&errs_vec);
 
         Ok(DbtValidateResult {
             ok,

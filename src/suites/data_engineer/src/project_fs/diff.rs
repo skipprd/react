@@ -36,7 +36,11 @@ fn diff_lines_inner(old: &str, new: &str) -> DiffResult {
             j += 1;
         }
     }
-    DiffResult { lines, added, removed }
+    DiffResult {
+        lines,
+        added,
+        removed,
+    }
 }
 
 pub fn compute_unified_diff(old: &str, new: &str) -> String {

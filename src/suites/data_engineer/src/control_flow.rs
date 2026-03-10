@@ -5,13 +5,13 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tracing::warn;
 
-use react_core::agent::AgentCtx;
 use crate::providers::DbtValidateArgs;
+use react_core::agent::AgentCtx;
 use react_core::session::{ThreadStore, ToolObservation, ToolStepMeta};
 use react_core::tools::Tool;
 
-use crate::tools::files_tool::FilesTool;
 use crate::dbt;
+use crate::tools::files_tool::FilesTool;
 pub use react_core::workflow::TransitionIntent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,9 +101,7 @@ mod state_first_tests {
     #[test]
     fn classify_telemetry_json_file_manifest() {
         let args = serde_json::json!({"path": "target/manifest.json"});
-        let obs = react_core::session::ToolObservation::normalize(
-            serde_json::json!({"ok": true}),
-        );
+        let obs = react_core::session::ToolObservation::normalize(serde_json::json!({"ok": true}));
         let actions = classify_tool_telemetry("json_file", &args, &obs);
         assert_eq!(actions.len(), 1);
         assert!(matches!(
@@ -137,9 +135,7 @@ mod state_first_tests {
     #[test]
     fn classify_telemetry_unrecognized_tool_empty() {
         let args = serde_json::json!({});
-        let obs = react_core::session::ToolObservation::normalize(
-            serde_json::json!({"ok": true}),
-        );
+        let obs = react_core::session::ToolObservation::normalize(serde_json::json!({"ok": true}));
         let actions = classify_tool_telemetry("unknown_tool", &args, &obs);
         assert!(actions.is_empty());
     }
@@ -216,7 +212,11 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
     match from {
         Phase::Preflight => &[Phase::CleansePlan],
         Phase::CleansePlan => &[Phase::CleansePlan, Phase::CleanseAuthor],
-        Phase::CleanseAuthor => &[Phase::CleanseAuthor, Phase::CleanseValidate, Phase::CleansePlan],
+        Phase::CleanseAuthor => &[
+            Phase::CleanseAuthor,
+            Phase::CleanseValidate,
+            Phase::CleansePlan,
+        ],
         Phase::CleanseValidate => &[
             Phase::CleanseValidate,
             Phase::CleanseAuthor,
@@ -243,9 +243,11 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
             Phase::ModelAuthor,
             Phase::PublishAwaitApproval,
         ],
-        Phase::PublishAwaitApproval => {
-            &[Phase::PublishAwaitApproval, Phase::Publish, Phase::ModelReview]
-        }
+        Phase::PublishAwaitApproval => &[
+            Phase::PublishAwaitApproval,
+            Phase::Publish,
+            Phase::ModelReview,
+        ],
         Phase::Publish => &[Phase::Publish, Phase::PostPublishReview, Phase::ModelReview],
         Phase::PostPublishReview => &[
             Phase::PostPublishReview,
@@ -257,7 +259,6 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
         Phase::Done => &[Phase::Done],
     }
 }
-
 
 pub(crate) fn replan_backtrack_counter_cap() -> usize {
     crate::env_util::max_replan_backtracks()
@@ -281,12 +282,8 @@ pub struct DerivedGuardState {
 pub fn derive_guard_state_from_execution_state(
     st: &crate::progress_controller::ExecutionState,
 ) -> DerivedGuardState {
-    let last_validate_failed = st
-        .telemetry
-        .last_validate
-        .as_ref()
-        .and_then(|lv| lv.ok)
-        == Some(false);
+    let last_validate_failed =
+        st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false);
     let mutated_since_fail = st
         .repair
         .last_progress_delta
@@ -301,15 +298,9 @@ pub fn derive_guard_state_from_execution_state(
         .unwrap_or(false);
     let probe_status = st.probe_requirement_status();
     let (probe_required, probe_satisfied) = match probe_status {
-        crate::progress_controller::ProbeRequirementStatus::NotRequired => {
-            (false, true)
-        }
-        crate::progress_controller::ProbeRequirementStatus::Required => {
-            (true, false)
-        }
-        crate::progress_controller::ProbeRequirementStatus::Allowed => {
-            (true, true)
-        }
+        crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
+        crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
+        crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
         crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => {
             (false, true)
         }
@@ -327,8 +318,11 @@ pub fn derive_guard_state_from_execution_state(
 pub(crate) fn is_replan_backtrack(from: Phase, to: Phase) -> bool {
     use crate::track_spec::TrackKind;
     // PostPublishReview can backtrack into the model track
-    let from_track = TrackKind::from_any_phase(from)
-        .or(if from == Phase::PostPublishReview { Some(TrackKind::Model) } else { None });
+    let from_track = TrackKind::from_any_phase(from).or(if from == Phase::PostPublishReview {
+        Some(TrackKind::Model)
+    } else {
+        None
+    });
     let Some(from_track) = from_track else {
         return false;
     };
@@ -354,9 +348,8 @@ pub fn gate_author_phase_execution(plan: &impl crate::plan_types::TrackPlan) -> 
     if issues.is_empty() {
         return AuthoringGate::Allow;
     }
-    let mut msg = String::from(
-        "Approved plan is not executable. Re-enter planning before authoring:\n",
-    );
+    let mut msg =
+        String::from("Approved plan is not executable. Re-enter planning before authoring:\n");
     for issue in issues.iter().take(8) {
         msg.push_str("- ");
         msg.push_str(issue);
@@ -388,15 +381,17 @@ impl DeterministicDbtValidateOnce {
         select: Option<&[String]>,
         dataset_ids: Option<&[String]>,
     ) -> Result<crate::controller_event::ValidateObservationContract, String> {
-        let dbt = crate::ctx_ext::actx_dbt(ctx)
-            .ok_or_else(|| "dbt provider missing".to_string())?;
+        let dbt =
+            crate::ctx_ext::actx_dbt(ctx).ok_or_else(|| "dbt provider missing".to_string())?;
         let Some(cfg) = crate::resolved_config_from_ctx(ctx) else {
             return Err(
                 "resolved_config missing (needed to generate profiles.yml deterministically)"
                     .to_string(),
             );
         };
-        let threads = crate::ctx_ext::actx_query(ctx).as_ref().map(|q| q.max_concurrency());
+        let threads = crate::ctx_ext::actx_query(ctx)
+            .as_ref()
+            .map(|q| q.max_concurrency());
         let gen = dbt::profile::generate_profiles_yml(cfg, threads)?;
         let td = tempfile::tempdir().map_err(|e| e.to_string())?;
         let profiles_dir = td.path().to_string_lossy().to_string();
@@ -424,9 +419,7 @@ impl DeterministicDbtValidateOnce {
         if let Some(obj) = v.as_object_mut() {
             obj.insert(
                 "dialect".to_string(),
-                serde_json::json!(
-                    crate::dbt_repair::remediate::active_provider_dialect(cfg)
-                ),
+                serde_json::json!(crate::dbt_repair::remediate::active_provider_dialect(cfg)),
             );
             let rf = crate::dbt_error::extract_runtime_failures_from_logs(
                 &obj.get("logs").cloned().unwrap_or(Value::Null),
@@ -447,13 +440,10 @@ impl DeterministicDbtValidateOnce {
                     })
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-                if let Ok(sum) = crate::dbt_error::summarize_dbt_failure_llm(
-                    ctx,
-                    &errors,
-                    &logs,
-                    &rf,
-                    2000,
-                ).await {
+                if let Ok(sum) =
+                    crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, &rf, 2000)
+                        .await
+                {
                     obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                     obj.insert(
                         "failing_nodes".to_string(),
@@ -492,41 +482,93 @@ pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
             let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
             match op {
                 "get" => {
-                    let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
-                    if !p.is_empty() { return format!("Read {p}"); }
+                    let p = args
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if !p.is_empty() {
+                        return format!("Read {p}");
+                    }
                     "Read file".to_string()
                 }
                 "list" => {
-                    let p = args.get("prefix").and_then(|v| v.as_str()).unwrap_or("").trim();
-                    if !p.is_empty() { return format!("List {p}"); }
+                    let p = args
+                        .get("prefix")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if !p.is_empty() {
+                        return format!("List {p}");
+                    }
                     "List files".to_string()
                 }
                 "patch" => {
-                    let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
-                    if !p.is_empty() { return format!("Patch {p}"); }
+                    let p = args
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if !p.is_empty() {
+                        return format!("Patch {p}");
+                    }
                     "Patch file".to_string()
                 }
                 _ => {
-                    if !op.is_empty() { return format!("file {op}"); }
+                    if !op.is_empty() {
+                        return format!("file {op}");
+                    }
                     "file".to_string()
                 }
             }
         }
         "json_file" => {
-            let p = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
-            if !p.is_empty() { format!("JSON {p}") } else { "JSON file".to_string() }
+            let p = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !p.is_empty() {
+                format!("JSON {p}")
+            } else {
+                "JSON file".to_string()
+            }
         }
         "sql_schema" => {
-            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
-            if !t.is_empty() { format!("Describe {t}") } else { "List tables".to_string() }
+            let t = args
+                .get("table")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !t.is_empty() {
+                format!("Describe {t}")
+            } else {
+                "List tables".to_string()
+            }
         }
         "sql_stats" => {
-            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
-            if !t.is_empty() { format!("Stats {t}") } else { "Stats".to_string() }
+            let t = args
+                .get("table")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !t.is_empty() {
+                format!("Stats {t}")
+            } else {
+                "Stats".to_string()
+            }
         }
         "sql_sample" => {
-            let t = args.get("table").and_then(|v| v.as_str()).unwrap_or("").trim();
-            if !t.is_empty() { format!("Sample {t}") } else { "Sample".to_string() }
+            let t = args
+                .get("table")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !t.is_empty() {
+                format!("Sample {t}")
+            } else {
+                "Sample".to_string()
+            }
         }
         "run_sql" => "Run SQL".to_string(),
         other => other.replace('_', " "),
@@ -644,11 +686,7 @@ pub(crate) fn classify_tool_telemetry(
     actions
 }
 
-async fn apply_telemetry_action(
-    store: &ThreadStore,
-    thread_id: &str,
-    action: ToolTelemetryAction,
-) {
+async fn apply_telemetry_action(store: &ThreadStore, thread_id: &str, action: ToolTelemetryAction) {
     match action {
         ToolTelemetryAction::ManifestLookup {
             path_kind,
@@ -764,4 +802,3 @@ pub async fn invariant_has_dbt_project(ctx: &AgentCtx) -> Result<bool, String> {
         .unwrap_or_else(|e| serde_json::json!({"ok": false, "error": e}));
     Ok(obs.get("ok").and_then(|v| v.as_bool()) == Some(true))
 }
-

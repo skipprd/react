@@ -2,12 +2,11 @@ use super::remediate::active_provider_dialect;
 use super::remediate::list_sql_keys_for_scope;
 use super::remediate::remediate_dbt_failures_grounded_with_llm;
 use super::remediate::RemediationDiff;
-use react_core::agent::AgentCtx;
 use crate::failure_kind::FailureKind;
 use crate::providers::{
-    CatalogProvider, DatasetCatalogProvider, DbtProvider, DbtValidateArgs,
-    DbtValidateResult,
+    CatalogProvider, DatasetCatalogProvider, DbtProvider, DbtValidateArgs, DbtValidateResult,
 };
+use react_core::agent::AgentCtx;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::sync::Arc;
@@ -121,12 +120,8 @@ async fn ensure_dbt_utils_package(ctx: &AgentCtx) -> Result<Option<RemediationDi
 
     let new_content =
         serde_yaml::to_string(&YamlValue::Mapping(root)).map_err(|e| e.to_string())?;
-    let patch_text = crate::project_fs::create_git_patch_text(
-        &existing,
-        &new_content,
-        "packages.yml",
-        existed,
-    )?;
+    let patch_text =
+        crate::project_fs::create_git_patch_text(&existing, &new_content, "packages.yml", existed)?;
     let outcome = crate::project_fs::apply_patch(
         ctx,
         None,
@@ -353,7 +348,12 @@ async fn attempt_remediation(
         }
     }
 
-    RemediationOutcome { llm_changed_files, changed_keys, change_diffs, notes }
+    RemediationOutcome {
+        llm_changed_files,
+        changed_keys,
+        change_diffs,
+        notes,
+    }
 }
 
 pub async fn run_repair_loop(
@@ -377,15 +377,14 @@ pub async fn run_repair_loop(
 
     let max_it = max_iterations.max(1).min(25);
     for i in 0..max_it {
-        let res = crate::transient_retry::retry_transient_default(
-            "dbt_validate_project",
-            || async { dbt.validate_project(ctx.scope(), args).await },
-        )
-        .await?;
+        let res =
+            crate::transient_retry::retry_transient_default("dbt_validate_project", || async {
+                dbt.validate_project(ctx.scope(), args).await
+            })
+            .await?;
 
         report.iterations_run = i + 1;
-        let unresolved_columns =
-            crate::dbt_error::extract_unresolved_columns(&res.errors);
+        let unresolved_columns = crate::dbt_error::extract_unresolved_columns(&res.errors);
         let class = res.failure_class;
         let _ = (datasets, catalog, dataset_ids); // reserved for future targeted catalog refresh
         let catalog_refreshed = false;
@@ -410,10 +409,7 @@ pub async fn run_repair_loop(
         } else if matches!(class, FailureKind::MissingSource) {
             notes.push("missing dbt source definition; treat as dataset grounding failure (schema.yml vs actual datasets)".to_string());
         } else {
-            let allow_llm_repair = matches!(
-                class,
-                FailureKind::SqlRuntime | FailureKind::Unknown
-            );
+            let allow_llm_repair = matches!(class, FailureKind::SqlRuntime | FailureKind::Unknown);
             if allow_llm_repair && !res.ok {
                 let rem = attempt_remediation(ctx, &res, args, datasets).await;
                 llm_changed_files = rem.llm_changed_files;
@@ -449,8 +445,14 @@ pub async fn run_repair_loop(
         });
 
         match classify_repair_iteration(
-            i, max_it, res.ok, class,
-            is_dbt_utils_error, packages_mutated, catalog_refreshed, llm_changed_files,
+            i,
+            max_it,
+            res.ok,
+            class,
+            is_dbt_utils_error,
+            packages_mutated,
+            catalog_refreshed,
+            llm_changed_files,
         ) {
             RepairIterationOutcome::Stop(reason) => {
                 report.stopped_reason = Some(reason);
@@ -465,11 +467,11 @@ pub async fn run_repair_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{DbtValidateArgs, DbtValidateResult};
     use async_trait::async_trait;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{ChatMessage, LargeLanguageModel};
-    use crate::providers::{DbtValidateArgs, DbtValidateResult};
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -502,7 +504,11 @@ mod tests {
     fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({}),
@@ -521,13 +527,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
 
         struct AlwaysFailDbt;
         #[async_trait]
@@ -609,13 +621,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
 
         struct CompileOkRunFailDbt;
         #[async_trait]
@@ -722,13 +740,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         // Attach a thread store so llm_call steps can be persisted.
         let store = react_core::session::ThreadStore::new(
             storage.clone(),
@@ -861,13 +885,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
 
         struct SqlFailureOnceDbt;
         #[async_trait]
@@ -959,13 +989,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
 
         struct SqlFailureOnceDbt;
         #[async_trait]
@@ -1045,13 +1081,19 @@ mod tests {
         let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
 
         struct MissingMacroThenOkDbt {
             calls: Mutex<usize>,
@@ -1163,7 +1205,16 @@ mod tests {
     #[test]
     fn classify_missing_source_stops() {
         assert_eq!(
-            classify_repair_iteration(0, 5, false, FailureKind::MissingSource, false, false, false, 0),
+            classify_repair_iteration(
+                0,
+                5,
+                false,
+                FailureKind::MissingSource,
+                false,
+                false,
+                false,
+                0
+            ),
             RepairIterationOutcome::Stop(RepairStopReason::MissingSource),
         );
     }
@@ -1171,7 +1222,16 @@ mod tests {
     #[test]
     fn classify_warehouse_config_stops() {
         assert_eq!(
-            classify_repair_iteration(0, 5, false, FailureKind::WarehouseConfig, false, false, false, 0),
+            classify_repair_iteration(
+                0,
+                5,
+                false,
+                FailureKind::WarehouseConfig,
+                false,
+                false,
+                false,
+                0
+            ),
             RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig),
         );
     }
@@ -1179,7 +1239,16 @@ mod tests {
     #[test]
     fn classify_infra_transient_stops() {
         assert_eq!(
-            classify_repair_iteration(0, 5, false, FailureKind::InfraTransient, false, false, false, 0),
+            classify_repair_iteration(
+                0,
+                5,
+                false,
+                FailureKind::InfraTransient,
+                false,
+                false,
+                false,
+                0
+            ),
             RepairIterationOutcome::Stop(RepairStopReason::InfraTransient),
         );
     }
@@ -1187,7 +1256,16 @@ mod tests {
     #[test]
     fn classify_infra_transient_stops_even_with_llm_progress() {
         assert_eq!(
-            classify_repair_iteration(0, 5, false, FailureKind::InfraTransient, false, false, false, 3),
+            classify_repair_iteration(
+                0,
+                5,
+                false,
+                FailureKind::InfraTransient,
+                false,
+                false,
+                false,
+                3
+            ),
             RepairIterationOutcome::Stop(RepairStopReason::InfraTransient),
         );
     }

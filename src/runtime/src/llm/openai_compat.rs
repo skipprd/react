@@ -61,11 +61,11 @@ mod tests {
         emb_mock.assert();
     }
 }
-use super::{ChatMessage, LargeLanguageModel, LlmConfig};
 use super::types::{
-    extract_response_text, pretty_json,
-    OaiChatMessage, OaiChatReq, OaiChatResp, OaiEmbReq, OaiEmbResp,
+    extract_response_text, pretty_json, OaiChatMessage, OaiChatReq, OaiChatResp, OaiEmbReq,
+    OaiEmbResp,
 };
+use super::{ChatMessage, LargeLanguageModel, LlmConfig};
 
 fn pretty_val(val: &serde_json::Value) -> String {
     serde_json::to_string_pretty(val).unwrap_or_else(|_| val.to_string())
@@ -138,10 +138,9 @@ impl LargeLanguageModel for OpenAICompatModel {
                 reasoning: Option<RespReasoning>,
             }
             let url = format!("{}/v1/responses", base.trim_end_matches('/'));
-            let max_tokens_env: i32 =
-                crate::runtime_settings::getenv("LLM_MAX_TOKENS", "8192")
-                    .parse()
-                    .unwrap_or(8192);
+            let max_tokens_env: i32 = crate::runtime_settings::getenv("LLM_MAX_TOKENS", "8192")
+                .parse()
+                .unwrap_or(8192);
             let max_tokens: i32 = options
                 .max_output_tokens
                 .map(|v| v as i32)
@@ -185,12 +184,14 @@ impl LargeLanguageModel for OpenAICompatModel {
                     "schema": react_core::schema_registry::json_schema(*id),
                     "strict": true
                 }),
-                react_core::llm::LlmExpectedFormat::JsonSchemaSpec { name, schema } => serde_json::json!({
-                    "type": "json_schema",
-                    "name": name.replace('.', "_"),
-                    "schema": schema,
-                    "strict": true
-                }),
+                react_core::llm::LlmExpectedFormat::JsonSchemaSpec { name, schema } => {
+                    serde_json::json!({
+                        "type": "json_schema",
+                        "name": name.replace('.', "_"),
+                        "schema": schema,
+                        "strict": true
+                    })
+                }
             };
             let body = RespReq {
                 model: model.clone(),
@@ -387,14 +388,12 @@ impl LargeLanguageModel for OpenAICompatModel {
         } else {
             let url = format!("{}/v1/chat/completions", base.trim_end_matches('/'));
             // latency-optimized defaults
-            let max_tokens: u32 =
-                crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
-                    .parse()
-                    .unwrap_or(1024);
-            let temperature: f32 =
-                crate::runtime_settings::getenv("LLM_TEMPERATURE", "0.2")
-                    .parse()
-                    .unwrap_or(0.2);
+            let max_tokens: u32 = crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
+                .parse()
+                .unwrap_or(1024);
+            let temperature: f32 = crate::runtime_settings::getenv("LLM_TEMPERATURE", "0.2")
+                .parse()
+                .unwrap_or(0.2);
             let top_p: f32 = crate::runtime_settings::getenv("LLM_TOP_P", "1.0")
                 .parse()
                 .unwrap_or(1.0);

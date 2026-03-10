@@ -1,4 +1,6 @@
-use crate::{ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadLogViewCache};
+use crate::{
+    ThreadItemError, ThreadItemKind, ThreadItemState, ThreadItemStatus, ThreadLogViewCache,
+};
 use react_core::session::ThreadStep;
 
 fn duration_ms(start_ts: &str, end_ts: &str) -> Option<u64> {

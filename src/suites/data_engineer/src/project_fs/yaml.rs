@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use react_core::agent::AgentCtx;
 use crate::naming;
 use crate::providers::DatasetCatalogProvider;
+use react_core::agent::AgentCtx;
 
 pub const DBT_PROJECT_YML: &str = "dbt_project.yml";
 pub const PACKAGES_YML: &str = "packages.yml";
@@ -211,9 +211,7 @@ async fn postprocess_schema_yml(
                 }
                 if let Ok(bytes) = ctx.storage().get_bytes(&k).await {
                     let sql = String::from_utf8_lossy(&bytes).to_string();
-                    for (schema, table) in
-                        crate::naming::extract_source_calls(&sql).into_iter()
-                    {
+                    for (schema, table) in crate::naming::extract_source_calls(&sql).into_iter() {
                         if schema == want_schema && !table.trim().is_empty() {
                             candidates.insert(format!("{}.{}.{}", want_catalog, schema, table));
                         }
@@ -238,11 +236,11 @@ async fn postprocess_schema_yml(
         if proven.len() >= MAX_PROVED_SOURCES {
             break;
         }
-        if let Ok(_cols) = crate::transient_retry::retry_transient_default(
-            "yaml_source_prove",
-            || async { q.schema(&fqn).await },
-        )
-        .await
+        if let Ok(_cols) =
+            crate::transient_retry::retry_transient_default("yaml_source_prove", || async {
+                q.schema(&fqn).await
+            })
+            .await
         {
             proven.insert(fqn);
         }
@@ -464,10 +462,9 @@ mod tests {
             "AwsDataCatalog.test_raw.raw_customers".to_string(),
             vec![("id".to_string(), "varchar".to_string())],
         )]);
-        let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
-            Arc::new(MockWarehouse {
-                schemas: q.schemas.clone(),
-            });
+        let warehouse: Arc<dyn crate::providers::WarehouseProvider> = Arc::new(MockWarehouse {
+            schemas: q.schemas.clone(),
+        });
         let mut ctx = make_ctx(storage, Some(Arc::new(q)));
         ctx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         let datasets: Arc<dyn DatasetCatalogProvider> = Arc::new(MockDatasets { items: vec![] });

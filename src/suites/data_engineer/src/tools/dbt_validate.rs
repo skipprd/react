@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use react_core::agent::AgentCtx;
 use crate::providers::{CatalogProvider, DatasetCatalogProvider};
+use react_core::agent::AgentCtx;
 use react_core::tools::Tool;
 use std::fs;
 use std::path::PathBuf;
@@ -41,19 +41,20 @@ async fn derive_select_terms(ctx: &AgentCtx, args: &Value) -> Vec<String> {
     let Some(store) = ctx.thread_store().as_ref() else {
         return vec![];
     };
-    let st = match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
-        .await
-    {
-        Ok(Some(st)) => st,
-        Ok(None) => crate::progress_controller::ExecutionState::new(),
-        Err(e) => {
-            tracing::warn!(
-                "skipping targeted validate terms due to invalid execution state: {}",
-                e
-            );
-            return vec![];
-        }
-    };
+    let st =
+        match crate::state_manager::load_execution_state_strict(&store.control_store(), thread_id)
+            .await
+        {
+            Ok(Some(st)) => st,
+            Ok(None) => crate::progress_controller::ExecutionState::new(),
+            Err(e) => {
+                tracing::warn!(
+                    "skipping targeted validate terms due to invalid execution state: {}",
+                    e
+                );
+                return vec![];
+            }
+        };
     let mut out = st
         .telemetry
         .last_mutation_summary
@@ -89,7 +90,10 @@ async fn probe_compiled_model_sql(
     _project_name: &str,
     select_terms: &[String],
 ) -> Result<serde_json::Value, String> {
-    let compiled_prefix = format!("{}target/compiled/", ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]));
+    let compiled_prefix = format!(
+        "{}target/compiled/",
+        ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"])
+    );
     let mut keys = ctx
         .storage()
         .list_prefix(&compiled_prefix)
@@ -129,16 +133,15 @@ async fn probe_compiled_model_sql(
         let sql = String::from_utf8_lossy(&bytes).to_string();
         let probe_sql = crate::sql_first::wrap_sql_for_validation(&sql, 1);
         let wh = crate::ctx_ext::actx_warehouse(ctx).unwrap();
-        let probe_result = crate::transient_retry::retry_transient_default(
-            "compiled_sql_probe",
-            || async { wh.query(&probe_sql).await },
-        )
-        .await;
+        let probe_result =
+            crate::transient_retry::retry_transient_default("compiled_sql_probe", || async {
+                wh.query(&probe_sql).await
+            })
+            .await;
         match probe_result {
             Ok(qr) => {
                 probed = probed.saturating_add(1);
-                let dups =
-                    crate::sql_first::detect_duplicate_output_columns(&qr.header);
+                let dups = crate::sql_first::detect_duplicate_output_columns(&qr.header);
                 if !dups.is_empty() {
                     failures.push(serde_json::json!({
                         "key": key,
@@ -183,8 +186,8 @@ impl Tool for DbtValidateTool {
             .get("project_name")
             .and_then(|x| x.as_str())
             .unwrap_or("data_engineer");
-        let dbt = crate::ctx_ext::actx_dbt(ctx)
-            .ok_or_else(|| "dbt provider missing".to_string())?;
+        let dbt =
+            crate::ctx_ext::actx_dbt(ctx).ok_or_else(|| "dbt provider missing".to_string())?;
         // Prefer profiles generated from resolved config (so dbt_validate is deterministic and
         // avoids host-local profiles drift). Only use DBT_PROFILES_DIR if the caller explicitly
         // requested it (via args.profiles_dir) or if we cannot generate a profile.
@@ -238,9 +241,8 @@ impl Tool for DbtValidateTool {
         }
         // As a last resort, fall back to the host env var.
         if profiles_dir.is_none() {
-            profiles_dir = crate::env_util::getenv_nonempty(
-                crate::env_util::env_keys::DBT_PROFILES_DIR,
-            );
+            profiles_dir =
+                crate::env_util::getenv_nonempty(crate::env_util::env_keys::DBT_PROFILES_DIR);
         }
         let target = target.ok_or_else(|| {
             "dbt_validate requires a dbt target name (e.g. 'athena', 'postgres', 'snowflake', 'bigquery', 'sqlserver'). Configure providers.dbt.target or pass args.target explicitly."
@@ -251,12 +253,11 @@ impl Tool for DbtValidateTool {
             .map(crate::dbt_repair::remediate::active_provider_dialect)
             .unwrap_or_else(|| "Unknown SQL dialect".to_string());
 
-        let max_iters: usize = crate::env_util::env_usize(
-            crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS,
-        )
-        .unwrap_or(8)
-        .max(1)
-        .min(25);
+        let max_iters: usize =
+            crate::env_util::env_usize(crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS)
+                .unwrap_or(8)
+                .max(1)
+                .min(25);
 
         let select_terms = derive_select_terms(ctx, &args).await;
         let mut ladder: Vec<ValidationLadderPhase> = Vec::new();
@@ -328,17 +329,16 @@ impl Tool for DbtValidateTool {
                         select: Some(select_terms.clone()),
                         exclude: None,
                     };
-                    let (res2, rep2) =
-                        crate::dbt_repair::repair_loop::run_repair_loop(
-                            ctx,
-                            &dbt,
-                            &selective_args,
-                            max_iters,
-                            self.datasets.as_ref(),
-                            self.catalog.as_ref(),
-                            dataset_ids.as_deref(),
-                        )
-                        .await?;
+                    let (res2, rep2) = crate::dbt_repair::repair_loop::run_repair_loop(
+                        ctx,
+                        &dbt,
+                        &selective_args,
+                        max_iters,
+                        self.datasets.as_ref(),
+                        self.catalog.as_ref(),
+                        dataset_ids.as_deref(),
+                    )
+                    .await?;
                     ladder.push(ValidationLadderPhase {
                         phase: "selective_build".to_string(),
                         select_terms: select_terms.clone(),
@@ -362,17 +362,16 @@ impl Tool for DbtValidateTool {
                             select: None,
                             exclude: None,
                         };
-                        let (res3, rep3) =
-                            crate::dbt_repair::repair_loop::run_repair_loop(
-                                ctx,
-                                &dbt,
-                                &full_args,
-                                max_iters,
-                                self.datasets.as_ref(),
-                                self.catalog.as_ref(),
-                                dataset_ids.as_deref(),
-                            )
-                            .await?;
+                        let (res3, rep3) = crate::dbt_repair::repair_loop::run_repair_loop(
+                            ctx,
+                            &dbt,
+                            &full_args,
+                            max_iters,
+                            self.datasets.as_ref(),
+                            self.catalog.as_ref(),
+                            dataset_ids.as_deref(),
+                        )
+                        .await?;
                         ladder.push(ValidationLadderPhase {
                             phase: "full_build".to_string(),
                             select_terms: vec![],
@@ -396,17 +395,16 @@ impl Tool for DbtValidateTool {
                         select: None,
                         exclude: None,
                     };
-                    let (res3, rep3) =
-                        crate::dbt_repair::repair_loop::run_repair_loop(
-                            ctx,
-                            &dbt,
-                            &full_args,
-                            max_iters,
-                            self.datasets.as_ref(),
-                            self.catalog.as_ref(),
-                            dataset_ids.as_deref(),
-                        )
-                        .await?;
+                    let (res3, rep3) = crate::dbt_repair::repair_loop::run_repair_loop(
+                        ctx,
+                        &dbt,
+                        &full_args,
+                        max_iters,
+                        self.datasets.as_ref(),
+                        self.catalog.as_ref(),
+                        dataset_ids.as_deref(),
+                    )
+                    .await?;
                     ladder.push(ValidationLadderPhase {
                         phase: "full_build".to_string(),
                         select_terms: vec![],
@@ -421,25 +419,24 @@ impl Tool for DbtValidateTool {
                 }
             }
         } else {
-            let (res, repair_report) =
-                crate::dbt_repair::repair_loop::run_repair_loop(
-                    ctx,
-                    &dbt,
-                    &crate::providers::DbtValidateArgs {
-                        project_name: project_name.to_string(),
-                        profiles_dir: profiles_dir.clone(),
-                        target: target.clone(),
-                        run,
-                        build,
-                        select: None,
-                        exclude: None,
-                    },
-                    max_iters,
-                    self.datasets.as_ref(),
-                    self.catalog.as_ref(),
-                    dataset_ids.as_deref(),
-                )
-                .await?;
+            let (res, repair_report) = crate::dbt_repair::repair_loop::run_repair_loop(
+                ctx,
+                &dbt,
+                &crate::providers::DbtValidateArgs {
+                    project_name: project_name.to_string(),
+                    profiles_dir: profiles_dir.clone(),
+                    target: target.clone(),
+                    run,
+                    build,
+                    select: None,
+                    exclude: None,
+                },
+                max_iters,
+                self.datasets.as_ref(),
+                self.catalog.as_ref(),
+                dataset_ids.as_deref(),
+            )
+            .await?;
             ladder.push(ValidationLadderPhase {
                 phase: "default".to_string(),
                 select_terms: vec![],
@@ -487,13 +484,9 @@ impl Tool for DbtValidateTool {
                     })
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-                match crate::dbt_error::summarize_dbt_failure_llm(
-                    ctx,
-                    &errors,
-                    &logs,
-                    &rf,
-                    2000,
-                ).await {
+                match crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, &rf, 2000)
+                    .await
+                {
                     Ok(sum) => {
                         obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                         obj.insert(
@@ -523,10 +516,10 @@ impl Tool for DbtValidateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::DbtProvider;
     use async_trait::async_trait;
     use react_core::agent::DefaultPolicy;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
-    use crate::providers::DbtProvider;
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -627,7 +620,11 @@ mod tests {
     fn minimal_cfg() -> Arc<react_core::resolved_config::ReactResolvedConfig> {
         Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -677,13 +674,19 @@ mod tests {
 
         let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
             Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope, keyspace, Arc::new(DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .resolved_config(Some(minimal_cfg()))
-            .build();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope,
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .resolved_config(Some(minimal_cfg()))
+        .build();
         ctx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::ctx_ext::DbtCap(dbt)));
 

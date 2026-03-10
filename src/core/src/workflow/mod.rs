@@ -56,7 +56,9 @@ pub fn next_replan_backtracks(
 }
 
 /// Executes suite-defined pre-turn guard logic through the typed workflow contract.
-pub fn evaluate_pre_turn<C: WorkflowSuiteContract>(state: &C::State) -> PreTurnDirective<C::GuardKind> {
+pub fn evaluate_pre_turn<C: WorkflowSuiteContract>(
+    state: &C::State,
+) -> PreTurnDirective<C::GuardKind> {
     C::pre_turn(state)
 }
 
@@ -78,10 +80,22 @@ mod tests {
 
     #[test]
     fn loopback_counter_rules() {
-        assert_eq!(next_replan_backtracks(2, TransitionIntent::Annotation, true, 5), 2);
-        assert_eq!(next_replan_backtracks(2, TransitionIntent::Forward, true, 5), 0);
-        assert_eq!(next_replan_backtracks(2, TransitionIntent::Loopback, false, 5), 2);
-        assert_eq!(next_replan_backtracks(2, TransitionIntent::Loopback, true, 3), 3);
+        assert_eq!(
+            next_replan_backtracks(2, TransitionIntent::Annotation, true, 5),
+            2
+        );
+        assert_eq!(
+            next_replan_backtracks(2, TransitionIntent::Forward, true, 5),
+            0
+        );
+        assert_eq!(
+            next_replan_backtracks(2, TransitionIntent::Loopback, false, 5),
+            2
+        );
+        assert_eq!(
+            next_replan_backtracks(2, TransitionIntent::Loopback, true, 3),
+            3
+        );
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,12 +18,10 @@ impl RetryBudget {
 }
 
 pub fn subjective_retry_limit() -> usize {
-    crate::env_util::env_usize(
-        crate::env_util::env_keys::AGENT_MAX_SUBJECTIVE_RETRIES,
-    )
-    .unwrap_or(2)
-    .max(1)
-    .min(6)
+    crate::env_util::env_usize(crate::env_util::env_keys::AGENT_MAX_SUBJECTIVE_RETRIES)
+        .unwrap_or(2)
+        .max(1)
+        .min(6)
 }
 
 pub fn subjective_retry_state_cap() -> usize {
@@ -76,13 +74,11 @@ pub(crate) async fn check_subjective_retry_budget(
     kind: crate::progress_controller::SubjectiveRetryKind,
 ) -> Result<SubjectiveRetryOutcome, String> {
     let cap = subjective_retry_state_cap();
-    let mut st = crate::progress_controller::ExecutionState::load(
-        &thread_store.control_store(),
-        thread_id,
-    )
-    .await
-    .map_err(|e| format!("failed to load execution state for subjective retry: {e}"))?
-    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+    let mut st =
+        crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
+            .await
+            .map_err(|e| format!("failed to load execution state for subjective retry: {e}"))?
+            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     let retries = st.bump_subjective_retry(kind, cap);
     st.save(&thread_store.control_store(), thread_id)
         .await
@@ -100,13 +96,11 @@ pub(crate) async fn clear_subjective_retries_matching(
     thread_id: &str,
     f: impl Fn(&crate::progress_controller::SubjectiveRetryKind) -> bool,
 ) -> Result<(), String> {
-    let mut st = crate::progress_controller::ExecutionState::load(
-        &thread_store.control_store(),
-        thread_id,
-    )
-    .await
-    .map_err(|e| format!("failed to load execution state for retry reset: {e}"))?
-    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+    let mut st =
+        crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
+            .await
+            .map_err(|e| format!("failed to load execution state for retry reset: {e}"))?
+            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
     st.clear_subjective_retries_matching(f);
     st.save(&thread_store.control_store(), thread_id)
         .await
@@ -124,14 +118,8 @@ pub(crate) async fn guard_block_loopback_to_author(
     reason_code: crate::domain_types::PhaseReasonCode,
     detail: Option<serde_json::Value>,
 ) -> Result<super::PhaseExecutorOutcome, String> {
-    crate::phase_contract::commit_guard_block(
-        thread_store,
-        thread_id,
-        phase,
-        guard_kind,
-        reason,
-    )
-    .await?;
+    crate::phase_contract::commit_guard_block(thread_store, thread_id, phase, guard_kind, reason)
+        .await?;
     let to_phase = if phase == Phase::CleanseValidate {
         Phase::CleanseAuthor
     } else {

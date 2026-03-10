@@ -1,9 +1,7 @@
 use crate::naming;
-use crate::plan_progress::{CHECKLIST_SQL_MODEL, checklist_status, is_runnable_checklist_status};
+use crate::plan_progress::{checklist_status, is_runnable_checklist_status, CHECKLIST_SQL_MODEL};
 use crate::plan_types::*;
-use crate::plan_validation::{
-    validate_cleanse_plan_semantics, validate_model_plan_semantics,
-};
+use crate::plan_validation::{validate_cleanse_plan_semantics, validate_model_plan_semantics};
 use crate::references::DatasetRef;
 use react_core::agent::AgentCtx;
 
@@ -50,7 +48,11 @@ pub fn ensure_expected_model_paths_model(plan: &mut ModelPlan) {
         if !missing {
             continue;
         }
-        t.expected_model_path = Some(format!("models/{}/{}.sql", t.folder.as_str(), t.name.trim()));
+        t.expected_model_path = Some(format!(
+            "models/{}/{}.sql",
+            t.folder.as_str(),
+            t.name.trim()
+        ));
     }
 }
 
@@ -248,7 +250,9 @@ fn default_cleanse_implementation_spec() -> CleanseImplementationSpec {
 
 pub fn normalize_cleanse_plan_defaults(plan: &mut CleansePlan) {
     for t in plan.tasks.iter_mut() {
-        let spec = t.implementation_spec.get_or_insert_with(default_cleanse_implementation_spec);
+        let spec = t
+            .implementation_spec
+            .get_or_insert_with(default_cleanse_implementation_spec);
         spec.row_preserving = true;
         if spec.spec_version <= 0 {
             spec.spec_version = 1;
@@ -275,10 +279,9 @@ pub fn normalize_cleanse_plan_defaults(plan: &mut CleansePlan) {
                 .unwrap_or(true);
             if missing_path {
                 if let Some(ds) = DatasetRef::parse(&t.dataset_id) {
-                    t.expected_model_path =
-                        Some(crate::naming::canonical_staging_rel_path(
-                            &ds.schema, &ds.table,
-                        ));
+                    t.expected_model_path = Some(crate::naming::canonical_staging_rel_path(
+                        &ds.schema, &ds.table,
+                    ));
                 } else {
                     let safe = t
                         .dataset_id
@@ -351,7 +354,10 @@ fn strict_model_grounding_errors(
             .filter(|s| !s.is_empty())
             .collect();
         if nonempty_inputs.is_empty() {
-            errors.push(format!("{}: at least one task.inputs item is required", t.name));
+            errors.push(format!(
+                "{}: at least one task.inputs item is required",
+                t.name
+            ));
         }
         let impl_inputs: Vec<String> = t
             .implementation_spec
@@ -371,7 +377,8 @@ fn strict_model_grounding_errors(
             ));
         }
         if !impl_inputs.is_empty() && !nonempty_inputs.is_empty() {
-            let left: std::collections::BTreeSet<String> = nonempty_inputs.iter().cloned().collect();
+            let left: std::collections::BTreeSet<String> =
+                nonempty_inputs.iter().cloned().collect();
             let right: std::collections::BTreeSet<String> = impl_inputs.iter().cloned().collect();
             if left != right {
                 errors.push(format!(
@@ -441,7 +448,10 @@ impl GroundedModelPlan {
         if !errors.is_empty() {
             errors.sort();
             errors.dedup();
-            return Err(format!("model_plan_grounding_failed: {}", errors.join(" | ")));
+            return Err(format!(
+                "model_plan_grounding_failed: {}",
+                errors.join(" | ")
+            ));
         }
         Ok(Self(plan))
     }
@@ -456,6 +466,9 @@ impl PersistableModelPlan {
         if value.status.is_terminal() {
             return Ok(Self::Terminal(value));
         }
-        Ok(Self::Grounded(GroundedModelPlan::ground(value, allowed_staging_models)?))
+        Ok(Self::Grounded(GroundedModelPlan::ground(
+            value,
+            allowed_staging_models,
+        )?))
     }
 }

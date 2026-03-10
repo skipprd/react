@@ -38,7 +38,11 @@ pub trait Keyspace: Send + Sync {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["state", thread_id, "state.json"]))
     }
-    fn control_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
+    fn control_state_key(
+        &self,
+        scope: &RequestScope,
+        thread_id: &str,
+    ) -> Result<String, CoreError> {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["state", thread_id, "control.json"]))
     }
@@ -77,10 +81,7 @@ impl DefaultKeyspace {
 
 impl Keyspace for DefaultKeyspace {
     fn scoped_key(&self, scope: &RequestScope, segments: &[&str]) -> String {
-        let mut path = format!(
-            "{}/{}/{}",
-            scope.tenant, scope.workspace, scope.project_id
-        );
+        let mut path = format!("{}/{}/{}", scope.tenant, scope.workspace, scope.project_id);
         for seg in segments {
             path.push('/');
             path.push_str(seg);
@@ -111,11 +112,17 @@ impl LocalKeyspace {
 
 impl Keyspace for LocalKeyspace {
     fn scoped_key(&self, scope: &RequestScope, segments: &[&str]) -> String {
-        DefaultKeyspace { bucket: String::new() }.scoped_key(scope, segments)
+        DefaultKeyspace {
+            bucket: String::new(),
+        }
+        .scoped_key(scope, segments)
     }
 
     fn scoped_prefix(&self, scope: &RequestScope, segments: &[&str]) -> String {
-        DefaultKeyspace { bucket: String::new() }.scoped_prefix(scope, segments)
+        DefaultKeyspace {
+            bucket: String::new(),
+        }
+        .scoped_prefix(scope, segments)
     }
 }
 
@@ -183,9 +190,6 @@ mod tests {
             ks.scoped_key(&scope, &["section_a", "mydb.yaml"]),
             "t/w/p/section_a/mydb.yaml"
         );
-        assert_eq!(
-            ks.scoped_prefix(&scope, &["section_b"]),
-            "t/w/p/section_b/"
-        );
+        assert_eq!(ks.scoped_prefix(&scope, &["section_b"]), "t/w/p/section_b/");
     }
 }

@@ -183,7 +183,6 @@ impl FieldStats {
     }
 }
 
-
 fn current_millis() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

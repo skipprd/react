@@ -155,9 +155,15 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = Self::run_kb(thread_id, question, ctx).await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
@@ -171,9 +177,15 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = Self::run_kb(thread_id, question, ctx).await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
@@ -187,9 +199,15 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx.log_writer().ensure_preflight_phase_step(
-            thread_id, agent_type, Some(self.id()), self.initial_phase(),
-        ).await;
+        let _ = ctx
+            .log_writer()
+            .ensure_preflight_phase_step(
+                thread_id,
+                agent_type,
+                Some(self.id()),
+                self.initial_phase(),
+            )
+            .await;
         let frames = Self::run_kb(thread_id, text, ctx).await?;
         ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)

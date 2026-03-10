@@ -11,12 +11,16 @@ use react_suite_data_engineer::ctx_ext::{
 };
 use react_suite_data_engineer::de_config::{self as de_cfg, WarehouseKind};
 
-use crate::wiring::{Keyspace, LanceVectorStore};
 use crate::runtime_settings::{getenv_nonempty, getenv_u64, getenv_usize};
+use crate::wiring::{Keyspace, LanceVectorStore};
 
 fn nonempty(s: &str) -> Option<String> {
     let t = s.trim();
-    if t.is_empty() { None } else { Some(t.to_string()) }
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
 }
 
 fn apply_aws_region_fallback(warehouse_extras: &serde_json::Value) {
@@ -46,10 +50,16 @@ fn apply_aws_region_fallback(warehouse_extras: &serde_json::Value) {
 fn resolve_athena_settings(providers: &de_cfg::ProvidersResolved) -> AthenaSettings {
     let extras = &providers.warehouse.extras;
     let workgroup = getenv_nonempty("ATHENA_WORKGROUP").or_else(|| {
-        extras.get("workgroup").and_then(|v| v.as_str()).map(|s| s.to_string())
+        extras
+            .get("workgroup")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     });
     let result_output_location = getenv_nonempty("ATHENA_RESULT_S3").or_else(|| {
-        extras.get("result_s3").and_then(|v| v.as_str()).map(|s| s.to_string())
+        extras
+            .get("result_s3")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     });
     let default_catalog = getenv_nonempty("ATHENA_TARGET_CATALOG")
         .or_else(|| Some(providers.warehouse.container.clone()).filter(|s| !s.is_empty()))
@@ -57,10 +67,19 @@ fn resolve_athena_settings(providers: &de_cfg::ProvidersResolved) -> AthenaSetti
     let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA")
         .or_else(|| Some(providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()));
     let max_concurrency = getenv_usize("ATHENA_MAX_CONCURRENCY")
-        .or_else(|| extras.get("max_concurrency").and_then(|v| v.as_u64()).map(|n| n as usize))
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
         .unwrap_or(15);
     let discovery_cache_ttl_secs = getenv_u64("ATHENA_DISCOVERY_CACHE_TTL_SECS")
-        .or_else(|| extras.get("discovery_cache_ttl_secs").and_then(|v| v.as_u64()))
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
         .unwrap_or(120);
 
     AthenaSettings {
@@ -94,9 +113,8 @@ pub(crate) async fn wire_providers(
     match wh_kind {
         WarehouseKind::Athena => {
             apply_aws_region_fallback(&providers.warehouse.extras);
-            let athena = Arc::new(
-                AthenaProvider::from_settings(resolve_athena_settings(&providers)).await,
-            );
+            let athena =
+                Arc::new(AthenaProvider::from_settings(resolve_athena_settings(&providers)).await);
             sctx.set_capability(Arc::new(WarehouseCap(athena.clone())));
             sctx.set_capability(Arc::new(QueryCap(athena.clone())));
             sctx.set_capability(Arc::new(DatasetsCap(athena.clone())));
@@ -116,12 +134,25 @@ pub(crate) async fn wire_providers(
         WarehouseKind::Bigquery => {
             let project = nonempty(&providers.warehouse.container);
             let dataset = nonempty(&providers.warehouse.namespace);
-            let location = providers.warehouse.extras
-                .get("location").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let max_conc = providers.warehouse.extras
-                .get("max_concurrency").and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(15);
-            let ttl_secs = providers.warehouse.extras
-                .get("discovery_cache_ttl_secs").and_then(|v| v.as_u64()).unwrap_or(120);
+            let location = providers
+                .warehouse
+                .extras
+                .get("location")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let max_conc = providers
+                .warehouse
+                .extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(15);
+            let ttl_secs = providers
+                .warehouse
+                .extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(120);
             let bq = Arc::new(
                 BigQueryProvider::from_settings(BigQuerySettings {
                     project,
@@ -163,8 +194,8 @@ pub(crate) async fn wire_providers(
     }
 
     if providers.dbt.enabled {
-        let runner_mode = DbtRunnerMode::parse(&providers.dbt.runner)
-            .map_err(|e| format!("{}", e))?;
+        let runner_mode =
+            DbtRunnerMode::parse(&providers.dbt.runner).map_err(|e| format!("{}", e))?;
         let runner = DbtRunnerConfig {
             mode: runner_mode,
             docker_image: providers.dbt.docker_image.clone(),

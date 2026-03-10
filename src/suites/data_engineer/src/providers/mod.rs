@@ -13,10 +13,9 @@ pub const DEFAULT_MAX_CONCURRENCY: usize = 15;
 
 pub use catalog::{CatalogEnrichmentReport, CatalogProvider};
 pub use catalog_types::{
-    AccessDescriptor, CatalogField, DataCatalog, DatasetStats, FieldStatsLite,
-    GlobalAssumptionGap, GlobalAudience, GlobalContextBullet, GlobalDatasetGroup,
-    GlobalSemanticContext, SemanticField, SemanticFieldRole, SemanticModel, StructureKind,
-    GLOBAL_SEMANTIC_DATASET_ID,
+    AccessDescriptor, CatalogField, DataCatalog, DatasetStats, FieldStatsLite, GlobalAssumptionGap,
+    GlobalAudience, GlobalContextBullet, GlobalDatasetGroup, GlobalSemanticContext, SemanticField,
+    SemanticFieldRole, SemanticModel, StructureKind, GLOBAL_SEMANTIC_DATASET_ID,
 };
 pub use dataset_catalog::{DatasetCatalogProvider, DatasetId};
 pub use dbt::{DbtProvider, DbtValidateArgs, DbtValidateResult};

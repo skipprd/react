@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
-use crate::error::CoreResult;
 use super::ThreadLog;
+use crate::error::CoreResult;
 
 /// Single read-only API for accessing the ThreadLog.
 ///

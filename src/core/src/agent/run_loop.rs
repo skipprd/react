@@ -9,15 +9,17 @@ use crate::session::{Observation, RunLoopStopKind, ThreadStep, ToolObservation, 
 use crate::tools::ToolRegistry;
 
 use super::{
-    Agent, AgentCtx, CompleteDecision, NonInteractivePolicyAdapter, ParsedStep, RunLoopStop, RunOutcome,
-    RunOutcomeNonInteractive, StepBoundaryReason,
+    Agent, AgentCtx, CompleteDecision, NonInteractivePolicyAdapter, ParsedStep, RunLoopStop,
+    RunOutcome, RunOutcomeNonInteractive, StepBoundaryReason,
 };
 
 fn is_retriable_parse_error(e: &CoreError) -> bool {
     let s = e.to_string();
-    s.starts_with("invalid JSON from model:") || s.contains("validation error:")
+    s.starts_with("invalid JSON from model:")
+        || s.contains("validation error:")
         || s.starts_with("agent error: invalid JSON from model:")
-        || s.starts_with("agent error: agent.step.v1") || s.starts_with("schema error:")
+        || s.starts_with("agent error: agent.step.v1")
+        || s.starts_with("schema error:")
 }
 
 fn build_retry_transcript(transcript: &[String], tail: Option<usize>) -> Vec<String> {
@@ -61,7 +63,9 @@ impl Agent {
                 RunLoopStopKind::StepLimitExceeded,
                 "agent reached max_steps without an accepted completion".to_string(),
             ),
-            RunLoopStop::PolicyBlocked { reason } => (RunLoopStopKind::PolicyBlocked, reason.clone()),
+            RunLoopStop::PolicyBlocked { reason } => {
+                (RunLoopStopKind::PolicyBlocked, reason.clone())
+            }
         };
         let _ = store
             .append_step(
@@ -180,7 +184,11 @@ impl Agent {
                 return Err(CoreError::Agent(raw.trim().to_string()));
             }
             let step = Self::parse_with_retry(
-                ctx, &mut raw, &mut transcript, &output_contract_line, &llm_options,
+                ctx,
+                &mut raw,
+                &mut transcript,
+                &output_contract_line,
+                &llm_options,
             )
             .await?;
             let (action_name, args) = match step {
@@ -215,14 +223,12 @@ impl Agent {
             };
             let action_name_str = action_name.as_str();
 
-            let (raw_obs, obs_env) = Self::execute_tool_call(
-                tools, ctx, store, &tid, action_name_str, &args,
-            )
-            .await;
+            let (raw_obs, obs_env) =
+                Self::execute_tool_call(tools, ctx, store, &tid, action_name_str, &args).await;
 
-            if let Some((kind, prompt)) = ctx
-                .policy
-                .interrupt_for_action(action_name_str, &args, &raw_obs)
+            if let Some((kind, prompt)) =
+                ctx.policy
+                    .interrupt_for_action(action_name_str, &args, &raw_obs)
             {
                 Self::record_run_loop_stop(
                     ctx,
@@ -240,9 +246,7 @@ impl Agent {
                 });
             }
 
-            Self::append_observation_to_transcript(
-                ctx, &mut transcript, &raw, &raw_obs, &obs_env,
-            );
+            Self::append_observation_to_transcript(ctx, &mut transcript, &raw, &raw_obs, &obs_env);
         }
 
         Self::record_run_loop_stop(ctx, store, &tid, &RunLoopStop::StepLimitExceeded).await;
@@ -285,15 +289,21 @@ impl Agent {
                     tid,
                     meta,
                     || async move {
-                        Ok(match tokio::time::timeout(
-                            std::time::Duration::from_secs(timeout_secs),
-                            tools.call(&action, call_args, &call_ctx),
+                        Ok(
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(timeout_secs),
+                                tools.call(&action, call_args, &call_ctx),
+                            )
+                            .await
+                            {
+                                Ok(r) => r.unwrap_or_else(
+                                    |e| serde_json::json!({"ok": false, "errors": [e]}),
+                                ),
+                                Err(_) => {
+                                    serde_json::json!({"ok": false, "errors": ["tool timeout"]})
+                                }
+                            },
                         )
-                        .await
-                        {
-                            Ok(r) => r.unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]})),
-                            Err(_) => serde_json::json!({"ok": false, "errors": ["tool timeout"]}),
-                        })
                     },
                     |raw: &serde_json::Value| Ok(raw.clone()),
                 )
@@ -337,8 +347,7 @@ impl Agent {
             let max_prompt_chars = crate::error_context::estimate_max_prompt_chars();
             let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum();
             let remaining = max_prompt_chars.saturating_sub(used_chars).max(256);
-            let rendered =
-                crate::error_context::render_failure_context(obs_env, remaining);
+            let rendered = crate::error_context::render_failure_context(obs_env, remaining);
             Self::transcript_add(
                 transcript,
                 format!(
@@ -405,8 +414,7 @@ impl Agent {
                         ));
                         let retry_prompt2 =
                             format!("{}\n{}", keep2.join("\n"), output_contract_line);
-                        *raw = Self::llm_chat_once(ctx, retry_prompt2, llm_options.clone())
-                            .await?;
+                        *raw = Self::llm_chat_once(ctx, retry_prompt2, llm_options.clone()).await?;
                         Self::parse_agent_step(raw)
                     }
                 }

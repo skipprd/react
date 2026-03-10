@@ -499,7 +499,10 @@ pub async fn summarize_dbt_failure_llm(
         reasoning_effort: None,
         timeout_secs: None,
     };
-    let resp = ctx.llm_chat(&messages, &opts).await.map_err(|e| e.to_string())?;
+    let resp = ctx
+        .llm_chat(&messages, &opts)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let mut parsed: DbtFailureSummary =
         serde_json::from_str(resp.trim()).map_err(|e| format!("failed to parse LLM JSON: {e}"))?;
@@ -624,17 +627,26 @@ mod tests {
             Arc::new(react_module_storage_memory::InMemoryStorageAdapter::default());
         let keyspace: Arc<dyn react_core::keyspace::Keyspace> =
             Arc::new(react_core::keyspace::DefaultKeyspace::new("b".to_string()));
-        let scope = react_core::scope::RequestScope::parse("t", "w", "p").expect("valid test scope");
-        let ctx = react_core::agent::AgentCtxBuilder::new(llm, storage, scope, keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .agent_name("test".to_string())
-            .build();
+        let scope =
+            react_core::scope::RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage,
+            scope,
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .agent_name("test".to_string())
+        .build();
         let errors = vec!["Compilation Error: nope".to_string()];
         let logs = serde_json::json!({"compile": {"stdout": "x", "stderr": ""}});
         let rf: Vec<serde_json::Value> = vec![];
-        let out = summarize_dbt_failure_llm(&ctx, &errors, &logs, &rf, 10).await.unwrap();
+        let out = summarize_dbt_failure_llm(&ctx, &errors, &logs, &rf, 10)
+            .await
+            .unwrap();
         // `.len()` is bytes; ellipsis is multi-byte. Bound by chars.
         assert!(out.summary.chars().count() <= 11); // 10 + ellipsis
         assert_eq!(out.failing_nodes, vec!["stg_x".to_string()]);

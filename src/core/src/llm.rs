@@ -15,7 +15,10 @@ pub enum LlmExpectedFormat {
     /// Providers that don't must still return a JSON object; callers will validate and retry.
     JsonSchema(crate::schema_registry::SchemaId),
     /// A caller-provided JSON Schema document for suite-owned contracts.
-    JsonSchemaSpec { name: String, schema: serde_json::Value },
+    JsonSchemaSpec {
+        name: String,
+        schema: serde_json::Value,
+    },
 }
 
 /// OpenAI-style reasoning effort hint.

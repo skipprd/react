@@ -1,8 +1,8 @@
+use crate::failure_kind::FailureKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
-use crate::failure_kind::FailureKind;
 
 use crate::domain_types::PhaseReasonCode;
 use react_core::session::ControlStateStore;
@@ -401,9 +401,15 @@ impl Default for SchemaRepairMode {
 }
 
 impl SchemaRepairMode {
-    pub fn ladder_step(&self) -> RepairLadderStep { self.core.ladder_step.clone() }
-    pub fn attempt_count(&self) -> usize { self.core.attempt_count }
-    pub fn consecutive_noop_patches(&self) -> usize { self.core.consecutive_noop_patches }
+    pub fn ladder_step(&self) -> RepairLadderStep {
+        self.core.ladder_step.clone()
+    }
+    pub fn attempt_count(&self) -> usize {
+        self.core.attempt_count
+    }
+    pub fn consecutive_noop_patches(&self) -> usize {
+        self.core.consecutive_noop_patches
+    }
 }
 
 impl SqlTargetRepairMode {
@@ -413,9 +419,15 @@ impl SqlTargetRepairMode {
             core: RepairModeCore::default(),
         }
     }
-    pub fn ladder_step(&self) -> RepairLadderStep { self.core.ladder_step.clone() }
-    pub fn attempt_count(&self) -> usize { self.core.attempt_count }
-    pub fn consecutive_noop_patches(&self) -> usize { self.core.consecutive_noop_patches }
+    pub fn ladder_step(&self) -> RepairLadderStep {
+        self.core.ladder_step.clone()
+    }
+    pub fn attempt_count(&self) -> usize {
+        self.core.attempt_count
+    }
+    pub fn consecutive_noop_patches(&self) -> usize {
+        self.core.consecutive_noop_patches
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -668,8 +680,16 @@ pub struct PlanViolation {
 }
 
 impl PlanViolation {
-    pub fn new(detecting_phase: Phase, task_id: Option<String>, evidence: impl Into<String>) -> Self {
-        Self { detecting_phase, task_id, evidence: evidence.into() }
+    pub fn new(
+        detecting_phase: Phase,
+        task_id: Option<String>,
+        evidence: impl Into<String>,
+    ) -> Self {
+        Self {
+            detecting_phase,
+            task_id,
+            evidence: evidence.into(),
+        }
     }
 }
 
@@ -686,7 +706,9 @@ pub fn format_plan_violations(violations: &[PlanViolation]) -> String {
         }
         out.push_str(&format!("  Evidence: {}\n\n", v.evidence.trim()));
     }
-    out.push_str("Revise the plan to fix these issues. Do NOT repeat the same unachievable instructions.\n");
+    out.push_str(
+        "Revise the plan to fix these issues. Do NOT repeat the same unachievable instructions.\n",
+    );
     out
 }
 
@@ -717,7 +739,6 @@ impl Default for PlanRevisionStrategy {
         Self::Rewrite
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -867,7 +888,9 @@ impl RepairState {
     }
 
     pub fn ladder_step(&self) -> RepairLadderStep {
-        self.core().map(|c| c.ladder_step.clone()).unwrap_or(RepairLadderStep::PatchTarget)
+        self.core()
+            .map(|c| c.ladder_step.clone())
+            .unwrap_or(RepairLadderStep::PatchTarget)
     }
 
     pub fn attempt_count(&self) -> usize {
@@ -1003,21 +1026,31 @@ impl ExecutionState {
     }
 
     fn last_validate_failed(&self) -> bool {
-        self.telemetry
-            .last_validate
-            .as_ref()
-            .and_then(|lv| lv.ok)
-            == Some(false)
+        self.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false)
     }
 
     /// Convenience delegation to `self.repair_state()`. These exist so callers
     /// can query repair properties without knowing about the `RepairState` layer.
-    pub fn hard_mutation_repair_mode(&self) -> bool { self.repair_state().hard_mutation_repair_mode() }
-    pub fn repair_type(&self) -> RepairType { self.repair_state().repair_type() }
-    pub fn ladder_step(&self) -> RepairLadderStep { self.repair_state().ladder_step() }
-    pub fn attempt_count(&self) -> usize { self.repair_state().attempt_count() }
-    pub fn consecutive_noop_patches(&self) -> usize { self.repair_state().consecutive_noop_patches() }
-    pub fn single_target_repair_path(&self) -> Option<String> { self.repair_state().single_target_repair_path().map(ToString::to_string) }
+    pub fn hard_mutation_repair_mode(&self) -> bool {
+        self.repair_state().hard_mutation_repair_mode()
+    }
+    pub fn repair_type(&self) -> RepairType {
+        self.repair_state().repair_type()
+    }
+    pub fn ladder_step(&self) -> RepairLadderStep {
+        self.repair_state().ladder_step()
+    }
+    pub fn attempt_count(&self) -> usize {
+        self.repair_state().attempt_count()
+    }
+    pub fn consecutive_noop_patches(&self) -> usize {
+        self.repair_state().consecutive_noop_patches()
+    }
+    pub fn single_target_repair_path(&self) -> Option<String> {
+        self.repair_state()
+            .single_target_repair_path()
+            .map(ToString::to_string)
+    }
 
     pub fn ensure_repair_target_path(&mut self, path: SqlModelPath) {
         self.with_repair_state_mut(|repair| {
@@ -1127,10 +1160,7 @@ impl ExecutionState {
         self.debug_assert_invariants();
     }
 
-    fn with_workflow_control_state_mut(
-        &mut self,
-        mutate: impl FnOnce(&mut WorkflowControlState),
-    ) {
+    fn with_workflow_control_state_mut(&mut self, mutate: impl FnOnce(&mut WorkflowControlState)) {
         let mut state = self.workflow_control_state();
         mutate(&mut state);
         self.set_workflow_control_state(state);
@@ -1224,9 +1254,9 @@ impl ExecutionState {
             manifest.manifest_lookup.failure_signature = Some(signature);
             manifest.manifest_lookup.repeated_failure_count = repeated;
         }
-        manifest.manifest_lookup.retry_suppressed =
-            manifest.manifest_lookup.repeated_failure_count >= 2
-                && manifest.manifest_lookup.canonical_success_count == 0;
+        manifest.manifest_lookup.retry_suppressed = manifest.manifest_lookup.repeated_failure_count
+            >= 2
+            && manifest.manifest_lookup.canonical_success_count == 0;
         self.manifest = manifest;
         self.debug_assert_invariants();
     }
@@ -1251,8 +1281,7 @@ impl ExecutionState {
             ts: Some(chrono::Utc::now().to_rfc3339()),
             ok: Some(false),
             compile_ok: Some(
-                obs_like_bool(&self.telemetry.last_validate, |lv| lv.compile_ok)
-                    .unwrap_or(false),
+                obs_like_bool(&self.telemetry.last_validate, |lv| lv.compile_ok).unwrap_or(false),
             ),
             run_ok: Some(
                 obs_like_bool(&self.telemetry.last_validate, |lv| lv.run_ok).unwrap_or(false),
@@ -1305,7 +1334,8 @@ impl ExecutionState {
 
             state.publish.publish_approval = None;
             state.probe = ProbeState::default();
-            state.probe.required = matches!(repair_intent, RepairIntent::SqlTarget { .. }) && compile_ok;
+            state.probe.required =
+                matches!(repair_intent, RepairIntent::SqlTarget { .. }) && compile_ok;
         });
     }
 
@@ -1403,11 +1433,7 @@ impl ExecutionState {
         ProbeRequirementStatus::Allowed
     }
 
-    pub fn bump_subjective_retry(
-        &mut self,
-        kind: SubjectiveRetryKind,
-        cap: usize,
-    ) -> usize {
+    pub fn bump_subjective_retry(&mut self, kind: SubjectiveRetryKind, cap: usize) -> usize {
         let entry = self.subjective_retries.entry(kind).or_insert(0);
         *entry = (*entry).saturating_add(1).min(cap.max(1));
         *entry
@@ -1431,7 +1457,11 @@ impl ExecutionState {
         });
     }
 
-    pub fn set_pending_plan_revision(&mut self, violations: Vec<PlanViolation>, strategy: PlanRevisionStrategy) {
+    pub fn set_pending_plan_revision(
+        &mut self,
+        violations: Vec<PlanViolation>,
+        strategy: PlanRevisionStrategy,
+    ) {
         self.with_phase_state_mut(|phase| {
             phase.pending_plan_revision = Some(PlanRevisionIntent {
                 violations,
@@ -1479,13 +1509,20 @@ impl ExecutionState {
 
     pub fn bump_publish_retry(&mut self, kind: PublishRetryKind, cap: usize) -> usize {
         let capped = cap.max(1);
-        if let Some(existing) = self.publish.publish_retries.iter_mut().find(|r| r.kind == kind) {
+        if let Some(existing) = self
+            .publish
+            .publish_retries
+            .iter_mut()
+            .find(|r| r.kind == kind)
+        {
             existing.count = existing.count.saturating_add(1).min(capped);
             let count = existing.count;
             self.debug_assert_invariants();
             return count;
         }
-        self.publish.publish_retries.push(PublishRetryState { kind, count: 1 });
+        self.publish
+            .publish_retries
+            .push(PublishRetryState { kind, count: 1 });
         self.debug_assert_invariants();
         1
     }
@@ -1518,7 +1555,10 @@ impl ExecutionState {
         });
     }
 
-    pub async fn load(control: &ControlStateStore, thread_id: &str) -> Result<Option<Self>, String> {
+    pub async fn load(
+        control: &ControlStateStore,
+        thread_id: &str,
+    ) -> Result<Option<Self>, String> {
         crate::state_manager::load_execution_state(control, thread_id)
             .await
             .map_err(|e| e.to_string())
@@ -1534,14 +1574,10 @@ impl ExecutionState {
     }
 
     pub async fn save(&self, control: &ControlStateStore, thread_id: &str) -> Result<(), String> {
-        crate::state_manager::replace_execution_state(
-            control,
-            thread_id,
-            self.clone(),
-        )
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        crate::state_manager::replace_execution_state(control, thread_id, self.clone())
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     pub fn set_pending_publish_plan(&mut self, plan_sha256: String) {
@@ -1684,7 +1720,8 @@ impl ExecutionState {
                 violations.push("repair ladder reached stop before three attempts".to_string());
             }
             if mode.target_path.as_str().trim().is_empty() {
-                violations.push("sql target repair mode requires non-empty target_path".to_string());
+                violations
+                    .push("sql target repair mode requires non-empty target_path".to_string());
             }
             if !is_sql_model_path(mode.target_path.as_str()) {
                 violations.push(
@@ -1707,7 +1744,10 @@ impl ExecutionState {
                 violations.push(format!("publish retry {:?} has zero count", retry.kind));
             }
             if !kinds.insert(retry.kind) {
-                violations.push(format!("duplicate publish retry entry for {:?}", retry.kind));
+                violations.push(format!(
+                    "duplicate publish retry entry for {:?}",
+                    retry.kind
+                ));
             }
         }
     }
@@ -1724,14 +1764,10 @@ impl ExecutionState {
             .saturating_add(probe.non_meaningful_attempts)
             .saturating_add(probe.failed_attempts);
         if classified_attempts > probe.attempts_total {
-            violations.push(
-                "probe attempt counters exceed attempts_total".to_string(),
-            );
+            violations.push("probe attempt counters exceed attempts_total".to_string());
         }
         if probe.repeated_signature_streak > probe.attempts_total {
-            violations.push(
-                "probe repeated_signature_streak exceeds attempts_total".to_string(),
-            );
+            violations.push("probe repeated_signature_streak exceeds attempts_total".to_string());
         }
     }
 
@@ -1821,7 +1857,12 @@ pub fn repair_backlog_from_failed_models(
             FailureKind::SqlRuntime => target
                 .path
                 .as_ref()
-                .map(|p| matches!(p, RepairTargetPath::SqlModel(_) | RepairTargetPath::SchemaDoc(_)))
+                .map(|p| {
+                    matches!(
+                        p,
+                        RepairTargetPath::SqlModel(_) | RepairTargetPath::SchemaDoc(_)
+                    )
+                })
                 .unwrap_or(false),
             FailureKind::WarehouseConfig
             | FailureKind::InfraTransient
@@ -1875,7 +1916,10 @@ fn is_schema_doc_path(path: &str) -> bool {
         && (normalized.ends_with(".yml") || normalized.ends_with(".yaml"))
 }
 
-pub fn repair_intent_from_backlog(failure_class: FailureKind, backlog: Vec<RepairTarget>) -> RepairIntent {
+pub fn repair_intent_from_backlog(
+    failure_class: FailureKind,
+    backlog: Vec<RepairTarget>,
+) -> RepairIntent {
     match failure_class {
         FailureKind::Schema => RepairIntent::Schema { backlog },
         FailureKind::SqlRuntime => {
@@ -1924,12 +1968,8 @@ pub fn failed_model_refs_from_values(values: &[Value]) -> Vec<FailedModelRef> {
 }
 
 pub fn gate_authoring_progress(state: &ExecutionState, phase: Phase) -> Result<(), String> {
-    let last_validate_failed = state
-        .telemetry
-        .last_validate
-        .as_ref()
-        .and_then(|lv| lv.ok)
-        == Some(false);
+    let last_validate_failed =
+        state.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false);
     let mutation_progress = state
         .repair
         .last_progress_delta
@@ -2046,13 +2086,7 @@ mod tests {
 
     #[test]
     fn authoring_stepboundary_snapshot_flags_hard_repair_no_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(
-            true,
-            true,
-            4,
-            4,
-            3,
-        );
+        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 4, 4, 3);
         assert!(!snapshot.progress_made);
         assert_eq!(
             snapshot.reason,
@@ -2062,26 +2096,14 @@ mod tests {
 
     #[test]
     fn authoring_stepboundary_snapshot_accepts_mutation_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(
-            true,
-            true,
-            4,
-            5,
-            0,
-        );
+        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 4, 5, 0);
         assert!(snapshot.progress_made);
         assert_eq!(snapshot.reason, None);
     }
 
     #[test]
     fn authoring_stepboundary_snapshot_allows_single_non_mutating_turn_before_budget() {
-        let snapshot = snapshot_authoring_stepboundary_progress(
-            true,
-            true,
-            5,
-            5,
-            1,
-        );
+        let snapshot = snapshot_authoring_stepboundary_progress(true, true, 5, 5, 1);
         assert!(snapshot.progress_made);
         assert_eq!(snapshot.reason, None);
     }
@@ -2098,15 +2120,25 @@ mod tests {
                 consecutive_noop_patches: 0,
             },
         });
-        st.subjective_retries.insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
-        st.subjective_retries.insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
+        st.subjective_retries
+            .insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
+        st.subjective_retries
+            .insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
         st.apply_validate_success(ExecutionTier::Model);
         assert_eq!(st.phase.current_tier, ExecutionTier::Model);
         assert_eq!(st.phase.mode, ExecutionMode::Done);
         assert!(!st.hard_mutation_repair_mode());
         assert_eq!(st.repair_type(), RepairType::Unknown);
-        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), Some(&3));
-        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::ValidatePrecheckFailed), None);
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::PlanSemanticInvalid),
+            Some(&3)
+        );
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::ValidatePrecheckFailed),
+            None
+        );
     }
 
     #[test]
@@ -2120,7 +2152,9 @@ mod tests {
             ExecutionTier::Cleanse,
             FailureKind::Schema,
             sig,
-            RepairIntent::Schema { backlog: Vec::new() },
+            RepairIntent::Schema {
+                backlog: Vec::new(),
+            },
             Some("schema fail".to_string()),
         );
         assert_eq!(st.repair_type(), RepairType::Schema);
@@ -2136,9 +2170,9 @@ mod tests {
             RepairIntent::SqlTarget {
                 target: sql_model_path("models/staging/stg_orders.sql"),
                 backlog: vec![RepairTarget {
-                model_name: Some("model.pkg.stg_orders".to_string()),
-                path: Some(repair_target_path("models/staging/stg_orders.sql")),
-                error_class: Some(FailureKind::SqlRuntime),
+                    model_name: Some("model.pkg.stg_orders".to_string()),
+                    path: Some(repair_target_path("models/staging/stg_orders.sql")),
+                    error_class: Some(FailureKind::SqlRuntime),
                 }],
             },
             Some("sql fail".to_string()),
@@ -2175,14 +2209,19 @@ mod tests {
         assert!(SqlModelPath::parse("models/staging/stg_orders.sql").is_ok());
         assert!(SqlModelPath::parse(
             "models/staging/stg_orders.yml/not_null_stg_orders_order_id.sql"
-        ).is_err());
+        )
+        .is_err());
         assert!(SqlModelPath::parse(
             "models/staging/stg_orders.yaml/not_null_stg_orders_order_id.sql"
-        ).is_err());
+        )
+        .is_err());
         let target = RepairTargetPath::parse(
             "models/staging/stg_orders.yml/not_null_stg_orders_order_id.sql".to_string(),
         );
-        assert!(target.is_err(), "dbt compiled test path must not parse as RepairTargetPath");
+        assert!(
+            target.is_err(),
+            "dbt compiled test path must not parse as RepairTargetPath"
+        );
     }
 
     #[test]
@@ -2205,8 +2244,7 @@ mod tests {
             },
         ];
 
-        let schema_backlog =
-            repair_backlog_from_failed_models(FailureKind::Schema, &failing);
+        let schema_backlog = repair_backlog_from_failed_models(FailureKind::Schema, &failing);
         assert_eq!(schema_backlog.len(), 1);
         assert_eq!(
             schema_backlog[0].path.as_ref().map(|p| p.as_str()),
@@ -2217,10 +2255,12 @@ mod tests {
         assert_eq!(sql_backlog.len(), 2);
         assert!(sql_backlog
             .iter()
-            .any(|entry| entry.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.sql")));
+            .any(|entry| entry.path.as_ref().map(|p| p.as_str())
+                == Some("models/staging/stg_orders.sql")));
         assert!(sql_backlog
             .iter()
-            .any(|entry| entry.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.yml")));
+            .any(|entry| entry.path.as_ref().map(|p| p.as_str())
+                == Some("models/staging/stg_orders.yml")));
 
         let unknown_backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
         assert!(unknown_backlog.is_empty());
@@ -2237,13 +2277,15 @@ mod tests {
         assert!(
             backlog
                 .iter()
-                .any(|t| t.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.sql")),
+                .any(|t| t.path.as_ref().map(|p| p.as_str())
+                    == Some("models/staging/stg_orders.sql")),
             "SqlRuntime with only .yml target should derive sibling .sql: {backlog:?}"
         );
         assert!(
             backlog
                 .iter()
-                .any(|t| t.path.as_ref().map(|p| p.as_str()) == Some("models/staging/stg_orders.yml")),
+                .any(|t| t.path.as_ref().map(|p| p.as_str())
+                    == Some("models/staging/stg_orders.yml")),
             "original .yml target should be preserved"
         );
     }
@@ -2251,19 +2293,48 @@ mod tests {
     #[test]
     fn subjective_retry_per_kind_and_bounded() {
         let mut st = ExecutionState::new();
-        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 1);
-        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 2);
-        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 3);
-        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3), 3);
+        assert_eq!(
+            st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3),
+            1
+        );
+        assert_eq!(
+            st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3),
+            2
+        );
+        assert_eq!(
+            st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3),
+            3
+        );
+        assert_eq!(
+            st.bump_subjective_retry(SubjectiveRetryKind::PlanSemanticInvalid, 3),
+            3
+        );
 
-        assert_eq!(st.bump_subjective_retry(SubjectiveRetryKind::PlanGroundingEmptyAfterPrune, 3), 1);
-        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), Some(&3));
+        assert_eq!(
+            st.bump_subjective_retry(SubjectiveRetryKind::PlanGroundingEmptyAfterPrune, 3),
+            1
+        );
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::PlanSemanticInvalid),
+            Some(&3)
+        );
 
         st.clear_subjective_retry_kind(SubjectiveRetryKind::PlanSemanticInvalid);
-        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanSemanticInvalid), None);
-        assert_eq!(st.subjective_retries.get(&SubjectiveRetryKind::PlanGroundingEmptyAfterPrune), Some(&1));
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::PlanSemanticInvalid),
+            None
+        );
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::PlanGroundingEmptyAfterPrune),
+            Some(&1)
+        );
 
-        st.clear_subjective_retries_matching(|k| matches!(k, SubjectiveRetryKind::PlanGroundingEmptyAfterPrune));
+        st.clear_subjective_retries_matching(|k| {
+            matches!(k, SubjectiveRetryKind::PlanGroundingEmptyAfterPrune)
+        });
         assert!(st.subjective_retries.is_empty());
     }
 
@@ -2367,17 +2438,27 @@ mod tests {
         });
         st.telemetry.probe.required = true;
 
-        let sig1 =
-            ProbeSignature::from_run_sql("select * from x limit 10", &serde_json::json!({"ok":true}));
+        let sig1 = ProbeSignature::from_run_sql(
+            "select * from x limit 10",
+            &serde_json::json!({"ok":true}),
+        );
         let out1 = st.note_probe_attempt("select * from x limit 10", true, sig1.clone());
         assert_eq!(out1, ProbeOutcomeKind::MeaningfulNewSignal);
-        assert_eq!(st.probe_requirement_status(), ProbeRequirementStatus::Allowed);
+        assert_eq!(
+            st.probe_requirement_status(),
+            ProbeRequirementStatus::Allowed
+        );
 
-        let sig2 =
-            ProbeSignature::from_run_sql("select * from y limit 10", &serde_json::json!({"ok":true}));
+        let sig2 = ProbeSignature::from_run_sql(
+            "select * from y limit 10",
+            &serde_json::json!({"ok":true}),
+        );
         let out2 = st.note_probe_attempt("select * from y limit 10", true, sig2);
         assert_eq!(out2, ProbeOutcomeKind::MeaningfulNewSignal);
-        assert_eq!(st.probe_requirement_status(), ProbeRequirementStatus::Allowed);
+        assert_eq!(
+            st.probe_requirement_status(),
+            ProbeRequirementStatus::Allowed
+        );
 
         let _ = st.note_probe_attempt("select * from x limit 10", true, sig1.clone());
         let _ = st.note_probe_attempt("select * from x limit 10", true, sig1.clone());
@@ -2385,7 +2466,10 @@ mod tests {
         let _ = st.note_probe_attempt(
             "select * from x limit 10",
             true,
-            ProbeSignature::from_run_sql("select * from x limit 10", &serde_json::json!({"ok":true})),
+            ProbeSignature::from_run_sql(
+                "select * from x limit 10",
+                &serde_json::json!({"ok":true}),
+            ),
         );
         assert_eq!(
             st.probe_requirement_status(),
@@ -2402,7 +2486,10 @@ mod tests {
         });
         st.telemetry.probe.required = true;
         st.note_patch_attempt(true, true);
-        assert_eq!(st.probe_requirement_status(), ProbeRequirementStatus::NotRequired);
+        assert_eq!(
+            st.probe_requirement_status(),
+            ProbeRequirementStatus::NotRequired
+        );
     }
 
     #[test]
@@ -2570,7 +2657,10 @@ mod tests {
             st.single_target_repair_path().as_deref(),
             Some("models/staging/stg_test_raw_raw_customers.sql")
         );
-        assert_eq!(st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok), Some(false));
+        assert_eq!(
+            st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok),
+            Some(false)
+        );
     }
 
     #[test]

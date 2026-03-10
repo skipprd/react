@@ -53,10 +53,7 @@ impl DefaultCatalogProvider {
         }
     }
 
-    pub fn with_thread_id_fn(
-        mut self,
-        f: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    ) -> Self {
+    pub fn with_thread_id_fn(mut self, f: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> Self {
         self.thread_id_fn = Some(f);
         self
     }
@@ -81,7 +78,13 @@ impl CatalogProvider for DefaultCatalogProvider {
         dataset_id: &str,
     ) -> Result<Option<DataCatalog>, String> {
         let canonical = Self::canonical_dataset_id(dataset_id)?;
-        let key = self.keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(&canonical))]);
+        let key = self.keyspace.scoped_key(
+            scope,
+            &[
+                "catalog",
+                &format!("{}.yaml", encode_key_component(&canonical)),
+            ],
+        );
         match self.storage.get_json(&key).await {
             Ok(val) => Ok(Some(
                 serde_json::from_value::<DataCatalog>(val).map_err(|e| e.to_string())?,
@@ -97,9 +100,18 @@ impl CatalogProvider for DefaultCatalogProvider {
         catalog: &DataCatalog,
     ) -> Result<(), String> {
         let canonical = Self::canonical_dataset_id(dataset_id)?;
-        let key = self.keyspace.scoped_key(scope, &["catalog", &format!("{}.yaml", encode_key_component(&canonical))]);
+        let key = self.keyspace.scoped_key(
+            scope,
+            &[
+                "catalog",
+                &format!("{}.yaml", encode_key_component(&canonical)),
+            ],
+        );
         let json_equiv = utils::yaml_to_json_value(catalog)?;
-        self.storage.put_json(&key, &json_equiv).await.map_err(|e| e.to_string())?;
+        self.storage
+            .put_json(&key, &json_equiv)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

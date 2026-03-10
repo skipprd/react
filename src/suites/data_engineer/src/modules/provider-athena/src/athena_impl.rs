@@ -9,10 +9,12 @@ use tokio::sync::RwLock;
 use tokio::sync::Semaphore;
 
 use crate::providers::dataset_catalog_provider::{DatasetCatalogProvider, DatasetId};
-use crate::providers::{QueryProvider, QueryResult};
 use crate::providers::warehouse::WarehouseNaming;
+use crate::providers::{QueryProvider, QueryResult};
 
-use react_suite_data_engineer::providers::warehouse_utils::{clamp_concurrency, clamp_cache_ttl_secs};
+use react_suite_data_engineer::providers::warehouse_utils::{
+    clamp_cache_ttl_secs, clamp_concurrency,
+};
 
 const DEFAULT_ATHENA_MAX_CONCURRENCY: usize = 15;
 const ATHENA_MAX_CONCURRENCY_CAP: usize = 20;

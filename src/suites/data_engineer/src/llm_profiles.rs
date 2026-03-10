@@ -21,15 +21,21 @@ impl DataEngineerSuite {
     ) -> Result<LlmCallOptions, String> {
         Ok(match profile {
             PlanningLlmProfile::DiscoveryCleanse => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_MAX_TOKENS_CLEANSE)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(96_000)
-                    .max(4_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env(super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT_CLEANSE)
-                        .or_else(|| Self::parse_reasoning_effort_env(super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT))
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_MAX_TOKENS_CLEANSE)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(96_000)
+                        .max(4_000);
+                let reasoning_effort = Self::parse_reasoning_effort_env(
+                    super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT_CLEANSE,
+                )
+                .or_else(|| {
+                    Self::parse_reasoning_effort_env(
+                        super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT,
+                    )
+                })
+                .unwrap_or(react_core::llm::ReasoningEffort::Medium);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -42,15 +48,21 @@ impl DataEngineerSuite {
                 }
             }
             PlanningLlmProfile::DiscoveryModel => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_MAX_TOKENS_MODEL)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(128_000)
-                    .max(8_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env(super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT_MODEL)
-                        .or_else(|| Self::parse_reasoning_effort_env(super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT))
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_MAX_TOKENS_MODEL)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(128_000)
+                        .max(8_000);
+                let reasoning_effort = Self::parse_reasoning_effort_env(
+                    super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT_MODEL,
+                )
+                .or_else(|| {
+                    Self::parse_reasoning_effort_env(
+                        super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT,
+                    )
+                })
+                .unwrap_or(react_core::llm::ReasoningEffort::Medium);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -68,9 +80,10 @@ impl DataEngineerSuite {
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(64_000)
                     .max(8_000);
-                let reasoning_effort =
-                    Self::parse_reasoning_effort_env(super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT)
-                        .unwrap_or(react_core::llm::ReasoningEffort::Medium);
+                let reasoning_effort = Self::parse_reasoning_effort_env(
+                    super::env_util::env_keys::LLM_PLAN_REASONING_EFFORT,
+                )
+                .unwrap_or(react_core::llm::ReasoningEffort::Medium);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -83,11 +96,12 @@ impl DataEngineerSuite {
                 }
             }
             PlanningLlmProfile::DesignCritique => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_CRITIQUE_MAX_TOKENS)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(16_000)
-                    .max(4_000);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_CRITIQUE_MAX_TOKENS)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(16_000)
+                        .max(4_000);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -105,11 +119,12 @@ impl DataEngineerSuite {
                 }
             }
             PlanningLlmProfile::SkeletonOrCandidates => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_SKELETON_MAX_TOKENS)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(24_000)
-                    .max(6_000);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_SKELETON_MAX_TOKENS)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(24_000)
+                        .max(6_000);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -122,11 +137,12 @@ impl DataEngineerSuite {
                 }
             }
             PlanningLlmProfile::EnrichmentCompile => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_ENRICH_MAX_TOKENS)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(32_000)
-                    .max(6_000);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_ENRICH_MAX_TOKENS)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(32_000)
+                        .max(6_000);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -139,11 +155,12 @@ impl DataEngineerSuite {
                 }
             }
             PlanningLlmProfile::EnrichmentReason => {
-                let max_tokens = std::env::var(super::env_util::env_keys::LLM_PLAN_ENRICH_REASON_MAX_TOKENS)
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(8_000)
-                    .max(2_000);
+                let max_tokens =
+                    std::env::var(super::env_util::env_keys::LLM_PLAN_ENRICH_REASON_MAX_TOKENS)
+                        .ok()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(8_000)
+                        .max(2_000);
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
@@ -158,7 +175,9 @@ impl DataEngineerSuite {
         })
     }
 
-    pub(super) fn parse_reasoning_effort_env(var: &str) -> Option<react_core::llm::ReasoningEffort> {
+    pub(super) fn parse_reasoning_effort_env(
+        var: &str,
+    ) -> Option<react_core::llm::ReasoningEffort> {
         match std::env::var(var)
             .ok()
             .map(|s| s.trim().to_lowercase())

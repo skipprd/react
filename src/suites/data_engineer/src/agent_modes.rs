@@ -137,9 +137,7 @@ impl DataEngineerSuite {
         thread_id: &str,
         kind: crate::progress_controller::SubjectiveRetryKind,
     ) -> Result<crate::retry_budget::SubjectiveRetryOutcome, String> {
-        crate::retry_budget::check_subjective_retry_budget(
-            thread_store, thread_id, kind,
-        ).await
+        crate::retry_budget::check_subjective_retry_budget(thread_store, thread_id, kind).await
     }
 
     pub(super) async fn clear_subjective_retries_matching(
@@ -147,9 +145,7 @@ impl DataEngineerSuite {
         thread_id: &str,
         f: impl Fn(&crate::progress_controller::SubjectiveRetryKind) -> bool,
     ) -> Result<(), String> {
-        crate::retry_budget::clear_subjective_retries_matching(
-            thread_store, thread_id, f,
-        ).await
+        crate::retry_budget::clear_subjective_retries_matching(thread_store, thread_id, f).await
     }
 
     pub(super) fn validate_agent_type(agent_type: &str) -> Result<AgentMode, String> {
@@ -282,22 +278,22 @@ impl DataEngineerSuite {
             sctx.keyspace().clone(),
         );
         let mut actx = react_core::agent::AgentCtxBuilder::new(
-                sctx.llm().clone(),
-                sctx.storage().clone(),
-                sctx.scope().clone(),
-                sctx.keyspace().clone(),
-                policy,
-            )
-            .top_k(env_util::DEFAULT_TOP_K)
-            .per_step_timeout_secs(per_step_timeout)
-            .max_steps(max_steps)
-            .thread_id(thread_id)
-            .trace_tx(sctx.trace_tx().clone())
-            .agent_name(agent_name)
-            .vector(sctx.vector().clone())
-            .thread_store(thread_store)
-            .resolved_config(sctx.resolved_config().clone())
-            .build();
+            sctx.llm().clone(),
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+            policy,
+        )
+        .top_k(env_util::DEFAULT_TOP_K)
+        .per_step_timeout_secs(per_step_timeout)
+        .max_steps(max_steps)
+        .thread_id(thread_id)
+        .trace_tx(sctx.trace_tx().clone())
+        .agent_name(agent_name)
+        .vector(sctx.vector().clone())
+        .thread_store(thread_store)
+        .resolved_config(sctx.resolved_config().clone())
+        .build();
         crate::ctx_ext::copy_capabilities_to_actx(sctx, &mut actx);
         actx
     }
@@ -306,17 +302,27 @@ impl DataEngineerSuite {
         outcome: Result<RunOutcome, String>,
     ) -> Result<Vec<FlowFrame>, String> {
         match outcome {
-            Ok(RunOutcome::Complete { thread_id: _tid, result }) => Ok(vec![FlowFrame::Complete {
+            Ok(RunOutcome::Complete {
+                thread_id: _tid,
+                result,
+            }) => Ok(vec![FlowFrame::Complete {
                 kind: FlowKind::new(result.kind.clone()),
                 payload: result.payload,
                 display: result.display,
             }]),
-            Ok(RunOutcome::Interrupt { thread_id: _tid, kind, prompt }) => {
+            Ok(RunOutcome::Interrupt {
+                thread_id: _tid,
+                kind,
+                prompt,
+            }) => {
                 let kind_str = match kind {
                     react_core::agent::InterruptKind::AwaitUser => "await_user",
                     react_core::agent::InterruptKind::AwaitApproval => "await_approval",
                 };
-                Ok(vec![FlowFrame::Interrupt { kind: FlowKind::new(kind_str), prompt }])
+                Ok(vec![FlowFrame::Interrupt {
+                    kind: FlowKind::new(kind_str),
+                    prompt,
+                }])
             }
             Err(e) => Err(e),
         }
@@ -404,7 +410,10 @@ impl DataEngineerSuite {
             )
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            let phase = execution_state.phase.current_phase.unwrap_or(control_flow::Phase::Preflight);
+            let phase = execution_state
+                .phase
+                .current_phase
+                .unwrap_or(control_flow::Phase::Preflight);
             let thread_state_step_count = thread_store
                 .get(thread_id)
                 .await
@@ -440,9 +449,9 @@ impl DataEngineerSuite {
                     .map_err(|e| e.to_string())?;
                     let mut es = execution_state.clone();
                     es.mark_failed(reason.clone());
-                    es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-                        format!("failed to persist fail-fast mark_failed: {e}")
-                    })?;
+                    es.save(&thread_store.control_store(), thread_id)
+                        .await
+                        .map_err(|e| format!("failed to persist fail-fast mark_failed: {e}"))?;
                     return Err(reason);
                 }
             }
@@ -460,7 +469,8 @@ impl DataEngineerSuite {
                 &repair_ctx,
                 &mut out_frames,
             )
-            .await {
+            .await
+            {
                 PhaseExecutorOutcome::StayedWithProgress { detail } => {
                     tracing::debug!(thread_id = %thread_id, phase_progress = %detail);
                     remaining_steps = max_phase_steps;
@@ -479,14 +489,15 @@ impl DataEngineerSuite {
         let mut budget_msg = format!(
             "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n\nBudget:\n- max_steps_per_progress={max_phase_steps}\n- total_steps={total_steps}\n\nThis indicates a loop (re-entering phases without durable progress)."
         );
-        if let Some(mut es) =
-            crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::error!("failed to load execution state at budget exhaustion: {e}");
-                    None
-                })
-        {
+        if let Some(mut es) = crate::progress_controller::ExecutionState::load(
+            &thread_store.control_store(),
+            thread_id,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("failed to load execution state at budget exhaustion: {e}");
+            None
+        }) {
             budget_msg.push_str(&format!(
                 "\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
                 es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
@@ -526,10 +537,19 @@ impl DataEngineerSuite {
         out_frames: &mut Vec<FlowFrame>,
     ) -> PhaseExecutorOutcome {
         match Self::execute_phase_inner(
-            thread_store, thread_id, phase, question, sctx,
-            execution_state, guard, thread_state_step_count,
-            repair_ctx, out_frames,
-        ).await {
+            thread_store,
+            thread_id,
+            phase,
+            question,
+            sctx,
+            execution_state,
+            guard,
+            thread_state_step_count,
+            repair_ctx,
+            out_frames,
+        )
+        .await
+        {
             Ok(outcome) => outcome,
             Err(e) => {
                 let reason = e.to_string();
@@ -540,13 +560,19 @@ impl DataEngineerSuite {
                     "phase execution error — recording guard block",
                 );
                 let _ = apply_guard_block(
-                    thread_store, thread_id, phase,
+                    thread_store,
+                    thread_id,
+                    phase,
                     GuardBlockKind::PhaseExecutionError,
                     &reason,
-                ).await;
+                )
+                .await;
                 match crate::progress_controller::ExecutionState::load(
-                    &thread_store.control_store(), thread_id,
-                ).await {
+                    &thread_store.control_store(),
+                    thread_id,
+                )
+                .await
+                {
                     Ok(Some(mut es)) => {
                         es.mark_failed(&reason);
                         if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
@@ -577,9 +603,7 @@ impl DataEngineerSuite {
     ) -> Result<PhaseExecutorOutcome, PhaseError> {
         use crate::control_flow::Phase;
         match phase {
-            Phase::Preflight => {
-                Self::execute_preflight_phase(thread_store, thread_id, sctx).await
-            }
+            Phase::Preflight => Self::execute_preflight_phase(thread_store, thread_id, sctx).await,
             Phase::CleansePlan | Phase::ModelPlan => {
                 Self::execute_plan_phase(
                     thread_store,
@@ -637,12 +661,8 @@ impl DataEngineerSuite {
             Phase::PublishAwaitApproval => {
                 Self::execute_publish_await_approval_phase(thread_store, thread_id, sctx).await
             }
-            Phase::Publish => {
-                Self::execute_publish_phase(thread_store, thread_id, sctx).await
-            }
-            Phase::Done => {
-                Self::execute_done_phase(out_frames)
-            }
+            Phase::Publish => Self::execute_publish_phase(thread_store, thread_id, sctx).await,
+            Phase::Done => Self::execute_done_phase(out_frames),
         }
     }
 

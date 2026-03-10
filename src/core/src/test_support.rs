@@ -43,9 +43,13 @@ impl StorageAdapter for InMemoryStorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(format!("put_json_if_etag_matches('{}'): {}", key, e)))?;
-        let mut g = self.inner.write().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let bytes = serde_json::to_vec(value).map_err(|e| {
+            CoreError::Storage(format!("put_json_if_etag_matches('{}'): {}", key, e))
+        })?;
+        let mut g = self
+            .inner
+            .write()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
         let current_etag = g.get(key).map(|b| Self::etag(b));
         let expected = expected_etag.map(|s| s.to_string());
         if current_etag != expected {
@@ -55,26 +59,47 @@ impl StorageAdapter for InMemoryStorageAdapter {
         Ok(ConditionalWriteStatus::Written)
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
-        g.get(key).cloned().ok_or_else(|| CoreError::Storage(format!("not found: {}", key)))
+        let g = self
+            .inner
+            .read()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        g.get(key)
+            .cloned()
+            .ok_or_else(|| CoreError::Storage(format!("not found: {}", key)))
     }
     async fn put_bytes(&self, key: &str, bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
-        let mut g = self.inner.write().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let mut g = self
+            .inner
+            .write()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
         g.insert(key.to_string(), bytes.to_vec());
         Ok(())
     }
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
-        let mut g = self.inner.write().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let mut g = self
+            .inner
+            .write()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
         g.remove(key);
         Ok(())
     }
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let g = self
+            .inner
+            .read()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
         Ok(g.get(key).map(|b| Self::etag(b)))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
-        let g = self.inner.read().map_err(|_| CoreError::Storage("lock poisoned".into()))?;
-        let mut out: Vec<String> = g.keys().filter(|k| k.starts_with(prefix)).cloned().collect();
+        let g = self
+            .inner
+            .read()
+            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+        let mut out: Vec<String> = g
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
         out.sort();
         Ok(out)
     }

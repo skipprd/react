@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use react_core::agent::{AgentPolicy, CompleteDecision, CompleteEnvelope, InterruptKind, RunOutcome};
 use crate::thread_cache::ThreadCacheStore;
-use react_core::session::{
-    Observation, ThreadResult, ThreadStep, ThreadStore, ToolStepMeta,
+use react_core::agent::{
+    AgentPolicy, CompleteDecision, CompleteEnvelope, InterruptKind, RunOutcome,
 };
+use react_core::session::{Observation, ThreadResult, ThreadStep, ThreadStore, ToolStepMeta};
 use react_core::tools::ToolRegistry;
 
 #[derive(Clone)]
@@ -314,13 +314,15 @@ impl AgentPolicy for SqlValidatedPolicy {
                     thread_id,
                     meta,
                     || async {
-                        Ok(match tools
-                            .call("run_sql", serde_json::json!({"sql": sql}), ctx)
-                            .await
-                        {
-                            Ok(o) => o,
-                            Err(e) => serde_json::json!({"ok": false, "errors": [e]}),
-                        })
+                        Ok(
+                            match tools
+                                .call("run_sql", serde_json::json!({"sql": sql}), ctx)
+                                .await
+                            {
+                                Ok(o) => o,
+                                Err(e) => serde_json::json!({"ok": false, "errors": [e]}),
+                            },
+                        )
                     },
                     |raw: &Value| Ok(raw.clone()),
                 )
@@ -526,14 +528,20 @@ mod tests {
             )
             .await;
 
-        let ctx = react_core::agent::AgentCtxBuilder::new(Arc::new(react_core::llm::NullModel::new()), storage, scope, keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .thread_id(tid.clone())
-            .agent_name("model".to_string())
-            .thread_store(store.clone())
-            .build();
+        let ctx = react_core::agent::AgentCtxBuilder::new(
+            Arc::new(react_core::llm::NullModel::new()),
+            storage,
+            scope,
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id(tid.clone())
+        .agent_name("model".to_string())
+        .thread_store(store.clone())
+        .build();
 
         let policy = SqlValidatedPolicy::default();
         let mut transcript: Vec<String> = Vec::new();

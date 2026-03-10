@@ -109,18 +109,15 @@ pub async fn commit_plan_revision_loopback(
     violations: Vec<crate::progress_controller::PlanViolation>,
     strategy: crate::progress_controller::PlanRevisionStrategy,
 ) -> Result<(), String> {
-    let track = crate::track_spec::TrackKind::from_any_phase(from_phase)
-        .ok_or_else(|| {
-            format!(
-                "PlanRevisionRequested from phase '{}' which has no associated plan track",
-                from_phase.as_str()
-            )
-        })?;
-    crate::state_manager::mutate_execution_state(
-        &thread_store.control_store(),
-        thread_id,
-        |es| es.set_pending_plan_revision(violations, strategy),
-    )
+    let track = crate::track_spec::TrackKind::from_any_phase(from_phase).ok_or_else(|| {
+        format!(
+            "PlanRevisionRequested from phase '{}' which has no associated plan track",
+            from_phase.as_str()
+        )
+    })?;
+    crate::state_manager::mutate_execution_state(&thread_store.control_store(), thread_id, |es| {
+        es.set_pending_plan_revision(violations, strategy)
+    })
     .await
     .map(|_| ())
     .map_err(|e| e.to_string())?;

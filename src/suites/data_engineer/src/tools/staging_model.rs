@@ -8,15 +8,14 @@ use crate::failure_kind::FailureKind;
 use crate::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::plan;
 use crate::project_fs;
+use crate::providers::DatasetCatalogProvider;
 use crate::references::DatasetRef;
 use crate::sql_first;
 use react_core::agent::AgentCtx;
-use crate::providers::DatasetCatalogProvider;
 use react_core::tools::Tool;
 
 use super::model_authoring_engine::{
-    self as engine, build_provider_prompt_rules, dedup_notes, emit_trace,
-    extract_string_arg,
+    self as engine, build_provider_prompt_rules, dedup_notes, emit_trace, extract_string_arg,
 };
 
 fn resolve_dataset_ids(args: &Value) -> Result<Vec<DatasetRef>, String> {
@@ -147,7 +146,6 @@ fn build_staging_sys_prompt(
     )
 }
 
-
 use super::plan_prompt_helpers::{combine_instructions, render_plan_driven_instructions};
 
 #[async_trait]
@@ -157,8 +155,8 @@ impl Tool for StagingModelTool {
     }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
-        let dbt = crate::ctx_ext::actx_dbt(ctx)
-            .ok_or_else(|| "dbt provider missing".to_string())?;
+        let dbt =
+            crate::ctx_ext::actx_dbt(ctx).ok_or_else(|| "dbt provider missing".to_string())?;
 
         // Resolve datasets explicitly; NEVER default to all datasets.
         let mut dataset_refs = resolve_dataset_ids(&args)?;
@@ -642,7 +640,8 @@ impl Tool for StagingModelTool {
                 .unwrap_or_else(|| (vec![], vec![], String::new(), None));
             if plan_output_field_names.is_empty() {
                 if let Some(spec) = plan_implementation_spec.as_ref() {
-                    plan_output_field_names = spec.output_fields.iter().map(|f| f.name.clone()).collect();
+                    plan_output_field_names =
+                        spec.output_fields.iter().map(|f| f.name.clone()).collect();
                 }
             }
             let plan_instr = render_plan_driven_instructions(&plan_invariants, &plan_checklist);
@@ -650,7 +649,12 @@ impl Tool for StagingModelTool {
 
             let cols_for_sql: Vec<String> = cols
                 .iter()
-                .map(|(n, _t)| stg_wh.as_ref().map(|w| w.quote_ident(n)).unwrap_or_else(|| format!("\"{}\"", n)))
+                .map(|(n, _t)| {
+                    stg_wh
+                        .as_ref()
+                        .map(|w| w.quote_ident(n))
+                        .unwrap_or_else(|| format!("\"{}\"", n))
+                })
                 .collect();
 
             let user_value = serde_json::json!({
@@ -676,7 +680,11 @@ impl Tool for StagingModelTool {
             let max_tokens = sql_first::sql_first_max_output_tokens(6000);
             let max_attempts = sql_first::sql_first_max_repair_attempts(4);
             let mut repl = std::collections::HashMap::new();
-            let dsid = match stg_wh.as_ref().ok_or_else(|| "warehouse missing".to_string()).and_then(|w| w.parse_dataset_fqn(&ds)) {
+            let dsid = match stg_wh
+                .as_ref()
+                .ok_or_else(|| "warehouse missing".to_string())
+                .and_then(|w| w.parse_dataset_fqn(&ds))
+            {
                 Ok(id) => id,
                 Err(e) => {
                     errors.push(format!("{ds}: invalid dataset fqn: {e}"));
@@ -815,11 +823,11 @@ impl Tool for StagingModelTool {
 mod tests {
     use super::*;
     use crate::naming::extract_source_calls;
+    use crate::providers::{DbtProvider, QueryProvider, QueryResult};
     use async_trait::async_trait;
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::ChatMessage;
     use react_core::llm::LargeLanguageModel;
-    use crate::providers::{DbtProvider, QueryProvider, QueryResult};
     use react_core::scope::RequestScope;
     use react_core::storage::StorageAdapter;
     use react_module_storage_memory::InMemoryStorageAdapter;
@@ -1014,7 +1022,11 @@ mod tests {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -1029,14 +1041,20 @@ mod tests {
             Arc::new(crate::providers::warehouse::NullWarehouseProvider::default());
         let query_prov: Arc<dyn crate::providers::QueryProvider> = Arc::new(MockQuery);
         let dbt_prov: Arc<dyn crate::providers::DbtProvider> = Arc::new(MockDbt);
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(Arc::new(react_core::llm::NullModel::new()), storage.clone(), scope, keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .thread_id("t1".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(cfg))
-            .build();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            Arc::new(react_core::llm::NullModel::new()),
+            storage.clone(),
+            scope,
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id("t1".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(cfg))
+        .build();
         ctx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(query_prov)));
         ctx.set_capability(Arc::new(crate::ctx_ext::DbtCap(dbt_prov)));
@@ -1165,10 +1183,7 @@ mod tests {
             fn kind(&self) -> crate::de_config::WarehouseKind {
                 crate::de_config::WarehouseKind::default()
             }
-            fn parse_dataset_fqn(
-                &self,
-                fqn: &str,
-            ) -> Result<crate::providers::DatasetId, String> {
+            fn parse_dataset_fqn(&self, fqn: &str) -> Result<crate::providers::DatasetId, String> {
                 let parts: Vec<&str> = fqn.split('.').collect();
                 if parts.len() != 3 {
                     return Err("expected <catalog>.<schema>.<table>".to_string());
@@ -1221,7 +1236,11 @@ mod tests {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let cfg = Arc::new(react_core::resolved_config::ReactResolvedConfig {
             server: react_core::resolved_config::ServerResolved { port: 1 },
-            storage: react_core::resolved_config::StorageResolved { mode: react_core::resolved_config::StorageMode::Local, bucket: None, path: None },
+            storage: react_core::resolved_config::StorageResolved {
+                mode: react_core::resolved_config::StorageMode::Local,
+                bucket: None,
+                path: None,
+            },
             scope: scope.clone(),
             llm: react_core::resolved_config::LlmResolved::default(),
             suite_config: serde_json::json!({
@@ -1242,17 +1261,22 @@ mod tests {
             captured_user_instructions: captured.clone(),
         });
 
-        let warehouse: Arc<dyn crate::providers::WarehouseProvider> =
-            Arc::new(MockWarehouse);
+        let warehouse: Arc<dyn crate::providers::WarehouseProvider> = Arc::new(MockWarehouse);
         let dbt_prov: Arc<dyn crate::providers::DbtProvider> = Arc::new(MockDbt);
-        let mut ctx = react_core::agent::AgentCtxBuilder::new(llm, storage.clone(), scope.clone(), keyspace, Arc::new(react_core::agent::DefaultPolicy))
-            .top_k(1)
-            .per_step_timeout_secs(1)
-            .max_steps(1)
-            .thread_id("t1".to_string())
-            .agent_name("test".to_string())
-            .resolved_config(Some(cfg))
-            .build();
+        let mut ctx = react_core::agent::AgentCtxBuilder::new(
+            llm,
+            storage.clone(),
+            scope.clone(),
+            keyspace,
+            Arc::new(react_core::agent::DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id("t1".to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(cfg))
+        .build();
         ctx.set_capability(Arc::new(crate::ctx_ext::WarehouseCap(warehouse)));
         ctx.set_capability(Arc::new(crate::ctx_ext::DbtCap(dbt_prov)));
 
@@ -1290,7 +1314,9 @@ mod tests {
                     crate::plan::PlanChecklistItem {
                         checklist_item_id: "sql_model".to_string(),
                         label: "Author staging SQL".to_string(),
-                        details: Some("Add a canonical order_pk and document behavior.".to_string()),
+                        details: Some(
+                            "Add a canonical order_pk and document behavior.".to_string(),
+                        ),
                         status: crate::plan::ChecklistItemStatus::Pending,
                         origin: crate::plan::ChecklistOrigin::Initial,
                         evidence: vec![],
@@ -1349,9 +1375,7 @@ mod tests {
             mutations: vec![],
             progress: crate::plan::PlanProgress::default(),
         };
-        crate::plan::save_cleanse_plan(&ctx, &plan)
-            .await
-            .unwrap();
+        crate::plan::save_cleanse_plan(&ctx, &plan).await.unwrap();
 
         let tool = StagingModelTool { datasets: None };
         let out = tool

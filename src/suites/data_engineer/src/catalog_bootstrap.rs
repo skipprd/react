@@ -40,7 +40,10 @@ impl DataEngineerSuite {
         sctx: &SuiteCtx,
     ) -> Result<(), String> {
         let control = sctx.control_store();
-        if let Ok(Some(cache)) = control.load::<CatalogBootstrapCache>(thread_id, BOOTSTRAP_SUITE_ID).await {
+        if let Ok(Some(cache)) = control
+            .load::<CatalogBootstrapCache>(thread_id, BOOTSTRAP_SUITE_ID)
+            .await
+        {
             if cache.status.is_usable() {
                 tracing::info!(
                     "data_engineer: catalog bootstrap semaphore hit status={:?} thread_id={}",
@@ -96,22 +99,24 @@ impl DataEngineerSuite {
     // checks (schemas, tables, sample data), (d) outcome assembly.
     /// This builds/refreshes warehouse-backed catalog artifacts and then enforces that required
     /// metadata exists so planning can treat catalog as canonical.
-    pub(super) async fn ensure_catalog_bootstrap(sctx: &SuiteCtx) -> Result<CatalogBootstrapOutcome, String> {
-        let (Some(cat), Some(datasets)) = (crate::ctx_ext::sctx_catalog(sctx), crate::ctx_ext::sctx_datasets(sctx)) else {
+    pub(super) async fn ensure_catalog_bootstrap(
+        sctx: &SuiteCtx,
+    ) -> Result<CatalogBootstrapOutcome, String> {
+        let (Some(cat), Some(datasets)) = (
+            crate::ctx_ext::sctx_catalog(sctx),
+            crate::ctx_ext::sctx_datasets(sctx),
+        ) else {
             return Ok(CatalogBootstrapOutcome {
                 metadata_complete: true,
             });
         };
-        let dss = datasets
-            .list_datasets()
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    error = %e,
-                    "data_engineer: catalog bootstrap dataset discovery failed"
-                );
-                format!("catalog bootstrap failed: dataset discovery error: {e}")
-            })?;
+        let dss = datasets.list_datasets().await.map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "data_engineer: catalog bootstrap dataset discovery failed"
+            );
+            format!("catalog bootstrap failed: dataset discovery error: {e}")
+        })?;
         if dss.is_empty() {
             return Err("catalog bootstrap failed: dataset discovery returned zero datasets (check AWS credentials/region and warehouse schema config)".to_string());
         }
@@ -119,7 +124,13 @@ impl DataEngineerSuite {
         // Also detect whether the global semantic context exists.
         let global_key = sctx.keyspace().scoped_key(
             sctx.scope(),
-            &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+            &[
+                "semantic",
+                &format!(
+                    "{}.yaml",
+                    encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID)
+                ),
+            ],
         );
         tracing::info!(
             "data_engineer: refreshing canonical catalogs/stats for {} dataset(s)",
@@ -181,12 +192,14 @@ impl DataEngineerSuite {
                     ));
                 }
             }
-            let gctx = sctx.storage().get_json(&global_key).await.ok().and_then(|v| {
-                serde_json::from_value::<
-                    crate::providers::GlobalSemanticContext,
-                >(v)
+            let gctx = sctx
+                .storage()
+                .get_json(&global_key)
+                .await
                 .ok()
-            });
+                .and_then(|v| {
+                    serde_json::from_value::<crate::providers::GlobalSemanticContext>(v).ok()
+                });
             match gctx {
                 Some(g) => {
                     if g.audiences.is_empty() {
@@ -260,12 +273,14 @@ impl DataEngineerSuite {
                 }
             }
             // Deterministic global semantic context repair.
-            let gctx = sctx.storage().get_json(&global_key).await.ok().and_then(|v| {
-                serde_json::from_value::<
-                    crate::providers::GlobalSemanticContext,
-                >(v)
+            let gctx = sctx
+                .storage()
+                .get_json(&global_key)
+                .await
                 .ok()
-            });
+                .and_then(|v| {
+                    serde_json::from_value::<crate::providers::GlobalSemanticContext>(v).ok()
+                });
             let needs_global_defaults = match gctx {
                 Some(ref g) => g.audiences.is_empty() || g.context_bullets.is_empty(),
                 None => true,
@@ -284,18 +299,16 @@ impl DataEngineerSuite {
                             .map(|d| format!("dataset_id={}", d))
                             .collect(),
                     }],
-                    context_bullets: vec![
-                        crate::providers::GlobalContextBullet {
-                            text: "Project models warehouse datasets for analytics use-cases."
-                                .to_string(),
-                            confidence: 0.90,
-                            evidence: dataset_ids
-                                .iter()
-                                .take(5)
-                                .map(|d| format!("dataset_id={}", d))
-                                .collect(),
-                        },
-                    ],
+                    context_bullets: vec![crate::providers::GlobalContextBullet {
+                        text: "Project models warehouse datasets for analytics use-cases."
+                            .to_string(),
+                        confidence: 0.90,
+                        evidence: dataset_ids
+                            .iter()
+                            .take(5)
+                            .map(|d| format!("dataset_id={}", d))
+                            .collect(),
+                    }],
                     dataset_groups: vec![],
                     assumptions_and_gaps: vec![],
                 };

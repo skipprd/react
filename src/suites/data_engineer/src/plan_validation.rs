@@ -1,11 +1,9 @@
 use crate::plan_progress::{
-    CHECKLIST_SQL_MODEL, MAX_BATCH_SIZE, checklist_status, is_runnable_checklist_status,
-    missing_required_checklist_items,
-    required_checklist_item_ids, work_groups_cover_task_checklist,
+    checklist_status, is_runnable_checklist_status, missing_required_checklist_items,
+    required_checklist_item_ids, work_groups_cover_task_checklist, CHECKLIST_SQL_MODEL,
+    MAX_BATCH_SIZE,
 };
-use crate::plan_types::{
-    CleansePlan, ModelPlan, Plan, PlanTask, PlanWorkGroup,
-};
+use crate::plan_types::{CleansePlan, ModelPlan, Plan, PlanTask, PlanWorkGroup};
 
 #[derive(Clone, Debug)]
 pub struct PlanSemanticValidation {
@@ -152,11 +150,17 @@ fn validate_plan_structure<T: PlanTask>(
     }
     let task_ids: Vec<String> = plan.tasks.iter().map(|t| t.task_id().to_string()).collect();
     for dup in duplicate_values(&task_ids) {
-        errors.push(format!("duplicate task.{} is not allowed: {}", task_id_label, dup));
+        errors.push(format!(
+            "duplicate task.{} is not allowed: {}",
+            task_id_label, dup
+        ));
     }
     for (bi, b) in plan.batches.iter().enumerate() {
         if b.len() > MAX_BATCH_SIZE {
-            errors.push(format!("batches[{bi}] has >{MAX_BATCH_SIZE} items (len={})", b.len()));
+            errors.push(format!(
+                "batches[{bi}] has >{MAX_BATCH_SIZE} items (len={})",
+                b.len()
+            ));
         }
         for dup in duplicate_values(b) {
             errors.push(format!(
@@ -224,7 +228,11 @@ fn validate_plan_structure<T: PlanTask>(
             ));
         }
         for it in g.items.iter() {
-            if !plan.tasks.iter().any(|t| t.task_id() == it.task_id.as_str()) {
+            if !plan
+                .tasks
+                .iter()
+                .any(|t| t.task_id() == it.task_id.as_str())
+            {
                 errors.push(format!(
                     "work_group {} references unknown {} task_id={}",
                     g.group_id, wg_qualifier, it.task_id
@@ -238,7 +246,11 @@ fn validate_plan_structure<T: PlanTask>(
                 ));
                 continue;
             }
-            if let Some(t) = plan.tasks.iter().find(|t| t.task_id() == it.task_id.as_str()) {
+            if let Some(t) = plan
+                .tasks
+                .iter()
+                .find(|t| t.task_id() == it.task_id.as_str())
+            {
                 let exists = t.checklist().iter().any(|x| x.checklist_item_id == cid);
                 if !exists {
                     errors.push(format!(
@@ -254,7 +266,8 @@ fn validate_plan_structure<T: PlanTask>(
             if !work_groups_cover_task_checklist(&plan.work_groups, t.task_id(), checklist_id) {
                 errors.push(format!(
                     "task {} checklist '{}' is not scheduled in work_groups",
-                    t.task_id(), checklist_id
+                    t.task_id(),
+                    checklist_id
                 ));
             }
         }

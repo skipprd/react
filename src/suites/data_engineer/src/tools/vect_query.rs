@@ -43,7 +43,9 @@ impl Tool for VectQueryTool {
         if !is_model_agent {
             for h in all_hits.iter_mut() {
                 let mut factor: f32 = 1.0;
-                if h.item.kind == react_core::provider_traits::ChunkKind::Other("artifact".to_string()) {
+                if h.item.kind
+                    == react_core::provider_traits::ChunkKind::Other("artifact".to_string())
+                {
                     if h.item.id.starts_with("artifact:metric:") {
                         factor = 0.6;
                     } else if h.item.id.starts_with("artifact:model:") {
@@ -54,7 +56,9 @@ impl Tool for VectQueryTool {
             }
         }
         // Exclude global example embeddings from any scope (never use to answer)
-        all_hits.retain(|h| h.item.kind != react_core::provider_traits::ChunkKind::Other("dbt_example".to_string()));
+        all_hits.retain(|h| {
+            h.item.kind != react_core::provider_traits::ChunkKind::Other("dbt_example".to_string())
+        });
 
         // Deduplicate by id and keep top-k by adjusted score (lower distance is better in LanceDB)
         all_hits.sort_by(|a, b| {

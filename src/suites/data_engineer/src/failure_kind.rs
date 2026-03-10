@@ -39,6 +39,10 @@ impl FailureKind {
     }
 
     pub fn merge(self, other: Self) -> Self {
-        if other.severity() > self.severity() { other } else { self }
+        if other.severity() > self.severity() {
+            other
+        } else {
+            self
+        }
     }
 }

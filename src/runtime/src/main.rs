@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use clap::{Parser, Subcommand};
@@ -289,7 +289,11 @@ async fn run_parallel_configs(
             cmd.arg("--verbose-debug");
         }
         cmd.env("REACT_PLAIN_PROGRESS", "1");
-        cmd.arg("run").arg("--config").arg(config_path).arg("--agent").arg(agent);
+        cmd.arg("run")
+            .arg("--config")
+            .arg(config_path)
+            .arg("--agent")
+            .arg(agent);
         if let Some(s) = suite_id.as_ref().filter(|s| !s.trim().is_empty()) {
             cmd.arg("--suite-id").arg(s);
         }
@@ -566,7 +570,10 @@ async fn main() {
             };
 
             let registry = default_registry();
-            if let Err(e) = react_transport::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry).await {
+            if let Err(e) =
+                react_transport::ws::server::start_with_ctx(cfg.server.port, suite_ctx, registry)
+                    .await
+            {
                 tracing::error!("{}", e);
                 std::process::exit(1);
             }

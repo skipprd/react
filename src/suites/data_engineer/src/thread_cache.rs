@@ -37,10 +37,7 @@ impl ThreadCacheStore {
     pub fn update_published(thread_id: &str, manifest_sha256: &str, relations: Vec<String>) {
         let cache = ctx_cache();
         evict_if_full(cache);
-        let mut entry = cache
-            .get(thread_id)
-            .map(|e| e.clone())
-            .unwrap_or_default();
+        let mut entry = cache.get(thread_id).map(|e| e.clone()).unwrap_or_default();
         entry.published_relations = relations;
         entry.published_manifest_sha256 = Some(manifest_sha256.to_string());
         entry.updated_at = Some(Instant::now());

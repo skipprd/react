@@ -24,13 +24,17 @@ impl Agent {
         let cleaned = Self::strip_markdown_code_fences(raw);
         let trimmed = cleaned.trim();
 
-        fn parse_json_from_model_string_field(raw_json: &str, what: &str) -> Result<Value, CoreError> {
+        fn parse_json_from_model_string_field(
+            raw_json: &str,
+            what: &str,
+        ) -> Result<Value, CoreError> {
             match serde_json::from_str::<Value>(raw_json) {
                 Ok(v) => Ok(v),
                 Err(e) => {
                     let repaired = escape_control_chars_in_json_strings(raw_json);
-                    serde_json::from_str::<Value>(&repaired)
-                        .map_err(|_| CoreError::Agent(format!("{what} is not valid JSON string: {e}")))
+                    serde_json::from_str::<Value>(&repaired).map_err(|_| {
+                        CoreError::Agent(format!("{what} is not valid JSON string: {e}"))
+                    })
                 }
             }
         }
@@ -56,14 +60,19 @@ impl Agent {
         match step.type_ {
             AgentStepTypeV1::Tool => {
                 let Some(name) = step.name else {
-                    return Err(CoreError::Agent("agent.step.v1 validation error: missing tool name".to_string()));
+                    return Err(CoreError::Agent(
+                        "agent.step.v1 validation error: missing tool name".to_string(),
+                    ));
                 };
                 let Some(args_json) = step.args else {
-                    return Err(CoreError::Agent("agent.step.v1 validation error: missing tool args".to_string()));
+                    return Err(CoreError::Agent(
+                        "agent.step.v1 validation error: missing tool args".to_string(),
+                    ));
                 };
                 if step.complete.is_some() {
                     return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: tool step must not include complete".to_string(),
+                        "agent.step.v1 validation error: tool step must not include complete"
+                            .to_string(),
                     ));
                 }
                 let args: Value = parse_json_from_model_string_field(
@@ -80,7 +89,9 @@ impl Agent {
                     ));
                 }
                 let Some(comp) = step.complete else {
-                    return Err(CoreError::Agent("agent.step.v1 validation error: missing complete".to_string()));
+                    return Err(CoreError::Agent(
+                        "agent.step.v1 validation error: missing complete".to_string(),
+                    ));
                 };
                 let payload: Value = parse_json_from_model_string_field(
                     &comp.payload,

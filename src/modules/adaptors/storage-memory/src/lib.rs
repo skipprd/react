@@ -85,10 +85,9 @@ impl StorageAdapter for InMemoryStorageAdapter {
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        let g = self
-            .inner
-            .read()
-            .map_err(|_| CoreError::Storage(format!("get_bytes('{}'): storage lock poisoned", key)))?;
+        let g = self.inner.read().map_err(|_| {
+            CoreError::Storage(format!("get_bytes('{}'): storage lock poisoned", key))
+        })?;
         g.get(key)
             .map(|o| o.bytes.clone())
             .ok_or_else(|| CoreError::Storage(format!("get_bytes('{}'): not found", key)))
@@ -122,10 +121,9 @@ impl StorageAdapter for InMemoryStorageAdapter {
     }
 
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        let g = self
-            .inner
-            .read()
-            .map_err(|_| CoreError::Storage(format!("head_etag('{}'): storage lock poisoned", key)))?;
+        let g = self.inner.read().map_err(|_| {
+            CoreError::Storage(format!("head_etag('{}'): storage lock poisoned", key))
+        })?;
         Ok(g.get(key).map(|o| o.etag.clone()))
     }
 
@@ -133,7 +131,11 @@ impl StorageAdapter for InMemoryStorageAdapter {
         let g = self.inner.read().map_err(|_| {
             CoreError::Storage(format!("list_prefix('{}'): storage lock poisoned", prefix))
         })?;
-        let mut out: Vec<String> = g.keys().filter(|k| k.starts_with(prefix)).cloned().collect();
+        let mut out: Vec<String> = g
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
         out.sort();
         Ok(out)
     }
@@ -194,7 +196,12 @@ mod tests {
             .put_json_if_etag_matches("k", &second, None)
             .await
             .unwrap();
-        assert_eq!(conflict, ConditionalWriteStatus::Conflict { current_etag: etag.clone() });
+        assert_eq!(
+            conflict,
+            ConditionalWriteStatus::Conflict {
+                current_etag: etag.clone()
+            }
+        );
 
         let updated = store
             .put_json_if_etag_matches("k", &second, etag.as_deref())

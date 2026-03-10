@@ -1,14 +1,16 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewDecision {
     Proceed,
     PatchImpl,
+    PlanChange,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewTier {
     Silver,
@@ -22,7 +24,7 @@ impl Default for ReviewTier {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewDecisionMeta {
     pub decision: ReviewDecision,
@@ -31,7 +33,44 @@ pub struct ReviewDecisionMeta {
     #[serde(default)]
     pub dataset_ids: Vec<String>,
     #[serde(default)]
-    pub review_ref: Option<Value>,
+    pub review_ref: Option<ReviewArtifactRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewArtifactRef {
+    pub key: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSummaryOutput {
+    #[serde(default)]
+    pub project_notes: Vec<String>,
+    #[serde(default)]
+    pub project_risks: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewBatchOutput {
+    #[serde(default)]
+    pub notes: Vec<String>,
+    #[serde(default)]
+    pub actionable_hints: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewUnifyOutput {
+    pub decision: ReviewDecision,
+    #[serde(default)]
+    pub tier: ReviewTier,
+    #[serde(default)]
+    pub dataset_ids: Vec<String>,
+    pub final_review_text: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -265,12 +304,7 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .to_string();
-            assert_eq!(
-                code.as_str(),
-                serde_name,
-                "as_str drift for {:?}",
-                code
-            );
+            assert_eq!(code.as_str(), serde_name, "as_str drift for {:?}", code);
         }
     }
 
@@ -282,12 +316,7 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .to_string();
-            assert_eq!(
-                kind.as_str(),
-                serde_name,
-                "as_str drift for {:?}",
-                kind
-            );
+            assert_eq!(kind.as_str(), serde_name, "as_str drift for {:?}", kind);
         }
     }
 }

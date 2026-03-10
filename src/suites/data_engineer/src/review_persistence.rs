@@ -42,7 +42,9 @@ fn upsert_review_snapshot(obj: &mut serde_json::Map<String, Value>, patch: Value
     if review.is_null() {
         *review = serde_json::json!({});
     }
-    let review_obj = review.as_object_mut().expect("review must be a JSON object");
+    let review_obj = review
+        .as_object_mut()
+        .expect("review must be a JSON object");
     if let Some(patch_obj) = patch.as_object() {
         for (k, v) in patch_obj.iter() {
             review_obj.insert(k.clone(), v.clone());
@@ -75,7 +77,8 @@ async fn mutate_plan_review(
     label: &str,
 ) -> Result<(), String> {
     if plan_kind == PlanKind::Cleanse {
-        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await
+        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key)
+            .await
             .map_err(|e| e.to_string())?
         {
             if p.project_snapshot.is_null() {
@@ -89,7 +92,8 @@ async fn mutate_plan_review(
                 .map_err(|e| format!("failed to persist cleanse {label}: {e}"))?;
         }
     } else if plan_kind == PlanKind::Model {
-        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await
+        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key)
+            .await
             .map_err(|e| e.to_string())?
         {
             if p.project_snapshot.is_null() {
@@ -115,17 +119,24 @@ pub(super) async fn persist_review_summary_to_plan(
     project_risks: Vec<String>,
 ) -> Result<(), String> {
     let ts = utc_ts();
-    mutate_plan_review(actx, plan_kind, plan_key, |obj| {
-        upsert_review_snapshot(
-            obj,
-            serde_json::json!({
-                "phase": phase.as_str(),
-                "project_notes": project_notes,
-                "project_risks": project_risks,
-                "ts": ts,
-            }),
-        );
-    }, "review summary").await
+    mutate_plan_review(
+        actx,
+        plan_kind,
+        plan_key,
+        |obj| {
+            upsert_review_snapshot(
+                obj,
+                serde_json::json!({
+                    "phase": phase.as_str(),
+                    "project_notes": project_notes,
+                    "project_risks": project_risks,
+                    "ts": ts,
+                }),
+            );
+        },
+        "review summary",
+    )
+    .await
 }
 
 pub(super) async fn persist_review_batch_to_plan(
@@ -143,18 +154,27 @@ pub(super) async fn persist_review_batch_to_plan(
         "notes": notes,
         "ts": ts,
     });
-    mutate_plan_review(actx, plan_kind, plan_key, |obj| {
-        let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-        if review.is_null() {
-            *review = serde_json::json!({});
-        }
-        let review_obj = review.as_object_mut().expect("review must be a JSON object");
-        review_obj.insert(
-            "review_version".to_string(),
-            serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-        );
-        push_batch_entry(review_obj, entry.clone());
-    }, "review batch").await
+    mutate_plan_review(
+        actx,
+        plan_kind,
+        plan_key,
+        |obj| {
+            let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
+            if review.is_null() {
+                *review = serde_json::json!({});
+            }
+            let review_obj = review
+                .as_object_mut()
+                .expect("review must be a JSON object");
+            review_obj.insert(
+                "review_version".to_string(),
+                serde_json::json!(REVIEW_SNAPSHOT_VERSION),
+            );
+            push_batch_entry(review_obj, entry.clone());
+        },
+        "review batch",
+    )
+    .await
 }
 
 pub(super) async fn persist_review_final_to_plan(
@@ -167,25 +187,34 @@ pub(super) async fn persist_review_final_to_plan(
     text: String,
 ) -> Result<(), String> {
     let ts = utc_ts();
-    mutate_plan_review(actx, plan_kind, plan_key, |obj| {
-        let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
-        if review.is_null() {
-            *review = serde_json::json!({});
-        }
-        let review_obj = review.as_object_mut().expect("review must be a JSON object");
-        review_obj.insert(
-            "review_version".to_string(),
-            serde_json::json!(REVIEW_SNAPSHOT_VERSION),
-        );
-        review_obj.insert(
-            "result".to_string(),
-            serde_json::json!({
-                "decision": decision,
-                "tier": tier,
-                "dataset_ids": dataset_ids,
-                "text": text,
-                "ts": ts
-            }),
-        );
-    }, "review result").await
+    mutate_plan_review(
+        actx,
+        plan_kind,
+        plan_key,
+        |obj| {
+            let review = obj.entry("review").or_insert_with(|| serde_json::json!({}));
+            if review.is_null() {
+                *review = serde_json::json!({});
+            }
+            let review_obj = review
+                .as_object_mut()
+                .expect("review must be a JSON object");
+            review_obj.insert(
+                "review_version".to_string(),
+                serde_json::json!(REVIEW_SNAPSHOT_VERSION),
+            );
+            review_obj.insert(
+                "result".to_string(),
+                serde_json::json!({
+                    "decision": decision,
+                    "tier": tier,
+                    "dataset_ids": dataset_ids,
+                    "text": text,
+                    "ts": ts
+                }),
+            );
+        },
+        "review result",
+    )
+    .await
 }

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-pub use react_core::storage::StorageAdapter;
 use react_core::storage::ConditionalWriteStatus;
+pub use react_core::storage::StorageAdapter;
 use react_core::CoreError;
 
 #[derive(Clone)]
@@ -25,13 +25,11 @@ impl S3StorageAdapter {
 impl StorageAdapter for S3StorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
-        serde_json::from_slice::<Value>(&bytes)
-            .map_err(|e| CoreError::Storage(e.to_string()))
+        serde_json::from_slice::<Value>(&bytes).map_err(|e| CoreError::Storage(e.to_string()))
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let bytes = serde_json::to_vec(value).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
 
@@ -41,8 +39,7 @@ impl StorageAdapter for S3StorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let bytes = serde_json::to_vec(value).map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut req = self
             .client
             .put_object()
@@ -85,7 +82,12 @@ impl StorageAdapter for S3StorageAdapter {
         Ok(bytes.to_vec())
     }
 
-    async fn put_bytes(&self, key: &str, bytes: &[u8], content_type: &str) -> Result<(), CoreError> {
+    async fn put_bytes(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        content_type: &str,
+    ) -> Result<(), CoreError> {
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -142,7 +144,10 @@ impl StorageAdapter for S3StorageAdapter {
             if let Some(t) = token.as_ref() {
                 req = req.continuation_token(t);
             }
-            let resp = req.send().await.map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
             for obj in resp.contents() {
                 if let Some(k) = obj.key() {
                     out.push(k.to_string());

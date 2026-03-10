@@ -3,8 +3,8 @@ use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::models as m;
 use crate::event_hub::EventHub;
+use crate::models as m;
 use crate::ws::api_gen::src::models as api;
 use crate::ws::terminal::{self, TerminalEvent};
 use react_core::session::ThreadLogReader;
@@ -16,7 +16,11 @@ use super::handlers::*;
 use super::protocol::*;
 use super::util::{now_iso, ws_log_in, ws_log_out};
 
-pub async fn start_with_ctx(port: u16, suite_ctx: SuiteCtx, registry: SuiteRegistry) -> Result<(), String> {
+pub async fn start_with_ctx(
+    port: u16,
+    suite_ctx: SuiteCtx,
+    registry: SuiteRegistry,
+) -> Result<(), String> {
     let reg = Arc::new(registry);
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr).await.map_err(|e| e.to_string())?;

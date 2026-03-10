@@ -9,7 +9,8 @@ use crate::control_flow::{
 use crate::progress_controller::ExecutionState;
 use crate::state_manager;
 
-pub type PhaseDirective = react_core::workflow::PhaseDirective<Phase, PhaseReasonCode, GuardBlockKind>;
+pub type PhaseDirective =
+    react_core::workflow::PhaseDirective<Phase, PhaseReasonCode, GuardBlockKind>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransitionError {
@@ -321,7 +322,9 @@ mod tests {
         let log = store.get(tid).await.expect("thread log should exist");
         let steps = log.steps;
         assert!(
-            steps.iter().any(|s| matches!(s, ThreadStep::GuardBlock { phase, .. } if phase == "cleanse_author")),
+            steps.iter().any(
+                |s| matches!(s, ThreadStep::GuardBlock { phase, .. } if phase == "cleanse_author")
+            ),
             "guard block must be appended by directive applier"
         );
     }
@@ -437,20 +440,21 @@ mod tests {
         let tid = "tid-preturn-ladder-stop-fallback";
 
         let mut st = ExecutionState::new();
-        st.repair.repair_mode =
-            crate::progress_controller::RepairModeState::SqlTarget(
-                crate::progress_controller::SqlTargetRepairMode {
-                    target_path: crate::progress_controller::SqlModelPath::parse("models/staging/stg_orders.sql".to_string()).expect("valid sql model path"),
-                    core: crate::progress_controller::RepairModeCore {
-                        ladder_step: crate::progress_controller::RepairLadderStep::Stop,
-                        attempt_count: 3,
-                        repair_started_mutation_epoch: None,
-                        consecutive_noop_patches: 0,
-                    },
+        st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
+            crate::progress_controller::SqlTargetRepairMode {
+                target_path: crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+                core: crate::progress_controller::RepairModeCore {
+                    ladder_step: crate::progress_controller::RepairLadderStep::Stop,
+                    attempt_count: 3,
+                    repair_started_mutation_epoch: None,
+                    consecutive_noop_patches: 0,
                 },
-            );
-        st.telemetry.last_validate =
-            Some(crate::progress_controller::LastValidateState {
+            },
+        );
+        st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
             failed_models: vec![crate::progress_controller::FailedModelRef {
                 name: "stg_orders".to_string(),
                 file: "models/staging/stg_orders.sql".to_string(),
@@ -458,13 +462,9 @@ mod tests {
             }],
             ..Default::default()
         });
-        let directive = crate::phase_gate::evaluate_pre_turn_directive(
-            &st,
-            Phase::CleanseAuthor,
-            3,
-        );
-        let crate::phase_gate::PreTurnDirective::FailFast { kind, reason } = directive
-        else {
+        let directive =
+            crate::phase_gate::evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
+        let crate::phase_gate::PreTurnDirective::FailFast { kind, reason } = directive else {
             panic!("expected failfast directive");
         };
         apply_phase_directive(
@@ -611,7 +611,8 @@ mod tests {
     #[test]
     fn publish_await_phase_is_side_effect_free() {
         let src = include_str!("phase_publish.rs");
-        let Some(await_start) = src.find("pub(super) async fn execute_publish_await_approval_phase")
+        let Some(await_start) =
+            src.find("pub(super) async fn execute_publish_await_approval_phase")
         else {
             panic!("phase_publish missing execute_publish_await_approval_phase");
         };

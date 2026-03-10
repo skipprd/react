@@ -18,8 +18,8 @@ use tokio::sync::Semaphore;
 
 use react_core::discover::stats::FieldStats;
 use react_suite_data_engineer::providers::{
-    DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
-    WarehouseNaming, has_obvious_same_select_alias_reuse,
+    has_obvious_same_select_alias_reuse, DatasetCatalogProvider, DatasetFieldStats, DatasetId,
+    DatasetStats, QueryProvider, QueryResult, WarehouseNaming,
 };
 
 use react_suite_data_engineer::providers::warehouse_utils;
@@ -81,7 +81,11 @@ impl BigQueryProvider {
             .as_ref()
             .and_then(|s| {
                 let t = s.trim().to_string();
-                if t.is_empty() { None } else { Some(t) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
             })
             .ok_or_else(|| {
                 "BigQuery project is required (providers.warehouse.project or BIGQUERY_PROJECT)"
@@ -92,7 +96,11 @@ impl BigQueryProvider {
             .as_ref()
             .and_then(|s| {
                 let t = s.trim().to_string();
-                if t.is_empty() { None } else { Some(t) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
             })
             .ok_or_else(|| {
                 "BigQuery dataset is required (providers.warehouse.dataset or namespace)"
@@ -115,13 +123,12 @@ impl BigQueryProvider {
             },
             BIGQUERY_MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_BIGQUERY_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         Ok(Self {
             inner: Arc::new(Inner {
