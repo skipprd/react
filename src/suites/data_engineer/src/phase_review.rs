@@ -1,7 +1,7 @@
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::review_batched;
 use crate::{
-    control_flow, DataEngineerSuite, PhaseExecutorOutcome,
+    control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome,
 };
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
@@ -35,7 +35,7 @@ impl DataEngineerSuite {
         execution_state: &crate::progress_controller::ExecutionState,
         thread_state_step_count: usize,
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         let review_q = Self::build_review_question_with_context(question, phase, execution_state);
         let frames = review_batched::run_batched_review(thread_id, &review_q, phase, sctx).await?;
         let first = frames.into_iter().next().unwrap_or(FlowFrame::Complete {

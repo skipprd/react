@@ -77,6 +77,7 @@ pub async fn commit_phase_decision(
         },
     )
     .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn commit_guard_block(
@@ -98,6 +99,7 @@ pub async fn commit_guard_block(
         },
     )
     .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn commit_plan_revision_loopback(
@@ -120,7 +122,8 @@ pub async fn commit_plan_revision_loopback(
         |es| es.set_pending_plan_revision(violations, strategy),
     )
     .await
-    .map(|_| ())?;
+    .map(|_| ())
+    .map_err(|e| e.to_string())?;
     commit_phase_decision(
         thread_store,
         thread_id,

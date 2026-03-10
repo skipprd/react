@@ -18,6 +18,7 @@ tempfile = "3.10"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 schemars = { version = "1.2.1", features = ["derive"] }
+thiserror = "2"
 diffy = "0.4.2"
 hex = "0.4.3"
 

@@ -1,4 +1,5 @@
 use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
+use crate::state_manager::StateError;
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 use serde_json::Value;
 
@@ -10,6 +11,22 @@ use crate::state_manager;
 
 pub type PhaseDirective = react_core::workflow::PhaseDirective<Phase, PhaseReasonCode, GuardBlockKind>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum TransitionError {
+    #[error("invalid phase transition: from='{from}' to='{to}' reason='{reason}'")]
+    InvalidTransition {
+        from: String,
+        to: String,
+        reason: String,
+    },
+    #[error("state persist failed during transition: {0}")]
+    StatePersistFailed(#[from] StateError),
+    #[error("failed to append thread step: {0}")]
+    AppendStepFailed(String),
+    #[error("transition rollback failed (original: {original}, rollback: {rollback})")]
+    RollbackFailed { original: String, rollback: String },
+}
+
 pub async fn dispatch_phase_transition(
     store: &ThreadStore,
     thread_id: &str,
@@ -19,22 +36,20 @@ pub async fn dispatch_phase_transition(
     intent: TransitionIntent,
     reason_code: Option<PhaseReasonCode>,
     reason_detail: Option<Value>,
-) -> Result<(), String> {
+) -> Result<(), TransitionError> {
     if let Some(from) = from_phase {
         let is_same_phase_annotation = intent == TransitionIntent::Annotation;
         if !is_same_phase_annotation && !allowed_next_phases(from).contains(&phase) {
-            return Err(format!(
-                "invalid_phase_transition: from='{}' to='{}' reason='{}'",
-                from.as_str(),
-                phase.as_str(),
-                reason_code
+            return Err(TransitionError::InvalidTransition {
+                from: from.as_str().to_string(),
+                to: phase.as_str().to_string(),
+                reason: reason_code
                     .map(|c| c.as_str().to_string())
-                    .unwrap_or_else(|| "none".to_string())
-            ));
+                    .unwrap_or_else(|| "none".to_string()),
+            });
         }
     }
 
-    // Canonical transition side effects are centralized here.
     let mut st = state_manager::load_execution_state_strict(&store.control_store(), thread_id)
         .await?
         .unwrap_or_else(ExecutionState::new);
@@ -62,7 +77,6 @@ pub async fn dispatch_phase_transition(
         }
     }
     if phase == Phase::ModelPlan && from_phase != Some(Phase::ModelPlan) {
-        // Scope manifest retry suppression to a single model-plan attempt.
         st.reset_manifest_lookup_state();
     }
     if matches!(phase, Phase::CleansePlan | Phase::ModelPlan) && from_phase != Some(phase) {
@@ -76,7 +90,7 @@ pub async fn dispatch_phase_transition(
     state_manager::replace_execution_state(&store.control_store(), thread_id, st).await?;
 
     let agent = agent.unwrap_or_else(|| crate::env_util::DEFAULT_AGENT_NAME.to_string());
-    if let Err(e) = store
+    if let Err(append_err) = store
         .append_step(
             thread_id,
             ThreadStep::Phase {
@@ -91,8 +105,17 @@ pub async fn dispatch_phase_transition(
         )
         .await
     {
-        let _ = state_manager::replace_execution_state(&store.control_store(), thread_id, prev_state).await;
-        return Err(e.to_string());
+        let original = append_err.to_string();
+        if let Err(rollback_err) =
+            state_manager::replace_execution_state(&store.control_store(), thread_id, prev_state)
+                .await
+        {
+            return Err(TransitionError::RollbackFailed {
+                original,
+                rollback: rollback_err.to_string(),
+            });
+        }
+        return Err(TransitionError::AppendStepFailed(original));
     }
 
     Ok(())
@@ -104,7 +127,7 @@ pub async fn apply_phase_directive(
     agent: Option<String>,
     from_phase: Option<Phase>,
     directive: PhaseDirective,
-) -> Result<(), String> {
+) -> Result<(), TransitionError> {
     match directive {
         PhaseDirective::Transition {
             to,
@@ -141,7 +164,7 @@ pub async fn apply_phase_directive(
                 },
             )
             .await
-            .map_err(|e| format!("failed to append guard step: {e}")),
+            .map_err(|e| TransitionError::AppendStepFailed(e.to_string())),
     }
 }
 

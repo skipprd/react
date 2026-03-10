@@ -60,14 +60,18 @@ impl ControlStateStore {
             })
     }
 
-    fn decode(raw: &Value, expected_suite_id: &str) -> Option<Value> {
-        let env = serde_json::from_value::<ControlStateEnvelope>(raw.clone()).ok()?;
+    fn decode(raw: &Value, expected_suite_id: &str) -> CoreResult<Option<Value>> {
+        let env = serde_json::from_value::<ControlStateEnvelope>(raw.clone()).map_err(|e| {
+            CoreError::Session(format!(
+                "control state envelope deserialization failed (suite='{expected_suite_id}'): {e}"
+            ))
+        })?;
         if env.schema_version == CONTROL_STATE_ENVELOPE_SCHEMA_VERSION
             && env.suite_id.trim() == expected_suite_id.trim()
         {
-            Some(env.payload)
+            Ok(Some(env.payload))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -132,7 +136,7 @@ impl ControlStateStore {
             LoadState::Missing => return Ok(None),
             LoadState::Loaded(raw) => raw.value,
         };
-        let Some(payload) = Self::decode(&raw, suite_id) else {
+        let Some(payload) = Self::decode(&raw, suite_id)? else {
             return Ok(None);
         };
         let parsed = serde_json::from_value::<T>(payload).map_err(|e| {
@@ -171,8 +175,7 @@ impl ControlStateStore {
         let current = match loaded {
             LoadState::Missing => None,
             LoadState::Loaded(raw) => {
-                let payload = Self::decode(&raw.value, suite_id);
-                match payload {
+                match Self::decode(&raw.value, suite_id)? {
                     Some(payload) => Some(serde_json::from_value::<T>(payload).map_err(|e| {
                         CoreError::Session(format!("failed to parse control state payload: {e}"))
                     })?),

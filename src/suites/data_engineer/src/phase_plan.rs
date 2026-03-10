@@ -5,6 +5,23 @@ use crate::plan_progress::MAX_BATCH_SIZE;
 use crate::plan_types::TrackPlan;
 use react_core::keyspace::encode_key_component;
 
+// ---------------------------------------------------------------------------
+// Context struct: groups the recurring plan-phase parameters
+// ---------------------------------------------------------------------------
+
+struct PlanPhaseCtx<'a> {
+    thread_store: &'a ThreadStore,
+    thread_id: &'a str,
+    phase: control_flow::Phase,
+    track: TrackKind,
+    actx: AgentCtx,
+    thread_state_step_count: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Small, pre-existing helpers (unchanged)
+// ---------------------------------------------------------------------------
+
 fn auto_approved_plan_detail(source: crate::phase_reason_detail::AutoApprovalSource) -> serde_json::Value {
     crate::phase_reason_detail::plan_auto_approved(source)
 }
@@ -20,7 +37,7 @@ async fn finalize_plan_and_approve(
     sem: &crate::plan::PlanSemanticValidation,
     snapshot: &mut serde_json::Value,
     retry_kinds: Vec<crate::progress_controller::SubjectiveRetryKind>,
-) -> Result<PhaseExecutorOutcome, String> {
+) -> Result<PhaseExecutorOutcome, PhaseError> {
     if !sem.ok {
         return handle_plan_semantic_failure(sem, thread_store, thread_id, phase).await;
     }
@@ -65,7 +82,7 @@ async fn handle_plan_semantic_failure(
     thread_store: &ThreadStore,
     thread_id: &str,
     phase: control_flow::Phase,
-) -> Result<PhaseExecutorOutcome, String> {
+) -> Result<PhaseExecutorOutcome, PhaseError> {
     let sem_errors = sem.messages();
     let reason = format!(
         "Plan failed semantic validation (design-first). Errors:\n- {}",
@@ -81,7 +98,7 @@ async fn handle_plan_semantic_failure(
         SubjectiveRetryOutcome::Exhausted(tries) => Err(format!(
             "plan_semantic_validation_not_converged_after_retries: tries={}, errors={}",
             tries, sem.messages().join(" | ")
-        )),
+        ).into()),
         SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::stayed_waiting(
             "plan semantic validation failed but remains within retry budget",
         )),
@@ -110,6 +127,10 @@ fn stamp_design_review(
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// run_plan_bootstrap (unchanged)
+// ---------------------------------------------------------------------------
 
 async fn run_plan_bootstrap(
     thread_store: &ThreadStore,
@@ -276,92 +297,87 @@ async fn run_plan_bootstrap(
     Ok(Some(summary))
 }
 
-impl DataEngineerSuite {
-    // TODO(item-97): execute_plan_phase is ~750 lines. Extract helpers for: (a) discovery
-    // probe orchestration, (b) design memo pipeline (generate/critique/revise), (c) skeleton
-    // extraction + validation, (d) enrichment orchestration, (e) plan persistence + approval.
-    pub(super) async fn execute_plan_phase(
-        thread_store: &ThreadStore,
-        thread_id: &str,
-        phase: crate::control_flow::Phase,
-        question: &str,
-        sctx: &SuiteCtx,
-        execution_state: &crate::progress_controller::ExecutionState,
-        guard: &crate::control_flow::DerivedGuardState,
-        thread_state_step_count: usize,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
-    ) -> Result<PhaseExecutorOutcome, String> {
+// ---------------------------------------------------------------------------
+// Extracted: consume_plan_revision
+// ---------------------------------------------------------------------------
 
-// Plan phases are read-only discovery + plan authoring. They persist an approved
-// plan to storage and then drive the subsequent authoring phase deterministically.
-let track = TrackKind::try_from_plan_phase(phase)?;
-let is_cleanse = track.is_cleanse();
-let actx = Self::plan_agent_ctx(thread_id, sctx);
+/// Load execution state, check for a pending plan-revision intent, consume it,
+/// and — if the strategy is Rewrite — cancel the existing active plan.
+/// Returns the violations list and whether this is a plan-revision entry.
+async fn consume_plan_revision(
+    pctx: &PlanPhaseCtx<'_>,
+) -> Result<(Vec<crate::progress_controller::PlanViolation>, bool), PhaseError> {
+    let plan_revision: Option<crate::progress_controller::PlanRevisionIntent> = {
+        let mut es = crate::state_manager::load_execution_state_strict(
+            &pctx.thread_store.control_store(), pctx.thread_id,
+        )
+        .await?
+        .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+        let rev = es.take_pending_plan_revision();
+        if rev.is_some() {
+            es.save(&pctx.thread_store.control_store(), pctx.thread_id).await.map_err(|e| {
+                format!("failed to persist execution state after consuming plan revision: {e}")
+            })?;
+        }
+        rev
+    };
+    let plan_violations: Vec<crate::progress_controller::PlanViolation> =
+        plan_revision.as_ref().map(|r| r.violations.clone()).unwrap_or_default();
+    let is_plan_revision = plan_revision.is_some();
 
-// Detect plan-revision re-entry: if downstream phases requested a plan revision,
-// consume the intent and branch on strategy.
-let plan_revision: Option<crate::progress_controller::PlanRevisionIntent> = {
-    let mut es = crate::state_manager::load_execution_state_strict(
-        &thread_store.control_store(), thread_id,
-    )
-    .await?
-    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-    let rev = es.take_pending_plan_revision();
-    if rev.is_some() {
-        es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
-            format!("failed to persist execution state after consuming plan revision: {e}")
-        })?;
-    }
-    rev
-};
-let plan_violations: Vec<crate::progress_controller::PlanViolation> =
-    plan_revision.as_ref().map(|r| r.violations.clone()).unwrap_or_default();
-let is_plan_revision = plan_revision.is_some();
-if let Some(ref revision) = plan_revision {
-    match revision.strategy {
-        crate::progress_controller::PlanRevisionStrategy::Rewrite => {
-            if let Some(mut existing_plan) = load_active_plan_for_track_spec(&actx, track).await {
-                tracing::info!(
-                    "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
-                    existing_plan.plan_key(),
-                    plan_violations.len()
-                );
-                existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
-                crate::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+    if let Some(ref revision) = plan_revision {
+        match revision.strategy {
+            crate::progress_controller::PlanRevisionStrategy::Rewrite => {
+                if let Some(mut existing_plan) = load_active_plan_for_track_spec(&pctx.actx, pctx.track).await {
+                    tracing::info!(
+                        "data_engineer: cancelling plan '{}' for plan revision ({} violations)",
+                        existing_plan.plan_key(),
+                        plan_violations.len()
+                    );
+                    existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
+                    crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan).await?;
+                }
+            }
+            crate::progress_controller::PlanRevisionStrategy::Amend => {
+                // Keep plan alive; violations will be injected into the LLM prompt
+                // for targeted amendment.
             }
         }
-        crate::progress_controller::PlanRevisionStrategy::Amend => {
-            // Keep plan alive; violations will be injected into the LLM prompt
-            // for targeted amendment.
-        }
     }
+
+    Ok((plan_violations, is_plan_revision))
 }
 
-// Agent-mode hard cutover: no ask/reply approval semantics.
-// Plan transitions are deterministic and state-driven; free-form question text
-// must never be interpreted as approve/reject in this mode.
+// ---------------------------------------------------------------------------
+// Extracted: check_existing_plan
+// ---------------------------------------------------------------------------
 
-// If an approved/draft plan already exists (oldest active plan for this thread), move forward.
-if !is_plan_revision {
-if let Some(mut existing_plan) =
-    load_active_plan_for_track_spec(&actx, track).await
-{
+/// If an approved/draft plan already exists for this track, handle it and
+/// return an outcome.  Returns `Ok(None)` when no existing plan is found
+/// (or the existing plan doesn't warrant an early return).
+async fn check_existing_plan(
+    pctx: &PlanPhaseCtx<'_>,
+) -> Result<Option<PhaseExecutorOutcome>, PhaseError> {
+    let Some(mut existing_plan) =
+        load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
+    else {
+        return Ok(None);
+    };
+
     if matches!(
         existing_plan.status(),
-        crate::plan::PlanStatus::Approved
-            | crate::plan::PlanStatus::Completed
+        crate::plan::PlanStatus::Approved | crate::plan::PlanStatus::Completed
     ) {
-        // Safety: an empty/invalid approved plan would cause authoring to fast-forward.
         if existing_plan.is_empty() {
             let plan_key = existing_plan.plan_key().to_string();
             existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
-            crate::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+            crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan).await?;
             commit_phase_decision(
-                &thread_store,
-                thread_id,
-                Some(phase),
+                pctx.thread_store,
+                pctx.thread_id,
+                Some(pctx.phase),
                 PhaseDecision::annotation(
-                    phase,
+                    pctx.phase,
                     Some(PhaseReasonCode::PlanInvalidEmpty),
                     Some(crate::phase_reason_detail::to_value(
                         &crate::phase_reason_detail::PlanInvalidEmptyDetail {
@@ -374,36 +390,37 @@ if let Some(mut existing_plan) =
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::stayed_with_progress(
+            return Ok(Some(PhaseExecutorOutcome::stayed_with_progress(
                 "cancelled an empty approved plan and annotated the invalid state",
-            ));
+            )));
         }
         crate::state_manager::mutate_execution_state(
-            &thread_store.control_store(),
-            thread_id,
+            &pctx.thread_store.control_store(),
+            pctx.thread_id,
             |es| es.clear_pending_patch_impl(),
         )
         .await
         .map(|_| ())?;
         commit_phase_decision(
-            &thread_store,
-            thread_id,
-            Some(phase),
+            pctx.thread_store,
+            pctx.thread_id,
+            Some(pctx.phase),
             PhaseDecision::forward(
-                track.author_phase(),
+                pctx.track.author_phase(),
                 Some(PhaseReasonCode::PlanAlreadyApproved),
                 Some(plan_status_reason_detail(existing_plan.status())),
             ),
         )
         .await?;
-        return Ok(PhaseExecutorOutcome::TransitionCommitted);
+        return Ok(Some(PhaseExecutorOutcome::TransitionCommitted));
     }
+
     if existing_plan.status() == crate::plan::PlanStatus::Draft {
         let mut removed_non_raw = 0usize;
         if let TrackPlanDoc::Cleanse(plan) = &mut existing_plan {
-            removed_non_raw = Self::enforce_cleanse_plan_raw_only(plan);
+            removed_non_raw = DataEngineerSuite::enforce_cleanse_plan_raw_only(plan);
             if removed_non_raw > 0 {
-                crate::phase_plan_lifecycle::save_plan(&actx, &existing_plan)
+                crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan)
                     .await
                     .map_err(|e| {
                         format!(
@@ -415,7 +432,7 @@ if let Some(mut existing_plan) =
         if existing_plan.is_empty() {
             let plan_key = existing_plan.plan_key().to_string();
             existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
-            crate::phase_plan_lifecycle::save_plan(&actx, &existing_plan).await?;
+            crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan).await?;
             let detail = match existing_plan {
                 TrackPlanDoc::Cleanse(_) => crate::phase_reason_detail::to_value(
                     &crate::phase_reason_detail::CleanseDraftUngroundedDetail {
@@ -434,612 +451,618 @@ if let Some(mut existing_plan) =
                 ),
             };
             commit_phase_decision(
-                &thread_store,
-                thread_id,
-                Some(phase),
-                PhaseDecision::annotation(phase, Some(PhaseReasonCode::PlanInvalidEmpty), Some(detail)),
+                pctx.thread_store,
+                pctx.thread_id,
+                Some(pctx.phase),
+                PhaseDecision::annotation(pctx.phase, Some(PhaseReasonCode::PlanInvalidEmpty), Some(detail)),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::stayed_with_progress(
+            return Ok(Some(PhaseExecutorOutcome::stayed_with_progress(
                 "cancelled an empty draft plan and annotated the invalid state",
-            ));
+            )));
         }
-        let advanced = Self::approve_plan_draft_and_advance(
-            &thread_store,
-            thread_id,
-            phase,
-            track,
-            &actx,
-            thread_state_step_count,
+        let advanced = DataEngineerSuite::approve_plan_draft_and_advance(
+            pctx.thread_store,
+            pctx.thread_id,
+            pctx.phase,
+            pctx.track,
+            &pctx.actx,
+            pctx.thread_state_step_count,
             PhaseReasonCode::PlanAutoApproved,
             auto_approved_plan_detail(crate::phase_reason_detail::AutoApprovalSource::ExistingDraftPlan),
         )
         .await?;
         if advanced {
-            return Ok(PhaseExecutorOutcome::TransitionCommitted);
+            return Ok(Some(PhaseExecutorOutcome::TransitionCommitted));
         }
-        return Ok(PhaseExecutorOutcome::stayed_waiting(
+        return Ok(Some(PhaseExecutorOutcome::stayed_waiting(
             "existing draft plan approval did not commit a phase transition",
-        ));
+        )));
     }
-}
-} // end if !is_plan_revision
 
-// Generate a new draft plan via LLM and then ask the user to approve it.
-Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
-// Deterministic bootstrap: ensure the plan phase ALWAYS has grounded context recorded
-// in the thread history. This prevents LLM loops that repeatedly call file list
-// and never reach sql_schema/evidence, which would trip the plan_grounding guard.
-//
-// Important: we do NOT decide the plan here; we just provide enough reality to
-// ground the LLM's plan authoring.
-let bootstrap_summary: Option<String> = run_plan_bootstrap(
-    thread_store, thread_id, phase, sctx, &actx, execution_state,
-).await?;
-let sys = crate::prompts::with_time_context(if is_cleanse {
-    prompts::cleanse_plan_system_prompt()
-} else {
-    prompts::model_plan_system_prompt()
-});
-let manifest_retry_signal = if is_cleanse {
-    crate::progress_controller::ManifestLookupState::default()
-} else {
-    execution_state.manifest.manifest_lookup.clone()
-};
-let (registry, tools_card) = Self::build_tools_for_phase(
-    phase,
-    &guard,
-    false,
-    sctx,
-    &PlanState::Unconstrained,
-    None,
-    manifest_retry_signal.retry_suppressed,
-)?;
-
-let mut q = if is_cleanse {
-    format!(
-        "Create a SILVER/cleanse execution plan (batched in groups of {MAX_BATCH_SIZE}).\n\nOriginal goal:\n{}\n",
-        question
-    )
-} else {
-    format!(
-        "Create a GOLD/model execution plan (batched in groups of {MAX_BATCH_SIZE}) based ONLY on existing silver models under models/staging/.\n\nOriginal goal:\n{}\n",
-        question
-    )
-};
-if !is_cleanse {
-    if manifest_retry_signal.retry_suppressed {
-        tracing::info!(
-            "data_engineer: model_plan manifest lookup fallback enabled plan_manifest_lookup_unavailable_fallback=true manifest_retry_suppressed=true failure_signature={} repeated_failure_count={}",
-            manifest_retry_signal
-                .failure_signature
-                .as_deref()
-                .unwrap_or("unknown"),
-            manifest_retry_signal.repeated_failure_count
-        );
-        q.push_str(
-            "\n\nDETERMINISTIC FALLBACK MODE (manifest lookup unavailable):\n\
-             - Repeated json_file manifest lookup failures were detected in this model_plan phase.\n\
-             - Do NOT call json_file for manifest on this retry.\n\
-             - Use deterministic fallback evidence only: file list/get + sql_schema + sql_stats/sql_sample/run_sql against concrete relations.\n\
-             - Continue plan grounding with available evidence; do not stall on manifest access.\n",
-        );
-    } else if manifest_retry_signal.noncanonical_attempt_count > 0 {
-        q.push_str(
-            "\n\nManifest contract reminder:\n\
-             - If you query manifest nodes, use ONLY json_file query path:\"target/manifest.json\" pointer:\"/nodes\".\n\
-             - Do NOT use path:\"manifest.json\" or storage-key-like manifest paths.\n",
-        );
-    }
+    Ok(None)
 }
 
-// Inject global preflight semantic context/audiences (if available).
-// CRITICAL: global_semantic_context is intended for GOLD model planning only,
-// not for SILVER/cleanse planning.
-if !is_cleanse {
-    let global_key = sctx.keyspace().scoped_key(
-        sctx.scope(),
-        &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
-    );
-    if let Ok(v) = sctx.storage().get_json(&global_key).await {
-        q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
-        q.push_str(
-            &serde_json::to_string_pretty(&v)
-                .unwrap_or_else(|_| "{}".to_string()),
-        );
-        q.push('\n');
-    }
-}
-if repair_ctx.has_context() {
-    q.push_str("\n");
-    q.push_str(&repair_ctx.format_error_context());
-}
-if !plan_violations.is_empty() {
-    q.push_str("\n");
-    q.push_str(&crate::progress_controller::format_plan_violations(&plan_violations));
-}
-if let Some(bs) = bootstrap_summary.as_ref() {
-    q.push_str("\n\n");
-    q.push_str(bs);
-    q.push('\n');
-}
-// Plan mode should be especially broad: include the full available relation list (bounded)
-// so planning never needs to guess table names.
-if let Some(ds) = crate::ctx_ext::sctx_datasets(sctx).as_ref() {
-    if let Ok(items) = ds.list_datasets().await {
-        let mut tables: Vec<String> =
-            items.into_iter().map(|d| d.fqn()).collect();
-        tables.sort();
-        if !tables.is_empty() {
-            q.push_str("\n\nIMMUTABLE FACTS (available_relations, bounded):\n");
+// ---------------------------------------------------------------------------
+// Extracted: build_plan_query
+// ---------------------------------------------------------------------------
+
+/// Assemble the enriched question string sent to the planning agent, including
+/// manifest-retry signals, global semantic context, repair context, violations,
+/// bootstrap summary, and available-relations facts.
+async fn build_plan_query(
+    pctx: &PlanPhaseCtx<'_>,
+    sctx: &SuiteCtx,
+    question: &str,
+    execution_state: &crate::progress_controller::ExecutionState,
+    repair_ctx: &crate::progress_controller::RepairPromptContext,
+    plan_violations: &[crate::progress_controller::PlanViolation],
+    bootstrap_summary: Option<&str>,
+) -> (String, crate::progress_controller::ManifestLookupState) {
+    let is_cleanse = pctx.track.is_cleanse();
+
+    let manifest_retry_signal = if is_cleanse {
+        crate::progress_controller::ManifestLookupState::default()
+    } else {
+        execution_state.manifest.manifest_lookup.clone()
+    };
+
+    let mut q = if is_cleanse {
+        format!(
+            "Create a SILVER/cleanse execution plan (batched in groups of {MAX_BATCH_SIZE}).\n\nOriginal goal:\n{}\n",
+            question
+        )
+    } else {
+        format!(
+            "Create a GOLD/model execution plan (batched in groups of {MAX_BATCH_SIZE}) based ONLY on existing silver models under models/staging/.\n\nOriginal goal:\n{}\n",
+            question
+        )
+    };
+
+    if !is_cleanse {
+        if manifest_retry_signal.retry_suppressed {
+            tracing::info!(
+                "data_engineer: model_plan manifest lookup fallback enabled plan_manifest_lookup_unavailable_fallback=true manifest_retry_suppressed=true failure_signature={} repeated_failure_count={}",
+                manifest_retry_signal
+                    .failure_signature
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                manifest_retry_signal.repeated_failure_count
+            );
             q.push_str(
-                &serde_json::to_string_pretty(&serde_json::json!({
-                    "tables": tables.into_iter().take(300).collect::<Vec<_>>()
-                }))
-                .unwrap_or_else(|_| "{}".to_string()),
+                "\n\nDETERMINISTIC FALLBACK MODE (manifest lookup unavailable):\n\
+                 - Repeated json_file manifest lookup failures were detected in this model_plan phase.\n\
+                 - Do NOT call json_file for manifest on this retry.\n\
+                 - Use deterministic fallback evidence only: file list/get + sql_schema + sql_stats/sql_sample/run_sql against concrete relations.\n\
+                 - Continue plan grounding with available evidence; do not stall on manifest access.\n",
+            );
+        } else if manifest_retry_signal.noncanonical_attempt_count > 0 {
+            q.push_str(
+                "\n\nManifest contract reminder:\n\
+                 - If you query manifest nodes, use ONLY json_file query path:\"target/manifest.json\" pointer:\"/nodes\".\n\
+                 - Do NOT use path:\"manifest.json\" or storage-key-like manifest paths.\n",
+            );
+        }
+    }
+
+    // CRITICAL: global_semantic_context is intended for GOLD model planning only.
+    if !is_cleanse {
+        let global_key = sctx.keyspace().scoped_key(
+            sctx.scope(),
+            &["semantic", &format!("{}.yaml", encode_key_component(crate::providers::GLOBAL_SEMANTIC_DATASET_ID))],
+        );
+        if let Ok(v) = sctx.storage().get_json(&global_key).await {
+            q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
+            q.push_str(
+                &serde_json::to_string_pretty(&v)
+                    .unwrap_or_else(|_| "{}".to_string()),
             );
             q.push('\n');
         }
     }
-}
 
-let llm_options = if is_cleanse {
-    Self::planning_llm_options(
-        PlanningLlmProfile::DiscoveryCleanse,
-        "data_engineer.cleanse_plan",
-        None,
-    )?
-} else {
-    Self::planning_llm_options(
-        PlanningLlmProfile::DiscoveryModel,
-        "data_engineer.model_plan",
-        None,
-    )?
-};
-match Agent::run_until_block_non_interactive(
-    &registry,
-    &actx,
-    &sys,
-    &tools_card,
-    &q,
-    llm_options,
-)
-.await
-{
-    Ok(RunOutcomeNonInteractive::Complete {
-        thread_id: _tid,
-        result: _result,
-    }) => {
-        tracing::info!("data_engineer: plan discovery complete for {}, beginning deterministic plan compilation", track.as_str());
-
-        let (design_memo, design_critique) =
-            Self::produce_critiqued_design_memo(&actx, track, &q).await?;
-        if is_cleanse {
-            let datasets_for_catalog = crate::ctx_ext::sctx_datasets(sctx);
-            let discovered_raw = Self::discovered_raw_relations_from_catalog(
-                datasets_for_catalog.as_ref(),
-            )
-            .await;
-            tracing::info!("data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets");
-            let skeleton =
-                Self::deterministic_cleanse_skeleton_from_discovered_raw(
-                    &discovered_raw,
-                )?;
-            let mut plan = Self::compile_cleanse_skeleton_plan(&skeleton);
-            crate::plan::prune_cleanse_plan_to_grounded_raw_datasets(
-                &mut plan,
-                &discovered_raw,
-            );
-            // Planning/repair must not emit evidence; the deterministic runner adds it later.
-            for t in plan.tasks.iter_mut() {
-                for it in t.checklist.iter_mut() {
-                    it.evidence.clear();
-                }
-            }
-            let pre_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
-            let removed_non_raw_initial =
-                Self::enforce_cleanse_plan_raw_only(&mut plan);
-            if removed_non_raw_initial > 0 {
-                let post_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
-                tracing::warn!(
-                    "enforce_cleanse_plan_raw_only: removed {} non-raw tasks. before={:?}, after={:?}",
-                    removed_non_raw_initial,
-                    pre_raw_ids,
-                    post_raw_ids,
+    if repair_ctx.has_context() {
+        q.push_str("\n");
+        q.push_str(&repair_ctx.format_error_context());
+    }
+    if !plan_violations.is_empty() {
+        q.push_str("\n");
+        q.push_str(&crate::progress_controller::format_plan_violations(plan_violations));
+    }
+    if let Some(bs) = bootstrap_summary {
+        q.push_str("\n\n");
+        q.push_str(bs);
+        q.push('\n');
+    }
+    if let Some(ds) = crate::ctx_ext::sctx_datasets(sctx).as_ref() {
+        if let Ok(items) = ds.list_datasets().await {
+            let mut tables: Vec<String> =
+                items.into_iter().map(|d| d.fqn()).collect();
+            tables.sort();
+            if !tables.is_empty() {
+                q.push_str("\n\nIMMUTABLE FACTS (available_relations, bounded):\n");
+                q.push_str(
+                    &serde_json::to_string_pretty(&serde_json::json!({
+                        "tables": tables.into_iter().take(300).collect::<Vec<_>>()
+                    }))
+                    .unwrap_or_else(|_| "{}".to_string()),
                 );
-                Self::push_snapshot_array_event(
-                    &mut plan.project_snapshot,
-                    "deterministic_plan_repairs",
-                    serde_json::json!({
-                        "kind": "cleanse_plan_raw_only_enforcement",
-                        "removed_task_count": removed_non_raw_initial,
-                    }),
-                    200,
-                );
+                q.push('\n');
             }
-            plan.status = crate::plan::PlanStatus::Draft;
-            plan.plan_key =
-                crate::plan::new_cleanse_plan_key(&actx);
-            // Hard cutover: do not persist pre-grounded draft plans.
-            // Persistence begins only after grounding + semantic gates.
-            // Scope progress to the current plan instance so we don't replay the full
-            // historical log and accidentally mark tasks done from prior cycles.
-            plan.progress.last_applied_step_idx = thread_state_step_count;
-            // Capture a cheap snapshot for “current project as-is” provenance.
-            plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace().scoped_prefix(actx.scope(), &["dbt"]),
-                "dbt_project_yml_etag": actx.storage().head_etag(&actx.keyspace().scoped_key(actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
-                "plan_design_memo": Self::excerpt(&design_memo, 12_000),
-                "plan_design_critique": {
-                    "ok": design_critique.ok,
-                    "blockers": design_critique.blockers.clone(),
-                    "fixes": design_critique.fixes.clone()
-                },
-            });
-            // Hard cutover: schema facts for planning come from deterministic catalog artifacts,
-            // not from replaying thread-log tool history.
-            // Ground the plan against reality: only keep datasets we can prove exist via schema().
-            tracing::info!("data_engineer: [cleanse] grounding plan against warehouse schema");
-            let candidates =
-                Self::collect_cleanse_grounding_candidates(&plan, &discovered_raw);
-            if plan.tasks.is_empty() && !discovered_raw.is_empty() {
-                tracing::warn!(
-                    "cleanse plan skeleton produced 0 task ids; seeding grounding candidates from discovered_raw={:?}",
-                    discovered_raw
-                );
-            }
-            tracing::info!(
-                "cleanse plan grounding: {} candidate dataset(s) before schema validation: {:?}",
-                candidates.len(),
-                candidates
-            );
-            let grounded =
-                crate::dataset_truth::build_grounded_raw_dataset_set(&actx, &crate::ctx_ext::actx_warehouse(&actx).expect("warehouse required"), &candidates)
-                    .await;
-            if !grounded.rejected.is_empty() {
-                for rej in grounded.rejected.iter() {
-                    tracing::warn!(
-                        "cleanse plan grounding: rejected dataset_id={:?} reason={:?}",
-                        rej.dataset_id,
-                        rej.reason
-                    );
-                }
-            }
-            tracing::info!(
-                "cleanse plan grounding: {} allowed, {} rejected",
-                grounded.allowed.len(),
-                grounded.rejected.len()
-            );
-            crate::plan::prune_cleanse_plan_to_grounded_raw_datasets(
-                &mut plan,
-                &grounded.allowed,
-            );
-            if plan.tasks.is_empty() || plan.batches.is_empty() {
-                if Self::synthesize_cleanse_plan_from_grounded_raw(
-                    &mut plan,
-                    &grounded.allowed,
-                ) {
-                    Self::push_snapshot_array_event(
-                        &mut plan.project_snapshot,
-                        "deterministic_plan_repairs",
-                        serde_json::json!({
-                            "kind": "cleanse_plan_grounding_empty_after_prune",
-                            "action": "synthesized_from_grounded_raw",
-                            "dataset_count": plan.tasks.len(),
-                        }),
-                        200,
-                    );
-                } else {
-                    return Err(format!(
-                        "cleanse plan grounding failed: 0 datasets survived. \
-                        candidates={:?}, allowed={:?}, rejected=[{}]",
-                        grounded.candidates,
-                        grounded.allowed,
-                        grounded.rejected.iter()
-                            .map(|r| format!("{}:{}", r.dataset_id, r.reason))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
-                }
-            }
-            let enrich_ids: Vec<String> = plan
-                .tasks
-                .iter()
-                .map(|t| t.dataset_id.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            Self::enrich_cleanse_tasks(
-                &actx,
-                &q,
-                &design_memo,
-                &design_critique,
-                &mut plan,
-                &enrich_ids,
-            )
-            .await?;
-            // Crash-safety: persist the grounded/pruned draft so resume/inspection reflects
-            // what we actually validated/critiqued (not just the initial parsed JSON).
-            crate::plan::save_cleanse_plan_grounded(
-                &actx,
-                &plan,
-                &grounded.allowed,
-            )
-                .await
-                .map_err(|e| {
-                    format!(
-                        "failed to checkpoint grounded/pruned cleanse draft plan: {e}"
-                    )
-                })?;
-
-            tracing::info!("data_engineer: [cleanse] validating plan semantics");
-            let sem = crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
-                &mut plan,
-            );
-            let sem = if sem.ok {
-                sem
-            } else {
-                let candidates: Vec<String> =
-                    plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
-                let targeted = Self::collect_targeted_semantic_tasks(
-                    &sem.issues,
-                    &candidates,
-                );
-                if !targeted.is_empty() {
-                    Self::enrich_cleanse_tasks(
-                        &actx,
-                        &q,
-                        &design_memo,
-                        &design_critique,
-                        &mut plan,
-                        &targeted,
-                    )
-                    .await?;
-                    crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(
-                        &mut plan,
-                    )
-                } else {
-                    sem
-                }
-            };
-            // Crash-safety: persist the normalized draft so resume/inspection reflects
-            // what we actually validated (not just the initial parsed JSON).
-            crate::plan::save_cleanse_plan_grounded(
-                &actx,
-                &plan,
-                &grounded.allowed,
-            )
-                .await
-                .map_err(|e| {
-                    format!(
-                        "failed to checkpoint normalized cleanse draft plan: {e}"
-                    )
-                })?;
-            use crate::progress_controller::SubjectiveRetryKind;
-            return finalize_plan_and_approve(
-                &thread_store,
-                thread_id,
-                phase,
-                track,
-                &actx,
-                thread_state_step_count,
-                &design_critique,
-                &sem,
-                &mut plan.project_snapshot,
-                vec![SubjectiveRetryKind::PlanSemanticInvalid],
-            )
-            .await;
-        } else {
-            let staged =
-                crate::dataset_truth::discover_staging_models_from_storage(&actx)
-                    .await;
-            if staged.allowed_models.is_empty() {
-                use crate::retry_budget::SubjectiveRetryOutcome;
-                match Self::check_subjective_retry_budget(
-                    &thread_store,
-                    thread_id,
-                    crate::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
-                )
-                .await?
-                {
-                    SubjectiveRetryOutcome::Exhausted(tries) => {
-                        return Err(format!(
-                            "no staging models discovered in storage after {} retries (expected stg_*.sql files under models/staging/); warnings: [{}]",
-                            tries,
-                            staged.warnings.join("; ")
-                        ));
-                    }
-                    SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::stayed_waiting(
-                            "model planning is waiting for staging model discovery to yield grounded inputs",
-                        ));
-                    }
-                }
-            }
-            {
-                let names: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
-                q.push_str("\n\nIMMUTABLE FACTS (existing staging models — GOLD models MUST reference these exact names via ref()):\n");
-                for name in &names {
-                    q.push_str(&format!("- {name}\n"));
-                }
-            }
-            tracing::info!("data_engineer: [model] compiling plan from candidate models");
-            let candidates = Self::generate_model_candidates(
-                &actx,
-                &q,
-                &design_memo,
-                &design_critique,
-            )
-            .await?;
-            let mut plan = Self::compile_model_candidates_plan(&candidates);
-            // Planning/repair must not emit evidence; the deterministic runner adds it later.
-            for t in plan.tasks.iter_mut() {
-                for it in t.checklist.iter_mut() {
-                    it.evidence.clear();
-                }
-            }
-            let selected_candidates = Self::select_high_value_model_candidates(
-                &candidates.candidates,
-            );
-            if plan.project_snapshot.is_null() {
-                plan.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = plan.project_snapshot.as_object_mut() {
-                obj.insert(
-                    "model_candidate_selection".to_string(),
-                    serde_json::json!({
-                        "min_score": Self::model_plan_min_score(),
-                        "candidate_count": candidates.candidates.len(),
-                        "selected_count": selected_candidates.len(),
-                        "selected": selected_candidates,
-                    }),
-                );
-            }
-            plan.status = crate::plan::PlanStatus::Draft;
-            plan.plan_key =
-                crate::plan::new_model_plan_key(&actx);
-            // Hard cutover: do not persist pre-grounded draft plans.
-            // Persistence begins only after grounding + semantic gates.
-            // Scope progress to the current plan instance so we don't replay the full
-            // historical log and accidentally mark tasks done from prior cycles.
-            plan.progress.last_applied_step_idx = thread_state_step_count;
-            plan.project_snapshot = serde_json::json!({
-                "dbt_prefix": actx.keyspace().scoped_prefix(actx.scope(), &["dbt"]),
-                "dbt_project_yml_etag": actx.storage().head_etag(&actx.keyspace().scoped_key(actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
-                "plan_design_memo": Self::excerpt(&design_memo, 12_000),
-                "plan_design_critique": {
-                    "ok": design_critique.ok,
-                    "blockers": design_critique.blockers.clone(),
-                    "fixes": design_critique.fixes.clone()
-                },
-            });
-            // Prune BEFORE enriching (consistent with cleanse pipeline).
-            // This avoids spending LLM budget on tasks that will be pruned.
-            tracing::info!("data_engineer: [model] grounding plan against existing staging models");
-            crate::plan::prune_model_plan_to_grounded_staging_models(
-                &mut plan,
-                &staged.allowed_models,
-            );
-            if plan.tasks.is_empty() || plan.batches.is_empty() {
-                use crate::retry_budget::SubjectiveRetryOutcome;
-                match Self::check_subjective_retry_budget(
-                    &thread_store,
-                    thread_id,
-                    crate::progress_controller::SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
-                )
-                .await?
-                {
-                    SubjectiveRetryOutcome::Exhausted(tries) => {
-                        let allowed: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
-                        return Err(format!(
-                            "model plan grounding pruned all tasks after {} retries; LLM candidates did not reference existing staging models. allowed_models={:?}",
-                            tries, allowed
-                        ));
-                    }
-                    SubjectiveRetryOutcome::WithinBudget(_) => {
-                        return Ok(PhaseExecutorOutcome::stayed_waiting(
-                            "model planning pruned to empty and is retrying within grounding budget",
-                        ));
-                    }
-                }
-            }
-            let enrich_ids: Vec<String> = plan
-                .tasks
-                .iter()
-                .map(|t| t.name.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            Self::enrich_model_tasks(
-                &actx,
-                &q,
-                &design_memo,
-                &design_critique,
-                &mut plan,
-                &enrich_ids,
-            )
-            .await?;
-            crate::plan::save_model_plan_grounded(
-                &actx,
-                &plan,
-                &staged.allowed_models,
-            )
-            .await
-            .map_err(|e| {
-                format!(
-                    "failed to checkpoint grounded/enriched model draft plan: {e}"
-                )
-            })?;
-
-            tracing::info!("data_engineer: [model] validating plan semantics");
-            let sem = crate::plan::ensure_model_plan_semantically_valid_or_repaired(
-                &mut plan,
-                &staged.allowed_models,
-            );
-            let sem = if sem.ok {
-                sem
-            } else {
-                let candidates: Vec<String> =
-                    plan.tasks.iter().map(|t| t.name.clone()).collect();
-                let targeted = Self::collect_targeted_semantic_tasks(
-                    &sem.issues,
-                    &candidates,
-                );
-                if !targeted.is_empty() {
-                    Self::enrich_model_tasks(
-                        &actx,
-                        &q,
-                        &design_memo,
-                        &design_critique,
-                        &mut plan,
-                        &targeted,
-                    )
-                    .await?;
-                    crate::plan::ensure_model_plan_semantically_valid_or_repaired(
-                        &mut plan,
-                        &staged.allowed_models,
-                    )
-                } else {
-                    sem
-                }
-            };
-            crate::plan::save_model_plan_grounded(
-                &actx,
-                &plan,
-                &staged.allowed_models,
-            )
-            .await
-            .map_err(|e| {
-                format!(
-                    "failed to checkpoint normalized model draft plan: {e}"
-                )
-            })?;
-            use crate::progress_controller::SubjectiveRetryKind;
-            return finalize_plan_and_approve(
-                &thread_store,
-                thread_id,
-                phase,
-                track,
-                &actx,
-                thread_state_step_count,
-                &design_critique,
-                &sem,
-                &mut plan.project_snapshot,
-                vec![
-                    SubjectiveRetryKind::PlanSemanticInvalid,
-                    SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
-                    SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
-                ],
-            )
-            .await;
         }
     }
-    Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
-        // Deterministic single-step handoff: return to outer controller loop.
-        return Ok(PhaseExecutorOutcome::stayed_waiting(
-            "plan phase hit its single-step boundary and is awaiting the next controller turn",
-        ));
-    }
-    Err(e) => return Err(e.to_string()),
+
+    (q, manifest_retry_signal)
 }
-                
+
+// ---------------------------------------------------------------------------
+// Extracted: compile_and_ground_cleanse_plan
+// ---------------------------------------------------------------------------
+
+/// Deterministic cleanse-plan pipeline: skeleton → prune → ground → enrich →
+/// validate → persist → finalize.
+async fn compile_and_ground_cleanse_plan(
+    pctx: &PlanPhaseCtx<'_>,
+    sctx: &SuiteCtx,
+    q: &str,
+    design_memo: &str,
+    design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+) -> Result<PhaseExecutorOutcome, PhaseError> {
+    let datasets_for_catalog = crate::ctx_ext::sctx_datasets(sctx);
+    let discovered_raw = DataEngineerSuite::discovered_raw_relations_from_catalog(
+        datasets_for_catalog.as_ref(),
+    )
+    .await;
+
+    tracing::info!("data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets");
+    let skeleton =
+        DataEngineerSuite::deterministic_cleanse_skeleton_from_discovered_raw(&discovered_raw)?;
+    let mut plan = DataEngineerSuite::compile_cleanse_skeleton_plan(&skeleton);
+    crate::plan::prune_cleanse_plan_to_grounded_raw_datasets(&mut plan, &discovered_raw);
+
+    for t in plan.tasks.iter_mut() {
+        for it in t.checklist.iter_mut() {
+            it.evidence.clear();
+        }
+    }
+
+    let pre_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
+    let removed_non_raw_initial = DataEngineerSuite::enforce_cleanse_plan_raw_only(&mut plan);
+    if removed_non_raw_initial > 0 {
+        let post_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
+        tracing::warn!(
+            "enforce_cleanse_plan_raw_only: removed {} non-raw tasks. before={:?}, after={:?}",
+            removed_non_raw_initial,
+            pre_raw_ids,
+            post_raw_ids,
+        );
+        DataEngineerSuite::push_snapshot_array_event(
+            &mut plan.project_snapshot,
+            "deterministic_plan_repairs",
+            serde_json::json!({
+                "kind": "cleanse_plan_raw_only_enforcement",
+                "removed_task_count": removed_non_raw_initial,
+            }),
+            200,
+        );
+    }
+
+    plan.status = crate::plan::PlanStatus::Draft;
+    plan.plan_key = crate::plan::new_cleanse_plan_key(&pctx.actx);
+    plan.progress.last_applied_step_idx = pctx.thread_state_step_count;
+    plan.project_snapshot = serde_json::json!({
+        "dbt_prefix": pctx.actx.keyspace().scoped_prefix(pctx.actx.scope(), &["dbt"]),
+        "dbt_project_yml_etag": pctx.actx.storage().head_etag(&pctx.actx.keyspace().scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+        "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
+        "plan_design_critique": {
+            "ok": design_critique.ok,
+            "blockers": design_critique.blockers.clone(),
+            "fixes": design_critique.fixes.clone()
+        },
+    });
+
+    // Ground the plan against warehouse schema.
+    tracing::info!("data_engineer: [cleanse] grounding plan against warehouse schema");
+    let candidates =
+        DataEngineerSuite::collect_cleanse_grounding_candidates(&plan, &discovered_raw);
+    if plan.tasks.is_empty() && !discovered_raw.is_empty() {
+        tracing::warn!(
+            "cleanse plan skeleton produced 0 task ids; seeding grounding candidates from discovered_raw={:?}",
+            discovered_raw
+        );
+    }
+    tracing::info!(
+        "cleanse plan grounding: {} candidate dataset(s) before schema validation: {:?}",
+        candidates.len(),
+        candidates
+    );
+    let grounded =
+        crate::dataset_truth::build_grounded_raw_dataset_set(&pctx.actx, &crate::ctx_ext::actx_warehouse(&pctx.actx).ok_or_else(|| "warehouse provider required for plan grounding but not configured".to_string())?, &candidates)
+            .await;
+    if !grounded.rejected.is_empty() {
+        for rej in grounded.rejected.iter() {
+            tracing::warn!(
+                "cleanse plan grounding: rejected dataset_id={:?} reason={:?}",
+                rej.dataset_id,
+                rej.reason
+            );
+        }
+    }
+    tracing::info!(
+        "cleanse plan grounding: {} allowed, {} rejected",
+        grounded.allowed.len(),
+        grounded.rejected.len()
+    );
+    crate::plan::prune_cleanse_plan_to_grounded_raw_datasets(&mut plan, &grounded.allowed);
+
+    if plan.tasks.is_empty() || plan.batches.is_empty() {
+        if DataEngineerSuite::synthesize_cleanse_plan_from_grounded_raw(
+            &mut plan,
+            &grounded.allowed,
+        ) {
+            DataEngineerSuite::push_snapshot_array_event(
+                &mut plan.project_snapshot,
+                "deterministic_plan_repairs",
+                serde_json::json!({
+                    "kind": "cleanse_plan_grounding_empty_after_prune",
+                    "action": "synthesized_from_grounded_raw",
+                    "dataset_count": plan.tasks.len(),
+                }),
+                200,
+            );
+        } else {
+            return Err(format!(
+                "cleanse plan grounding failed: 0 datasets survived. \
+                candidates={:?}, allowed={:?}, rejected=[{}]",
+                grounded.candidates,
+                grounded.allowed,
+                grounded.rejected.iter()
+                    .map(|r| format!("{}:{}", r.dataset_id, r.reason))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ).into());
+        }
+    }
+
+    let enrich_ids: Vec<String> = plan
+        .tasks
+        .iter()
+        .map(|t| t.dataset_id.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    DataEngineerSuite::enrich_cleanse_tasks(
+        &pctx.actx, q, design_memo, design_critique, &mut plan, &enrich_ids,
+    )
+    .await?;
+
+    crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
+        .await
+        .map_err(|e| format!("failed to checkpoint grounded/pruned cleanse draft plan: {e}"))?;
+
+    // Semantic validation (with one targeted-enrichment retry).
+    tracing::info!("data_engineer: [cleanse] validating plan semantics");
+    let sem = crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan);
+    let sem = if sem.ok {
+        sem
+    } else {
+        let candidates: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
+        let targeted = DataEngineerSuite::collect_targeted_semantic_tasks(&sem.issues, &candidates);
+        if !targeted.is_empty() {
+            DataEngineerSuite::enrich_cleanse_tasks(
+                &pctx.actx, q, design_memo, design_critique, &mut plan, &targeted,
+            )
+            .await?;
+            crate::plan::ensure_cleanse_plan_semantically_valid_or_repaired(&mut plan)
+        } else {
+            sem
+        }
+    };
+
+    crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
+        .await
+        .map_err(|e| format!("failed to checkpoint normalized cleanse draft plan: {e}"))?;
+
+    use crate::progress_controller::SubjectiveRetryKind;
+    finalize_plan_and_approve(
+        pctx.thread_store,
+        pctx.thread_id,
+        pctx.phase,
+        pctx.track,
+        &pctx.actx,
+        pctx.thread_state_step_count,
+        design_critique,
+        &sem,
+        &mut plan.project_snapshot,
+        vec![SubjectiveRetryKind::PlanSemanticInvalid],
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Extracted: compile_and_ground_model_plan
+// ---------------------------------------------------------------------------
+
+/// Deterministic model-plan pipeline: discover staging → generate candidates →
+/// compile → prune → enrich → validate → persist → finalize.
+async fn compile_and_ground_model_plan(
+    pctx: &PlanPhaseCtx<'_>,
+    q: &str,
+    design_memo: &str,
+    design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+) -> Result<PhaseExecutorOutcome, PhaseError> {
+    let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
+    if staged.allowed_models.is_empty() {
+        use crate::retry_budget::SubjectiveRetryOutcome;
+        match DataEngineerSuite::check_subjective_retry_budget(
+            pctx.thread_store,
+            pctx.thread_id,
+            crate::progress_controller::SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
+        )
+        .await?
+        {
+            SubjectiveRetryOutcome::Exhausted(tries) => {
+                return Err(format!(
+                    "no staging models discovered in storage after {} retries (expected stg_*.sql files under models/staging/); warnings: [{}]",
+                    tries,
+                    staged.warnings.join("; ")
+                ).into());
+            }
+            SubjectiveRetryOutcome::WithinBudget(_) => {
+                return Ok(PhaseExecutorOutcome::stayed_waiting(
+                    "model planning is waiting for staging model discovery to yield grounded inputs",
+                ));
+            }
+        }
+    }
+
+    // Enrich the question with discovered staging model names for candidate generation.
+    let mut q_enriched = q.to_string();
+    {
+        let names: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
+        q_enriched.push_str("\n\nIMMUTABLE FACTS (existing staging models — GOLD models MUST reference these exact names via ref()):\n");
+        for name in &names {
+            q_enriched.push_str(&format!("- {name}\n"));
+        }
+    }
+
+    tracing::info!("data_engineer: [model] compiling plan from candidate models");
+    let candidates = DataEngineerSuite::generate_model_candidates(
+        &pctx.actx, &q_enriched, design_memo, design_critique,
+    )
+    .await?;
+    let mut plan = DataEngineerSuite::compile_model_candidates_plan(&candidates);
+
+    for t in plan.tasks.iter_mut() {
+        for it in t.checklist.iter_mut() {
+            it.evidence.clear();
+        }
+    }
+
+    let selected_candidates = DataEngineerSuite::select_high_value_model_candidates(
+        &candidates.candidates,
+    );
+    if plan.project_snapshot.is_null() {
+        plan.project_snapshot = serde_json::json!({});
+    }
+    if let Some(obj) = plan.project_snapshot.as_object_mut() {
+        obj.insert(
+            "model_candidate_selection".to_string(),
+            serde_json::json!({
+                "min_score": DataEngineerSuite::model_plan_min_score(),
+                "candidate_count": candidates.candidates.len(),
+                "selected_count": selected_candidates.len(),
+                "selected": selected_candidates,
+            }),
+        );
+    }
+
+    plan.status = crate::plan::PlanStatus::Draft;
+    plan.plan_key = crate::plan::new_model_plan_key(&pctx.actx);
+    plan.progress.last_applied_step_idx = pctx.thread_state_step_count;
+    plan.project_snapshot = serde_json::json!({
+        "dbt_prefix": pctx.actx.keyspace().scoped_prefix(pctx.actx.scope(), &["dbt"]),
+        "dbt_project_yml_etag": pctx.actx.storage().head_etag(&pctx.actx.keyspace().scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+        "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
+        "plan_design_critique": {
+            "ok": design_critique.ok,
+            "blockers": design_critique.blockers.clone(),
+            "fixes": design_critique.fixes.clone()
+        },
+    });
+
+    tracing::info!("data_engineer: [model] grounding plan against existing staging models");
+    crate::plan::prune_model_plan_to_grounded_staging_models(&mut plan, &staged.allowed_models);
+
+    if plan.tasks.is_empty() || plan.batches.is_empty() {
+        use crate::retry_budget::SubjectiveRetryOutcome;
+        match DataEngineerSuite::check_subjective_retry_budget(
+            pctx.thread_store,
+            pctx.thread_id,
+            crate::progress_controller::SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
+        )
+        .await?
+        {
+            SubjectiveRetryOutcome::Exhausted(tries) => {
+                let allowed: Vec<&str> = staged.allowed_models.iter().map(|s| s.as_str()).collect();
+                return Err(format!(
+                    "model plan grounding pruned all tasks after {} retries; LLM candidates did not reference existing staging models. allowed_models={:?}",
+                    tries, allowed
+                ).into());
+            }
+            SubjectiveRetryOutcome::WithinBudget(_) => {
+                return Ok(PhaseExecutorOutcome::stayed_waiting(
+                    "model planning pruned to empty and is retrying within grounding budget",
+                ));
+            }
+        }
+    }
+
+    let enrich_ids: Vec<String> = plan
+        .tasks
+        .iter()
+        .map(|t| t.name.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    DataEngineerSuite::enrich_model_tasks(
+        &pctx.actx, &q_enriched, design_memo, design_critique, &mut plan, &enrich_ids,
+    )
+    .await?;
+    crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
+        .await
+        .map_err(|e| format!("failed to checkpoint grounded/enriched model draft plan: {e}"))?;
+
+    // Semantic validation (with one targeted-enrichment retry).
+    tracing::info!("data_engineer: [model] validating plan semantics");
+    let sem = crate::plan::ensure_model_plan_semantically_valid_or_repaired(
+        &mut plan,
+        &staged.allowed_models,
+    );
+    let sem = if sem.ok {
+        sem
+    } else {
+        let candidates: Vec<String> = plan.tasks.iter().map(|t| t.name.clone()).collect();
+        let targeted = DataEngineerSuite::collect_targeted_semantic_tasks(&sem.issues, &candidates);
+        if !targeted.is_empty() {
+            DataEngineerSuite::enrich_model_tasks(
+                &pctx.actx, &q_enriched, design_memo, design_critique, &mut plan, &targeted,
+            )
+            .await?;
+            crate::plan::ensure_model_plan_semantically_valid_or_repaired(
+                &mut plan,
+                &staged.allowed_models,
+            )
+        } else {
+            sem
+        }
+    };
+
+    crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
+        .await
+        .map_err(|e| format!("failed to checkpoint normalized model draft plan: {e}"))?;
+
+    use crate::progress_controller::SubjectiveRetryKind;
+    finalize_plan_and_approve(
+        pctx.thread_store,
+        pctx.thread_id,
+        pctx.phase,
+        pctx.track,
+        &pctx.actx,
+        pctx.thread_state_step_count,
+        design_critique,
+        &sem,
+        &mut plan.project_snapshot,
+        vec![
+            SubjectiveRetryKind::PlanSemanticInvalid,
+            SubjectiveRetryKind::PlanGroundingEmptyAfterPrune,
+            SubjectiveRetryKind::PlanGroundingStagingDiscoveryEmpty,
+        ],
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator
+// ---------------------------------------------------------------------------
+
+impl DataEngineerSuite {
+    pub(super) async fn execute_plan_phase(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        phase: crate::control_flow::Phase,
+        question: &str,
+        sctx: &SuiteCtx,
+        execution_state: &crate::progress_controller::ExecutionState,
+        guard: &crate::control_flow::DerivedGuardState,
+        thread_state_step_count: usize,
+        repair_ctx: &crate::progress_controller::RepairPromptContext,
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+        let track = TrackKind::try_from_plan_phase(phase)?;
+        let actx = Self::plan_agent_ctx(thread_id, sctx);
+        let pctx = PlanPhaseCtx {
+            thread_store,
+            thread_id,
+            phase,
+            track,
+            actx,
+            thread_state_step_count,
+        };
+
+        // 1. Consume plan-revision intent (if any).
+        let (plan_violations, is_plan_revision) = consume_plan_revision(&pctx).await?;
+
+        // 2. Fast-forward if a usable plan already exists.
+        if !is_plan_revision {
+            if let Some(outcome) = check_existing_plan(&pctx).await? {
+                return Ok(outcome);
+            }
+        }
+
+        // 3. Deterministic bootstrap.
+        Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await?;
+        let bootstrap_summary: Option<String> = run_plan_bootstrap(
+            thread_store, thread_id, phase, sctx, &pctx.actx, execution_state,
+        ).await?;
+
+        // 4. Build enriched query and agent inputs.
+        let (q, manifest_retry_signal) = build_plan_query(
+            &pctx, sctx, question, execution_state,
+            repair_ctx, &plan_violations, bootstrap_summary.as_deref(),
+        ).await;
+
+        let sys = crate::prompts::with_time_context(if track.is_cleanse() {
+            prompts::cleanse_plan_system_prompt()
+        } else {
+            prompts::model_plan_system_prompt()
+        });
+        let (registry, tools_card) = Self::build_tools_for_phase(
+            phase,
+            guard,
+            false,
+            sctx,
+            &PlanState::Unconstrained,
+            None,
+            manifest_retry_signal.retry_suppressed,
+        )?;
+        let llm_options = if track.is_cleanse() {
+            Self::planning_llm_options(
+                PlanningLlmProfile::DiscoveryCleanse,
+                "data_engineer.cleanse_plan",
+                None,
+            )?
+        } else {
+            Self::planning_llm_options(
+                PlanningLlmProfile::DiscoveryModel,
+                "data_engineer.model_plan",
+                None,
+            )?
+        };
+
+        // 5. Run the planning agent.
+        match Agent::run_until_block_non_interactive(
+            &registry, &pctx.actx, &sys, &tools_card, &q, llm_options,
+        )
+        .await
+        {
+            Ok(RunOutcomeNonInteractive::Complete { .. }) => {
+                tracing::info!(
+                    "data_engineer: plan discovery complete for {}, beginning deterministic plan compilation",
+                    track.as_str()
+                );
+                let (design_memo, design_critique) =
+                    Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
+
+                if track.is_cleanse() {
+                    compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique).await
+                } else {
+                    compile_and_ground_model_plan(&pctx, &q, &design_memo, &design_critique).await
+                }
+            }
+            Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
+                Ok(PhaseExecutorOutcome::stayed_waiting(
+                    "plan phase hit its single-step boundary and is awaiting the next controller turn",
+                ))
+            }
+            Err(e) => Err(e.to_string().into()),
+        }
     }
 }

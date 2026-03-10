@@ -174,9 +174,31 @@ pub(crate) enum PhaseExecutorOutcome {
     ///
     /// This variant can only be constructed by `execute_phase` after persisting
     /// a `PhaseExecutionError` guard block and calling `mark_failed`. Individual
-    /// phase executors return `Result<PhaseExecutorOutcome, String>` — the `Err`
+    /// phase executors return `Result<PhaseExecutorOutcome, PhaseError>` — the `Err`
     /// is caught at the `execute_phase` boundary and converted to this variant.
     Failed { reason: String },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PhaseError {
+    #[error(transparent)]
+    State(#[from] state_manager::StateError),
+    #[error(transparent)]
+    Plan(#[from] plan_storage::PlanError),
+    #[error(transparent)]
+    Transition(#[from] transition_dispatcher::TransitionError),
+    #[error("LLM call failed: {0}")]
+    LlmFailed(String),
+    #[error("tool contract violation: {0}")]
+    ToolContractViolation(String),
+    #[error("{0}")]
+    Fatal(String),
+}
+
+impl From<String> for PhaseError {
+    fn from(s: String) -> Self {
+        PhaseError::Fatal(s)
+    }
 }
 
 impl PhaseExecutorOutcome {

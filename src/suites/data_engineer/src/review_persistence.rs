@@ -75,7 +75,9 @@ async fn mutate_plan_review(
     label: &str,
 ) -> Result<(), String> {
     if plan_kind == PlanKind::Cleanse {
-        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await {
+        if let Some(mut p) = de_plan::load_cleanse_plan_by_key(actx, plan_key).await
+            .map_err(|e| e.to_string())?
+        {
             if p.project_snapshot.is_null() {
                 p.project_snapshot = serde_json::json!({});
             }
@@ -87,7 +89,9 @@ async fn mutate_plan_review(
                 .map_err(|e| format!("failed to persist cleanse {label}: {e}"))?;
         }
     } else if plan_kind == PlanKind::Model {
-        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await {
+        if let Some(mut p) = de_plan::load_model_plan_by_key(actx, plan_key).await
+            .map_err(|e| e.to_string())?
+        {
             if p.project_snapshot.is_null() {
                 p.project_snapshot = serde_json::json!({});
             }

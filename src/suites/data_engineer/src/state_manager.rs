@@ -8,26 +8,50 @@ use crate::progress_controller::{
 
 pub const DATA_ENGINEER_SUITE_ID: &str = "data_engineer";
 
-fn validate_loaded_state(parsed: &ExecutionState) -> Result<(), String> {
-    if parsed.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
-        return Err(format!(
-            "execution_state schema_version mismatch: expected {}, got {}",
-            EXECUTION_STATE_SCHEMA_VERSION, parsed.schema_version
-        ));
+#[derive(Debug, thiserror::Error)]
+pub enum StateError {
+    #[error("state storage failed: {0}")]
+    StorageFailed(String),
+    #[error("state deserialization/validation failed for '{key}': {detail}")]
+    DeserializeFailed { key: String, detail: String },
+    #[error("state invariant violated: {0}")]
+    ValidationFailed(String),
+}
+
+impl From<CoreError> for StateError {
+    fn from(e: CoreError) -> Self {
+        match e {
+            CoreError::Serialization(e) => StateError::DeserializeFailed {
+                key: String::new(),
+                detail: e.to_string(),
+            },
+            other => StateError::StorageFailed(other.to_string()),
+        }
     }
-    parsed
-        .validate_invariants()
-        .map_err(|e| format!("execution_state invariant check failed on load: {e}"))
+}
+
+fn validate_loaded_state(parsed: &ExecutionState) -> Result<(), StateError> {
+    if parsed.schema_version != EXECUTION_STATE_SCHEMA_VERSION {
+        return Err(StateError::DeserializeFailed {
+            key: "execution_state".into(),
+            detail: format!(
+                "schema_version mismatch: expected {}, got {}",
+                EXECUTION_STATE_SCHEMA_VERSION, parsed.schema_version
+            ),
+        });
+    }
+    parsed.validate_invariants().map_err(|e| {
+        StateError::ValidationFailed(format!("invariant check failed on load: {e}"))
+    })
 }
 
 pub async fn load_execution_state(
     control: &ControlStateStore,
     thread_id: &str,
-) -> Result<Option<ExecutionState>, String> {
+) -> Result<Option<ExecutionState>, StateError> {
     let Some(parsed) = control
         .load::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID)
-        .await
-        .map_err(|e| format!("failed to load control state for execution_state: {e}"))?
+        .await?
     else {
         return Ok(None);
     };
@@ -41,11 +65,10 @@ pub async fn load_execution_state(
 pub async fn load_execution_state_strict(
     control: &ControlStateStore,
     thread_id: &str,
-) -> Result<Option<ExecutionState>, String> {
+) -> Result<Option<ExecutionState>, StateError> {
     let loaded = control
         .load::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID)
-        .await
-        .map_err(|e| format!("failed to load control state for execution_state: {e}"))?;
+        .await?;
     let Some(parsed) = loaded else {
         return Ok(None);
     };
@@ -57,7 +80,7 @@ pub async fn mutate_execution_state(
     control: &ControlStateStore,
     thread_id: &str,
     mutate: impl FnOnce(&mut ExecutionState),
-) -> Result<ExecutionState, String> {
+) -> Result<ExecutionState, StateError> {
     control
         .mutate::<ExecutionState>(thread_id, DATA_ENGINEER_SUITE_ID, |current| {
             let mut st = current.unwrap_or_else(ExecutionState::new);
@@ -70,14 +93,14 @@ pub async fn mutate_execution_state(
             Ok(st)
         })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(StateError::from)
 }
 
 pub async fn replace_execution_state(
     control: &ControlStateStore,
     thread_id: &str,
     next_state: ExecutionState,
-) -> Result<ExecutionState, String> {
+) -> Result<ExecutionState, StateError> {
     mutate_execution_state(control, thread_id, |st| {
         *st = next_state.clone();
     })
@@ -88,7 +111,7 @@ pub async fn apply_execution_event(
     control: &ControlStateStore,
     thread_id: &str,
     event: DataEngineerEvent,
-) -> Result<ExecutionState, String> {
+) -> Result<ExecutionState, StateError> {
     mutate_execution_state(control, thread_id, |st| st.apply_event(event))
         .await
 }
@@ -128,7 +151,10 @@ mod tests {
         let err = replace_execution_state(&control, tid, st)
             .await
             .expect_err("invalid state must fail save");
-        assert!(err.contains("invariant check failed"));
+        assert!(
+            matches!(err, StateError::ValidationFailed(_) | StateError::StorageFailed(_)),
+            "expected validation or storage error, got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -146,6 +172,9 @@ mod tests {
         })
         .await
         .expect_err("invalid post-mutation state must fail");
-        assert!(!err.trim().is_empty(), "error should be non-empty");
+        assert!(
+            !err.to_string().trim().is_empty(),
+            "error should be non-empty"
+        );
     }
 }

@@ -205,6 +205,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
 
         let mut plan = plan::load_cleanse_plan_any(ctx)
             .await
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active cleanse plan found".to_string())?;
         if plan.status != plan::PlanStatus::Approved && plan.status != plan::PlanStatus::Completed {
             return Err(format!(
@@ -581,6 +582,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
 
         let mut plan = plan::load_model_plan_any(ctx)
             .await
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active model plan found".to_string())?;
         if plan.status != plan::PlanStatus::Approved && plan.status != plan::PlanStatus::Completed {
             return Err(format!(
@@ -1316,6 +1318,7 @@ mod tests {
 
         let got_plan = plan::load_cleanse_plan_by_key(&ctx, &plan_key)
             .await
+            .unwrap()
             .unwrap();
         let t = got_plan
             .tasks
@@ -1600,7 +1603,7 @@ mod tests {
             res
         );
 
-        let got_plan = plan::load_model_plan_by_key(&ctx, &plan_key).await.unwrap();
+        let got_plan = plan::load_model_plan_by_key(&ctx, &plan_key).await.unwrap().unwrap();
         let t = got_plan
             .tasks
             .iter()

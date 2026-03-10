@@ -12,6 +12,30 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use std::sync::Arc;
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepairStopReason {
+    DbtOk,
+    MaxIterations,
+    MissingSource,
+    WarehouseConfig,
+    LlmNoProgress,
+    PackagesNoProgress,
+}
+
+impl RepairStopReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::DbtOk => "dbt_ok",
+            Self::MaxIterations => "max_iterations",
+            Self::MissingSource => "missing_source",
+            Self::WarehouseConfig => "warehouse_config",
+            Self::LlmNoProgress => "llm_no_progress",
+            Self::PackagesNoProgress => "packages_no_progress",
+        }
+    }
+}
+
 fn errors_look_like_missing_dbt_utils(errors: &[String]) -> bool {
     let s = errors.join("\n").to_lowercase();
     if !s.contains("dbt_utils") {
@@ -159,7 +183,58 @@ pub struct RepairReport {
     #[serde(default)]
     pub iterations: Vec<RepairIteration>,
     #[serde(default)]
-    pub stopped_reason: Option<String>,
+    pub stopped_reason: Option<RepairStopReason>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RepairIterationOutcome {
+    Continue,
+    Stop(RepairStopReason),
+}
+
+/// Pure decision function: given the post-iteration state, decide whether the
+/// repair loop should continue or stop (and why).
+pub fn classify_repair_iteration(
+    iteration: usize,
+    max_iterations: usize,
+    res_ok: bool,
+    failure_class: FailureKind,
+    is_dbt_utils_error: bool,
+    packages_mutated: bool,
+    catalog_refreshed: bool,
+    llm_changed_files: usize,
+) -> RepairIterationOutcome {
+    if is_dbt_utils_error {
+        if packages_mutated {
+            if iteration + 1 >= max_iterations {
+                return RepairIterationOutcome::Stop(RepairStopReason::MaxIterations);
+            }
+            return RepairIterationOutcome::Continue;
+        }
+        return RepairIterationOutcome::Stop(RepairStopReason::PackagesNoProgress);
+    }
+
+    if matches!(failure_class, FailureKind::MissingSource) {
+        return RepairIterationOutcome::Stop(RepairStopReason::MissingSource);
+    }
+
+    if res_ok {
+        return RepairIterationOutcome::Stop(RepairStopReason::DbtOk);
+    }
+
+    if matches!(failure_class, FailureKind::WarehouseConfig) {
+        return RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig);
+    }
+
+    if !catalog_refreshed && llm_changed_files == 0 {
+        return RepairIterationOutcome::Stop(RepairStopReason::LlmNoProgress);
+    }
+
+    if iteration + 1 >= max_iterations {
+        return RepairIterationOutcome::Stop(RepairStopReason::MaxIterations);
+    }
+
+    RepairIterationOutcome::Continue
 }
 
 fn extract_sql_rel_paths_from_dbt_errors(errors: &[String]) -> Vec<String> {
@@ -213,6 +288,68 @@ fn storage_keys_for_rel_paths(ctx: &AgentCtx, rels: &[String]) -> Vec<String> {
     out
 }
 
+struct RemediationOutcome {
+    llm_changed_files: usize,
+    changed_keys: Vec<String>,
+    change_diffs: Vec<RemediationDiff>,
+    notes: Vec<String>,
+}
+
+async fn attempt_remediation(
+    ctx: &AgentCtx,
+    res: &DbtValidateResult,
+    args: &DbtValidateArgs,
+    datasets: Option<&Arc<dyn DatasetCatalogProvider>>,
+) -> RemediationOutcome {
+    let rels = extract_sql_rel_paths_from_dbt_errors(&res.errors);
+    let mut keys = storage_keys_for_rel_paths(ctx, &rels);
+    if keys.is_empty() {
+        keys = list_sql_keys_for_scope(ctx).await.unwrap_or_default();
+    }
+
+    let phase = if args.build {
+        "build"
+    } else if args.run {
+        "run"
+    } else if !res.compile_ok {
+        "compile"
+    } else if !res.parse_ok {
+        "parse"
+    } else {
+        "validate"
+    };
+
+    let rem = remediate_dbt_failures_grounded_with_llm(
+        ctx,
+        &format!("repair_loop_grounded_{phase}"),
+        &res.errors,
+        &keys,
+        datasets,
+    )
+    .await;
+
+    if let Err(ref e) = rem {
+        tracing::warn!(error = %e, "grounded remediation failed during repair loop iteration");
+    }
+    let rem = rem.ok();
+
+    let llm_changed_files = rem.as_ref().map(|r| r.changed_files).unwrap_or(0);
+    let mut changed_keys = Vec::new();
+    let mut change_diffs = Vec::new();
+    let mut notes = Vec::new();
+    if let Some(r) = rem.as_ref() {
+        notes.extend(r.notes.clone());
+        change_diffs.extend(r.diffs.clone());
+        for ch in r.changes.iter() {
+            if ch.changed && !ch.key.trim().is_empty() {
+                changed_keys.push(ch.key.clone());
+            }
+        }
+    }
+
+    RemediationOutcome { llm_changed_files, changed_keys, change_diffs, notes }
+}
+
 pub async fn run_repair_loop(
     ctx: &AgentCtx,
     dbt: &Arc<dyn DbtProvider>,
@@ -243,112 +380,36 @@ pub async fn run_repair_loop(
         let _ = (datasets, catalog, dataset_ids); // reserved for future targeted catalog refresh
         let catalog_refreshed = false;
 
-        // Deterministic packages auto-repair for common missing-macro cases (e.g. dbt_utils).
-        // This is safe because packages.yml is normalized/deduped by project_fs postprocess.
-        if errors_look_like_missing_dbt_utils(&res.errors) {
-            let diff = ensure_dbt_utils_package(ctx).await.ok().flatten();
-            let mutated = diff.is_some();
-            let diffs: Vec<RemediationDiff> = diff.into_iter().collect();
-            report.iterations.push(RepairIteration {
-                iteration: i + 1,
-                scanned_models: 0,
-                rewritten_models: 0,
-                catalog_refreshed,
-                llm_changed_files: if mutated { 1 } else { 0 },
-                changed_keys: diffs.iter().map(|d| d.key.clone()).collect(),
-                change_diffs: diffs,
-                notes: if mutated {
-                    vec!["deterministic: added dbt-labs/dbt_utils to packages.yml".to_string()]
-                } else {
-                    vec![]
-                },
-                dbt_ok: res.ok,
-                compile_ok: res.compile_ok,
-                run_ok: res.run_ok,
-                unresolved_columns,
-                errors: res.errors.clone(),
-            });
-            if mutated {
-                // Next validate_project should run dbt deps as part of validation.
-                if i + 1 == max_it {
-                    report.stopped_reason = Some("max_iterations".to_string());
-                    return Ok((res, report));
-                }
-                continue;
-            }
-            // No mutation possible -> treat as no progress.
-            report.stopped_reason = Some("packages_no_progress".to_string());
-            return Ok((res, report));
-        }
-
-        // Missing sources are grounding failures; do NOT attempt SQL remediation.
-        if matches!(class, FailureKind::MissingSource) {
-            report.iterations.push(RepairIteration {
-                iteration: i + 1,
-                scanned_models: 0,
-                rewritten_models: 0,
-                catalog_refreshed,
-                llm_changed_files: 0,
-                changed_keys: vec![],
-                change_diffs: vec![],
-                notes: vec!["missing dbt source definition; treat as dataset grounding failure (schema.yml vs actual datasets)".to_string()],
-                dbt_ok: res.ok,
-                compile_ok: res.compile_ok,
-                run_ok: res.run_ok,
-                unresolved_columns,
-                errors: res.errors.clone(),
-            });
-            report.stopped_reason = Some("missing_source".to_string());
-            return Ok((res, report));
-        }
-
-        let allow_llm_repair = matches!(
-            class,
-            FailureKind::SqlRuntime | FailureKind::Unknown
-        );
-
+        let is_dbt_utils_error = errors_look_like_missing_dbt_utils(&res.errors);
+        let mut packages_mutated = false;
         let mut llm_changed_files: usize = 0;
         let mut changed_keys: Vec<String> = Vec::new();
         let mut change_diffs: Vec<RemediationDiff> = Vec::new();
         let mut notes: Vec<String> = Vec::new();
-        if allow_llm_repair && !res.ok {
-            // Scope to failing file(s) when possible; otherwise scan all model SQL keys.
-            let rels = extract_sql_rel_paths_from_dbt_errors(&res.errors);
-            let mut keys = storage_keys_for_rel_paths(ctx, &rels);
-            if keys.is_empty() {
-                keys = list_sql_keys_for_scope(ctx).await.unwrap_or_default();
+
+        if is_dbt_utils_error {
+            let diff = ensure_dbt_utils_package(ctx).await.ok().flatten();
+            packages_mutated = diff.is_some();
+            let diffs: Vec<RemediationDiff> = diff.into_iter().collect();
+            llm_changed_files = if packages_mutated { 1 } else { 0 };
+            changed_keys = diffs.iter().map(|d| d.key.clone()).collect();
+            if packages_mutated {
+                notes.push("deterministic: added dbt-labs/dbt_utils to packages.yml".to_string());
             }
-
-            let phase = if args.build {
-                "build"
-            } else if args.run {
-                "run"
-            } else if !res.compile_ok {
-                "compile"
-            } else if !res.parse_ok {
-                "parse"
-            } else {
-                "validate"
-            };
-
-            let rem = remediate_dbt_failures_grounded_with_llm(
-                ctx,
-                &format!("repair_loop_grounded_{phase}"),
-                &res.errors,
-                &keys,
-                datasets,
-            )
-            .await
-            .ok();
-            llm_changed_files = rem.as_ref().map(|r| r.changed_files).unwrap_or(0);
-            if let Some(r) = rem.as_ref() {
-                notes.extend(r.notes.clone());
-                change_diffs.extend(r.diffs.clone());
-                for ch in r.changes.iter() {
-                    if ch.changed && !ch.key.trim().is_empty() {
-                        changed_keys.push(ch.key.clone());
-                    }
-                }
+            change_diffs = diffs;
+        } else if matches!(class, FailureKind::MissingSource) {
+            notes.push("missing dbt source definition; treat as dataset grounding failure (schema.yml vs actual datasets)".to_string());
+        } else {
+            let allow_llm_repair = matches!(
+                class,
+                FailureKind::SqlRuntime | FailureKind::Unknown
+            );
+            if allow_llm_repair && !res.ok {
+                let rem = attempt_remediation(ctx, &res, args, datasets).await;
+                llm_changed_files = rem.llm_changed_files;
+                changed_keys = rem.changed_keys;
+                change_diffs = rem.change_diffs;
+                notes = rem.notes;
             }
         }
 
@@ -377,27 +438,15 @@ pub async fn run_repair_loop(
             errors: res.errors.clone(),
         });
 
-        if res.ok {
-            report.stopped_reason = Some("dbt ok".to_string());
-            return Ok((res, report));
-        }
-
-        // Stop on non-remediable warehouse config errors.
-        if matches!(class, FailureKind::WarehouseConfig) {
-            report.stopped_reason = Some("warehouse_config".to_string());
-            return Ok((res, report));
-        }
-
-        // If we made no progress this iteration, stop.
-        if !catalog_refreshed && llm_changed_files == 0 {
-            report.stopped_reason = Some("llm_no_progress".to_string());
-            return Ok((res, report));
-        }
-
-        // Continue looping; caller is “eager” and we’re bounded by max_it.
-        if i + 1 == max_it {
-            report.stopped_reason = Some("max_iterations".to_string());
-            return Ok((res, report));
+        match classify_repair_iteration(
+            i, max_it, res.ok, class,
+            is_dbt_utils_error, packages_mutated, catalog_refreshed, llm_changed_files,
+        ) {
+            RepairIterationOutcome::Stop(reason) => {
+                report.stopped_reason = Some(reason);
+                return Ok((res, report));
+            }
+            RepairIterationOutcome::Continue => continue,
         }
     }
     Err("repair loop fell through unexpectedly".to_string())
@@ -535,7 +584,7 @@ mod tests {
 
         assert!(!res.ok);
         assert_eq!(rep.iterations_run, 1);
-        assert_eq!(rep.stopped_reason.as_deref(), Some("llm_no_progress"));
+        assert_eq!(rep.stopped_reason, Some(RepairStopReason::LlmNoProgress));
     }
 
     #[tokio::test]
@@ -623,7 +672,7 @@ mod tests {
 
         assert!(!res.ok);
         assert_eq!(rep.iterations_run, 1);
-        assert_eq!(rep.stopped_reason.as_deref(), Some("llm_no_progress"));
+        assert_eq!(rep.stopped_reason, Some(RepairStopReason::LlmNoProgress));
     }
 
     #[tokio::test]
@@ -1089,5 +1138,79 @@ mod tests {
         assert!(got.to_lowercase().contains("dbt-labs/dbt_utils"));
         assert!(rep.iterations.len() >= 2);
         assert_eq!(rep.iterations[0].llm_changed_files, 1);
+    }
+
+    // ---- classify_repair_iteration unit tests ----
+
+    #[test]
+    fn classify_dbt_ok_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, true, FailureKind::NoFailure, false, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::DbtOk),
+        );
+    }
+
+    #[test]
+    fn classify_missing_source_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::MissingSource, false, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::MissingSource),
+        );
+    }
+
+    #[test]
+    fn classify_warehouse_config_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::WarehouseConfig, false, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig),
+        );
+    }
+
+    #[test]
+    fn classify_no_progress_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::SqlRuntime, false, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::LlmNoProgress),
+        );
+    }
+
+    #[test]
+    fn classify_llm_progress_continues() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::SqlRuntime, false, false, false, 2),
+            RepairIterationOutcome::Continue,
+        );
+    }
+
+    #[test]
+    fn classify_max_iterations_stops() {
+        assert_eq!(
+            classify_repair_iteration(4, 5, false, FailureKind::SqlRuntime, false, false, false, 1),
+            RepairIterationOutcome::Stop(RepairStopReason::MaxIterations),
+        );
+    }
+
+    #[test]
+    fn classify_dbt_utils_mutated_continues() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::Schema, true, true, false, 1),
+            RepairIterationOutcome::Continue,
+        );
+    }
+
+    #[test]
+    fn classify_dbt_utils_not_mutated_stops() {
+        assert_eq!(
+            classify_repair_iteration(0, 5, false, FailureKind::Schema, true, false, false, 0),
+            RepairIterationOutcome::Stop(RepairStopReason::PackagesNoProgress),
+        );
+    }
+
+    #[test]
+    fn classify_dbt_utils_mutated_at_max_stops() {
+        assert_eq!(
+            classify_repair_iteration(4, 5, false, FailureKind::Schema, true, true, false, 1),
+            RepairIterationOutcome::Stop(RepairStopReason::MaxIterations),
+        );
     }
 }

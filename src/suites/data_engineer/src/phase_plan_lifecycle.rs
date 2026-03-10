@@ -39,14 +39,14 @@ pub(super) async fn load_plan_for_track(
     track: TrackKind,
 ) -> Option<TrackPlanDoc> {
     match track {
-        TrackKind::Cleanse => plan::load_cleanse_plan(actx).await.map(TrackPlanDoc::Cleanse),
-        TrackKind::Model => plan::load_model_plan(actx).await.map(TrackPlanDoc::Model),
+        TrackKind::Cleanse => plan::load_cleanse_plan(actx).await.ok().flatten().map(TrackPlanDoc::Cleanse),
+        TrackKind::Model => plan::load_model_plan(actx).await.ok().flatten().map(TrackPlanDoc::Model),
     }
 }
 
 pub(super) async fn save_plan(actx: &AgentCtx, plan: &TrackPlanDoc) -> Result<(), String> {
     match plan {
-        TrackPlanDoc::Cleanse(plan) => crate::plan::save_cleanse_plan(actx, plan).await,
-        TrackPlanDoc::Model(plan) => crate::plan::save_model_plan(actx, plan).await,
+        TrackPlanDoc::Cleanse(plan) => crate::plan::save_cleanse_plan(actx, plan).await.map_err(|e| e.to_string()),
+        TrackPlanDoc::Model(plan) => crate::plan::save_model_plan(actx, plan).await.map_err(|e| e.to_string()),
     }
 }

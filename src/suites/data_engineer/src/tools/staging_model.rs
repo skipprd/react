@@ -194,7 +194,7 @@ impl Tool for StagingModelTool {
 
         // Plan-first authoring: if there is an active cleanse plan, use task invariants/notes as the
         // default authoring instructions (and merge with any explicit user override instructions).
-        let plan_opt = plan::load_cleanse_plan(ctx).await;
+        let plan_opt = plan::load_cleanse_plan(ctx).await.ok().flatten();
 
         // Ensure minimal dbt project exists before writing artifacts.
         if let Err(e) = dbt.ensure_minimal_project(ctx.scope()).await {
@@ -684,7 +684,9 @@ impl Tool for StagingModelTool {
                     continue;
                 }
             };
-            repl.insert("__SOURCE__".to_string(), stg_wh.as_ref().unwrap().quote_fqn(&dsid));
+            if let Some(wh) = stg_wh.as_ref() {
+                repl.insert("__SOURCE__".to_string(), wh.quote_fqn(&dsid));
+            }
 
             let loop_config = engine::AuthorLoopConfig {
                 max_tokens: max_tokens as usize,

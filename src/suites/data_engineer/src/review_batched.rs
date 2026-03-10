@@ -156,192 +156,200 @@ fn chunk_vec<T: Clone>(items: &[T], chunk_size: usize) -> Vec<Vec<T>> {
     out
 }
 
-async fn llm_json(
-    _ctx: &SuiteCtx,
-    actx: &AgentCtx,
-    thread_id: &str,
-    phase: Phase,
-    name: &str,
-    user: String,
-) -> Result<Value, String> {
-    fn parse_review_reasoning_effort(var: &str) -> Option<ReasoningEffort> {
-        match std::env::var(var)
-            .ok()
-            .map(|s| s.trim().to_lowercase())
-            .as_deref()
-        {
-            Some("none") => Some(ReasoningEffort::None),
-            Some("low") => Some(ReasoningEffort::Low),
-            Some("medium") => Some(ReasoningEffort::Medium),
-            Some("high") => Some(ReasoningEffort::High),
-            _ => None,
-        }
+fn parse_review_reasoning_effort(var: &str) -> Option<ReasoningEffort> {
+    match std::env::var(var)
+        .ok()
+        .map(|s| s.trim().to_lowercase())
+        .as_deref()
+    {
+        Some("none") => Some(ReasoningEffort::None),
+        Some("low") => Some(ReasoningEffort::Low),
+        Some("medium") => Some(ReasoningEffort::Medium),
+        Some("high") => Some(ReasoningEffort::High),
+        _ => None,
     }
+}
 
-    // Default to MEDIUM for reviews: we do want some reasoning, but Responses output_tokens includes
-    // reasoning tokens, so max_output_tokens must be high enough to still emit the JSON payload.
-    use crate::env_util::{env_u32 as parse_u32_env, env_keys};
+/// Typed LLM configuration for a single review step (summary, batch, or unify).
+///
+/// `for_phase` is pure — it computes prompt ID, system prompt, token budget, reasoning effort,
+/// and temperature deterministically from the phase + step name (plus env-var overrides).
+/// `call` is a thin async wrapper that finalises the dynamic output budget and dispatches.
+struct ReviewLlmConfig {
+    prompt_id: &'static str,
+    system_prompt: String,
+    phase_budget: u32,
+    reasoning_effort: ReasoningEffort,
+    /// `Some(temp)` for known review phases; `None` triggers the generic fallback options.
+    temperature: Option<f32>,
+    step_name: String,
+}
 
-    let review_reasoning_effort = parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
-        .unwrap_or(ReasoningEffort::Medium);
+impl ReviewLlmConfig {
+    fn for_phase(phase: Phase, step_name: &str) -> Self {
+        use crate::env_util::{env_u32 as parse_u32_env, env_keys};
 
-    let default_non_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS)
-        .unwrap_or(12_000)
-        .max(2_000)
-        .min(32_000);
-    let default_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS_UNIFY)
-        .unwrap_or(18_000)
-        .max(2_000)
-        .min(32_000);
-    let is_unify = name == "unify";
-    let phase_budget: u32 = match phase {
-        Phase::CleanseReview => {
-            let k = if is_unify {
-                env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE_UNIFY
-            } else {
-                env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE
-            };
-            parse_u32_env(k).unwrap_or(if is_unify {
-                default_unify
-            } else {
-                default_non_unify
-            })
-        }
-        Phase::ModelReview => {
-            let k = if is_unify {
-                env_keys::LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY
-            } else {
-                env_keys::LLM_REVIEW_MAX_TOKENS_MODEL
-            };
-            parse_u32_env(k).unwrap_or(if is_unify {
-                default_unify
-            } else {
-                default_non_unify
-            })
-        }
-        Phase::PostPublishReview => {
-            let k = if is_unify {
-                env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY
-            } else {
-                env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH
-            };
-            parse_u32_env(k).unwrap_or(if is_unify {
-                default_unify
-            } else {
-                default_non_unify
-            })
-        }
-        _ => {
-            if is_unify {
-                default_unify
-            } else {
-                default_non_unify
+        let reasoning_effort =
+            parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
+                .unwrap_or(ReasoningEffort::Medium);
+
+        let default_non_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS)
+            .unwrap_or(12_000)
+            .max(2_000)
+            .min(32_000);
+        let default_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS_UNIFY)
+            .unwrap_or(18_000)
+            .max(2_000)
+            .min(32_000);
+        let is_unify = step_name == "unify";
+
+        let phase_budget: u32 = match phase {
+            Phase::CleanseReview => {
+                let k = if is_unify {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE_UNIFY
+                } else {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_CLEANSE
+                };
+                parse_u32_env(k).unwrap_or(if is_unify {
+                    default_unify
+                } else {
+                    default_non_unify
+                })
+            }
+            Phase::ModelReview => {
+                let k = if is_unify {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_MODEL_UNIFY
+                } else {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_MODEL
+                };
+                parse_u32_env(k).unwrap_or(if is_unify {
+                    default_unify
+                } else {
+                    default_non_unify
+                })
+            }
+            Phase::PostPublishReview => {
+                let k = if is_unify {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY
+                } else {
+                    env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH
+                };
+                parse_u32_env(k).unwrap_or(if is_unify {
+                    default_unify
+                } else {
+                    default_non_unify
+                })
+            }
+            _ => {
+                if is_unify {
+                    default_unify
+                } else {
+                    default_non_unify
+                }
             }
         }
-    }
-    .max(2_000)
-    .min(32_000);
-
-    let prompt_id: &'static str = match (phase, name) {
-        (Phase::CleanseReview, "summary") => "data_engineer.cleanse_review.summary",
-        (Phase::CleanseReview, "batch") => "data_engineer.cleanse_review.batch",
-        (Phase::CleanseReview, "unify") => "data_engineer.cleanse_review.unify",
-        (Phase::ModelReview, "summary") => "data_engineer.model_review.summary",
-        (Phase::ModelReview, "batch") => "data_engineer.model_review.batch",
-        (Phase::ModelReview, "unify") => "data_engineer.model_review.unify",
-        (Phase::PostPublishReview, "summary") => "data_engineer.post_publish_review.summary",
-        (Phase::PostPublishReview, "batch") => "data_engineer.post_publish_review.batch",
-        (Phase::PostPublishReview, "unify") => "data_engineer.post_publish_review.unify",
-        // Fallback: keep stable even if new names are introduced.
-        (Phase::CleanseReview, _) => "data_engineer.cleanse_review.other",
-        (Phase::ModelReview, _) => "data_engineer.model_review.other",
-        (Phase::PostPublishReview, _) => "data_engineer.post_publish_review.other",
-        _ => "data_engineer.review.other_phase",
-    };
-
-    let system_prompt = match name {
-        "summary" => system_prompt_for_summary(phase_plan_kind(phase)),
-        "batch" => system_prompt_for_batch(phase_plan_kind(phase)),
-        _ => system_prompt_for_unify(phase_plan_kind(phase)),
-    };
-
-    // Dynamic sizing: bigger review contexts need bigger output budgets, otherwise Responses truncates
-    // the JSON payload after spending many tokens on reasoning.
-    //
-    // Heuristic: estimate input tokens from chars and add a fixed cushion depending on call kind.
-    // Use a conservative chars->tokens heuristic. `usage.input_tokens` is frequently closer to
-    // chars/2 (not chars/4) once we include large JSON payloads, identifiers, and schema text.
-    let approx_in_tokens: u32 = ((system_prompt.len() + user.len()) as u32 / 2).max(1);
-    let extra_out_tokens: u32 = match name {
-        "summary" => 6_000,
-        "batch" => 12_000,
-        _ => 16_000, // unify
-    };
-    let dynamic_budget: u32 = approx_in_tokens
-        .saturating_add(extra_out_tokens)
         .max(2_000)
         .min(32_000);
-    let phase_budget: u32 = phase_budget.max(dynamic_budget).min(32_000);
 
-    // Tune output budgets by (phase, call kind). Unify frequently needs a bit more headroom because it
-    // returns a single `final_review_text` field which can be longer than the per-batch notes.
-    let llm_options = match phase {
-        Phase::CleanseReview => Some(LlmCallOptions {
-            prompt_id,
-            thread_id: Some(thread_id.to_string()),
-            expected_format: LlmExpectedFormat::JsonObject,
-            temperature: Some(0.15),
-            top_p: Some(1.0),
-            max_output_tokens: Some(phase_budget),
-            reasoning_effort: Some(review_reasoning_effort),
-            timeout_secs: None,
-        }),
-        Phase::ModelReview => Some(LlmCallOptions {
-            prompt_id,
-            thread_id: Some(thread_id.to_string()),
-            expected_format: LlmExpectedFormat::JsonObject,
-            temperature: Some(0.25),
-            top_p: Some(1.0),
-            max_output_tokens: Some(phase_budget),
-            reasoning_effort: Some(review_reasoning_effort),
-            timeout_secs: None,
-        }),
-        Phase::PostPublishReview => Some(LlmCallOptions {
-            prompt_id,
-            thread_id: Some(thread_id.to_string()),
-            expected_format: LlmExpectedFormat::JsonObject,
-            temperature: Some(0.20),
-            top_p: Some(1.0),
-            max_output_tokens: Some(phase_budget),
-            reasoning_effort: Some(review_reasoning_effort),
-            timeout_secs: None,
-        }),
-        _ => None,
-    };
+        let prompt_id: &'static str = match (phase, step_name) {
+            (Phase::CleanseReview, "summary") => "data_engineer.cleanse_review.summary",
+            (Phase::CleanseReview, "batch") => "data_engineer.cleanse_review.batch",
+            (Phase::CleanseReview, "unify") => "data_engineer.cleanse_review.unify",
+            (Phase::ModelReview, "summary") => "data_engineer.model_review.summary",
+            (Phase::ModelReview, "batch") => "data_engineer.model_review.batch",
+            (Phase::ModelReview, "unify") => "data_engineer.model_review.unify",
+            (Phase::PostPublishReview, "summary") => "data_engineer.post_publish_review.summary",
+            (Phase::PostPublishReview, "batch") => "data_engineer.post_publish_review.batch",
+            (Phase::PostPublishReview, "unify") => "data_engineer.post_publish_review.unify",
+            (Phase::CleanseReview, _) => "data_engineer.cleanse_review.other",
+            (Phase::ModelReview, _) => "data_engineer.model_review.other",
+            (Phase::PostPublishReview, _) => "data_engineer.post_publish_review.other",
+            _ => "data_engineer.review.other_phase",
+        };
 
-    let messages = vec![
-        ChatMessage {
-            role: ChatRole::System,
-            content: system_prompt,
-        },
-        ChatMessage {
-            role: ChatRole::User,
-            content: user,
-        },
-    ];
+        let system_prompt = match step_name {
+            "summary" => system_prompt_for_summary(phase_plan_kind(phase)),
+            "batch" => system_prompt_for_batch(phase_plan_kind(phase)),
+            _ => system_prompt_for_unify(phase_plan_kind(phase)),
+        };
 
-    let mut opts = llm_options.unwrap_or_else(|| react_core::llm::LlmCallOptions {
-        prompt_id: "data_engineer.review_batched.llm_json",
-        thread_id: None,
-        expected_format: LlmExpectedFormat::JsonObject,
-        max_output_tokens: None,
-        temperature: None,
-        top_p: None,
-        reasoning_effort: None,
-        timeout_secs: None,
-    });
-    opts.expected_format = LlmExpectedFormat::JsonObject;
-    actx.llm_chat_json::<Value>(&messages, &opts).await.map_err(|e| e.to_string())
+        let temperature = match phase {
+            Phase::CleanseReview => Some(0.15),
+            Phase::ModelReview => Some(0.25),
+            Phase::PostPublishReview => Some(0.20),
+            _ => None,
+        };
+
+        Self {
+            prompt_id,
+            system_prompt,
+            phase_budget,
+            reasoning_effort,
+            temperature,
+            step_name: step_name.to_string(),
+        }
+    }
+
+    async fn call(
+        &self,
+        actx: &AgentCtx,
+        thread_id: &str,
+        user_message: String,
+    ) -> Result<Value, String> {
+        // Dynamic sizing: bigger review contexts need bigger output budgets, otherwise Responses
+        // truncates the JSON payload after spending many tokens on reasoning.
+        let approx_in_tokens: u32 =
+            ((self.system_prompt.len() + user_message.len()) as u32 / 2).max(1);
+        let extra_out_tokens: u32 = match self.step_name.as_str() {
+            "summary" => 6_000,
+            "batch" => 12_000,
+            _ => 16_000,
+        };
+        let dynamic_budget: u32 = approx_in_tokens
+            .saturating_add(extra_out_tokens)
+            .max(2_000)
+            .min(32_000);
+        let final_budget: u32 = self.phase_budget.max(dynamic_budget).min(32_000);
+
+        let messages = vec![
+            ChatMessage {
+                role: ChatRole::System,
+                content: self.system_prompt.clone(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: user_message,
+            },
+        ];
+
+        let mut opts = if let Some(temp) = self.temperature {
+            LlmCallOptions {
+                prompt_id: self.prompt_id,
+                thread_id: Some(thread_id.to_string()),
+                expected_format: LlmExpectedFormat::JsonObject,
+                temperature: Some(temp),
+                top_p: Some(1.0),
+                max_output_tokens: Some(final_budget),
+                reasoning_effort: Some(self.reasoning_effort),
+                timeout_secs: None,
+            }
+        } else {
+            LlmCallOptions {
+                prompt_id: "data_engineer.review_batched.llm_json",
+                thread_id: None,
+                expected_format: LlmExpectedFormat::JsonObject,
+                max_output_tokens: None,
+                temperature: None,
+                top_p: None,
+                reasoning_effort: None,
+                timeout_secs: None,
+            }
+        };
+        opts.expected_format = LlmExpectedFormat::JsonObject;
+        actx.llm_chat_json::<Value>(&messages, &opts)
+            .await
+            .map_err(|e| e.to_string())
+    }
 }
 
 async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> serde_json::Value {
@@ -481,7 +489,7 @@ fn resolve_model_batch_paths(
 type PlanAndBatches = (Option<PlanKind>, Option<String>, Vec<Vec<String>>, Option<Value>);
 
 async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key).await {
+    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key).await.ok().flatten() {
         let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
         let mut map: Vec<Value> = Vec::new();
         for b in batches.iter() {
@@ -502,7 +510,7 @@ async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBat
 }
 
 async fn load_model_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_model_plan_by_key(actx, key).await {
+    if let Some(p) = de_plan::load_model_plan_by_key(actx, key).await.ok().flatten() {
         let batches = if !p.batches.is_empty() { p.batches.clone() } else { vec![] };
         let mut map: Vec<Value> = Vec::new();
         for b in batches.iter() {
@@ -638,13 +646,362 @@ async fn dependency_schemas_for_sql(sctx: &SuiteCtx, actx: &AgentCtx, sql: &str)
     Value::Array(out)
 }
 
+struct ProjectSummary {
+    project_notes: Vec<String>,
+    project_risks: Vec<String>,
+}
+
+async fn build_project_summary(
+    actx: &AgentCtx,
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    original_question_with_context: &str,
+    plan_kind: Option<PlanKind>,
+    plan_key: Option<&str>,
+    global_ctx_block: &str,
+) -> Result<ProjectSummary, String> {
+    let proj_files = build_project_context(actx).await;
+    let staging_paths = list_model_files(actx, "models/staging/", 2000).await;
+    let marts_paths = list_model_files(actx, "models/marts/", 2000).await;
+    let core_paths = list_model_files(actx, "models/core/", 2000).await;
+
+    let manifest_meta =
+        read_project_json_pointer(actx, "target/manifest.json", "/metadata").await;
+    let manifest_meta_small = manifest_meta
+        .as_ref()
+        .and_then(|m| m.as_object())
+        .map(|m| {
+            let pick = |k: &str| m.get(k).cloned().unwrap_or(Value::Null);
+            serde_json::json!({
+                "dbt_schema_version": pick("dbt_schema_version"),
+                "dbt_version": pick("dbt_version"),
+                "generated_at": pick("generated_at"),
+                "adapter_type": pick("adapter_type"),
+                "project_name": pick("project_name"),
+                "invocation_id": pick("invocation_id"),
+            })
+        })
+        .unwrap_or(Value::Null);
+
+    let review_context_brief = compact_review_context_for_summary(original_question_with_context);
+    let summary_user = format!(
+        "Phase: {phase}\n\nOriginal goal + review context (brief):\n{q}\n\n{gctx_block}Project skeleton files:\n{files}\n\nProject index:\n{idx}\n\nManifest metadata (minimal):\n{meta}\n",
+        phase = phase.as_str(),
+        q = review_context_brief,
+        gctx_block = global_ctx_block,
+        files = render_files(&proj_files),
+        idx = format!(
+            "{}\n{}\n{}",
+            render_path_list("models/staging", &staging_paths, 250),
+            render_path_list("models/marts", &marts_paths, 150),
+            render_path_list("models/core", &core_paths, 150),
+        ),
+        meta = serde_json::to_string_pretty(&manifest_meta_small)
+            .unwrap_or_else(|_| "null".to_string()),
+    );
+
+    let config = ReviewLlmConfig::for_phase(phase, "summary");
+    let summary_v = config.call(actx, thread_id, summary_user).await?;
+    let project_notes = clamp_lines(
+        str_list(summary_v.get("project_notes").unwrap_or(&Value::Null)),
+        MAX_PROJECT_NOTES,
+    );
+    let project_risks = clamp_lines(
+        str_list(summary_v.get("project_risks").unwrap_or(&Value::Null)),
+        MAX_PROJECT_NOTES,
+    );
+
+    append_review_step(
+        thread_store,
+        thread_id,
+        phase,
+        "review",
+        PhaseReasonCode::ReviewProjectSummary,
+        serde_json::json!({
+            "project_notes": project_notes,
+            "project_risks": project_risks
+        }),
+    )
+    .await?;
+    if let (Some(pk), Some(key)) = (plan_kind, plan_key) {
+        persist_review_summary_to_plan(
+            actx,
+            phase,
+            pk,
+            key,
+            project_notes.clone(),
+            project_risks.clone(),
+        )
+        .await?;
+    }
+
+    Ok(ProjectSummary {
+        project_notes,
+        project_risks,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn review_single_batch(
+    sctx: &SuiteCtx,
+    actx: &AgentCtx,
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    original_question_with_context: &str,
+    plan_kind: Option<PlanKind>,
+    plan_key: Option<&str>,
+    global_ctx_block: &str,
+    batch: &[String],
+    batch_idx: usize,
+    total_batches: usize,
+    item_to_path_inv_notes: &Option<Value>,
+) -> Result<Value, String> {
+    let mut files: Vec<ProjectFile> = Vec::new();
+    let mut batch_detail: Vec<Value> = Vec::new();
+
+    let mapping = item_to_path_inv_notes.clone().unwrap_or(Value::Null);
+    let mapping_arr = mapping.as_array().cloned().unwrap_or_default();
+    let map_for = |item: &str| -> Option<Value> {
+        mapping_arr
+            .iter()
+            .find(|it| it.get("item").and_then(|v| v.as_str()) == Some(item))
+            .cloned()
+    };
+
+    for item in batch.iter() {
+        let mut expected_path = String::new();
+        let mut invariants: Vec<String> = Vec::new();
+        let mut notes: Vec<String> = Vec::new();
+        let mut implementation_spec: Value = Value::Null;
+        if let Some(m) = map_for(item) {
+            expected_path = m
+                .get("expected_model_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            invariants = str_list(m.get("invariants").unwrap_or(&Value::Null));
+            notes = str_list(m.get("notes").unwrap_or(&Value::Null));
+            implementation_spec = m.get("implementation_spec").cloned().unwrap_or(Value::Null);
+        }
+        if expected_path.trim().is_empty() {
+            let it = item.trim();
+            if it.starts_with("models/") || it.ends_with(".sql") || it.contains('/') {
+                expected_path = it.to_string();
+            } else {
+                expected_path = format!("models/{}.sql", it);
+            }
+        }
+        if let Some(f) = read_project_file(actx, &expected_path, 60_000).await {
+            files.push(f);
+        }
+
+        let schema_obs = if item.split('.').count() >= 3 {
+            let raw = schema_for_dataset_fqn(sctx, actx, item).await;
+            cap_schema_columns(&raw)
+        } else {
+            Value::Null
+        };
+
+        let deps = if let Some(f) = files
+            .iter()
+            .find(|ff| ff.path.trim() == expected_path.trim())
+        {
+            dependency_schemas_for_sql(sctx, actx, &f.content).await
+        } else {
+            Value::Array(vec![])
+        };
+        batch_detail.push(serde_json::json!({
+            "item": item,
+            "expected_model_path": expected_path,
+            "invariants": invariants,
+            "task_notes": notes,
+            "implementation_spec": implementation_spec,
+            "authoritative_schema": schema_obs
+            ,"dependency_schemas": deps
+        }));
+    }
+
+    let batch_user = format!(
+        "Phase: {phase}\nBatch {i}/{n}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Batch items:\n{items}\n\nBatch file contents (bounded):\n{files}\n",
+        phase = phase.as_str(),
+        i = batch_idx + 1,
+        n = total_batches,
+        q = original_question_with_context,
+        gctx_block = global_ctx_block,
+        items = serde_json::to_string_pretty(&batch_detail).unwrap_or_else(|_| "[]".to_string()),
+        files = render_files(&files),
+    );
+
+    let config = ReviewLlmConfig::for_phase(phase, "batch");
+    let v = config.call(actx, thread_id, batch_user).await?;
+    let notes = clamp_lines(
+        str_list(v.get("notes").unwrap_or(&Value::Null)),
+        MAX_NOTES_PER_BATCH,
+    );
+    let actionable_hints = clamp_lines(
+        str_list(v.get("actionable_hints").unwrap_or(&Value::Null)),
+        MAX_NOTES_PER_BATCH,
+    );
+
+    let detail = serde_json::json!({
+        "batch_idx": batch_idx,
+        "batch_items": batch,
+        "notes": notes,
+        "actionable_hints": actionable_hints
+    });
+    append_review_step(
+        thread_store,
+        thread_id,
+        phase,
+        "review",
+        PhaseReasonCode::ReviewBatch,
+        detail.clone(),
+    )
+    .await?;
+
+    if let (Some(pk), Some(key)) = (plan_kind, plan_key) {
+        persist_review_batch_to_plan(actx, pk, key, batch_idx, batch.to_vec(), notes.clone())
+            .await?;
+    }
+
+    Ok(detail)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn unify_reviews(
+    sctx: &SuiteCtx,
+    actx: &AgentCtx,
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    original_question_with_context: &str,
+    plan_kind: Option<PlanKind>,
+    plan_key: Option<&str>,
+    global_ctx_block: &str,
+    summary: &ProjectSummary,
+    all_batch_notes: &[Value],
+) -> Result<Vec<FlowFrame>, String> {
+    // Keep unify input bounded: it is easy for pretty-printed batch detail to grow large, which
+    // increases the risk of truncated JSON responses.
+    let mut unify_batches = all_batch_notes.to_vec();
+    if unify_batches.len() > 20 {
+        unify_batches = unify_batches[unify_batches.len() - 20..].to_vec();
+    }
+    let unify_batches = unify_batches
+        .into_iter()
+        .map(|v| {
+            let batch_items = v.get("batch_items").cloned().unwrap_or(Value::Null);
+            let notes = v.get("notes").cloned().unwrap_or(Value::Null);
+            let actionable_hints = v.get("actionable_hints").cloned().unwrap_or(Value::Null);
+            serde_json::json!({
+                "batch_items": batch_items,
+                "notes": notes,
+                "actionable_hints": actionable_hints
+            })
+        })
+        .collect::<Vec<_>>();
+    let unify_user = format!(
+        "Phase: {phase}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Project notes:\n{proj}\n\nBatch notes:\n{batches}\n",
+        phase = phase.as_str(),
+        q = original_question_with_context,
+        gctx_block = global_ctx_block,
+        proj = serde_json::json!({"project_notes": summary.project_notes, "project_risks": summary.project_risks}),
+        batches = serde_json::to_string_pretty(&unify_batches).unwrap_or_else(|_| "[]".to_string()),
+    );
+
+    let config = ReviewLlmConfig::for_phase(phase, "unify");
+    let unify_v = config.call(actx, thread_id, unify_user).await?;
+    let unify_text: ReviewUnifyTextOutput = serde_json::from_value(serde_json::json!({
+        "final_review_text": unify_v
+            .get("final_review_text")
+            .and_then(|v| v.as_str())
+            .or_else(|| unify_v.get("text").and_then(|v| v.as_str()))
+            .unwrap_or("")
+    }))
+    .map_err(|e| format!("batched review unify text output did not match schema: {e}"))?;
+    let final_review_text = unify_text.final_review_text;
+    if final_review_text.trim().is_empty() {
+        return Err("batched review unify produced empty final_review_text".to_string());
+    }
+
+    let (decision, tier, dataset_ids) = deterministic_unify_meta(phase, all_batch_notes);
+    let review_sha256 = react_core::llm_observability::sha256_hex_str(&final_review_text);
+    let review_bytes = final_review_text.as_bytes().len() as u64;
+    let review_key = {
+        let root = actx
+            .keyspace()
+            .threads_prefix(actx.scope())
+            .trim_end_matches("/threads")
+            .trim_end_matches('/')
+            .to_string();
+        let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+        let sha8 = review_sha256.chars().take(8).collect::<String>();
+        format!("{}/reviews/{}/{}_{}.txt", root, thread_id, ts, sha8)
+    };
+    sctx.storage()
+        .put_bytes(&review_key, final_review_text.as_bytes(), "text/plain")
+        .await
+        .map_err(|e| format!("failed to persist final review artifact: {e}"))?;
+
+    let review_ref = serde_json::json!({
+        "key": review_key,
+        "sha256": review_sha256,
+        "bytes": review_bytes
+    });
+
+    append_review_step(
+        thread_store,
+        thread_id,
+        phase,
+        "review",
+        PhaseReasonCode::ReviewFinalUnify,
+        serde_json::json!({
+            "review_ref": review_ref.clone(),
+            "meta": {
+                "decision": decision,
+                "tier": tier,
+                "dataset_ids": dataset_ids.clone()
+            },
+            "review_phase": phase.as_str()
+        }),
+    )
+    .await?;
+    if let (Some(pk), Some(key)) = (plan_kind, plan_key) {
+        persist_review_final_to_plan(
+            actx,
+            pk,
+            key,
+            decision,
+            tier,
+            dataset_ids.clone(),
+            final_review_text.clone(),
+        )
+        .await?;
+    }
+
+    Ok(vec![FlowFrame::Complete {
+        kind: FlowKind::new("generic"),
+        payload: serde_json::json!({
+            "text": final_review_text.clone(),
+            "meta": {
+                "decision": decision,
+                "tier": tier,
+                "dataset_ids": dataset_ids,
+                "review_ref": review_ref
+            }
+        }),
+        display: Some(final_review_text),
+    }])
+}
+
 pub async fn run_batched_review(
     thread_id: &str,
     original_question_with_context: &str,
     phase: Phase,
     sctx: &SuiteCtx,
 ) -> Result<Vec<FlowFrame>, String> {
-    // AgentCtx for deterministic storage reads/writes and thread store appends.
     let thread_store = ThreadStore::new(
         sctx.storage().clone(),
         sctx.scope().clone(),
@@ -677,23 +1034,32 @@ pub async fn run_batched_review(
         Option<Value>,
     ) = match phase {
         Phase::CleanseReview => {
-            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_cleanse.json").await {
+            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_cleanse.json")
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 load_cleanse_plan_and_batches(&actx, &k).await
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::ModelReview => {
-            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_model.json").await {
+            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_model.json")
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 load_model_plan_and_batches(&actx, &k).await
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::PostPublishReview => {
-            // Prefer newest plan of either kind (same as WS snapshot fallback).
-            let kc = de_plan::newest_plan_key_any(&actx, "_cleanse.json").await;
-            let km = de_plan::newest_plan_key_any(&actx, "_model.json").await;
+            let kc = de_plan::newest_plan_key_any(&actx, "_cleanse.json")
+                .await
+                .map_err(|e| e.to_string())?;
+            let km = de_plan::newest_plan_key_any(&actx, "_model.json")
+                .await
+                .map_err(|e| e.to_string())?;
             let choose: Option<PlanKind> = match (&kc, &km) {
                 (Some(c), Some(m)) => {
                     if c >= m {
@@ -706,14 +1072,14 @@ pub async fn run_batched_review(
                 (None, Some(_)) => Some(PlanKind::Model),
                 (None, None) => None,
             };
-            match choose {
-                Some(PlanKind::Cleanse) => {
-                    load_cleanse_plan_and_batches(&actx, &kc.unwrap()).await
+            match (choose, kc, km) {
+                (Some(PlanKind::Cleanse), Some(ref k), _) => {
+                    load_cleanse_plan_and_batches(&actx, k).await
                 }
-                Some(PlanKind::Model) => {
-                    load_model_plan_and_batches(&actx, &km.unwrap()).await
+                (Some(PlanKind::Model), _, Some(ref k)) => {
+                    load_model_plan_and_batches(&actx, k).await
                 }
-                None => (None, None, vec![], None),
+                _ => (None, None, vec![], None),
             }
         }
         _ => (None, None, vec![], None),
@@ -734,41 +1100,14 @@ pub async fn run_batched_review(
             }
             _ => vec![],
         };
-        // Keep file paths as items so we can always fetch the right file in review.
         chunk_vec(&files, DEFAULT_BATCH_SIZE)
     };
 
-    // 1) Project summary pass (bounded, and MUST NOT dump the whole project).
-    let proj_files = build_project_context(&actx).await;
-    let staging_paths = list_model_files(&actx, "models/staging/", 2000).await;
-    let marts_paths = list_model_files(&actx, "models/marts/", 2000).await;
-    let core_paths = list_model_files(&actx, "models/core/", 2000).await;
-
-    // Minimal manifest metadata only (no nodes/raw_code dump).
-    let manifest_meta = read_project_json_pointer(&actx, "target/manifest.json", "/metadata").await;
-    let manifest_meta_small = manifest_meta
-        .as_ref()
-        .and_then(|m| m.as_object())
-        .map(|m| {
-            let pick = |k: &str| m.get(k).cloned().unwrap_or(Value::Null);
-            serde_json::json!({
-                "dbt_schema_version": pick("dbt_schema_version"),
-                "dbt_version": pick("dbt_version"),
-                "generated_at": pick("generated_at"),
-                "adapter_type": pick("adapter_type"),
-                "project_name": pick("project_name"),
-                "invocation_id": pick("invocation_id"),
-            })
-        })
-        .unwrap_or(Value::Null);
-
-    let global_ctx_txt = if include_global_semantic_context(phase) {
-        let global_ctx = load_global_semantic_context_json(&actx, sctx).await;
-        serde_json::to_string_pretty(&global_ctx).unwrap_or_else(|_| "null".to_string())
-    } else {
-        String::new()
-    };
+    // Precompute global semantic context block (shared across all LLM calls).
     let global_ctx_block = if include_global_semantic_context(phase) {
+        let global_ctx = load_global_semantic_context_json(&actx, sctx).await;
+        let global_ctx_txt = serde_json::to_string_pretty(&global_ctx)
+            .unwrap_or_else(|_| "null".to_string());
         format!(
             "IMMUTABLE CONTEXT (global_semantic_context):\n{gctx}\n\n",
             gctx = global_ctx_txt
@@ -777,293 +1116,56 @@ pub async fn run_batched_review(
         String::new()
     };
 
-    let review_context_brief = compact_review_context_for_summary(original_question_with_context);
-    let summary_user = format!(
-        "Phase: {phase}\n\nOriginal goal + review context (brief):\n{q}\n\n{gctx_block}Project skeleton files:\n{files}\n\nProject index:\n{idx}\n\nManifest metadata (minimal):\n{meta}\n",
-        phase = phase.as_str(),
-        q = review_context_brief,
-        gctx_block = global_ctx_block,
-        files = render_files(&proj_files),
-        idx = format!(
-            "{}\n{}\n{}",
-            render_path_list("models/staging", &staging_paths, 250),
-            render_path_list("models/marts", &marts_paths, 150),
-            render_path_list("models/core", &core_paths, 150),
-        ),
-        meta = serde_json::to_string_pretty(&manifest_meta_small).unwrap_or_else(|_| "null".to_string()),
-    );
-    let summary_v = llm_json(sctx, &actx, thread_id, phase, "summary", summary_user).await?;
-    let project_notes = clamp_lines(
-        str_list(summary_v.get("project_notes").unwrap_or(&Value::Null)),
-        MAX_PROJECT_NOTES,
-    );
-    let project_risks = clamp_lines(
-        str_list(summary_v.get("project_risks").unwrap_or(&Value::Null)),
-        MAX_PROJECT_NOTES,
-    );
-
-    append_review_step(
+    // 1) Project summary.
+    let summary = build_project_summary(
+        &actx,
         &thread_store,
         thread_id,
         phase,
-        "review",
-        PhaseReasonCode::ReviewProjectSummary,
-        serde_json::json!({
-            "project_notes": project_notes,
-            "project_risks": project_risks
-        }),
+        original_question_with_context,
+        plan_kind,
+        plan_key.as_deref(),
+        &global_ctx_block,
     )
     .await?;
-    if let (Some(pk), Some(plan_key)) = (plan_kind, plan_key.as_deref()) {
-        persist_review_summary_to_plan(
-            &actx,
-            phase,
-            pk,
-            plan_key,
-            project_notes.clone(),
-            project_risks.clone(),
-        )
-        .await?;
-    }
 
-    // 2) Per-batch pass (bounded, complete coverage).
+    // 2) Per-batch reviews.
     let mut all_batch_notes: Vec<Value> = Vec::new();
     for (bidx, batch) in batches.iter().enumerate() {
-        let mut files: Vec<ProjectFile> = Vec::new();
-        let mut batch_detail: Vec<Value> = Vec::new();
-
-        // When plan exists, include path+invariants/notes mapping (best-effort).
-        let mapping = item_to_path_inv_notes.clone().unwrap_or(Value::Null);
-        let mapping_arr = mapping.as_array().cloned().unwrap_or_default();
-        let map_for = |item: &str| -> Option<Value> {
-            mapping_arr
-                .iter()
-                .find(|it| it.get("item").and_then(|v| v.as_str()) == Some(item))
-                .cloned()
-        };
-
-        // Build batch payload, reading only expected paths when known.
-        for item in batch.iter() {
-            let mut expected_path = String::new();
-            let mut invariants: Vec<String> = Vec::new();
-            let mut notes: Vec<String> = Vec::new();
-            let mut implementation_spec: Value = Value::Null;
-            if let Some(m) = map_for(item) {
-                expected_path = m
-                    .get("expected_model_path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                invariants = str_list(m.get("invariants").unwrap_or(&Value::Null));
-                notes = str_list(m.get("notes").unwrap_or(&Value::Null));
-                implementation_spec = m.get("implementation_spec").cloned().unwrap_or(Value::Null);
-            }
-            if expected_path.trim().is_empty() {
-                // Fallback: if item looks like a path, treat it as such. Otherwise assume models/<name>.sql.
-                let it = item.trim();
-                if it.starts_with("models/") || it.ends_with(".sql") || it.contains('/') {
-                    expected_path = it.to_string();
-                } else {
-                    expected_path = format!("models/{}.sql", it);
-                }
-            }
-            if let Some(f) = read_project_file(&actx, &expected_path, 60_000).await {
-                files.push(f);
-            }
-
-            // Authoritative schema for dataset-like items (e.g., AwsDataCatalog.schema.table).
-            // Best-effort: only fetch schema when the item looks like a dataset FQN.
-            let schema_obs = if item.split('.').count() >= 3 {
-                let raw = schema_for_dataset_fqn(sctx, &actx, item).await;
-                cap_schema_columns(&raw)
-            } else {
-                Value::Null
-            };
-
-            // Also attach dependency schemas derived from the model file content (ref/source schemas),
-            // so review suggestions do not invent fields for upstream relations.
-            let deps = if let Some(f) = files
-                .iter()
-                .find(|ff| ff.path.trim() == expected_path.trim())
-            {
-                dependency_schemas_for_sql(sctx, &actx, &f.content).await
-            } else {
-                Value::Array(vec![])
-            };
-            batch_detail.push(serde_json::json!({
-                "item": item,
-                "expected_model_path": expected_path,
-                "invariants": invariants,
-                "task_notes": notes,
-                "implementation_spec": implementation_spec,
-                "authoritative_schema": schema_obs
-                ,"dependency_schemas": deps
-            }));
-        }
-
-        let batch_user = format!(
-            "Phase: {phase}\nBatch {i}/{n}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Batch items:\n{items}\n\nBatch file contents (bounded):\n{files}\n",
-            phase = phase.as_str(),
-            i = bidx + 1,
-            n = batches.len(),
-            q = original_question_with_context,
-            gctx_block = global_ctx_block,
-            items = serde_json::to_string_pretty(&batch_detail).unwrap_or_else(|_| "[]".to_string()),
-            files = render_files(&files),
-        );
-        let v = llm_json(sctx, &actx, thread_id, phase, "batch", batch_user).await?;
-        let notes = clamp_lines(
-            str_list(v.get("notes").unwrap_or(&Value::Null)),
-            MAX_NOTES_PER_BATCH,
-        );
-        let actionable_hints = clamp_lines(
-            str_list(v.get("actionable_hints").unwrap_or(&Value::Null)),
-            MAX_NOTES_PER_BATCH,
-        );
-
-        let detail = serde_json::json!({
-            "batch_idx": bidx,
-            "batch_items": batch,
-            "notes": notes,
-            "actionable_hints": actionable_hints
-        });
-        append_review_step(
+        let detail = review_single_batch(
+            sctx,
+            &actx,
             &thread_store,
             thread_id,
             phase,
-            "review",
-            PhaseReasonCode::ReviewBatch,
-            detail.clone(),
+            original_question_with_context,
+            plan_kind,
+            plan_key.as_deref(),
+            &global_ctx_block,
+            batch,
+            bidx,
+            batches.len(),
+            &item_to_path_inv_notes,
         )
         .await?;
-
-        all_batch_notes.push(detail.clone());
-        if let (Some(pk), Some(plan_key)) = (plan_kind, plan_key.as_deref()) {
-            persist_review_batch_to_plan(
-                &actx,
-                pk,
-                plan_key,
-                bidx,
-                batch.clone(),
-                notes.clone(),
-            )
-            .await?;
-        }
+        all_batch_notes.push(detail);
     }
 
-    // 3) Final unify pass (META-compatible output).
-    // Keep unify input bounded: it is easy for pretty-printed batch detail to grow large, which
-    // increases the risk of truncated JSON responses.
-    let mut unify_batches = all_batch_notes.clone();
-    if unify_batches.len() > 20 {
-        unify_batches = unify_batches[unify_batches.len() - 20..].to_vec();
-    }
-    // Strip to the minimal fields the unifier needs.
-    let unify_batches = unify_batches
-        .into_iter()
-        .map(|v| {
-            let batch_items = v.get("batch_items").cloned().unwrap_or(Value::Null);
-            let notes = v.get("notes").cloned().unwrap_or(Value::Null);
-            let actionable_hints = v.get("actionable_hints").cloned().unwrap_or(Value::Null);
-            serde_json::json!({
-                "batch_items": batch_items,
-                "notes": notes,
-                "actionable_hints": actionable_hints
-            })
-        })
-        .collect::<Vec<_>>();
-    let unify_user = format!(
-        "Phase: {phase}\n\nOriginal goal + review context:\n{q}\n\n{gctx_block}Project notes:\n{proj}\n\nBatch notes:\n{batches}\n",
-        phase = phase.as_str(),
-        q = original_question_with_context,
-        gctx_block = global_ctx_block,
-        proj = serde_json::json!({"project_notes": project_notes, "project_risks": project_risks}),
-        batches = serde_json::to_string_pretty(&unify_batches).unwrap_or_else(|_| "[]".to_string()),
-    );
-    let unify_v = llm_json(sctx, &actx, thread_id, phase, "unify", unify_user).await?;
-    let unify_text: ReviewUnifyTextOutput = serde_json::from_value(serde_json::json!({
-        "final_review_text": unify_v
-            .get("final_review_text")
-            .and_then(|v| v.as_str())
-            .or_else(|| unify_v.get("text").and_then(|v| v.as_str()))
-            .unwrap_or("")
-    }))
-    .map_err(|e| format!("batched review unify text output did not match schema: {e}"))?;
-    let final_review_text = unify_text.final_review_text;
-    if final_review_text.trim().is_empty() {
-        return Err("batched review unify produced empty final_review_text".to_string());
-    }
-
-    // Persist full review text to storage; keep thread steps small (store only a reference).
-    let (decision, tier, dataset_ids) = deterministic_unify_meta(phase, &all_batch_notes);
-    let review_sha256 = react_core::llm_observability::sha256_hex_str(&final_review_text);
-    let review_bytes = final_review_text.as_bytes().len() as u64;
-    let review_key = {
-        // Store alongside other thread-scoped artifacts (plans/, dbt/, etc), not under dbt/.
-        let root = actx
-            .keyspace()
-            .threads_prefix(actx.scope())
-            .trim_end_matches("/threads")
-            .trim_end_matches('/')
-            .to_string();
-        let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-        let sha8 = review_sha256.chars().take(8).collect::<String>();
-        format!("{}/reviews/{}/{}_{}.txt", root, thread_id, ts, sha8)
-    };
-    sctx.storage()
-        .put_bytes(&review_key, final_review_text.as_bytes(), "text/plain")
-        .await
-        .map_err(|e| format!("failed to persist final review artifact: {e}"))?;
-
-    let review_ref = serde_json::json!({
-        "key": review_key,
-        "sha256": review_sha256,
-        "bytes": review_bytes
-    });
-
-    append_review_step(
+    // 3) Unification.
+    unify_reviews(
+        sctx,
+        &actx,
         &thread_store,
         thread_id,
         phase,
-        "review",
-        PhaseReasonCode::ReviewFinalUnify,
-        serde_json::json!({
-            "review_ref": review_ref.clone(),
-            "meta": {
-                "decision": decision,
-                "tier": tier,
-                "dataset_ids": dataset_ids.clone()
-            },
-            "review_phase": phase.as_str()
-        }),
+        original_question_with_context,
+        plan_kind,
+        plan_key.as_deref(),
+        &global_ctx_block,
+        &summary,
+        &all_batch_notes,
     )
-    .await?;
-    if let (Some(pk), Some(plan_key)) = (plan_kind, plan_key.as_deref()) {
-        persist_review_final_to_plan(
-            &actx,
-            pk,
-            plan_key,
-            decision,
-            tier,
-            dataset_ids.clone(),
-            final_review_text.clone(),
-        )
-        .await?;
-    }
-
-    Ok(vec![FlowFrame::Complete {
-        kind: FlowKind::new("generic"),
-        payload: serde_json::json!({
-            "text": final_review_text.clone(),
-            "meta": {
-                "decision": decision,
-                "tier": tier,
-                "dataset_ids": dataset_ids,
-                "review_ref": review_ref
-            }
-        }),
-        display: Some(final_review_text),
-    }])
+    .await
 }
 
 #[cfg(test)]
@@ -1374,6 +1476,7 @@ mod tests {
 
         let loaded = de_plan::load_cleanse_plan_by_key(&actx, &plan.plan_key)
             .await
+            .expect("load failed")
             .expect("plan");
         let review = loaded
             .project_snapshot

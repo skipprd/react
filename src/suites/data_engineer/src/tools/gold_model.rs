@@ -154,7 +154,7 @@ impl Tool for GoldModelTool {
 
         // Plan-first authoring: if there is an active model plan, use task invariants/notes as the
         // default authoring instructions (and merge with any explicit item.instructions overrides).
-        let plan_opt = plan::load_model_plan(ctx).await;
+        let plan_opt = plan::load_model_plan(ctx).await.ok().flatten();
         let global_semantic_context = ctx
             .storage()
             .get_json(&ctx.keyspace().scoped_key(

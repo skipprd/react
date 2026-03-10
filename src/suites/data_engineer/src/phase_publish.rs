@@ -1,5 +1,5 @@
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
-use crate::{control_flow, tools, DataEngineerSuite, PhaseExecutorOutcome};
+use crate::{control_flow, tools, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 use crate::domain_types::PhaseReasonCode;
 use react_core::session::ThreadStore;
@@ -10,13 +10,13 @@ fn check_publish_retry_limit(
     _thread_id: &str,
     kind: crate::progress_controller::PublishRetryKind,
     error_prefix: &str,
-) -> (usize, Option<Result<PhaseExecutorOutcome, String>>) {
+) -> (usize, Option<Result<PhaseExecutorOutcome, PhaseError>>) {
     let retry_limit = crate::controller_kernel::publish_retry_limit();
     let retry_count = es.bump_publish_retry(kind, retry_limit);
     let err = if retry_count > retry_limit {
         Some(Err(format!(
             "{error_prefix}: retries={retry_count}"
-        )))
+        ).into()))
     } else {
         None
     };
@@ -28,7 +28,7 @@ impl DataEngineerSuite {
         thread_store: &ThreadStore,
         thread_id: &str,
         _sctx: &SuiteCtx,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         let mut es = crate::progress_controller::ExecutionState::load_strict(
             &thread_store.control_store(),
             thread_id,
@@ -91,7 +91,7 @@ impl DataEngineerSuite {
         thread_store: &ThreadStore,
         thread_id: &str,
         sctx: &SuiteCtx,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         let mut es = crate::progress_controller::ExecutionState::load_strict(
             &thread_store.control_store(),
             thread_id,
@@ -101,7 +101,7 @@ impl DataEngineerSuite {
         if let Err(reason) =
             crate::progress_controller::gate_publish_progress(&es, control_flow::Phase::Publish)
         {
-            return Err(reason);
+            return Err(reason.into());
         }
         let actx = Self::agent_tool_ctx(thread_id, sctx);
         let tool = tools::publish_dbt_to_provider::PublishDbtToProviderTool {
@@ -213,7 +213,7 @@ impl DataEngineerSuite {
 
     pub(super) fn execute_done_phase(
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         let mut answer = "Agent flow completed (deterministic phases): cleanse → validate → review → model → validate → review → publish → review.\n".to_string();
         if let Some(last) = out_frames.iter().rev().find_map(|f| match f {
             FlowFrame::Review { text, .. } => Some(text.clone()),

@@ -39,7 +39,7 @@ impl DataEngineerSuite {
         reason: String,
         detail: serde_json::Value,
         reason_code: PhaseReasonCode,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         use crate::retry_budget::SubjectiveRetryOutcome;
         match Self::check_subjective_retry_budget(
             thread_store,
@@ -52,15 +52,7 @@ impl DataEngineerSuite {
                 let blocked_reason = format!(
                     "dbt_validate execution failed {tries} times; manual intervention required.\n\n{reason}"
                 );
-                crate::phase_contract::commit_guard_block(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    GuardBlockKind::ValidateExecutionFailed,
-                    blocked_reason,
-                )
-                .await?;
-                Ok(PhaseExecutorOutcome::TransitionCommitted)
+                Err(PhaseError::Fatal(blocked_reason))
             }
             SubjectiveRetryOutcome::WithinBudget(_) => {
                 crate::retry_budget::guard_block_loopback_to_author(
@@ -73,6 +65,7 @@ impl DataEngineerSuite {
                     Some(detail),
                 )
                 .await
+                .map_err(PhaseError::from)
             }
         }
     }
@@ -108,6 +101,7 @@ impl DataEngineerSuite {
         let mut active_plan_key: Option<String> = None;
         if phase == Phase::CleanseValidate {
             if let Some(mut p) = crate::plan::load_cleanse_plan_any(actx).await
+                .map_err(|e| e.to_string())?
             {
                 crate::plan::apply_cleanse_progress_event(
                     &mut p,
@@ -125,7 +119,9 @@ impl DataEngineerSuite {
                     format!("failed to persist cleanse plan validate-pass state: {e}")
                 })?;
             }
-        } else if let Some(mut p) = crate::plan::load_model_plan_any(actx).await {
+        } else if let Some(mut p) = crate::plan::load_model_plan_any(actx).await
+            .map_err(|e| e.to_string())?
+        {
             crate::plan::apply_model_progress_event(
                 &mut p,
                 crate::plan::PlanProgressEvent::ModelValidateDone,
@@ -227,7 +223,7 @@ impl DataEngineerSuite {
         _execution_state: &crate::progress_controller::ExecutionState,
         _guard: &crate::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
 
 let actx = Self::agent_tool_ctx(thread_id, sctx);
 {
@@ -292,7 +288,8 @@ if let Err(e) =
         PhaseReasonCode::PrecheckFailed,
         Some(serde_json::json!({ "error": e })),
     )
-    .await;
+    .await
+    .map_err(PhaseError::from);
 }
 
 // Cheap structural prechecks: fail fast on malformed/duplicated schema artifacts
@@ -332,7 +329,8 @@ if let Err(e) =
         PhaseReasonCode::PrecheckFailed,
         Some(serde_json::json!({ "error": e })),
     )
-    .await;
+    .await
+    .map_err(PhaseError::from);
 }
 
 // Deterministic full validate (NO repair loop / no mutation).
@@ -495,7 +493,7 @@ if matches!(
     return Err(format!(
         "dbt_validate failed due to a warehouse/aws configuration issue: {}",
         brief
-    ));
+    ).into());
 }
 let errs: Vec<String> = obs
     .observation
@@ -612,7 +610,7 @@ let facts_bundle = crate::facts::build_validate_fail_facts(
 // Keep bounded to avoid unbounded plan growth.
 if phase == Phase::CleanseValidate {
     if let Some(mut p) =
-        crate::plan::load_cleanse_plan(&actx).await
+        crate::plan::load_cleanse_plan(&actx).await?
     {
         append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
         crate::plan::save_cleanse_plan(&actx, &p)
@@ -625,7 +623,7 @@ if phase == Phase::CleanseValidate {
     }
 } else {
     if let Some(mut p) =
-        crate::plan::load_model_plan(&actx).await
+        crate::plan::load_model_plan(&actx).await?
     {
         append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
         crate::plan::save_model_plan(&actx, &p)

@@ -69,6 +69,7 @@ pub(crate) async fn emit_batch_event(ctx: &AgentCtx, event: DataEngineerEvent) -
     state_manager::apply_execution_event(&thread_store.control_store(), thread_id, event)
         .await
         .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn parse_succeeded_ids(res: &Value, field: &str) -> Vec<String> {

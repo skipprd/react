@@ -1519,7 +1519,9 @@ impl ExecutionState {
     }
 
     pub async fn load(control: &ControlStateStore, thread_id: &str) -> Result<Option<Self>, String> {
-        crate::state_manager::load_execution_state(control, thread_id).await
+        crate::state_manager::load_execution_state(control, thread_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn load_strict(
@@ -1528,6 +1530,7 @@ impl ExecutionState {
     ) -> Result<Option<Self>, String> {
         crate::state_manager::load_execution_state_strict(control, thread_id)
             .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn save(&self, control: &ControlStateStore, thread_id: &str) -> Result<(), String> {
@@ -1538,6 +1541,7 @@ impl ExecutionState {
         )
         .await
         .map(|_| ())
+        .map_err(|e| e.to_string())
     }
 
     pub fn set_pending_publish_plan(&mut self, plan_sha256: String) {

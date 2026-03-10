@@ -97,6 +97,52 @@ mod state_first_tests {
         assert!(guard.last_validate_failed);
         assert!(guard.mutated_since_fail);
     }
+
+    #[test]
+    fn classify_telemetry_json_file_manifest() {
+        let args = serde_json::json!({"path": "target/manifest.json"});
+        let obs = react_core::session::ToolObservation::normalize(
+            serde_json::json!({"ok": true}),
+        );
+        let actions = classify_tool_telemetry("json_file", &args, &obs);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            ToolTelemetryAction::ManifestLookup { ok: true, .. }
+        ));
+    }
+
+    #[test]
+    fn classify_telemetry_batch_tool_mutation() {
+        let args = serde_json::json!({});
+        let mut extra = std::collections::BTreeMap::new();
+        extra.insert(
+            "succeeded_dataset_ids".to_string(),
+            serde_json::json!(["ds1", "ds2"]),
+        );
+        let obs = react_core::session::ToolObservation {
+            ok: true,
+            errors: vec![],
+            warnings: vec![],
+            extra,
+        };
+        let actions = classify_tool_telemetry("apply_next_cleanse_batch", &args, &obs);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            ToolTelemetryAction::MutationRecord { paths, .. } if paths.len() == 2
+        ));
+    }
+
+    #[test]
+    fn classify_telemetry_unrecognized_tool_empty() {
+        let args = serde_json::json!({});
+        let obs = react_core::session::ToolObservation::normalize(
+            serde_json::json!({"ok": true}),
+        );
+        let actions = classify_tool_telemetry("unknown_tool", &args, &obs);
+        assert!(actions.is_empty());
+    }
 }
 
 pub const ALL_PHASES: [Phase; 13] = [
@@ -529,16 +575,32 @@ pub async fn call_and_record_tool(
             |raw: &Value| Ok(raw.clone()),
         )
         .await
-        .unwrap_or_else(|e| serde_json::json!({"ok": false, "errors": [e]}))
+        .unwrap_or_else(|e| {
+            warn!(tool = %tool_name, error = %e, "run_observed failed for tool dispatch");
+            serde_json::json!({"ok": false, "errors": [e]})
+        })
 }
 
-async fn record_post_tool_telemetry(
-    store: &ThreadStore,
-    thread_id: &str,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ToolTelemetryAction {
+    ManifestLookup {
+        path_kind: crate::progress_controller::ManifestLookupPathKind,
+        ok: bool,
+        failure_kind: Option<crate::progress_controller::ManifestLookupFailureKind>,
+    },
+    MutationRecord {
+        op: crate::progress_controller::MutationOp,
+        paths: Vec<String>,
+    },
+}
+
+pub(crate) fn classify_tool_telemetry(
     tool_name: &str,
     args: &Value,
     obs: &ToolObservation,
-) {
+) -> Vec<ToolTelemetryAction> {
+    let mut actions = Vec::new();
+
     if tool_name == "json_file" {
         let manifest_path = args
             .get("path")
@@ -548,6 +610,51 @@ async fn record_post_tool_telemetry(
         if let Some(path_kind) =
             crate::progress_controller::classify_manifest_lookup_path(manifest_path)
         {
+            let failure_kind = if obs.ok {
+                None
+            } else {
+                crate::progress_controller::classify_manifest_lookup_failure(&obs.errors)
+            };
+            actions.push(ToolTelemetryAction::ManifestLookup {
+                path_kind,
+                ok: obs.ok,
+                failure_kind,
+            });
+        }
+    }
+
+    let key = match tool_name {
+        "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => {
+            Some("succeeded_dataset_ids")
+        }
+        "apply_next_model_batch" | "apply_next_model_schema_batch" => Some("succeeded_item_names"),
+        "staging_model" | "gold_model" => Some("written_keys"),
+        _ => None,
+    };
+    if let Some(key) = key {
+        let items = extract_string_vec_from_extra(&obs.extra, key);
+        if !items.is_empty() {
+            actions.push(ToolTelemetryAction::MutationRecord {
+                op: crate::progress_controller::MutationOp::Patch,
+                paths: items,
+            });
+        }
+    }
+
+    actions
+}
+
+async fn apply_telemetry_action(
+    store: &ThreadStore,
+    thread_id: &str,
+    action: ToolTelemetryAction,
+) {
+    match action {
+        ToolTelemetryAction::ManifestLookup {
+            path_kind,
+            ok,
+            failure_kind,
+        } => {
             match crate::state_manager::load_execution_state_strict(
                 &store.control_store(),
                 thread_id,
@@ -556,14 +663,7 @@ async fn record_post_tool_telemetry(
             {
                 Ok(Some(mut st)) => {
                     if st.phase.current_phase == Some(Phase::ModelPlan) {
-                        let failure_kind = if obs.ok {
-                            None
-                        } else {
-                            crate::progress_controller::classify_manifest_lookup_failure(
-                                &obs.errors,
-                            )
-                        };
-                        st.note_manifest_lookup_attempt(path_kind, obs.ok, failure_kind);
+                        st.note_manifest_lookup_attempt(path_kind, ok, failure_kind);
                         if let Err(e) = crate::state_manager::replace_execution_state(
                             &store.control_store(),
                             thread_id,
@@ -571,63 +671,53 @@ async fn record_post_tool_telemetry(
                         )
                         .await
                         {
-                            warn!("failed to persist manifest lookup telemetry: {}", e);
+                            warn!("failed to persist manifest lookup telemetry: {e}");
                         }
                     }
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    warn!(
-                        "failed to load strict execution state for manifest telemetry: {}",
-                        e
-                    );
+                    warn!("failed to load execution state for manifest telemetry: {e}");
+                }
+            }
+        }
+        ToolTelemetryAction::MutationRecord { op, paths } => {
+            match crate::state_manager::load_execution_state_strict(
+                &store.control_store(),
+                thread_id,
+            )
+            .await
+            {
+                Ok(Some(mut st)) => {
+                    st.set_last_mutation_summary(op, paths, Vec::new());
+                    if let Err(e) = crate::state_manager::replace_execution_state(
+                        &store.control_store(),
+                        thread_id,
+                        st,
+                    )
+                    .await
+                    {
+                        warn!("failed to persist non-file mutation summary: {e}");
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("failed to load execution state for mutation summary: {e}");
                 }
             }
         }
     }
+}
 
-    if let Some((op, affected_paths)) = (|| {
-        let key = match tool_name {
-            "apply_next_cleanse_batch" | "apply_next_cleanse_schema_batch" => {
-                "succeeded_dataset_ids"
-            }
-            "apply_next_model_batch" | "apply_next_model_schema_batch" => "succeeded_item_names",
-            "staging_model" | "gold_model" => "written_keys",
-            _ => return None,
-        };
-        let items = extract_string_vec_from_extra(&obs.extra, key);
-        if items.is_empty() {
-            None
-        } else {
-            Some((crate::progress_controller::MutationOp::Patch, items))
-        }
-    })() {
-        match crate::state_manager::load_execution_state_strict(
-            &store.control_store(),
-            thread_id,
-        )
-        .await
-        {
-            Ok(Some(mut st)) => {
-                st.set_last_mutation_summary(op, affected_paths, Vec::new());
-                if let Err(e) = crate::state_manager::replace_execution_state(
-                    &store.control_store(),
-                    thread_id,
-                    st,
-                )
-                .await
-                {
-                    warn!("failed to persist non-file mutation summary: {}", e);
-                }
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!(
-                    "failed to load strict execution state for mutation summary: {}",
-                    e
-                );
-            }
-        }
+async fn record_post_tool_telemetry(
+    store: &ThreadStore,
+    thread_id: &str,
+    tool_name: &str,
+    args: &Value,
+    obs: &ToolObservation,
+) {
+    for action in classify_tool_telemetry(tool_name, args, obs) {
+        apply_telemetry_action(store, thread_id, action).await;
     }
 }
 

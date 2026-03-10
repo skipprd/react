@@ -436,7 +436,8 @@ impl DataEngineerSuite {
                             reason: reason.clone(),
                         },
                     )
-                    .await?;
+                    .await
+                    .map_err(|e| e.to_string())?;
                     let mut es = execution_state.clone();
                     es.mark_failed(reason.clone());
                     es.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
@@ -530,7 +531,8 @@ impl DataEngineerSuite {
             repair_ctx, out_frames,
         ).await {
             Ok(outcome) => outcome,
-            Err(reason) => {
+            Err(e) => {
+                let reason = e.to_string();
                 tracing::error!(
                     thread_id = %thread_id,
                     phase = %phase.as_str(),
@@ -572,7 +574,7 @@ impl DataEngineerSuite {
         thread_state_step_count: usize,
         repair_ctx: &crate::progress_controller::RepairPromptContext,
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, String> {
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
         use crate::control_flow::Phase;
         match phase {
             Phase::Preflight => {
