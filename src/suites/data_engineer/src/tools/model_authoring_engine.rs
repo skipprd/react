@@ -193,6 +193,13 @@ where
                 return Ok(AuthorLoopOutcome { draft: d });
             }
             Err(err) => {
+                if crate::failure_text::is_infra_transient(
+                    &crate::failure_text::normalize_text(&err),
+                ) {
+                    return Err(vec![format!(
+                        "{entity_id}: sql validation failed: {err}"
+                    )]);
+                }
                 last_err = err.clone();
                 prev_sql = Some(d.sql.clone());
             }
