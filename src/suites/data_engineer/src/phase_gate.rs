@@ -118,6 +118,17 @@ mod tests {
     }
 
     #[test]
+    fn set_patch_impl_intent_resets_stall_count() {
+        let mut st = ExecutionState::new();
+        st.repair.stall_count = 5;
+        st.repair.mutation_epoch = 3;
+        st.set_pending_patch_impl_intent(Phase::CleanseAuthor);
+        assert_eq!(st.repair.stall_count, 0, "stall_count must reset on new patch_impl intent");
+        assert!(st.repair.pending_patch_impl.is_some());
+        assert_eq!(st.repair.pending_patch_impl.as_ref().unwrap().entry_mutation_epoch, 3);
+    }
+
+    #[test]
     fn preturn_gate_replan_backtrack_failfast() {
         let mut st = ExecutionState::new();
         st.phase.replan_backtracks = 4;

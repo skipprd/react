@@ -143,6 +143,7 @@ impl DataEngineerSuite {
             meta.review_ref = review_ref_from_trigger;
         }
         let review_retry_count;
+        let mut forced_proceed_by_patch_exhaustion = false;
         let is_patch_impl = meta.decision == ReviewDecision::PatchImpl;
         if is_patch_impl {
             use crate::retry_budget::SubjectiveRetryOutcome;
@@ -155,7 +156,7 @@ impl DataEngineerSuite {
             {
                 SubjectiveRetryOutcome::Exhausted(tries) => {
                     tracing::warn!(
-                        "data_engineer: review patch_impl retry budget exhausted without explicit plan_change; preserving patch_impl phase={} tries={}",
+                        "data_engineer: review patch_impl retry budget exhausted; forcing proceed phase={} tries={}",
                         phase.as_str(),
                         tries
                     );
@@ -167,6 +168,8 @@ impl DataEngineerSuite {
                     })
                     .await?;
                     review_retry_count = tries;
+                    meta.decision = ReviewDecision::Proceed;
+                    forced_proceed_by_patch_exhaustion = true;
                 }
                 SubjectiveRetryOutcome::WithinBudget(tries) => {
                     review_retry_count = tries;
@@ -195,7 +198,7 @@ impl DataEngineerSuite {
             phase.as_str(),
             meta.clone(),
             meta.decision,
-            false,
+            forced_proceed_by_patch_exhaustion,
             false,
             review_retry_count,
             trigger_step_idx,

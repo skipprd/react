@@ -26,6 +26,41 @@ struct AuthorPrompt {
     llm_options: LlmCallOptions,
 }
 
+enum AuthorEscalation {
+    StayLocal(String),
+    PlanDefect {
+        violations: Vec<crate::progress_controller::PlanViolation>,
+        strategy: crate::progress_controller::PlanRevisionStrategy,
+    },
+    FatalLocal(String),
+}
+
+async fn apply_author_escalation(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    escalation: AuthorEscalation,
+) -> Result<PhaseExecutorOutcome, PhaseError> {
+    match escalation {
+        AuthorEscalation::StayLocal(reason) => Ok(PhaseExecutorOutcome::stayed_waiting(reason)),
+        AuthorEscalation::PlanDefect {
+            violations,
+            strategy,
+        } => {
+            crate::phase_contract::commit_plan_revision_loopback(
+                thread_store,
+                thread_id,
+                phase,
+                violations,
+                strategy,
+            )
+            .await?;
+            Ok(PhaseExecutorOutcome::TransitionCommitted)
+        }
+        AuthorEscalation::FatalLocal(reason) => Err(PhaseError::Fatal(reason)),
+    }
+}
+
 struct AuthorPhaseCtx<'a> {
     thread_store: &'a ThreadStore,
     thread_id: &'a str,
@@ -578,7 +613,7 @@ async fn check_batch_lock_and_loopback(
     total_batch_failures: usize,
     next_ids: &[String],
     expected_paths: &[String],
-) -> Result<Option<PhaseExecutorOutcome>, String> {
+) -> Result<Option<PhaseExecutorOutcome>, PhaseError> {
     if consecutive_batch_failures < crate::controller_kernel::max_consecutive_batch_failures() {
         return Ok(None);
     }
@@ -590,33 +625,67 @@ async fn check_batch_lock_and_loopback(
         next_ids,
         expected_paths,
     );
-    apply_guard_block(
-        thread_store,
-        thread_id,
-        phase,
-        GuardBlockKind::BatchLocked,
-        reason.clone(),
-    )
-    .await?;
     let label = if track.is_cleanse() {
         "Cleanse"
     } else {
         "Model"
     };
-    let violation = crate::progress_controller::PlanViolation::new(
-        phase,
-        None,
-        format!("{label} batch lock: {reason}"),
+    let detail = format!(
+        "{label} batch authoring did not converge within the local retry budget. \
+This is an implementation/authoring failure, not an implicit plan rewrite.\n\n{reason}"
     );
-    crate::phase_contract::commit_plan_revision_loopback(
+    Ok(Some(apply_author_escalation(
         thread_store,
         thread_id,
         phase,
-        vec![violation],
-        crate::progress_controller::PlanRevisionStrategy::Rewrite,
+        AuthorEscalation::FatalLocal(detail),
     )
-    .await?;
-    Ok(Some(PhaseExecutorOutcome::TransitionCommitted))
+    .await?))
+}
+
+fn author_plan_defect(
+    phase: Phase,
+    message: impl Into<String>,
+) -> AuthorEscalation {
+    AuthorEscalation::PlanDefect {
+        violations: vec![crate::progress_controller::PlanViolation::new(
+            phase,
+            None,
+            message.into(),
+        )],
+        strategy: crate::progress_controller::PlanRevisionStrategy::Rewrite,
+    }
+}
+
+fn author_local_failure(phase: Phase, message: impl Into<String>) -> AuthorEscalation {
+    let message = message.into();
+    AuthorEscalation::FatalLocal(format!(
+        "Authoring failed in phase '{}': {}",
+        phase.as_str(),
+        message
+    ))
+}
+
+fn author_patch_impl_recovery(phase: Phase) -> AuthorEscalation {
+    AuthorEscalation::StayLocal(format!(
+        "patch_impl stall cleared at step-boundary; reverting to normal author flow (phase={})",
+        phase.as_str()
+    ))
+}
+
+async fn apply_author_plan_defect(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    phase: Phase,
+    message: impl Into<String>,
+) -> Result<PhaseExecutorOutcome, PhaseError> {
+    apply_author_escalation(
+        thread_store,
+        thread_id,
+        phase,
+        author_plan_defect(phase, message),
+    )
+    .await
 }
 
 fn extract_validate_fail_context(
@@ -655,21 +724,14 @@ async fn load_cleanse_author_context(
     if let control_flow::AuthoringGate::Block { reason } =
         control_flow::gate_author_phase_execution(&plan)
     {
-        let violation = crate::progress_controller::PlanViolation::new(
-            params.phase,
-            None,
-            format!("Plan is not executable: {reason}"),
-        );
-        crate::phase_contract::commit_plan_revision_loopback(
-            params.thread_store,
-            params.thread_id,
-            params.phase,
-            vec![violation],
-            crate::progress_controller::PlanRevisionStrategy::Rewrite,
-        )
-        .await?;
         return Ok(AuthorPlanLoadResult::EarlyReturn(
-            PhaseExecutorOutcome::TransitionCommitted,
+            apply_author_plan_defect(
+                params.thread_store,
+                params.thread_id,
+                params.phase,
+                format!("Plan is not executable: {reason}"),
+            )
+            .await?,
         ));
     }
     if !params.hard_mutation_repair_mode {
@@ -864,21 +926,14 @@ async fn load_cleanse_author_context(
                     plan_state: PlanState::Unconstrained,
                 })
             } else {
-                let violation = crate::progress_controller::PlanViolation::new(
-                    params.phase,
-                    None,
-                    "Approved cleanse plan is not executable: no next work-group action while checklist work remains",
-                );
-                crate::phase_contract::commit_plan_revision_loopback(
-                    params.thread_store,
-                    params.thread_id,
-                    params.phase,
-                    vec![violation],
-                    crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                )
-                .await?;
                 Ok(AuthorPlanLoadResult::EarlyReturn(
-                    PhaseExecutorOutcome::TransitionCommitted,
+                    apply_author_plan_defect(
+                        params.thread_store,
+                        params.thread_id,
+                        params.phase,
+                        "Approved cleanse plan is not executable: no next work-group action while checklist work remains",
+                    )
+                    .await?,
                 ))
             }
         }
@@ -920,21 +975,14 @@ async fn load_model_author_context(
     if let control_flow::AuthoringGate::Block { reason } =
         control_flow::gate_author_phase_execution(&plan)
     {
-        let violation = crate::progress_controller::PlanViolation::new(
-            params.phase,
-            None,
-            format!("Plan is not executable: {reason}"),
-        );
-        crate::phase_contract::commit_plan_revision_loopback(
-            params.thread_store,
-            params.thread_id,
-            params.phase,
-            vec![violation],
-            crate::progress_controller::PlanRevisionStrategy::Rewrite,
-        )
-        .await?;
         return Ok(AuthorPlanLoadResult::EarlyReturn(
-            PhaseExecutorOutcome::TransitionCommitted,
+            apply_author_plan_defect(
+                params.thread_store,
+                params.thread_id,
+                params.phase,
+                format!("Plan is not executable: {reason}"),
+            )
+            .await?,
         ));
     }
     if !params.hard_mutation_repair_mode {
@@ -1189,21 +1237,14 @@ async fn load_model_author_context(
                     plan_state: PlanState::Unconstrained,
                 })
             } else {
-                let violation = crate::progress_controller::PlanViolation::new(
-                    params.phase,
-                    None,
-                    "Approved model plan is not executable: no next work-group action while checklist work remains",
-                );
-                crate::phase_contract::commit_plan_revision_loopback(
-                    params.thread_store,
-                    params.thread_id,
-                    params.phase,
-                    vec![violation],
-                    crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                )
-                .await?;
                 Ok(AuthorPlanLoadResult::EarlyReturn(
-                    PhaseExecutorOutcome::TransitionCommitted,
+                    apply_author_plan_defect(
+                        params.thread_store,
+                        params.thread_id,
+                        params.phase,
+                        "Approved model plan is not executable: no next work-group action while checklist work remains",
+                    )
+                    .await?,
                 ))
             }
         }
@@ -1829,26 +1870,52 @@ async fn handle_author_run_outcome(
             );
             match crate::authoring_driver::AuthoringDriver::run_turn(authoring_ctx, &snapshot) {
                 crate::authoring_driver::AuthoringTurnResult::HardError { message } => {
-                    let violation = crate::progress_controller::PlanViolation::new(
+                    if crate::phase_gate::patch_impl_intent_unsatisfied(
+                        &post_state,
                         params.phase,
-                        None,
-                        format!("Authoring stall: {message}"),
-                    );
-                    crate::phase_contract::commit_plan_revision_loopback(
+                    ) {
+                        tracing::warn!(
+                            "data_engineer: patch_impl stall at step-boundary (phase={}): {message}. Clearing intent and staying local.",
+                            params.phase.as_str()
+                        );
+                        post_state.clear_pending_patch_impl();
+                        post_state.repair.stall_count = 0;
+                        post_state
+                            .save(&params.thread_store.control_store(), params.thread_id)
+                            .await
+                            .map_err(|e| {
+                                format!("failed to persist patch_impl stall recovery: {e}")
+                            })?;
+                        return apply_author_escalation(
+                            params.thread_store,
+                            params.thread_id,
+                            params.phase,
+                            author_patch_impl_recovery(params.phase),
+                        )
+                        .await;
+                    }
+                    return apply_author_escalation(
                         params.thread_store,
                         params.thread_id,
                         params.phase,
-                        vec![violation],
-                        crate::progress_controller::PlanRevisionStrategy::Rewrite,
+                        author_local_failure(
+                            params.phase,
+                            format!("authoring stall after repeated local repair attempts: {message}"),
+                        ),
                     )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
+                    .await;
                 }
                 crate::authoring_driver::AuthoringTurnResult::Continue => {}
             }
-            Ok(PhaseExecutorOutcome::stayed_waiting(
-                "authoring turn ended at the single-step boundary without a committed transition",
-            ))
+            if mutation_advanced {
+                Ok(PhaseExecutorOutcome::stayed_with_progress(
+                    "authoring turn made mutations at the step boundary; resetting budget",
+                ))
+            } else {
+                Ok(PhaseExecutorOutcome::stayed_waiting(
+                    "authoring turn ended at the single-step boundary without a committed transition",
+                ))
+            }
         }
     }
 }

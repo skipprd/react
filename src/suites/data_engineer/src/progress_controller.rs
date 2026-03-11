@@ -706,6 +706,7 @@ pub enum NoRepairReason {
     FailureClassNotRepairable,
     NoRepairableTarget,
     MissingTargetMaterialization,
+    MultiTargetSqlFailure,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -1568,6 +1569,7 @@ impl ExecutionState {
                 phase,
                 entry_mutation_epoch: epoch,
             });
+            repair.stall_count = 0;
         });
     }
 
@@ -2057,14 +2059,21 @@ pub fn repair_intent_from_backlog(
     match failure_class {
         FailureKind::Schema => RepairIntent::Schema { backlog },
         FailureKind::SqlRuntime => {
-            if let Some((target, materialization)) =
-                backlog.iter().find_map(|item| match &item.path {
+            let sql_targets: Vec<(SqlModelPath, RepairTargetMaterialization)> = backlog
+                .iter()
+                .filter_map(|item| match &item.path {
                     Some(RepairTargetPath::SqlModel(path)) => {
                         Some((path.clone(), item.materialization))
                     }
                     _ => None,
                 })
-            {
+                .collect();
+            if sql_targets.len() > 1 {
+                RepairIntent::NoRepair {
+                    reason: NoRepairReason::MultiTargetSqlFailure,
+                    backlog,
+                }
+            } else if let Some((target, materialization)) = sql_targets.into_iter().next() {
                 match materialization {
                     RepairTargetMaterialization::Existing => {
                         RepairIntent::SqlPatch { target, backlog }
@@ -2463,6 +2472,32 @@ mod tests {
                     == Some("models/staging/stg_orders.yml")),
             "original .yml target should be preserved"
         );
+    }
+
+    #[test]
+    fn repair_intent_uses_batch_mode_for_multi_target_sql_runtime() {
+        let backlog = vec![
+            RepairTarget {
+                model_name: Some("stg_orders".to_string()),
+                path: Some(repair_target_path("models/staging/stg_orders.sql")),
+                error_class: Some(FailureKind::SqlRuntime),
+                materialization: RepairTargetMaterialization::Existing,
+            },
+            RepairTarget {
+                model_name: Some("stg_order_items".to_string()),
+                path: Some(repair_target_path("models/staging/stg_order_items.sql")),
+                error_class: Some(FailureKind::SqlRuntime),
+                materialization: RepairTargetMaterialization::Existing,
+            },
+        ];
+        let intent = repair_intent_from_backlog(FailureKind::SqlRuntime, backlog);
+        assert!(matches!(
+            intent,
+            RepairIntent::NoRepair {
+                reason: NoRepairReason::MultiTargetSqlFailure,
+                ..
+            }
+        ));
     }
 
     #[test]

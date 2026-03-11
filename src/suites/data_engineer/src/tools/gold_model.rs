@@ -25,15 +25,6 @@ fn gold_model_rel_path(folder: &str, name: &str) -> String {
     format!("models/{}/{}.sql", folder, name)
 }
 
-fn staging_rel_path_from_input(input: &str) -> String {
-    let t = input.trim();
-    if t.contains('/') || t.ends_with(".sql") {
-        // Treat as project-relative path.
-        return t.to_string();
-    }
-    format!("models/staging/{}.sql", t)
-}
-
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         return s.to_string();
@@ -54,6 +45,8 @@ struct GoldModelItem {
     description: String,
     #[serde(default)]
     inputs: Vec<String>,
+    #[serde(default)]
+    grounded_inputs: Vec<crate::plan_types::GroundedModelInput>,
     #[serde(default)]
     instructions: String,
 }
@@ -176,21 +169,6 @@ impl Tool for GoldModelTool {
             .to_string();
         let query = crate::ctx_ext::actx_warehouse(ctx)
             .expect("warehouse provider required for gold_model");
-        let (target_container, silver_ns) = crate::resolved_config_from_ctx(ctx)
-            .and_then(|cfg| crate::de_config::de_config_from_resolved(cfg))
-            .map(|p| {
-                let container = p.warehouse.container.clone();
-                let base_schema = p.dbt.naming.target_schema.clone();
-                let silver_suffix = p.dbt.naming.silver_suffix.clone();
-                let db = if base_schema.trim().is_empty() {
-                    "".to_string()
-                } else {
-                    format!("{}_{}", base_schema.trim(), silver_suffix.trim())
-                };
-                (container, db)
-            })
-            .unwrap_or_else(|| ("".to_string(), "".to_string()));
-
         let mut written: Vec<String> = Vec::new();
         let mut notes: Vec<String> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
@@ -249,17 +227,47 @@ impl Tool for GoldModelTool {
             let rel_path = gold_model_rel_path(&folder, name);
 
             // Load the inputs to ground the LLM in actual silver SQL.
+            let effective_grounded_inputs = if it.grounded_inputs.is_empty() {
+                plan_opt
+                    .as_ref()
+                    .and_then(|p| p.tasks.iter().find(|t| t.name.trim() == name))
+                    .map(|t| t.grounded_inputs.clone())
+                    .unwrap_or_default()
+            } else {
+                it.grounded_inputs.clone()
+            };
+            let grounded_by_input: std::collections::BTreeMap<String, crate::plan_types::GroundedModelInput> =
+                effective_grounded_inputs
+                    .iter()
+                    .cloned()
+                    .map(|g| (g.input_name.trim().to_string(), g))
+                    .collect();
             let max_fetch_concurrency = 3usize;
             let storage = ctx.storage().clone();
-            let query2 = query.clone();
-            let target_container2 = target_container.clone();
-            let silver_ns2 = silver_ns.clone();
-            let mut set: JoinSet<(usize, String, String, String, String, Vec<(String, String)>)> =
-                JoinSet::new();
-            // (idx, input, rel_path, content, derived_relation_fqn, schema_cols)
-            let mut fetched: Vec<(usize, String, String, String, String, Vec<(String, String)>)> =
-                Vec::new();
+            let mut set: JoinSet<(
+                usize,
+                String,
+                String,
+                String,
+                String,
+                Vec<(String, String)>,
+            )> = JoinSet::new();
+            // (idx, input, rel_path, content, relation_fqn, schema_cols)
+            let mut fetched: Vec<(
+                usize,
+                String,
+                String,
+                String,
+                String,
+                Vec<(String, String)>,
+            )> = Vec::new();
             for (idx, inp) in it.inputs.iter().cloned().enumerate() {
+                let Some(grounded) = grounded_by_input.get(inp.trim()).cloned() else {
+                    errors.push(format!(
+                        "{name}: missing grounded input relation for '{inp}' in approved model plan"
+                    ));
+                    continue;
+                };
                 while set.len() >= max_fetch_concurrency {
                     if let Some(res) = set.join_next().await {
                         if let Ok(v) = res {
@@ -268,12 +276,14 @@ impl Tool for GoldModelTool {
                     }
                 }
                 let storage2 = storage.clone();
-                let rel = staging_rel_path_from_input(&inp);
+                let rel = grounded.model_rel_path.clone();
                 let key = format!("{}/{}", base, rel);
-                let rel2 = rel.clone();
-                let query3 = query2.clone();
-                let target_container3 = target_container2.clone();
-                let silver_ns3 = silver_ns2.clone();
+                let relation_fqn = grounded.relation_fqn.clone();
+                let schema_cols: Vec<(String, String)> = grounded
+                    .source_schema
+                    .iter()
+                    .map(|c| (c.name.clone(), c.data_type.clone()))
+                    .collect();
                 set.spawn(async move {
                     let content = storage2
                         .get_bytes(&key)
@@ -282,32 +292,7 @@ impl Tool for GoldModelTool {
                         .map(|b| String::from_utf8_lossy(&b).to_string())
                         .unwrap_or_default();
 
-                    let alias = rel2
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or("")
-                        .trim_end_matches(".sql")
-                        .to_string();
-                    let derived_fqn = if !target_container3.trim().is_empty()
-                        && !silver_ns3.trim().is_empty()
-                        && !alias.trim().is_empty()
-                    {
-                        format!("{}.{}.{}", target_container3, silver_ns3, alias)
-                    } else {
-                        "".to_string()
-                    };
-                    let schema_cols = if !derived_fqn.is_empty() {
-                        crate::transient_retry::retry_transient_default(
-                            "gold_model_schema",
-                            || async { query3.schema(&derived_fqn).await },
-                        )
-                        .await
-                        .unwrap_or_default()
-                    } else {
-                        vec![]
-                    };
-
-                    (idx, inp, rel2, content, derived_fqn, schema_cols)
+                    (idx, inp, rel, content, relation_fqn, schema_cols)
                 });
             }
 
@@ -318,7 +303,7 @@ impl Tool for GoldModelTool {
             }
             fetched.sort_by_key(|(idx, _, _, _, _, _)| *idx);
             let mut input_blocks: Vec<Value> = Vec::new();
-            for (_idx, inp, rel, content, derived_fqn, schema_cols) in fetched.into_iter() {
+            for (_idx, inp, rel, content, relation_fqn, schema_cols) in fetched.into_iter() {
                 let cols_json: Vec<Value> = schema_cols
                     .into_iter()
                     .map(|(n, t)| serde_json::json!({"name": n, "type": t}))
@@ -329,7 +314,7 @@ impl Tool for GoldModelTool {
                         "path": rel,
                         "ok": false,
                         "error": "missing or empty input model SQL",
-                        "derived_relation_fqn": derived_fqn,
+                        "relation_fqn": relation_fqn,
                         "schema_columns": cols_json
                     }));
                 } else {
@@ -338,7 +323,7 @@ impl Tool for GoldModelTool {
                         "path": rel,
                         "ok": true,
                         "sql": truncate(&content, 20_000),
-                        "derived_relation_fqn": derived_fqn,
+                        "relation_fqn": relation_fqn,
                         "schema_columns": cols_json
                     }));
                 }
@@ -420,22 +405,25 @@ impl Tool for GoldModelTool {
                 std::collections::HashMap::new();
             for (idx, inp) in it.inputs.iter().enumerate() {
                 let ph = format!("__INPUT_{}__", idx);
-                // Find derived_relation_fqn for this input (from input_blocks).
-                let derived_fqn = input_blocks
+                let relation_fqn = input_blocks
                     .iter()
                     .find(|b| b.get("input").and_then(|v| v.as_str()) == Some(inp.as_str()))
-                    .and_then(|b| b.get("derived_relation_fqn").and_then(|v| v.as_str()))
+                    .and_then(|b| b.get("relation_fqn").and_then(|v| v.as_str()))
                     .unwrap_or("")
                     .trim()
                     .to_string();
-                if derived_fqn.is_empty() {
-                    errors.push(format!("{name}: cannot validate gold SQL: missing derived_relation_fqn for input '{inp}' (ensure silver models exist and are queryable)"));
+                if relation_fqn.is_empty() {
+                    errors.push(format!(
+                        "{name}: cannot validate gold SQL: missing grounded relation_fqn for input '{inp}'"
+                    ));
                     continue;
                 }
-                let id = match query.parse_dataset_fqn(&derived_fqn) {
+                let id = match query.parse_dataset_fqn(&relation_fqn) {
                     Ok(id) => id,
                     Err(e) => {
-                        errors.push(format!("{name}: invalid derived_relation_fqn '{derived_fqn}' for input '{inp}': {e}"));
+                        errors.push(format!(
+                            "{name}: invalid grounded relation_fqn '{relation_fqn}' for input '{inp}': {e}"
+                        ));
                         continue;
                     }
                 };
@@ -768,7 +756,13 @@ mod tests {
                         "name": "fct_orders",
                         "folder": "marts",
                         "goal": "Orders fact at order grain.",
-                        "inputs": ["stg_test_raw_raw_orders"]
+                        "inputs": ["stg_test_raw_raw_orders"],
+                        "grounded_inputs": [{
+                            "input_name": "stg_test_raw_raw_orders",
+                            "model_rel_path": "models/staging/stg_test_raw_raw_orders.sql",
+                            "relation_fqn": "catalog.db.stg_test_raw_raw_orders",
+                            "source_schema": [{"name": "order_id", "data_type": "bigint"}]
+                        }]
                     }]
                 }),
                 &ctx,
@@ -829,7 +823,13 @@ mod tests {
                         "name": "fct_orders",
                         "folder": "marts",
                         "goal": "Orders fact at order grain.",
-                        "inputs": ["stg_test_raw_raw_orders"]
+                        "inputs": ["stg_test_raw_raw_orders"],
+                        "grounded_inputs": [{
+                            "input_name": "stg_test_raw_raw_orders",
+                            "model_rel_path": "models/staging/stg_test_raw_raw_orders.sql",
+                            "relation_fqn": "catalog.db.stg_test_raw_raw_orders",
+                            "source_schema": [{"name": "order_id", "data_type": "bigint"}]
+                        }]
                     }]
                 }),
                 &ctx,
@@ -891,6 +891,26 @@ mod tests {
                             "stg_test_raw_raw_orders",
                             "stg_test_raw_raw_users",
                             "stg_test_raw_raw_missing"
+                        ],
+                        "grounded_inputs": [
+                            {
+                                "input_name": "stg_test_raw_raw_orders",
+                                "model_rel_path": "models/staging/stg_test_raw_raw_orders.sql",
+                                "relation_fqn": "catalog.db.stg_test_raw_raw_orders",
+                                "source_schema": [{"name": "order_id", "data_type": "bigint"}]
+                            },
+                            {
+                                "input_name": "stg_test_raw_raw_users",
+                                "model_rel_path": "models/staging/stg_test_raw_raw_users.sql",
+                                "relation_fqn": "catalog.db.stg_test_raw_raw_users",
+                                "source_schema": [{"name": "user_id", "data_type": "bigint"}]
+                            },
+                            {
+                                "input_name": "stg_test_raw_raw_missing",
+                                "model_rel_path": "models/staging/stg_test_raw_raw_missing.sql",
+                                "relation_fqn": "catalog.db.stg_test_raw_raw_missing",
+                                "source_schema": []
+                            }
                         ]
                     }]
                 }),
@@ -999,6 +1019,16 @@ mod tests {
                     assumptions: vec![],
                 }),
                 source_schema: vec![],
+                grounded_inputs: vec![crate::plan_types::GroundedModelInput {
+                    input_name: "stg_test_raw_raw_orders".to_string(),
+                    model_rel_path: "models/staging/stg_test_raw_raw_orders.sql".to_string(),
+                    relation_fqn:
+                        "AwsDataCatalog.test_silver.stg_test_raw_raw_orders".to_string(),
+                    source_schema: vec![crate::plan_types::SourceColumnDef {
+                        name: "order_id".to_string(),
+                        data_type: "bigint".to_string(),
+                    }],
+                }],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![
                     crate::plan::PlanChecklistItem {

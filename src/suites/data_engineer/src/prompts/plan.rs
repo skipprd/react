@@ -146,9 +146,10 @@ Each output_fields item MUST include: name, kind, expression.\n\
 spec_version MUST be an integer number (not a string).\n\
 ROW-PRESERVING SILVER CONTRACT:\n\
 - row_preserving MUST be true for all cleanse/silver tasks.\n\
-- The authored SQL will SELECT all source columns by default. You do NOT need to list raw passthrough columns in output_fields.\n\
-- output_fields should list ONLY columns that add value beyond raw passthrough: cleaned/cast versions, derived fields, and quality flags.\n\
-- Do NOT add a catch-all or wildcard field. The authoring step handles raw column passthrough automatically.\n\
+- output_fields MUST list every non-trivial output column: cleaned/cast versions, derived fields, and quality flags.\n\
+  Every cleanse task must produce at least cleaned typed columns (e.g. timestamps, numerics) and quality flags.\n\
+  An EMPTY output_fields is NEVER valid — the design memo always specifies transformation work.\n\
+- Raw passthrough columns (kind=raw) should also be listed explicitly if the plan references them.\n\
 COLUMN GROUNDING (CRITICAL):\n\
 - output_fields[].source_columns MUST reference ONLY columns listed in the AUTHORITATIVE SCHEMAS section.\n\
 - Do NOT invent, abbreviate, or rename source column names.\n\

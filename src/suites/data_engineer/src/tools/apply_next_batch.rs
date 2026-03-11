@@ -554,6 +554,7 @@ impl Tool for ApplyNextModelBatchTool {
                     "folder": t.folder,
                     "goal": t.goal,
                     "inputs": t.inputs,
+                    "grounded_inputs": t.grounded_inputs,
                 });
                 if let Some(i) = instructions.as_ref() {
                     it["instructions"] = Value::String(i.clone());
@@ -912,7 +913,19 @@ mod tests {
                     }],
                     assumptions: vec![],
                 }),
-                source_schema: vec![],
+                source_schema: vec![plan::SourceColumnDef {
+                    name: "customer_id".to_string(),
+                    data_type: "bigint".to_string(),
+                }],
+                grounded_inputs: vec![plan::GroundedModelInput {
+                    input_name: "stg_test_raw_raw_customers".to_string(),
+                    model_rel_path: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                    relation_fqn: "catalog.db.stg_test_raw_raw_customers".to_string(),
+                    source_schema: vec![plan::SourceColumnDef {
+                        name: "customer_id".to_string(),
+                        data_type: "bigint".to_string(),
+                    }],
+                }],
                 status: plan::TaskStatus::InProgress,
                 checklist,
             }],

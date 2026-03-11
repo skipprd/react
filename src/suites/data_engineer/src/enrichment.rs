@@ -2,6 +2,29 @@ use super::*;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DesignCritiqueDisposition {
+    Accepted,
+    AcceptedWithNovelBlockers,
+    Rejected,
+}
+
+impl DesignCritiqueDisposition {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::AcceptedWithNovelBlockers => "accepted_with_novel_blockers",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+pub(super) struct CritiquedDesignMemo {
+    pub memo: String,
+    pub critique: crate::plan_schema::PlanDesignCritiqueV1,
+    pub disposition: DesignCritiqueDisposition,
+}
+
 trait EnrichableTask: crate::plan::PlanTask + Sized {
     type Spec: serde::Serialize + DeserializeOwned;
     type EnrichmentItem;
@@ -22,6 +45,25 @@ trait EnrichableTask: crate::plan::PlanTask + Sized {
     fn apply_source_schema(task: &mut Self, schemas: &crate::plan_types::SourceSchema);
     fn is_placeholder(task: &Self) -> bool;
     fn retry_hint(failure_errors: &[String]) -> String;
+}
+
+fn resolve_design_critique_disposition(
+    prior: &crate::plan_schema::PlanDesignCritiqueV1,
+    revised: &crate::plan_schema::PlanDesignCritiqueV1,
+) -> DesignCritiqueDisposition {
+    if revised.ok {
+        return DesignCritiqueDisposition::Accepted;
+    }
+    let prior_codes: std::collections::BTreeSet<_> = prior.blockers.iter().map(|b| b.code).collect();
+    let has_overlap = revised
+        .blockers
+        .iter()
+        .any(|b| prior_codes.contains(&b.code));
+    if has_overlap {
+        DesignCritiqueDisposition::Rejected
+    } else {
+        DesignCritiqueDisposition::AcceptedWithNovelBlockers
+    }
 }
 
 impl EnrichableTask for crate::plan::CleanseTask {
@@ -670,35 +712,27 @@ impl DataEngineerSuite {
         ctx: &AgentCtx,
         track: TrackKind,
         planning_context: &str,
-    ) -> Result<(String, crate::plan_schema::PlanDesignCritiqueV1), String> {
+    ) -> Result<CritiquedDesignMemo, String> {
         let mut memo = Self::generate_design_memo(ctx, track, planning_context).await?;
-        let mut critique =
+        let critique =
             Self::critique_design_memo(ctx, track, planning_context, &memo, None).await?;
-        if !critique.ok {
-            let prior_codes: std::collections::BTreeSet<_> =
-                critique.blockers.iter().map(|b| b.code).collect();
-            memo =
-                Self::revise_design_memo(ctx, track, planning_context, &memo, &critique).await?;
-            let second_critique =
-                Self::critique_design_memo(ctx, track, planning_context, &memo, Some(&critique))
-                    .await?;
-            // Convergence: if all remaining blockers are novel (none overlap with the prior set),
-            // the original issues were resolved and new ones are adversarial drift — accept the memo.
-            let has_overlap = second_critique
-                .blockers
-                .iter()
-                .any(|b| prior_codes.contains(&b.code));
-            if second_critique.ok || !has_overlap {
-                critique = crate::plan_schema::PlanDesignCritiqueV1 {
-                    ok: true,
-                    blockers: vec![],
-                    fixes: vec![],
-                };
-            } else {
-                critique = second_critique;
-            }
+        if critique.ok {
+            return Ok(CritiquedDesignMemo {
+                memo,
+                critique,
+                disposition: DesignCritiqueDisposition::Accepted,
+            });
         }
-        Ok((memo, critique))
+
+        memo = Self::revise_design_memo(ctx, track, planning_context, &memo, &critique).await?;
+        let second_critique =
+            Self::critique_design_memo(ctx, track, planning_context, &memo, Some(&critique))
+                .await?;
+        Ok(CritiquedDesignMemo {
+            memo,
+            disposition: resolve_design_critique_disposition(&critique, &second_critique),
+            critique: second_critique,
+        })
     }
 
     pub(super) fn critique_guidance(critique: &crate::plan_schema::PlanDesignCritiqueV1) -> String {
@@ -894,6 +928,7 @@ Apply these fixes in the output.",
                 invariants: vec![],
                 implementation_spec: None,
                 source_schema: vec![],
+                grounded_inputs: vec![],
                 status: Default::default(),
                 checklist: crate::plan::canonical_task_checklist(TrackKind::Model),
             })
@@ -915,6 +950,58 @@ Apply these fixes in the output.",
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn critique_disposition_rejects_repeated_blockers() {
+        let prior = crate::plan_schema::PlanDesignCritiqueV1 {
+            ok: false,
+            blockers: vec![crate::plan_schema::PlanDesignBlockerV1 {
+                code: crate::plan_schema::PlanDesignBlockerCodeV1::MissingTaskSpecs,
+                target_id: None,
+                detail: None,
+            }],
+            fixes: vec![],
+        };
+        let revised = crate::plan_schema::PlanDesignCritiqueV1 {
+            ok: false,
+            blockers: vec![crate::plan_schema::PlanDesignBlockerV1 {
+                code: crate::plan_schema::PlanDesignBlockerCodeV1::MissingTaskSpecs,
+                target_id: None,
+                detail: None,
+            }],
+            fixes: vec![],
+        };
+        assert_eq!(
+            resolve_design_critique_disposition(&prior, &revised),
+            DesignCritiqueDisposition::Rejected
+        );
+    }
+
+    #[test]
+    fn critique_disposition_marks_novel_second_pass_blockers_explicitly() {
+        let prior = crate::plan_schema::PlanDesignCritiqueV1 {
+            ok: false,
+            blockers: vec![crate::plan_schema::PlanDesignBlockerV1 {
+                code: crate::plan_schema::PlanDesignBlockerCodeV1::MissingTaskSpecs,
+                target_id: None,
+                detail: None,
+            }],
+            fixes: vec![],
+        };
+        let revised = crate::plan_schema::PlanDesignCritiqueV1 {
+            ok: false,
+            blockers: vec![crate::plan_schema::PlanDesignBlockerV1 {
+                code: crate::plan_schema::PlanDesignBlockerCodeV1::InvalidChecklistProgress,
+                target_id: None,
+                detail: None,
+            }],
+            fixes: vec![],
+        };
+        assert_eq!(
+            resolve_design_critique_disposition(&prior, &revised),
+            DesignCritiqueDisposition::AcceptedWithNovelBlockers
+        );
+    }
 
     #[test]
     fn generic_enrichment_applies_cleanse_spec_to_allowed_tasks() {
@@ -979,6 +1066,7 @@ mod tests {
                 invariants: vec![],
                 implementation_spec: None,
                 source_schema: vec![],
+                grounded_inputs: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![],
             }],

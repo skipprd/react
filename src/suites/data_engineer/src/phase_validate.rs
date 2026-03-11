@@ -9,7 +9,89 @@ enum ValidatePassTransition {
     ToReview,
 }
 
+enum ValidateEscalation {
+    LoopbackToAuthor {
+        guard_kind: GuardBlockKind,
+        reason: String,
+        reason_code: PhaseReasonCode,
+        detail: serde_json::Value,
+    },
+    Fatal(String),
+}
+
 impl DataEngineerSuite {
+    async fn apply_validate_escalation(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        phase: Phase,
+        escalation: ValidateEscalation,
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+        match escalation {
+            ValidateEscalation::LoopbackToAuthor {
+                guard_kind,
+                reason,
+                reason_code,
+                detail,
+            } => crate::retry_budget::guard_block_loopback_to_author(
+                thread_store,
+                thread_id,
+                phase,
+                guard_kind,
+                reason,
+                reason_code,
+                Some(detail),
+            )
+            .await
+            .map_err(PhaseError::from),
+            ValidateEscalation::Fatal(reason) => Err(PhaseError::Fatal(reason)),
+        }
+    }
+
+    fn validate_execution_failure_escalation(
+        reason: String,
+        detail: serde_json::Value,
+        reason_code: PhaseReasonCode,
+        retry_outcome: crate::retry_budget::SubjectiveRetryOutcome,
+    ) -> ValidateEscalation {
+        match retry_outcome {
+            crate::retry_budget::SubjectiveRetryOutcome::Exhausted(tries) => {
+                ValidateEscalation::Fatal(format!(
+                    "dbt_validate execution failed {tries} times; manual intervention required.\n\n{reason}"
+                ))
+            }
+            crate::retry_budget::SubjectiveRetryOutcome::WithinBudget(_) => {
+                ValidateEscalation::LoopbackToAuthor {
+                    guard_kind: GuardBlockKind::ValidateExecutionFailed,
+                    reason,
+                    reason_code,
+                    detail,
+                }
+            }
+        }
+    }
+
+    fn validate_precheck_escalation(
+        reason: String,
+        detail: serde_json::Value,
+        retry_outcome: crate::retry_budget::SubjectiveRetryOutcome,
+    ) -> ValidateEscalation {
+        match retry_outcome {
+            crate::retry_budget::SubjectiveRetryOutcome::Exhausted(tries) => {
+                ValidateEscalation::Fatal(format!(
+                    "pre-validation repair did not converge after {tries} attempts; manual implementation fix required before re-validating.\n\n{reason}"
+                ))
+            }
+            crate::retry_budget::SubjectiveRetryOutcome::WithinBudget(_) => {
+                ValidateEscalation::LoopbackToAuthor {
+                    guard_kind: GuardBlockKind::PrecheckFailed,
+                    reason,
+                    reason_code: PhaseReasonCode::PrecheckFailed,
+                    detail,
+                }
+            }
+        }
+    }
+
     async fn handle_validate_execution_failure(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -18,34 +100,15 @@ impl DataEngineerSuite {
         detail: serde_json::Value,
         reason_code: PhaseReasonCode,
     ) -> Result<PhaseExecutorOutcome, PhaseError> {
-        use crate::retry_budget::SubjectiveRetryOutcome;
-        match Self::check_subjective_retry_budget(
+        let retry_outcome = Self::check_subjective_retry_budget(
             thread_store,
             thread_id,
             crate::progress_controller::SubjectiveRetryKind::ValidateExecutionFailed,
         )
-        .await?
-        {
-            SubjectiveRetryOutcome::Exhausted(tries) => {
-                let blocked_reason = format!(
-                    "dbt_validate execution failed {tries} times; manual intervention required.\n\n{reason}"
-                );
-                Err(PhaseError::Fatal(blocked_reason))
-            }
-            SubjectiveRetryOutcome::WithinBudget(_) => {
-                crate::retry_budget::guard_block_loopback_to_author(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    GuardBlockKind::ValidateExecutionFailed,
-                    reason,
-                    reason_code,
-                    Some(detail),
-                )
-                .await
-                .map_err(PhaseError::from)
-            }
-        }
+        .await?;
+        let escalation =
+            Self::validate_execution_failure_escalation(reason, detail, reason_code, retry_outcome);
+        Self::apply_validate_escalation(thread_store, thread_id, phase, escalation).await
     }
     fn decide_validate_pass_transition(
         completion_snapshot: Option<&crate::plan::PlanCompletionSnapshot>,
@@ -216,87 +279,41 @@ impl DataEngineerSuite {
         // Pre-validate normalization: dedupe/merge repeated model+test definitions to
         // avoid deterministic compile loops before dbt_validate.
         if let Err(e) = crate::schema_policy::normalize_schema_artifacts_for_validate(&actx).await {
-            use crate::retry_budget::SubjectiveRetryOutcome;
-            match Self::check_subjective_retry_budget(
+            let retry_outcome = Self::check_subjective_retry_budget(
                 &thread_store,
                 thread_id,
                 crate::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
             )
-            .await?
-            {
-                SubjectiveRetryOutcome::Exhausted(tries) => {
-                    let violation = crate::progress_controller::PlanViolation::new(
-                        phase,
-                        None,
-                        format!("Pre-validation normalization failed {tries} times: {e}"),
-                    );
-                    crate::phase_contract::commit_plan_revision_loopback(
-                        thread_store,
-                        thread_id,
-                        phase,
-                        vec![violation],
-                        crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                    )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
-                }
-                SubjectiveRetryOutcome::WithinBudget(_) => {}
-            }
-            return crate::retry_budget::guard_block_loopback_to_author(
-        &thread_store,
-        thread_id,
-        phase,
-        GuardBlockKind::PrecheckFailed,
-        format!("Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"),
-        PhaseReasonCode::PrecheckFailed,
-        Some(serde_json::json!({ "error": e })),
-    )
-    .await
-    .map_err(PhaseError::from);
+            .await?;
+            let escalation = Self::validate_precheck_escalation(
+                format!(
+                    "Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
+                ),
+                serde_json::json!({ "error": e }),
+                retry_outcome,
+            );
+            return Self::apply_validate_escalation(&thread_store, thread_id, phase, escalation)
+                .await;
         }
 
         // Cheap structural prechecks: fail fast on malformed/duplicated schema artifacts
         // instead of burning a full dbt_validate cycle.
         if let Err(e) = crate::schema_policy::prevalidate_dbt_schema_artifacts(&actx).await {
-            use crate::retry_budget::SubjectiveRetryOutcome;
-            match Self::check_subjective_retry_budget(
+            let retry_outcome = Self::check_subjective_retry_budget(
                 &thread_store,
                 thread_id,
                 crate::progress_controller::SubjectiveRetryKind::ValidatePrecheckFailed,
             )
-            .await?
-            {
-                SubjectiveRetryOutcome::Exhausted(tries) => {
-                    let violation = crate::progress_controller::PlanViolation::new(
-                        phase,
-                        None,
-                        format!("Pre-validation structural check failed {tries} times: {e}"),
-                    );
-                    crate::phase_contract::commit_plan_revision_loopback(
-                        thread_store,
-                        thread_id,
-                        phase,
-                        vec![violation],
-                        crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                    )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
-                }
-                SubjectiveRetryOutcome::WithinBudget(_) => {}
-            }
-            return crate::retry_budget::guard_block_loopback_to_author(
-                &thread_store,
-                thread_id,
-                phase,
-                GuardBlockKind::PrecheckFailed,
+            .await?;
+            let escalation = Self::validate_precheck_escalation(
                 format!(
                     "Pre-validation failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
                 ),
-                PhaseReasonCode::PrecheckFailed,
-                Some(serde_json::json!({ "error": e })),
-            )
-            .await
-            .map_err(PhaseError::from);
+                serde_json::json!({ "error": e }),
+                retry_outcome,
+            );
+            return Self::apply_validate_escalation(&thread_store, thread_id, phase, escalation)
+                .await;
         }
 
         // Deterministic full validate (NO repair loop / no mutation).
@@ -530,41 +547,6 @@ impl DataEngineerSuite {
             })?;
         }
 
-        // Escalate to plan revision if repeated failures indicate the plan itself is broken.
-        // replan_backtracks reflects how many validate->author loopbacks have occurred for
-        // the current plan. If we've already bounced back twice with no progress, the plan
-        // likely contains unachievable instructions.
-        {
-            let backtracks = _execution_state.phase.replan_backtracks;
-            if backtracks >= 2 {
-                tracing::warn!(
-            "data_engineer: escalating to plan revision after {} validate loopbacks (phase={})",
-            backtracks,
-            phase.as_str()
-        );
-                let violation = crate::progress_controller::PlanViolation::new(
-                    phase,
-                    None,
-                    format!(
-                "Validation has failed {} consecutive times with the same or similar errors. \
-                 The author phase was unable to resolve the issue, suggesting the plan \
-                 itself contains unachievable instructions.\n\nLatest error: {}",
-                backtracks,
-                brief
-            ),
-                );
-                crate::phase_contract::commit_plan_revision_loopback(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    vec![violation],
-                    crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                )
-                .await?;
-                return Ok(PhaseExecutorOutcome::TransitionCommitted);
-            }
-        }
-
         // Validation failed -> go back to corresponding author phase.
         let trigger_step_idx = thread_state_step_count.saturating_sub(1);
         let to_phase = if phase == Phase::CleanseValidate {
@@ -666,5 +648,36 @@ mod tests {
             DataEngineerSuite::decide_validate_pass_transition(None),
             ValidatePassTransition::ToReview
         );
+    }
+
+    #[test]
+    fn validate_execution_failure_exhaustion_is_not_plan_rewrite() {
+        let escalation = DataEngineerSuite::validate_execution_failure_escalation(
+            "dbt_validate execution failed".to_string(),
+            serde_json::json!({"error":"boom"}),
+            PhaseReasonCode::ValidateExecutionFailed,
+            crate::retry_budget::SubjectiveRetryOutcome::Exhausted(3),
+        );
+        match escalation {
+            ValidateEscalation::Fatal(reason) => {
+                assert!(reason.contains("manual intervention required"));
+            }
+            _ => panic!("expected fatal escalation"),
+        }
+    }
+
+    #[test]
+    fn validate_precheck_exhaustion_is_not_plan_rewrite() {
+        let escalation = DataEngineerSuite::validate_precheck_escalation(
+            "Pre-validation failed".to_string(),
+            serde_json::json!({"error":"yaml"}),
+            crate::retry_budget::SubjectiveRetryOutcome::Exhausted(2),
+        );
+        match escalation {
+            ValidateEscalation::Fatal(reason) => {
+                assert!(reason.contains("manual implementation fix required"));
+            }
+            _ => panic!("expected fatal escalation"),
+        }
     }
 }
