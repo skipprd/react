@@ -1,7 +1,6 @@
 use crate::naming;
 use crate::plan_progress::{checklist_status, is_runnable_checklist_status, CHECKLIST_SQL_MODEL};
 use crate::plan_types::*;
-use crate::plan_validation::{validate_cleanse_plan_semantics, validate_model_plan_semantics};
 use crate::references::DatasetRef;
 use react_core::agent::AgentCtx;
 
@@ -140,6 +139,13 @@ pub fn prune_model_plan_to_grounded_staging_models(
         .filter_map(|s| normalize_staging_input_name(s))
         .collect();
 
+    let plan_task_names: std::collections::BTreeSet<String> = plan
+        .tasks
+        .iter()
+        .map(|t| t.name.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
     let mut removed: Vec<String> = Vec::new();
     plan.tasks.retain_mut(|t| {
         let name = t.name.trim();
@@ -159,6 +165,10 @@ pub fn prune_model_plan_to_grounded_staging_models(
                 continue;
             }
             let Some(normalized) = normalize_staging_input_name(it) else {
+                if plan_task_names.contains(it) {
+                    normalized_inputs.push(it.to_string());
+                    continue;
+                }
                 removed.push(t.name.clone());
                 return false;
             };
@@ -300,6 +310,12 @@ fn strict_model_grounding_errors(
     allowed_staging_models: Option<&std::collections::BTreeSet<String>>,
 ) -> Vec<String> {
     let mut errors = strict_grounding_errors(plan);
+    let plan_task_names: std::collections::BTreeSet<&str> = plan
+        .tasks
+        .iter()
+        .map(|t| t.name.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
     for t in &plan.tasks {
         if t.name.trim().is_empty() {
             continue;
@@ -307,9 +323,6 @@ fn strict_model_grounding_errors(
         if t.goal.trim().is_empty() {
             errors.push(format!("{}: goal is required", t.name));
         }
-        // Model tasks consume staging models whose output schemas may differ from raw
-        // catalog schemas. source_schema is best-effort at plan time; the authoring LLM
-        // queries actual staging model schemas at authoring time.
         let nonempty_inputs: Vec<String> = t
             .inputs
             .iter()
@@ -352,9 +365,9 @@ fn strict_model_grounding_errors(
         }
         if let Some(allowed) = allowed_staging_models {
             for inp in nonempty_inputs {
-                if !allowed.contains(&inp) {
+                if !allowed.contains(&inp) && !plan_task_names.contains(inp.as_str()) {
                     errors.push(format!(
-                        "{}: input '{}' not grounded in models/staging/",
+                        "{}: input '{}' not grounded in known staging models or plan tasks",
                         t.name, inp
                     ));
                 }
@@ -369,10 +382,9 @@ impl TryFrom<CleansePlan> for GroundedCleansePlan {
 
     fn try_from(mut value: CleansePlan) -> Result<Self, Self::Error> {
         normalize_cleanse_plan_defaults(&mut value);
-        let mut errors = strict_cleanse_grounding_errors(&value);
-        let sem = validate_cleanse_plan_semantics(&value);
-        errors.extend(sem.messages());
+        let errors = strict_cleanse_grounding_errors(&value);
         if !errors.is_empty() {
+            let mut errors = errors;
             errors.sort();
             errors.dedup();
             return Err(format!(
@@ -405,10 +417,9 @@ impl GroundedModelPlan {
         allowed_staging_models: &std::collections::BTreeSet<String>,
     ) -> Result<Self, String> {
         ensure_expected_model_paths_model(&mut plan);
-        let mut errors = strict_model_grounding_errors(&plan, Some(allowed_staging_models));
-        let sem = validate_model_plan_semantics(&plan, Some(allowed_staging_models));
-        errors.extend(sem.messages());
+        let errors = strict_model_grounding_errors(&plan, Some(allowed_staging_models));
         if !errors.is_empty() {
+            let mut errors = errors;
             errors.sort();
             errors.dedup();
             return Err(format!(

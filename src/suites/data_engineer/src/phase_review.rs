@@ -154,14 +154,10 @@ impl DataEngineerSuite {
             .await?
             {
                 SubjectiveRetryOutcome::Exhausted(tries) => {
-                    let evidence = format!(
-                        "Review PatchImpl looped {} times without convergence. The plan may contain unachievable requirements.",
-                        tries,
-                    );
                     tracing::warn!(
-                        "data_engineer: escalating to plan revision phase={} reason={}",
+                        "data_engineer: review patch_impl retry budget exhausted without explicit plan_change; preserving patch_impl phase={} tries={}",
                         phase.as_str(),
-                        evidence
+                        tries
                     );
                     Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
                         matches!(
@@ -170,17 +166,7 @@ impl DataEngineerSuite {
                         )
                     })
                     .await?;
-                    let violation =
-                        crate::progress_controller::PlanViolation::new(phase, None, evidence);
-                    crate::phase_contract::commit_plan_revision_loopback(
-                        thread_store,
-                        thread_id,
-                        phase,
-                        vec![violation],
-                        crate::progress_controller::PlanRevisionStrategy::Rewrite,
-                    )
-                    .await?;
-                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
+                    review_retry_count = tries;
                 }
                 SubjectiveRetryOutcome::WithinBudget(tries) => {
                     review_retry_count = tries;

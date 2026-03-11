@@ -65,6 +65,147 @@ fn decide_author_validate_trigger(
     None
 }
 
+fn review_patch_detail(
+    execution_state: &crate::progress_controller::ExecutionState,
+) -> Option<crate::phase_reason_detail::ReviewDecisionTransitionDetail> {
+    (execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl))
+        .then_some(execution_state.phase.phase_reason_detail.clone())
+        .flatten()
+        .and_then(|v| {
+            serde_json::from_value::<crate::phase_reason_detail::ReviewDecisionTransitionDetail>(v)
+                .ok()
+        })
+}
+
+fn normalize_review_patch_target_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").to_string()
+}
+
+fn path_matches_review_target(expected_path: Option<&str>, target: &str) -> bool {
+    let Some(expected_path) = expected_path else {
+        return false;
+    };
+    let expected_norm = normalize_review_patch_target_path(expected_path);
+    let target_norm = normalize_review_patch_target_path(target);
+    if expected_norm == target_norm {
+        return true;
+    }
+    let expected_file = std::path::Path::new(&expected_norm);
+    let target_file = std::path::Path::new(&target_norm);
+    let expected_name = expected_file.file_name().and_then(|s| s.to_str());
+    let target_name = target_file.file_name().and_then(|s| s.to_str());
+    if expected_name == target_name {
+        return true;
+    }
+    let expected_stem = expected_file.file_stem().and_then(|s| s.to_str());
+    let target_stem = target_file.file_stem().and_then(|s| s.to_str());
+    expected_stem.is_some() && expected_stem == target_stem
+}
+
+fn resolve_review_patch_target_paths<T>(
+    dataset_ids: &[String],
+    tasks: &[T],
+    task_id_of: impl Fn(&T) -> &str,
+    expected_path_of: impl Fn(&T) -> Option<&str>,
+) -> Vec<String> {
+    let mut paths = std::collections::BTreeSet::new();
+    for dataset_id in dataset_ids {
+        let target = dataset_id.trim();
+        if target.is_empty() {
+            continue;
+        }
+        if target.contains('/') || target.ends_with(".sql") || target.ends_with(".yml") || target.ends_with(".yaml") {
+            paths.insert(normalize_review_patch_target_path(target));
+            continue;
+        }
+        for task in tasks {
+            if task_id_of(task) == target || path_matches_review_target(expected_path_of(task), target) {
+                if let Some(path) = expected_path_of(task) {
+                    paths.insert(normalize_review_patch_target_path(path));
+                }
+            }
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn build_review_patch_plan_context(
+    track: TrackKind,
+    plan_key: &str,
+    review_target_paths: &[String],
+) -> String {
+    let mut ctx = format!(
+        "Approved {} plan (stored at: {}).\nReview requested a localized implementation patch. Do NOT revise the approved plan/spec.\nYou MUST make a mutating file edit before any further validate turn.\n",
+        track.as_str(),
+        plan_key
+    );
+    if review_target_paths.is_empty() {
+        ctx.push_str(
+            "Review targets were not mapped to file paths. Use the prior review feedback plus the approved plan to identify the relevant implementation and patch it directly.\n",
+        );
+    } else {
+        ctx.push_str(
+            "\nReviewed implementation targets (patch these files directly with file op=patch|rm|mv):\n",
+        );
+        for path in review_target_paths {
+            ctx.push_str("- ");
+            ctx.push_str(path);
+            ctx.push('\n');
+        }
+    }
+    ctx.push_str(
+        "\nNext action: apply the smallest implementation fix that satisfies the prior review feedback. Keep changes local and preserve the approved grounded plan.\n",
+    );
+    ctx
+}
+
+async fn append_review_patch_target_contents(
+    q: &mut String,
+    actx: &AgentCtx,
+    review_target_paths: &[String],
+) {
+    if review_target_paths.is_empty() {
+        return;
+    }
+    let base = actx
+        .keyspace()
+        .scoped_prefix(actx.scope(), &["dbt"])
+        .trim_end_matches('/')
+        .to_string();
+    let mut rendered = 0usize;
+    for path in review_target_paths {
+        if rendered >= 3 {
+            break;
+        }
+        let rel = normalize_review_patch_target_path(path);
+        if rel.is_empty() {
+            continue;
+        }
+        let key = format!("{}/{}", base, rel);
+        let Ok(bytes) = actx.storage().get_bytes(&key).await else {
+            continue;
+        };
+        let content = String::from_utf8_lossy(&bytes).to_string();
+        let fence_lang = if rel.ends_with(".yml") || rel.ends_with(".yaml") {
+            "yaml"
+        } else {
+            "sql"
+        };
+        q.push_str("\n\nReviewed target current file content:\n");
+        q.push_str("File: ");
+        q.push_str(&rel);
+        q.push_str("\n\n```");
+        q.push_str(fence_lang);
+        q.push_str("\n");
+        q.push_str(&content);
+        if !content.ends_with('\n') {
+            q.push('\n');
+        }
+        q.push_str("```\n");
+        rendered += 1;
+    }
+}
+
 async fn transition_plan_missing(
     thread_store: &ThreadStore,
     thread_id: &str,
@@ -210,6 +351,38 @@ mod tests {
                 false
             ),
             None
+        );
+    }
+
+    #[test]
+    fn review_patch_target_resolution_maps_task_ids_and_paths() {
+        let tasks = vec![
+            (
+                "AwsDataCatalog.test_raw.raw_orders".to_string(),
+                Some("models/staging/stg_test_raw_raw_orders.sql".to_string()),
+            ),
+            (
+                "stg_test_raw_raw_order_items".to_string(),
+                Some("models/staging/stg_test_raw_raw_order_items.sql".to_string()),
+            ),
+        ];
+        let targets = resolve_review_patch_target_paths(
+            &[
+                "AwsDataCatalog.test_raw.raw_orders".to_string(),
+                "stg_test_raw_raw_order_items".to_string(),
+                "models/schema.yml".to_string(),
+            ],
+            &tasks,
+            |task| task.0.as_str(),
+            |task| task.1.as_deref(),
+        );
+        assert_eq!(
+            targets,
+            vec![
+                "models/schema.yml".to_string(),
+                "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
+                "models/staging/stg_test_raw_raw_orders.sql".to_string(),
+            ]
         );
     }
 }
@@ -553,6 +726,27 @@ async fn load_cleanse_author_context(
     let next_action = crate::plan::cleanse_next_authoring_action(&plan);
     let next = next_action.author_sql_ids();
 
+    if crate::phase_gate::patch_impl_intent_unsatisfied(params.execution_state, params.phase) {
+        let review_target_paths = review_patch_detail(params.execution_state)
+            .map(|detail| {
+                resolve_review_patch_target_paths(
+                    &detail.meta.dataset_ids,
+                    &plan.tasks,
+                    |task| task.dataset_id.as_str(),
+                    |task| task.expected_model_path.as_deref(),
+                )
+            })
+            .unwrap_or_default();
+        return Ok(AuthorPlanLoadResult::Ready {
+            plan_context: build_review_patch_plan_context(
+                params.track,
+                &plan.plan_key,
+                &review_target_paths,
+            ),
+            plan_state: PlanState::Unconstrained,
+        });
+    }
+
     if params.hard_mutation_repair_mode
         && matches!(
             params.repair_type,
@@ -796,6 +990,27 @@ async fn load_model_author_context(
 
     let next_action = crate::plan::model_next_authoring_action(&plan);
     let next_names = next_action.author_sql_ids();
+
+    if crate::phase_gate::patch_impl_intent_unsatisfied(params.execution_state, params.phase) {
+        let review_target_paths = review_patch_detail(params.execution_state)
+            .map(|detail| {
+                resolve_review_patch_target_paths(
+                    &detail.meta.dataset_ids,
+                    &plan.tasks,
+                    |task| task.name.as_str(),
+                    |task| task.expected_model_path.as_deref(),
+                )
+            })
+            .unwrap_or_default();
+        return Ok(AuthorPlanLoadResult::Ready {
+            plan_context: build_review_patch_plan_context(
+                params.track,
+                &plan.plan_key,
+                &review_target_paths,
+            ),
+            plan_state: PlanState::Unconstrained,
+        });
+    }
 
     if params.hard_mutation_repair_mode
         && matches!(
@@ -1203,18 +1418,10 @@ async fn build_author_prompt(
         }
     }
     if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl) {
-        if let Some(key) = params
-            .execution_state
-            .phase
-            .phase_reason_detail
+        let review_detail = review_patch_detail(params.execution_state);
+        if let Some(key) = review_detail
             .as_ref()
-            .and_then(|v| {
-                serde_json::from_value::<
-                        crate::phase_reason_detail::ReviewDecisionTransitionDetail,
-                    >(v.clone())
-                    .ok()
-            })
-            .and_then(|detail| detail.meta.review_ref)
+            .and_then(|detail| detail.meta.review_ref.as_ref())
             .map(|review_ref| review_ref.key.trim().to_string())
             .filter(|s| !s.is_empty())
         {
@@ -1227,6 +1434,42 @@ async fn build_author_prompt(
                 }
             }
         }
+        let review_target_paths = if params.track.is_cleanse() {
+            crate::plan::load_cleanse_plan(actx)
+                .await?
+                .map(|plan| {
+                    review_detail
+                        .as_ref()
+                        .map(|detail| {
+                            resolve_review_patch_target_paths(
+                                &detail.meta.dataset_ids,
+                                &plan.tasks,
+                                |task| task.dataset_id.as_str(),
+                                |task| task.expected_model_path.as_deref(),
+                            )
+                        })
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default()
+        } else {
+            crate::plan::load_model_plan(actx)
+                .await?
+                .map(|plan| {
+                    review_detail
+                        .as_ref()
+                        .map(|detail| {
+                            resolve_review_patch_target_paths(
+                                &detail.meta.dataset_ids,
+                                &plan.tasks,
+                                |task| task.name.as_str(),
+                                |task| task.expected_model_path.as_deref(),
+                            )
+                        })
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default()
+        };
+        append_review_patch_target_contents(&mut q, actx, &review_target_paths).await;
     }
     if params.hard_mutation_repair_mode {
         q.push_str("\n\nConstraint: your next steps must APPLY A MUTATING FIX before attempting dbt_validate again.");
@@ -1465,6 +1708,8 @@ async fn handle_author_run_outcome(
             )
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
+            let patch_impl_mutation_satisfied =
+                gate_state.repair.mutation_epoch > pre_mutation_epoch;
             if let Err(reason) =
                 crate::progress_controller::gate_authoring_progress(&gate_state, params.phase)
             {
@@ -1496,7 +1741,8 @@ async fn handle_author_run_outcome(
             if matches!(
                 gate_state.repair.pending_patch_impl.as_ref(),
                 Some(intent) if intent.phase == params.phase
-            ) {
+            ) && patch_impl_mutation_satisfied
+            {
                 crate::state_manager::mutate_execution_state(
                     &params.thread_store.control_store(),
                     params.thread_id,

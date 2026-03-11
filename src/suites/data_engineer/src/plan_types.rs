@@ -392,6 +392,22 @@ pub struct ModelImplementationSpec {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct GroundedModelInput {
+    /// Canonical input model name — staging (`stg_orders`) or intra-plan gold
+    /// (`fct_orders`).
+    pub input_name: String,
+    /// Expected dbt model file path for this grounded input.
+    pub model_rel_path: String,
+    /// Warehouse FQN used for deterministic validation queries.
+    pub relation_fqn: String,
+    /// Authoritative output columns for this relation (empty when warehouse
+    /// schema is not yet available, e.g. intra-plan gold deps before authoring).
+    #[serde(default)]
+    pub source_schema: Vec<SourceColumnDef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CleanseTask {
     pub dataset_id: String,
     /// Expected DBT model file path for this dataset (project-relative).
@@ -461,6 +477,10 @@ pub struct ModelTask {
     /// For model tasks, this merges the columns of all input staging models.
     #[serde(default)]
     pub source_schema: Vec<SourceColumnDef>,
+    /// Grounded per-input relation facts for authoring/validation. This removes
+    /// the need for downstream tools to re-derive staging relation identities.
+    #[serde(default)]
+    pub grounded_inputs: Vec<GroundedModelInput>,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]
@@ -482,6 +502,37 @@ impl ModelTask {
             self.source_schema = merged;
         }
     }
+
+    /// Build grounded input relations for **staging** inputs only.
+    /// Intra-plan gold deps are handled separately by
+    /// [`apply_intra_plan_grounded_inputs`].
+    pub fn apply_grounded_inputs_from(
+        &mut self,
+        schemas: &SourceSchema,
+        staging_prefix: Option<&str>,
+    ) {
+        let Some(prefix) = staging_prefix.map(str::trim).filter(|p| !p.is_empty()) else {
+            return;
+        };
+        let mut grounded: Vec<GroundedModelInput> = Vec::new();
+        for inp in &self.inputs {
+            let input_name = inp.trim();
+            if input_name.is_empty() || !input_name.starts_with("stg_") {
+                continue;
+            }
+            let source_schema = schemas
+                .get(input_name)
+                .cloned()
+                .unwrap_or_default();
+            grounded.push(GroundedModelInput {
+                input_name: input_name.to_string(),
+                model_rel_path: format!("models/staging/{}.sql", input_name),
+                relation_fqn: format!("{}.{}", prefix, input_name),
+                source_schema,
+            });
+        }
+        self.grounded_inputs = grounded;
+    }
 }
 
 impl PlanTask for ModelTask {
@@ -502,6 +553,50 @@ impl PlanTask for ModelTask {
     }
     fn work_group_prefix() -> &'static str {
         "model"
+    }
+}
+
+/// Populate [`GroundedModelInput`] entries for intra-plan gold dependencies
+/// (inputs that reference another task in the same plan, not a staging model).
+/// Must be called **after** [`ModelTask::apply_grounded_inputs_from`] so that
+/// staging entries are already in place.
+pub fn apply_intra_plan_grounded_inputs(
+    tasks: &mut [ModelTask],
+    gold_prefix: Option<&str>,
+) {
+    let Some(prefix) = gold_prefix.map(str::trim).filter(|p| !p.is_empty()) else {
+        return;
+    };
+    let task_paths: std::collections::BTreeMap<String, String> = tasks
+        .iter()
+        .filter(|t| !t.name.trim().is_empty())
+        .map(|t| {
+            let name = t.name.trim().to_string();
+            let path = t
+                .expected_model_path
+                .clone()
+                .unwrap_or_else(|| format!("models/{}/{}.sql", t.folder.as_str(), &name));
+            (name, path)
+        })
+        .collect();
+    for t in tasks.iter_mut() {
+        for inp in &t.inputs {
+            let input_name = inp.trim();
+            if input_name.is_empty() || input_name.starts_with("stg_") {
+                continue;
+            }
+            if t.grounded_inputs.iter().any(|g| g.input_name == input_name) {
+                continue;
+            }
+            if let Some(path) = task_paths.get(input_name) {
+                t.grounded_inputs.push(GroundedModelInput {
+                    input_name: input_name.to_string(),
+                    model_rel_path: path.clone(),
+                    relation_fqn: format!("{}.{}", prefix, input_name),
+                    source_schema: vec![],
+                });
+            }
+        }
     }
 }
 

@@ -36,6 +36,7 @@ async fn finalize_plan_and_approve(
     actx: &AgentCtx,
     thread_state_step_count: usize,
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     sem: &crate::plan::PlanSemanticValidation,
     snapshot: &mut crate::plan_types::PlanSnapshot,
     retry_kinds: Vec<crate::progress_controller::SubjectiveRetryKind>,
@@ -44,7 +45,7 @@ async fn finalize_plan_and_approve(
         return handle_plan_semantic_failure(sem, thread_store, thread_id, phase).await;
     }
 
-    stamp_design_review(snapshot, track, design_critique);
+    stamp_design_review(snapshot, track, design_critique, critique_disposition);
 
     DataEngineerSuite::clear_subjective_retries_matching(thread_store, thread_id, move |k| {
         retry_kinds.contains(k)
@@ -123,11 +124,13 @@ fn stamp_design_review(
     snapshot: &mut crate::plan_types::PlanSnapshot,
     track: TrackKind,
     critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    disposition: crate::enrichment::DesignCritiqueDisposition,
 ) {
     snapshot.insert(
         "plan_design_review",
         serde_json::json!({
             "ok": critique.ok,
+            "disposition": disposition.as_str(),
             "kind": format!("{}_plan", track.as_str()),
             "blockers": critique.blockers,
             "fixes": critique.fixes,
@@ -647,6 +650,7 @@ async fn compile_and_ground_cleanse_plan(
     q: &str,
     design_memo: &str,
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
 ) -> Result<PhaseExecutorOutcome, PhaseError> {
     let discovered_raw = &discovery.raw_dataset_ids;
@@ -693,6 +697,7 @@ async fn compile_and_ground_cleanse_plan(
         "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
         "plan_design_critique": {
             "ok": design_critique.ok,
+            "disposition": critique_disposition.as_str(),
             "blockers": design_critique.blockers.clone(),
             "fixes": design_critique.fixes.clone()
         },
@@ -828,6 +833,7 @@ async fn compile_and_ground_cleanse_plan(
         &pctx.actx,
         pctx.thread_state_step_count,
         design_critique,
+        critique_disposition,
         &sem,
         &mut plan.project_snapshot,
         vec![SubjectiveRetryKind::PlanSemanticInvalid],
@@ -850,6 +856,7 @@ async fn compile_and_ground_model_plan(
     q: &str,
     design_memo: &str,
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
 ) -> Result<PhaseExecutorOutcome, PhaseError> {
     let staged = discovery.staging.as_ref().expect(
@@ -916,6 +923,7 @@ async fn compile_and_ground_model_plan(
         "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
         "plan_design_critique": {
             "ok": design_critique.ok,
+            "disposition": critique_disposition.as_str(),
             "blockers": design_critique.blockers.clone(),
             "fixes": design_critique.fixes.clone()
         },
@@ -943,16 +951,18 @@ async fn compile_and_ground_model_plan(
 
     // Record staging model output schemas on the plan. Enrichment has now
     // populated task.inputs with stg_* names, so we query the warehouse for
-    // their output columns and stamp each ModelTask.source_schema. This is
-    // recorded on the plan at the save checkpoint below.
+    // their output columns and stamp each ModelTask with both merged schemas
+    // and grounded per-input relation facts.
+    let mut staging_schemas = discovery.source_schemas.clone();
+    let staging_prefix = crate::dataset_truth::staging_relation_prefix(&pctx.actx);
+    let gold_prefix = crate::dataset_truth::gold_relation_prefix(&pctx.actx);
     {
         let all_stg_inputs: std::collections::BTreeSet<String> = plan
             .tasks
             .iter()
             .flat_map(|t| t.inputs.iter().map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && s.starts_with("stg_"))
             .collect();
-        let mut staging_schemas = discovery.source_schemas.clone();
         crate::dataset_truth::record_staging_output_schemas(
             &pctx.actx,
             &all_stg_inputs,
@@ -961,7 +971,12 @@ async fn compile_and_ground_model_plan(
         .await;
         for t in plan.tasks.iter_mut() {
             t.apply_source_schema_from(&staging_schemas);
+            t.apply_grounded_inputs_from(&staging_schemas, staging_prefix.as_deref());
         }
+        crate::plan_types::apply_intra_plan_grounded_inputs(
+            &mut plan.tasks,
+            gold_prefix.as_deref(),
+        );
     }
 
     tracing::info!("data_engineer: [model] grounding plan against existing staging models");
@@ -1017,6 +1032,14 @@ async fn compile_and_ground_model_plan(
                 &targeted,
             )
             .await?;
+            for t in plan.tasks.iter_mut() {
+                t.apply_source_schema_from(&staging_schemas);
+                t.apply_grounded_inputs_from(&staging_schemas, staging_prefix.as_deref());
+            }
+            crate::plan_types::apply_intra_plan_grounded_inputs(
+                &mut plan.tasks,
+                gold_prefix.as_deref(),
+            );
             crate::plan::ensure_model_plan_semantically_valid_or_repaired(
                 &mut plan,
                 &staged.allowed_models,
@@ -1039,6 +1062,7 @@ async fn compile_and_ground_model_plan(
         &pctx.actx,
         pctx.thread_state_step_count,
         design_critique,
+        critique_disposition,
         &sem,
         &mut plan.project_snapshot,
         vec![
@@ -1146,9 +1170,17 @@ impl DataEngineerSuite {
             tracing::info!(
                 "data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery"
             );
-            let (design_memo, design_critique) =
+            let critiqued =
                 Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
-            return compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique, &discovery)
+            return compile_and_ground_cleanse_plan(
+                &pctx,
+                sctx,
+                &q,
+                &critiqued.memo,
+                &critiqued.critique,
+                critiqued.disposition,
+                &discovery,
+            )
                 .await;
         }
 
@@ -1204,13 +1236,30 @@ impl DataEngineerSuite {
                     q.clone()
                 };
 
-                let (design_memo, design_critique) =
+                let critiqued =
                     Self::produce_critiqued_design_memo(&pctx.actx, track, &q_memo).await?;
 
                 if track.is_cleanse() {
-                    compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique, &discovery).await
+                    compile_and_ground_cleanse_plan(
+                        &pctx,
+                        sctx,
+                        &q,
+                        &critiqued.memo,
+                        &critiqued.critique,
+                        critiqued.disposition,
+                        &discovery,
+                    )
+                    .await
                 } else {
-                    compile_and_ground_model_plan(&pctx, &q_memo, &design_memo, &design_critique, &discovery).await
+                    compile_and_ground_model_plan(
+                        &pctx,
+                        &q_memo,
+                        &critiqued.memo,
+                        &critiqued.critique,
+                        critiqued.disposition,
+                        &discovery,
+                    )
+                    .await
                 }
             }
             Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {

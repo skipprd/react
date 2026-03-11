@@ -335,6 +335,13 @@ pub fn validate_model_plan_semantics(
 ) -> PlanSemanticValidation {
     let mut errors = validate_plan_structure(plan, "name", "model name", "model");
 
+    let plan_task_names: std::collections::BTreeSet<&str> = plan
+        .tasks
+        .iter()
+        .map(|t| t.name.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+
     for t in plan.tasks.iter() {
         let tid = &t.name;
         if tid.trim().is_empty() {
@@ -376,11 +383,45 @@ pub fn validate_model_plan_semantics(
             if nonempty_inputs.is_empty() {
                 errors.push(format!("{}: inputs is empty for runnable task", tid));
             }
+            let grounded_input_names: std::collections::BTreeSet<String> = t
+                .grounded_inputs
+                .iter()
+                .map(|g| g.input_name.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            for inp in nonempty_inputs.iter() {
+                if !grounded_input_names.contains(inp) {
+                    errors.push(format!(
+                        "{}: grounded_inputs is missing authoritative relation facts for input '{}'",
+                        tid, inp
+                    ));
+                }
+            }
+            for grounded in &t.grounded_inputs {
+                if grounded.relation_fqn.trim().is_empty() {
+                    errors.push(format!(
+                        "{}: grounded_inputs[{}].relation_fqn is empty",
+                        tid, grounded.input_name
+                    ));
+                }
+                if grounded.model_rel_path.trim().is_empty() {
+                    errors.push(format!(
+                        "{}: grounded_inputs[{}].model_rel_path is empty",
+                        tid, grounded.input_name
+                    ));
+                }
+                if grounded.source_schema.is_empty() {
+                    tracing::warn!(
+                        "{}: grounded_inputs[{}].source_schema is empty (warehouse schema not yet available)",
+                        tid, grounded.input_name
+                    );
+                }
+            }
             if let Some(allowed) = allowed_staging_models {
                 for inp in nonempty_inputs.iter() {
-                    if !allowed.contains(inp) {
+                    if !allowed.contains(inp) && !plan_task_names.contains(inp.as_str()) {
                         errors.push(format!(
-                            "{}: input '{}' not grounded in models/staging/",
+                            "{}: input '{}' not grounded in known staging models or plan tasks",
                             tid, inp
                         ));
                     }

@@ -350,6 +350,60 @@ pub fn render_source_schema_prompt_block(
     out
 }
 
+/// Canonical warehouse prefix for staged silver relations, e.g.
+/// `AwsDataCatalog.example_silver`.
+pub fn staging_relation_prefix(ctx: &AgentCtx) -> Option<String> {
+    crate::resolved_config_from_ctx(ctx)
+        .and_then(crate::de_config::de_config_from_resolved)
+        .map(|p| {
+            let container = p.warehouse.container.clone();
+            let base_schema = p.dbt.naming.target_schema.clone();
+            let silver_suffix = p.dbt.naming.silver_suffix.clone();
+            let db = if base_schema.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{}_{}", base_schema.trim(), silver_suffix.trim())
+            };
+            (container, db)
+        })
+        .and_then(|(container, db)| {
+            let container = container.trim().to_string();
+            let db = db.trim().to_string();
+            if container.is_empty() || db.is_empty() {
+                None
+            } else {
+                Some(format!("{}.{}", container, db))
+            }
+        })
+}
+
+/// Canonical warehouse prefix for gold (marts/core) relations, e.g.
+/// `AwsDataCatalog.example_warehouse`.
+pub fn gold_relation_prefix(ctx: &AgentCtx) -> Option<String> {
+    crate::resolved_config_from_ctx(ctx)
+        .and_then(crate::de_config::de_config_from_resolved)
+        .map(|p| {
+            let container = p.warehouse.container.clone();
+            let base_schema = p.dbt.naming.target_schema.clone();
+            let gold_suffix = p.dbt.naming.gold_suffix.clone();
+            let db = if base_schema.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{}_{}", base_schema.trim(), gold_suffix.trim())
+            };
+            (container, db)
+        })
+        .and_then(|(container, db)| {
+            let container = container.trim().to_string();
+            let db = db.trim().to_string();
+            if container.is_empty() || db.is_empty() {
+                None
+            } else {
+                Some(format!("{}.{}", container, db))
+            }
+        })
+}
+
 /// Query the warehouse for output schemas of materialized staging models and
 /// merge them into `source_schemas` keyed by `stg_*` name. This is called during
 /// model plan compilation so the plan records what the gold LLM will see at
@@ -363,31 +417,16 @@ pub async fn record_staging_output_schemas(
         Some(wh) => wh,
         None => return,
     };
-    let (container, silver_ns) = crate::resolved_config_from_ctx(ctx)
-        .and_then(|cfg| crate::de_config::de_config_from_resolved(cfg))
-        .map(|p| {
-            let container = p.warehouse.container.clone();
-            let base_schema = p.dbt.naming.target_schema.clone();
-            let silver_suffix = p.dbt.naming.silver_suffix.clone();
-            let db = if base_schema.trim().is_empty() {
-                String::new()
-            } else {
-                format!("{}_{}", base_schema.trim(), silver_suffix.trim())
-            };
-            (container, db)
-        })
-        .unwrap_or_default();
-
-    if container.trim().is_empty() || silver_ns.trim().is_empty() {
+    let Some(relation_prefix) = staging_relation_prefix(ctx) else {
         return;
-    }
+    };
 
     for name_owned in staging_model_names {
         let name = name_owned.trim();
         if name.is_empty() || source_schemas.contains_key(name) {
             continue;
         }
-        let fqn = format!("{}.{}.{}", container, silver_ns, name);
+        let fqn = format!("{}.{}", relation_prefix, name);
         match crate::transient_retry::retry_transient_default(
             "staging_output_schema",
             || async { wh.schema(&fqn).await },
