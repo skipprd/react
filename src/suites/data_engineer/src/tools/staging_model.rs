@@ -133,13 +133,18 @@ fn build_staging_sys_prompt(
          - Silver must be row-preserving:\n\
            - Do NOT enforce grains/primary keys in silver (no deduping, no windowing row_number(), no filtering to non-null IDs).\n\
            - Do NOT add `*_pk` fields that imply enforced uniqueness; if you add canonical IDs, they must be nullable and accompanied by has_* flags.\n\
+         - ROW-PRESERVING COLUMN CONTRACT:\n\
+           - The final SELECT MUST include ALL columns from schema_columns (the complete source schema).\n\
+           - Raw columns that need no transformation: include them directly (alias to clean names if helpful).\n\
+           - Columns the implementation_spec transforms: include the clean/derived/quality_flag version from output_fields AND the raw original (aliased with a *_raw suffix if the clean version reuses the base name).\n\
+           - Do NOT drop any source column. Silver is additive: source columns pass through, plus clean/derived columns are added alongside.\n\
+         - Prefer an explicit column list in the final SELECT; avoid SELECT *. If you use CTEs, expand the final projection rather than using SELECT * FROM cte.\n\
          - IMPORTANT: Do NOT include a dbt config block or alias; the suite enforces canonical config/alias deterministically.\n\
          - Nested fields / dotted columns:\n\
            - Use schema_columns as ground truth.\n\
            - If schema_columns contains an EXACT column name with dots (e.g. context.session.id), treat it as a literal column name and reference it as a single quoted identifier like \"context.session.id\".\n\
            - Only use struct dereference (e.g. context.session.id) when schema_columns indicates a struct/row parent exists (e.g. context) AND there is no exact dotted column name.\n\
          - If a column name is reserved (e.g. timestamp), quote the identifier (\"timestamp\"). For literal dotted column names, quote the entire identifier (\"context.session.id\").\n\
-         - Prefer an explicit column list in the final SELECT; avoid SELECT *. If you use CTEs, expand the final projection rather than using SELECT * FROM cte.\n\
          - Keep changes aligned with the user's instructions, even if they are unconventional.\n"
         ,
         provider_rules = provider_rules

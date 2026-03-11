@@ -74,22 +74,12 @@ pub struct ModelPlanCandidatesV1 {
     pub candidates: Vec<ModelPlanCandidateV1>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Severity {
-    Error,
-    Warning,
-    Info,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanDesignBlockerV1 {
     pub code: PlanDesignBlockerCodeV1,
     #[serde(default)]
     pub target_id: Option<String>,
-    #[serde(default)]
-    pub severity: Option<Severity>,
     #[serde(default)]
     pub detail: Option<String>,
 }
@@ -106,14 +96,13 @@ pub struct PlanDesignFixV1 {
     pub detail: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanDesignBlockerCodeV1 {
     MissingGroundedTasks,
     MissingTaskSpecs,
     MissingWorkGroupCoverage,
     InvalidChecklistProgress,
-    Other,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -123,7 +112,6 @@ pub enum PlanDesignFixActionV1 {
     EnrichTaskSpecs,
     RepairWorkGroups,
     RepairChecklistCoverage,
-    Other,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

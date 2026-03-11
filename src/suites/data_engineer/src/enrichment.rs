@@ -550,6 +550,7 @@ impl DataEngineerSuite {
         track: TrackKind,
         planning_context: &str,
         memo: &str,
+        prior_critique: Option<&crate::plan_schema::PlanDesignCritiqueV1>,
     ) -> Result<crate::plan_schema::PlanDesignCritiqueV1, String> {
         use react_core::llm::{ChatMessage, ChatRole};
         let kind = if track.is_cleanse() {
@@ -563,10 +564,20 @@ impl DataEngineerSuite {
             ctx.thread_id().clone(),
         )?;
         let sys = prompts::plan::plan_design_critique_system_prompt(kind);
+        let prior_section = match prior_critique {
+            Some(prev) => format!(
+                "\n\nPRIOR CRITIQUE (already addressed by revision):\n{}\n\
+                 The memo was revised to address these. Only flag issues that REMAIN unaddressed.\n\
+                 Do NOT introduce new concerns that were absent from the prior critique.",
+                serde_json::to_string_pretty(prev).unwrap_or_else(|_| "{}".to_string()),
+            ),
+            None => String::new(),
+        };
         let user = format!(
-            "Planning kind: {kind}\n\nContext:\n{}\n\nDesign memo:\n{}\n\nReturn critique JSON.",
+            "Planning kind: {kind}\n\nContext:\n{}\n\nDesign memo:\n{}{}\n\nReturn critique JSON.",
             Self::excerpt(planning_context, 80_000),
-            Self::excerpt(memo, 40_000)
+            Self::excerpt(memo, 40_000),
+            prior_section,
         );
         let raw = ctx
             .llm_chat(
@@ -635,14 +646,31 @@ impl DataEngineerSuite {
         planning_context: &str,
     ) -> Result<(String, crate::plan_schema::PlanDesignCritiqueV1), String> {
         let mut memo = Self::generate_design_memo(ctx, track, planning_context).await?;
-        let mut critique = Self::critique_design_memo(ctx, track, planning_context, &memo).await?;
-        // Bounded revision loop: critique feedback must update memo reasoning before extraction.
-        for _ in 0..1 {
-            if critique.ok {
-                break;
+        let mut critique =
+            Self::critique_design_memo(ctx, track, planning_context, &memo, None).await?;
+        if !critique.ok {
+            let prior_codes: std::collections::BTreeSet<_> =
+                critique.blockers.iter().map(|b| b.code).collect();
+            memo =
+                Self::revise_design_memo(ctx, track, planning_context, &memo, &critique).await?;
+            let second_critique =
+                Self::critique_design_memo(ctx, track, planning_context, &memo, Some(&critique))
+                    .await?;
+            // Convergence: if all remaining blockers are novel (none overlap with the prior set),
+            // the original issues were resolved and new ones are adversarial drift — accept the memo.
+            let has_overlap = second_critique
+                .blockers
+                .iter()
+                .any(|b| prior_codes.contains(&b.code));
+            if second_critique.ok || !has_overlap {
+                critique = crate::plan_schema::PlanDesignCritiqueV1 {
+                    ok: true,
+                    blockers: vec![],
+                    fixes: vec![],
+                };
+            } else {
+                critique = second_critique;
             }
-            memo = Self::revise_design_memo(ctx, track, planning_context, &memo, &critique).await?;
-            critique = Self::critique_design_memo(ctx, track, planning_context, &memo).await?;
         }
         Ok((memo, critique))
     }

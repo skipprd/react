@@ -208,38 +208,11 @@ pub fn prune_model_plan_to_grounded_staging_models(
     plan.reconcile_work_groups();
 }
 
-fn default_silver_passthrough_field_spec() -> OutputFieldSpec {
-    OutputFieldSpec {
-        name: "__all_source_columns__".to_string(),
-        kind: FieldKind::Raw,
-        source_columns: vec!["*".to_string()],
-        expression: "Pass through all raw/bronze source columns unchanged (do not drop columns); add cleaned/cast columns alongside raw as needed.".to_string(),
-        data_type: None,
-        nullable: true,
-        description: Some(
-            "Default silver contract: preserve all raw columns; do not filter/dedup in silver."
-                .to_string(),
-        ),
-    }
-}
-
-fn ensure_silver_passthrough_present(output_fields: &mut Vec<OutputFieldSpec>) {
-    let has_star = output_fields.iter().any(|f| {
-        f.name.trim() == "__all_source_columns__"
-            || f.source_columns
-                .iter()
-                .any(|c| c.trim() == "*" || c.trim().eq_ignore_ascii_case("__all__"))
-    });
-    if !has_star {
-        output_fields.insert(0, default_silver_passthrough_field_spec());
-    }
-}
-
 fn default_cleanse_implementation_spec() -> CleanseImplementationSpec {
     CleanseImplementationSpec {
         spec_version: 1,
         row_preserving: true,
-        output_fields: vec![default_silver_passthrough_field_spec()],
+        output_fields: vec![],
         prohibited_ops: vec![
             "no filtering".to_string(),
             "no dedup".to_string(),
@@ -263,11 +236,6 @@ pub fn normalize_cleanse_plan_defaults(plan: &mut CleansePlan) {
                 "no dedup".to_string(),
                 "no grain enforcement".to_string(),
             ];
-        }
-        if spec.output_fields.is_empty() {
-            spec.output_fields = vec![default_silver_passthrough_field_spec()];
-        } else {
-            ensure_silver_passthrough_present(&mut spec.output_fields);
         }
 
         let sql_status = checklist_status(&t.checklist, CHECKLIST_SQL_MODEL);
@@ -321,13 +289,9 @@ fn strict_cleanse_grounding_errors(plan: &CleansePlan) -> Vec<String> {
         if t.dataset_id.trim().is_empty() {
             continue;
         }
-        if t.implementation_spec
-            .as_ref()
-            .map(|s| s.output_fields.is_empty())
-            .unwrap_or(true)
-        {
+        if t.implementation_spec.is_none() {
             errors.push(format!(
-                "{}: implementation_spec.output_fields is required",
+                "{}: implementation_spec is required",
                 t.dataset_id
             ));
         }
@@ -353,12 +317,9 @@ fn strict_model_grounding_errors(
         if t.goal.trim().is_empty() {
             errors.push(format!("{}: goal is required", t.name));
         }
-        if t.source_schema.is_empty() {
-            errors.push(format!(
-                "{}: source_schema is required (staging model column context must be captured at enrichment time)",
-                t.name
-            ));
-        }
+        // Model tasks consume staging models whose output schemas may differ from raw
+        // catalog schemas. source_schema is best-effort at plan time; the authoring LLM
+        // queries actual staging model schemas at authoring time.
         let nonempty_inputs: Vec<String> = t
             .inputs
             .iter()

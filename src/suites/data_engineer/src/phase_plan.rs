@@ -941,6 +941,26 @@ async fn compile_and_ground_model_plan(
         },
     });
 
+    // Enrich FIRST so the LLM populates task.inputs from the implementation spec,
+    // then prune against allowed staging models. Candidates start with empty inputs;
+    // enrichment is what grounds them to concrete staging refs.
+    let enrich_ids: Vec<String> = plan
+        .tasks
+        .iter()
+        .map(|t| t.name.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    DataEngineerSuite::enrich_model_tasks(
+        &pctx.actx,
+        &q_enriched,
+        source_schemas,
+        design_memo,
+        design_critique,
+        &mut plan,
+        &enrich_ids,
+    )
+    .await?;
+
     tracing::info!("data_engineer: [model] grounding plan against existing staging models");
     crate::plan::prune_model_plan_to_grounded_staging_models(&mut plan, &staged.allowed_models);
 
@@ -968,22 +988,6 @@ async fn compile_and_ground_model_plan(
         }
     }
 
-    let enrich_ids: Vec<String> = plan
-        .tasks
-        .iter()
-        .map(|t| t.name.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    DataEngineerSuite::enrich_model_tasks(
-        &pctx.actx,
-        &q_enriched,
-        source_schemas,
-        design_memo,
-        design_critique,
-        &mut plan,
-        &enrich_ids,
-    )
-    .await?;
     crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
         .await
         .map_err(|e| format!("failed to checkpoint grounded/enriched model draft plan: {e}"))?;

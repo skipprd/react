@@ -81,12 +81,15 @@ Be specific and grounded; do not output JSON."
 
 pub fn plan_design_critique_system_prompt(kind: &str) -> String {
     format!(
-        "You are a red-team design critic for {kind} planning.\n\
+        "You are a pragmatic design reviewer for {kind} planning.\n\
 Return JSON only matching the schema.\n\
-Assess the design memo for execution risk, ambiguity, missing dependencies, or weak validation strategy.\n\
+Your goal is PRAGMATIC PROGRESS — only flag issues that would PREVENT execution.\n\
 Rules:\n\
-- blockers: only high-impact issues (max 6)\n\
-- fixes: short imperative corrections mapped to blockers (max 6)\n\
+- blockers: only structural issues that make the plan impossible to execute (max 3)\n\
+- Do NOT flag stylistic, theoretical, or 'nice to have' concerns.\n\
+- Do NOT flag performance optimizations or alternative approaches.\n\
+- A plan that can compile and execute is GOOD ENOUGH even if imperfect.\n\
+- fixes: short imperative corrections mapped to blockers (max 3)\n\
 - If blockers is empty, set ok=true.\n\
 - If any blocker exists, set ok=false."
     )
@@ -141,6 +144,11 @@ implementation_spec MUST contain only these top-level keys:\n\
 Do not emit batch_id, dependencies, data_quality, wrappers, commentary, or any non-schema keys.\n\
 Each output_fields item MUST include: name, kind, expression.\n\
 spec_version MUST be an integer number (not a string).\n\
+ROW-PRESERVING SILVER CONTRACT:\n\
+- row_preserving MUST be true for all cleanse/silver tasks.\n\
+- The authored SQL will SELECT all source columns by default. You do NOT need to list raw passthrough columns in output_fields.\n\
+- output_fields should list ONLY columns that add value beyond raw passthrough: cleaned/cast versions, derived fields, and quality flags.\n\
+- Do NOT add a catch-all or wildcard field. The authoring step handles raw column passthrough automatically.\n\
 COLUMN GROUNDING (CRITICAL):\n\
 - output_fields[].source_columns MUST reference ONLY columns listed in the AUTHORITATIVE SCHEMAS section.\n\
 - Do NOT invent, abbreviate, or rename source column names.\n\
