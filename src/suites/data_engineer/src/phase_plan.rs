@@ -526,7 +526,11 @@ async fn check_existing_plan(
 
 /// Assemble the enriched question string sent to the planning agent, including
 /// manifest-retry signals, global semantic context, repair context, violations,
-/// bootstrap summary, and available-relations facts.
+/// bootstrap summary, available-relations facts, and authoritative column schemas.
+///
+/// Returns (query_string, manifest_state, source_schemas).
+/// The `SourceSchema` is built from the catalog and threaded downstream into
+/// enrichment — making it a compile error to enrich without column context.
 async fn build_plan_query(
     pctx: &PlanPhaseCtx<'_>,
     sctx: &SuiteCtx,
@@ -535,7 +539,7 @@ async fn build_plan_query(
     repair_ctx: &crate::progress_controller::RepairPromptContext,
     plan_violations: &[crate::progress_controller::PlanViolation],
     bootstrap_summary: Option<&str>,
-) -> (String, crate::progress_controller::ManifestLookupState) {
+) -> (String, crate::progress_controller::ManifestLookupState, crate::plan_types::SourceSchema) {
     let is_cleanse = pctx.track.is_cleanse();
 
     let manifest_retry_signal = if is_cleanse {
@@ -616,10 +620,12 @@ async fn build_plan_query(
         q.push_str(bs);
         q.push('\n');
     }
+    let mut dataset_fqns: Vec<String> = Vec::new();
     if let Some(ds) = crate::ctx_ext::sctx_datasets(sctx).as_ref() {
         if let Ok(items) = ds.list_datasets().await {
             let mut tables: Vec<String> = items.into_iter().map(|d| d.fqn()).collect();
             tables.sort();
+            dataset_fqns = tables.clone();
             if !tables.is_empty() {
                 q.push_str("\n\nIMMUTABLE FACTS (available_relations, bounded):\n");
                 q.push_str(
@@ -633,7 +639,13 @@ async fn build_plan_query(
         }
     }
 
-    (q, manifest_retry_signal)
+    let (source_schemas, schema_prompt_block) =
+        crate::dataset_truth::build_catalog_column_context(&pctx.actx, &dataset_fqns).await;
+    if !schema_prompt_block.is_empty() {
+        q.push_str(&schema_prompt_block);
+    }
+
+    (q, manifest_retry_signal, source_schemas)
 }
 
 // ---------------------------------------------------------------------------
@@ -648,6 +660,7 @@ async fn compile_and_ground_cleanse_plan(
     q: &str,
     design_memo: &str,
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    source_schemas: &crate::plan_types::SourceSchema,
 ) -> Result<PhaseExecutorOutcome, PhaseError> {
     let datasets_for_catalog = crate::ctx_ext::sctx_datasets(sctx);
     let discovered_raw =
@@ -781,6 +794,7 @@ async fn compile_and_ground_cleanse_plan(
     DataEngineerSuite::enrich_cleanse_tasks(
         &pctx.actx,
         q,
+        source_schemas,
         design_memo,
         design_critique,
         &mut plan,
@@ -804,6 +818,7 @@ async fn compile_and_ground_cleanse_plan(
             DataEngineerSuite::enrich_cleanse_tasks(
                 &pctx.actx,
                 q,
+                source_schemas,
                 design_memo,
                 design_critique,
                 &mut plan,
@@ -847,6 +862,7 @@ async fn compile_and_ground_model_plan(
     q: &str,
     design_memo: &str,
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
+    source_schemas: &crate::plan_types::SourceSchema,
 ) -> Result<PhaseExecutorOutcome, PhaseError> {
     let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
     if staged.allowed_models.is_empty() {
@@ -876,7 +892,7 @@ async fn compile_and_ground_model_plan(
     // q already contains the IMMUTABLE FACTS staging block (enriched by execute_plan_phase).
     // Re-enrich here to guarantee the grounding-validated set is present even on
     // direct calls, keeping the function self-contained.
-    let q_enriched = crate::dataset_truth::enrich_query_with_staging_models(q, &staged);
+    let q_enriched = crate::dataset_truth::enrich_query_with_staging_models(q, &staged, source_schemas);
 
     tracing::info!("data_engineer: [model] compiling plan from candidate models");
     let candidates = DataEngineerSuite::generate_model_candidates(
@@ -961,6 +977,7 @@ async fn compile_and_ground_model_plan(
     DataEngineerSuite::enrich_model_tasks(
         &pctx.actx,
         &q_enriched,
+        source_schemas,
         design_memo,
         design_critique,
         &mut plan,
@@ -986,6 +1003,7 @@ async fn compile_and_ground_model_plan(
             DataEngineerSuite::enrich_model_tasks(
                 &pctx.actx,
                 &q_enriched,
+                source_schemas,
                 design_memo,
                 design_critique,
                 &mut plan,
@@ -1074,8 +1092,8 @@ impl DataEngineerSuite {
         )
         .await?;
 
-        // 4. Build enriched query and agent inputs.
-        let (q, manifest_retry_signal) = build_plan_query(
+        // 4. Build enriched query and agent inputs (includes authoritative column schemas).
+        let (q, manifest_retry_signal, source_schemas) = build_plan_query(
             &pctx,
             sctx,
             question,
@@ -1095,7 +1113,7 @@ impl DataEngineerSuite {
             );
             let (design_memo, design_critique) =
                 Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
-            return compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique)
+            return compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique, &source_schemas)
                 .await;
         }
 
@@ -1143,7 +1161,7 @@ impl DataEngineerSuite {
                 // staging model names so the design memo references them correctly.
                 let q_memo = if !track.is_cleanse() {
                     let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
-                    crate::dataset_truth::enrich_query_with_staging_models(&q, &staged)
+                    crate::dataset_truth::enrich_query_with_staging_models(&q, &staged, &source_schemas)
                 } else {
                     q.clone()
                 };
@@ -1152,9 +1170,9 @@ impl DataEngineerSuite {
                     Self::produce_critiqued_design_memo(&pctx.actx, track, &q_memo).await?;
 
                 if track.is_cleanse() {
-                    compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique).await
+                    compile_and_ground_cleanse_plan(&pctx, sctx, &q, &design_memo, &design_critique, &source_schemas).await
                 } else {
-                    compile_and_ground_model_plan(&pctx, &q_memo, &design_memo, &design_critique).await
+                    compile_and_ground_model_plan(&pctx, &q_memo, &design_memo, &design_critique, &source_schemas).await
                 }
             }
             Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {

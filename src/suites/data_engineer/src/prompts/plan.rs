@@ -141,6 +141,10 @@ implementation_spec MUST contain only these top-level keys:\n\
 Do not emit batch_id, dependencies, data_quality, wrappers, commentary, or any non-schema keys.\n\
 Each output_fields item MUST include: name, kind, expression.\n\
 spec_version MUST be an integer number (not a string).\n\
+COLUMN GROUNDING (CRITICAL):\n\
+- output_fields[].source_columns MUST reference ONLY columns listed in the AUTHORITATIVE SCHEMAS section.\n\
+- Do NOT invent, abbreviate, or rename source column names.\n\
+- If AUTHORITATIVE SCHEMAS lists a column as 'customer_id (bigint)', use exactly 'customer_id'.\n\
 Your specs must be complete enough for executable plan completion (author + validate checklist items can be finished without downstream guesswork)."
         .to_string()
 }
@@ -163,6 +167,10 @@ implementation_spec MUST contain only these top-level keys:\n\
 Do not emit batch_id, dependencies, data_quality, wrappers, commentary, or any non-schema keys.\n\
 Each output_fields item MUST include: name, kind, expression.\n\
 spec_version MUST be an integer number (not a string).\n\
+COLUMN GROUNDING (CRITICAL):\n\
+- output_fields[].source_columns and joins[].on MUST reference ONLY columns from the AUTHORITATIVE SCHEMAS or IMMUTABLE FACTS staging model columns.\n\
+- Do NOT invent, abbreviate, or rename column names.\n\
+- inputs[] MUST use exact staging model names from the IMMUTABLE FACTS section.\n\
 Your specs must be complete enough for executable plan completion (author + validate checklist items can be finished without downstream guesswork)."
         .to_string()
 }

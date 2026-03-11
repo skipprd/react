@@ -1309,6 +1309,7 @@ mod tests {
                         "grain_enforcement".to_string(),
                     ],
                 }),
+                source_schema: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![
                     crate::plan::PlanChecklistItem {

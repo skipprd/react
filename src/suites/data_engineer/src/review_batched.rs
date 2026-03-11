@@ -1392,6 +1392,7 @@ mod tests {
                         }],
                         prohibited_ops: vec![],
                     }),
+                    source_schema: vec![],
                     status: de_plan::TaskStatus::Done,
                     checklist: vec![
                         de_plan::PlanChecklistItem {
@@ -1438,6 +1439,7 @@ mod tests {
                         }],
                         prohibited_ops: vec![],
                     }),
+                    source_schema: vec![],
                     status: de_plan::TaskStatus::Done,
                     checklist: vec![
                         de_plan::PlanChecklistItem {
@@ -1764,6 +1766,7 @@ mod tests {
                 expected_model_path: Some("models/staging/stg_a.sql".to_string()),
                 invariants: vec![],
                 implementation_spec: None,
+                source_schema: vec![],
                 status: de_plan::TaskStatus::Done,
                 checklist: vec![],
             }],

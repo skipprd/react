@@ -55,6 +55,10 @@ pub(crate) fn sctx_catalog(ctx: &SuiteCtx) -> Option<Arc<dyn CatalogProvider>> {
     ctx.capability::<CatalogCap>().map(|c| c.0.clone())
 }
 
+pub(crate) fn actx_catalog(ctx: &AgentCtx) -> Option<Arc<dyn CatalogProvider>> {
+    ctx.capability::<CatalogCap>().map(|c| c.0.clone())
+}
+
 pub(crate) fn actx_providers_cfg(ctx: &AgentCtx) -> Option<ProvidersResolved> {
     ctx.capability::<ProvidersCfgCap>().map(|c| c.0.clone())
 }

@@ -19,6 +19,7 @@ trait EnrichableTask: crate::plan::PlanTask + Sized {
     fn response_items(response: Self::EnrichmentResponse) -> Vec<Self::EnrichmentItem>;
     fn item_parts(item: Self::EnrichmentItem) -> Result<(String, serde_json::Value), String>;
     fn apply_spec(task: &mut Self, spec: Self::Spec);
+    fn apply_source_schema(task: &mut Self, schemas: &crate::plan_types::SourceSchema);
     fn is_placeholder(task: &Self) -> bool;
     fn retry_hint(failure_errors: &[String]) -> String;
 }
@@ -76,6 +77,12 @@ impl EnrichableTask for crate::plan::CleanseTask {
 
     fn apply_spec(task: &mut Self, spec: Self::Spec) {
         task.implementation_spec = Some(spec);
+    }
+
+    fn apply_source_schema(task: &mut Self, schemas: &crate::plan_types::SourceSchema) {
+        if let Some(cols) = schemas.get(task.dataset_id.trim()) {
+            task.source_schema = cols.clone();
+        }
     }
 
     fn is_placeholder(task: &Self) -> bool {
@@ -149,6 +156,18 @@ impl EnrichableTask for crate::plan::ModelTask {
         }
         if task.goal.trim().is_empty() {
             task.goal = format!("Build {} from grounded staging inputs.", task.name.trim());
+        }
+    }
+
+    fn apply_source_schema(task: &mut Self, schemas: &crate::plan_types::SourceSchema) {
+        let mut merged: Vec<crate::plan_types::SourceColumnDef> = Vec::new();
+        for inp in &task.inputs {
+            if let Some(cols) = schemas.get(inp.trim()) {
+                merged.extend(cols.iter().cloned());
+            }
+        }
+        if !merged.is_empty() {
+            task.source_schema = merged;
         }
     }
 
@@ -280,6 +299,7 @@ impl DataEngineerSuite {
     async fn enrich_tasks<T: EnrichableTask>(
         ctx: &AgentCtx,
         planning_context: &str,
+        source_schemas: &crate::plan_types::SourceSchema,
         memo: &str,
         critique: &crate::plan_schema::PlanDesignCritiqueV1,
         plan: &mut crate::plan::Plan<T>,
@@ -435,12 +455,20 @@ impl DataEngineerSuite {
                 unresolved.join(",")
             ));
         }
+        for task in plan.tasks.iter_mut() {
+            let tid = task.task_id().to_string();
+            if !task_ids.iter().any(|id| id == &tid) {
+                continue;
+            }
+            T::apply_source_schema(task, source_schemas);
+        }
         Ok(())
     }
 
     pub(super) async fn enrich_cleanse_tasks(
         ctx: &AgentCtx,
         planning_context: &str,
+        source_schemas: &crate::plan_types::SourceSchema,
         memo: &str,
         critique: &crate::plan_schema::PlanDesignCritiqueV1,
         plan: &mut crate::plan::CleansePlan,
@@ -449,6 +477,7 @@ impl DataEngineerSuite {
         Self::enrich_tasks::<crate::plan::CleanseTask>(
             ctx,
             planning_context,
+            source_schemas,
             memo,
             critique,
             plan,
@@ -460,6 +489,7 @@ impl DataEngineerSuite {
     pub(super) async fn enrich_model_tasks(
         ctx: &AgentCtx,
         planning_context: &str,
+        source_schemas: &crate::plan_types::SourceSchema,
         memo: &str,
         critique: &crate::plan_schema::PlanDesignCritiqueV1,
         plan: &mut crate::plan::ModelPlan,
@@ -468,6 +498,7 @@ impl DataEngineerSuite {
         Self::enrich_tasks::<crate::plan::ModelTask>(
             ctx,
             planning_context,
+            source_schemas,
             memo,
             critique,
             plan,
@@ -740,6 +771,7 @@ Apply these fixes in the output.",
                 expected_model_path: None,
                 invariants: vec![],
                 implementation_spec: None,
+                source_schema: vec![],
                 status: Default::default(),
                 checklist: crate::plan::canonical_task_checklist(TrackKind::Cleanse),
             })
@@ -807,6 +839,7 @@ Apply these fixes in the output.",
                 expected_model_path: None,
                 invariants: vec![],
                 implementation_spec: None,
+                source_schema: vec![],
                 status: Default::default(),
                 checklist: crate::plan::canonical_task_checklist(TrackKind::Model),
             })
@@ -840,6 +873,7 @@ mod tests {
                 expected_model_path: None,
                 invariants: vec![],
                 implementation_spec: None,
+                source_schema: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![],
             }],
@@ -890,6 +924,7 @@ mod tests {
                 expected_model_path: None,
                 invariants: vec![],
                 implementation_spec: None,
+                source_schema: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![],
             }],

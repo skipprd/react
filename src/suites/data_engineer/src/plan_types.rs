@@ -1,5 +1,21 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+/// Compact column definition captured from the catalog at enrichment time.
+/// Stored on each task so the plan explicitly records what source columns it was
+/// built against — auditable, persistent, and available to authoring/review
+/// without re-fetching.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SourceColumnDef {
+    pub name: String,
+    pub data_type: String,
+}
+
+/// Map from dataset_id (or staging model name) to its column list.
+/// Required wherever the planning pipeline needs column context — making
+/// "enrichment without column schemas" a compile error.
+pub type SourceSchema = BTreeMap<String, Vec<SourceColumnDef>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -366,6 +382,10 @@ pub struct CleanseTask {
     /// `None` means the spec has not yet been enriched from the skeleton plan.
     #[serde(default)]
     pub implementation_spec: Option<CleanseImplementationSpec>,
+    /// Authoritative source columns from the catalog, captured at enrichment time.
+    /// The enrichment LLM sees these; the grounding gate rejects plans where this is empty.
+    #[serde(default)]
+    pub source_schema: Vec<SourceColumnDef>,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]
@@ -413,6 +433,10 @@ pub struct ModelTask {
     /// `None` means the spec has not yet been enriched from the skeleton plan.
     #[serde(default)]
     pub implementation_spec: Option<ModelImplementationSpec>,
+    /// Authoritative input columns from staging models, captured at enrichment time.
+    /// For model tasks, this merges the columns of all input staging models.
+    #[serde(default)]
+    pub source_schema: Vec<SourceColumnDef>,
     #[serde(default)]
     pub status: TaskStatus,
     #[serde(default)]

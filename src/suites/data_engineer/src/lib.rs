@@ -392,6 +392,7 @@ impl DataEngineerSuite {
                     output_fields: vec![],
                     prohibited_ops: vec![],
                 }),
+                source_schema: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: crate::plan::canonical_task_checklist(TrackKind::Cleanse),
             })

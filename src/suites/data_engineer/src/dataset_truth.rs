@@ -167,9 +167,13 @@ pub fn is_ref_only_gold_input(input: &str) -> bool {
 /// Append an IMMUTABLE FACTS block listing the exact staging model names that
 /// GOLD models must reference via `ref()`.  Used to ground both the design memo
 /// and candidate generation so the LLM never invents abbreviated names.
+///
+/// When `staging_schemas` is provided, each model name is annotated with its
+/// column list so the LLM can reason about structure.
 pub fn enrich_query_with_staging_models(
     q: &str,
     staging: &GroundedStagingModelSet,
+    staging_schemas: &crate::plan_types::SourceSchema,
 ) -> String {
     let mut out = q.to_string();
     if !staging.allowed_models.is_empty() {
@@ -177,7 +181,15 @@ pub fn enrich_query_with_staging_models(
             "\n\nIMMUTABLE FACTS (existing staging models \u{2014} GOLD models MUST reference these exact names via ref()):\n",
         );
         for name in &staging.allowed_models {
-            out.push_str(&format!("- {name}\n"));
+            if let Some(cols) = staging_schemas.get(name.as_str()) {
+                let cols_str: Vec<String> = cols
+                    .iter()
+                    .map(|c| format!("{} ({})", c.name, c.data_type))
+                    .collect();
+                out.push_str(&format!("- {} => [{}]\n", name, cols_str.join(", ")));
+            } else {
+                out.push_str(&format!("- {name}\n"));
+            }
         }
     }
     out
@@ -254,6 +266,87 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
         }
     }
 
+    out
+}
+
+/// Fetch column schemas from the catalog for a set of dataset IDs.
+/// Returns both the typed `SourceSchema` map (for compile-time threading) and
+/// a rendered prompt block string (for LLM injection).
+///
+/// This is the single DRY helper reused by both cleanse and model paths.
+/// If the catalog is unavailable or a dataset has no catalog entry, that dataset
+/// is silently skipped — the grounding gate downstream will catch any gaps.
+pub async fn build_catalog_column_context(
+    ctx: &AgentCtx,
+    dataset_ids: &[String],
+) -> (crate::plan_types::SourceSchema, String) {
+    use crate::plan_types::{SourceColumnDef, SourceSchema};
+
+    let mut schema_map: SourceSchema = BTreeMap::new();
+    let catalog = crate::ctx_ext::actx_catalog(ctx);
+
+    if let Some(cat) = catalog {
+        for ds_id in dataset_ids {
+            let id = ds_id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            match cat.read_catalog(ctx.scope(), id).await {
+                Ok(Some(dc)) => {
+                    let cols: Vec<SourceColumnDef> = dc
+                        .fields
+                        .iter()
+                        .map(|f| SourceColumnDef {
+                            name: f.name.clone(),
+                            data_type: f
+                                .data_type
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        })
+                        .collect();
+                    if !cols.is_empty() {
+                        schema_map.insert(id.to_string(), cols);
+                    }
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        "build_catalog_column_context: no catalog entry for {}",
+                        id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "build_catalog_column_context: read_catalog failed for {}: {}",
+                        id,
+                        e
+                    );
+                }
+            }
+        }
+    } else {
+        tracing::warn!("build_catalog_column_context: CatalogProvider not available");
+    }
+
+    let prompt_block = render_source_schema_prompt_block(&schema_map);
+    (schema_map, prompt_block)
+}
+
+/// Render a `SourceSchema` map into a bounded prompt block for LLM injection.
+pub fn render_source_schema_prompt_block(
+    schema: &crate::plan_types::SourceSchema,
+) -> String {
+    if schema.is_empty() {
+        return String::new();
+    }
+    let mut out =
+        String::from("\n\nAUTHORITATIVE SCHEMAS (source columns \u{2014} output_fields.source_columns MUST reference only these exact names):\n");
+    for (ds_id, cols) in schema.iter() {
+        let cols_str: Vec<String> = cols
+            .iter()
+            .map(|c| format!("{} ({})", c.name, c.data_type))
+            .collect();
+        out.push_str(&format!("  {}: [{}]\n", ds_id, cols_str.join(", ")));
+    }
     out
 }
 

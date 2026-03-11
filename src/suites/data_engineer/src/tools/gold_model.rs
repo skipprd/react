@@ -1018,6 +1018,7 @@ mod tests {
                     }],
                     assumptions: vec![],
                 }),
+                source_schema: vec![],
                 status: crate::plan::TaskStatus::Pending,
                 checklist: vec![
                     crate::plan::PlanChecklistItem {

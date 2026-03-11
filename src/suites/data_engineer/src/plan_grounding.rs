@@ -331,6 +331,12 @@ fn strict_cleanse_grounding_errors(plan: &CleansePlan) -> Vec<String> {
                 t.dataset_id
             ));
         }
+        if t.source_schema.is_empty() {
+            errors.push(format!(
+                "{}: source_schema is required (catalog column context must be captured at enrichment time)",
+                t.dataset_id
+            ));
+        }
     }
     errors
 }
@@ -346,6 +352,12 @@ fn strict_model_grounding_errors(
         }
         if t.goal.trim().is_empty() {
             errors.push(format!("{}: goal is required", t.name));
+        }
+        if t.source_schema.is_empty() {
+            errors.push(format!(
+                "{}: source_schema is required (staging model column context must be captured at enrichment time)",
+                t.name
+            ));
         }
         let nonempty_inputs: Vec<String> = t
             .inputs
