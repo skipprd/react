@@ -459,7 +459,6 @@ impl Tool for StagingModelTool {
         let mut written: Vec<String> = Vec::new();
         let mut notes: Vec<String> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
-        let mut remediation_hints: Vec<Value> = Vec::new();
         let mut succeeded_dataset_ids: Vec<String> = Vec::new();
 
         if !deferred_dataset_ids.is_empty() {
@@ -765,8 +764,6 @@ impl Tool for StagingModelTool {
                     continue;
                 }
             };
-            remediation_hints.extend(outcome.remediation_hints);
-
             let expected_db2 = expected_db.clone();
             let expected_table2 = expected_table.clone();
             let mut materialize_repl = std::collections::HashMap::new();
@@ -838,7 +835,6 @@ impl Tool for StagingModelTool {
             "written_keys": written,
             "schema_key": schema_key,
             "notes": out_notes,
-            "remediation_hints": remediation_hints,
             "errors": errors,
             "deferred_dataset_ids": deferred_dataset_ids,
             "succeeded_dataset_ids": succeeded_dataset_ids,

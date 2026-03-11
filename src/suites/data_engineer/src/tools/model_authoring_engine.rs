@@ -18,24 +18,6 @@ pub(crate) fn extract_string_arg(args: &Value, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-pub(crate) fn athena_alias_reuse_hint(
-    msg: &str,
-    model_rel_path: &str,
-    entity_id: &str,
-) -> Option<Value> {
-    let m = msg.to_ascii_lowercase();
-    if !m.contains("select-list alias") {
-        return None;
-    }
-    Some(serde_json::json!({
-        "kind": "athena_select_alias_reuse",
-        "entity_id": entity_id,
-        "model_path": model_rel_path,
-        "issue": msg,
-        "fix": "Split into CTE + outer select: compute intermediate aliases in an inner CTE/subquery, then reference them only from the outer SELECT."
-    }))
-}
-
 pub(crate) fn build_provider_prompt_rules(
     wh: Option<&dyn crate::providers::WarehouseProvider>,
 ) -> String {
@@ -134,7 +116,6 @@ pub(crate) struct AuthorLoopConfig {
 
 pub(crate) struct AuthorLoopOutcome {
     pub draft: sql_first::SqlFirstDraft,
-    pub remediation_hints: Vec<Value>,
 }
 
 pub(crate) async fn sql_first_author_loop<F>(
@@ -144,7 +125,7 @@ pub(crate) async fn sql_first_author_loop<F>(
     user_value: &Value,
     replacements: &HashMap<String, String>,
     entity_id: &str,
-    rel_path: &str,
+    _rel_path: &str,
     mut post_draft_hook: F,
 ) -> Result<AuthorLoopOutcome, Vec<String>>
 where
@@ -152,7 +133,6 @@ where
 {
     let mut last_err = String::new();
     let mut prev_sql: Option<String> = None;
-    let mut remediation_hints: Vec<Value> = Vec::new();
 
     for attempt in 1..=config.max_attempts {
         let mut v = user_value.clone();
@@ -210,17 +190,11 @@ where
 
         match sql_first::validate_sql_quick(ctx, &d.sql, replacements).await {
             Ok(()) => {
-                return Ok(AuthorLoopOutcome {
-                    draft: d,
-                    remediation_hints,
-                });
+                return Ok(AuthorLoopOutcome { draft: d });
             }
             Err(err) => {
                 last_err = err.clone();
                 prev_sql = Some(d.sql.clone());
-                if let Some(h) = athena_alias_reuse_hint(&err, rel_path, entity_id) {
-                    remediation_hints.push(h);
-                }
             }
         }
         if attempt >= config.max_attempts {

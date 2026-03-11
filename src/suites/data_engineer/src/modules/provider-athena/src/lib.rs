@@ -17,9 +17,7 @@ mod providers {
         }
     }
     pub mod warehouse {
-        pub use react_suite_data_engineer::providers::{
-            has_obvious_same_select_alias_reuse, WarehouseNaming,
-        };
+        pub use react_suite_data_engineer::providers::WarehouseNaming;
     }
     pub mod type_parse {
         pub use crate::type_parse::*;

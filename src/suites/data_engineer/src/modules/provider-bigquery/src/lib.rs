@@ -18,8 +18,8 @@ use tokio::sync::Semaphore;
 
 use react_core::discover::stats::FieldStats;
 use react_suite_data_engineer::providers::{
-    has_obvious_same_select_alias_reuse, DatasetCatalogProvider, DatasetFieldStats, DatasetId,
-    DatasetStats, QueryProvider, QueryResult, WarehouseNaming,
+    DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
+    WarehouseNaming,
 };
 
 use react_suite_data_engineer::providers::warehouse_utils;
@@ -357,18 +357,6 @@ impl WarehouseNaming for BigQueryProvider {
         ]
     }
 
-    fn unsupported_sql_reason(&self, sql: &str) -> Option<String> {
-        let s = sql.to_ascii_lowercase();
-        if s.contains("try_cast(") {
-            return Some(
-                "BigQuery does not support try_cast(); use SAFE_CAST(...) instead.".to_string(),
-            );
-        }
-        if has_obvious_same_select_alias_reuse(sql) {
-            return Some("BigQuery cannot reference a SELECT-list alias inside another expression in the same SELECT list; move the dependent expression to an outer SELECT/CTE.".to_string());
-        }
-        None
-    }
 }
 
 #[async_trait]

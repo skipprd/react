@@ -411,25 +411,6 @@ impl WarehouseNaming for AthenaProvider {
         ]
     }
 
-    fn unsupported_sql_reason(&self, sql: &str) -> Option<String> {
-        let s = sql.to_ascii_lowercase();
-        if s.contains("initcap(") {
-            return Some(
-                "initcap() is not supported on Athena/Trino; remove it (use trim/lower/upper, or leave casing unchanged)."
-                    .to_string(),
-            );
-        }
-        if s.contains("try_to_timestamp(") {
-            return Some(
-                "try_to_timestamp() is not supported on Athena/Trino; replace it with try_cast(<expr> AS timestamp) (or CAST for strict parsing)."
-                    .to_string(),
-            );
-        }
-        if crate::providers::warehouse::has_obvious_same_select_alias_reuse(sql) {
-            return Some("Athena/Trino cannot reference a SELECT-list alias inside another expression in the same SELECT list; move the dependent expression to an outer SELECT/CTE.".to_string());
-        }
-        None
-    }
 }
 
 #[async_trait]

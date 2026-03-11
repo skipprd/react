@@ -12,9 +12,7 @@ use react_core::tools::Tool;
 use crate::dbt_repair::remediate::active_provider_dialect;
 use crate::{naming, plan, sql_first};
 
-use super::model_authoring_engine::{
-    self as engine, athena_alias_reuse_hint, build_provider_prompt_rules, dedup_notes,
-};
+use super::model_authoring_engine::{self as engine, build_provider_prompt_rules, dedup_notes};
 
 fn normalize_folder(folder: Option<&str>) -> String {
     match folder.unwrap_or("marts").trim().to_lowercase().as_str() {
@@ -196,7 +194,6 @@ impl Tool for GoldModelTool {
         let mut written: Vec<String> = Vec::new();
         let mut notes: Vec<String> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
-        let mut remediation_hints: Vec<Value> = Vec::new();
         let mut succeeded_item_names: Vec<String> = Vec::new();
         let mut canonical_folder_by_name: HashMap<String, String> = HashMap::new();
         let mut plan_output_field_names: Vec<String> = Vec::new();
@@ -486,12 +483,6 @@ impl Tool for GoldModelTool {
                     continue;
                 }
             };
-            remediation_hints.extend(outcome.remediation_hints);
-
-            let query_for_validate = query.clone();
-            let provider_name_for_validate = provider_name.clone();
-            let rel_path_for_hint = rel_path.clone();
-            let name_for_hint = name.to_string();
             let existing_sql = ctx
                 .storage()
                 .get_bytes(&format!("{}/{}", base, rel_path))
@@ -515,12 +506,6 @@ impl Tool for GoldModelTool {
                     if !naming::contains_ref_call(dbt_sql) {
                         return Err("invalid gold SQL: must reference at least one silver model via ref('stg_*').".to_string());
                     }
-                    if let Some(msg) = query_for_validate.unsupported_sql_reason(dbt_sql) {
-                        return Err(format!(
-                            "unsupported SQL for provider '{}': {msg}",
-                            provider_name_for_validate
-                        ));
-                    }
                     Ok(())
                 },
                 &existing_sql,
@@ -539,10 +524,6 @@ impl Tool for GoldModelTool {
                     }
                 }
                 Err(e) => {
-                    if let Some(h) = athena_alias_reuse_hint(&e, &rel_path_for_hint, &name_for_hint)
-                    {
-                        remediation_hints.push(h);
-                    }
                     errors.push(format!("{name}: {e}"));
                     continue;
                 }
@@ -577,7 +558,6 @@ impl Tool for GoldModelTool {
             },
             "written_keys": written,
             "notes": out_notes,
-            "remediation_hints": remediation_hints,
             "errors": errors,
             "succeeded_item_names": succeeded_item_names
         });

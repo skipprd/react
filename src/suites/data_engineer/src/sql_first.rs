@@ -209,9 +209,6 @@ pub async fn validate_sql_quick(
     let wh = crate::ctx_ext::actx_warehouse(ctx)
         .ok_or_else(|| "warehouse provider missing".to_string())?;
     let expanded = apply_placeholders(sql, placeholder_replacements);
-    if let Some(msg) = wh.unsupported_sql_reason(&expanded) {
-        return Err(msg);
-    }
     let probe = wrap_sql_for_validation(&expanded, 1);
     let res = crate::transient_retry::retry_transient_default("validate_sql_quick", || async {
         wh.query(&probe).await

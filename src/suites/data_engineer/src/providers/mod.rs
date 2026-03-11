@@ -21,4 +21,4 @@ pub use dataset_catalog::{DatasetCatalogProvider, DatasetId};
 pub use dbt::{DbtProvider, DbtValidateArgs, DbtValidateResult};
 pub use query::{QueryProvider, QueryResult};
 pub use stats::DatasetFieldStats;
-pub use warehouse::{has_obvious_same_select_alias_reuse, WarehouseNaming, WarehouseProvider};
+pub use warehouse::{WarehouseNaming, WarehouseProvider};
