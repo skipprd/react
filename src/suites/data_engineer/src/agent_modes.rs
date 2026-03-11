@@ -456,7 +456,25 @@ impl DataEngineerSuite {
                 }
             }
 
-            let repair_ctx = execution_state.repair_prompt_context();
+            let mut repair_ctx = execution_state.repair_prompt_context();
+            // Pre-fetch file contents for failing models so the repair LLM
+            // sees exact file content instead of hallucinating patch context.
+            for fm in &repair_ctx.failed_models {
+                if fm.file.trim().is_empty() {
+                    continue;
+                }
+                let base = sctx
+                    .keyspace()
+                    .scoped_prefix(sctx.scope(), &["dbt"])
+                    .trim_end_matches('/')
+                    .to_string();
+                let key = format!("{}/{}", base, fm.file);
+                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                        repair_ctx.target_contents.push((fm.file.clone(), text));
+                    }
+                }
+            }
             match Self::execute_phase(
                 &thread_store,
                 thread_id,

@@ -50,6 +50,9 @@ pub struct RepairPromptContext {
     /// Suite-level guard note (e.g. from authoring budget exhaustion).
     /// Separate from `brief` which is the dbt validation output.
     pub guard_note: Option<String>,
+    /// Pre-fetched file contents for failing models (path → content).
+    /// Populated asynchronously before prompt rendering; never serialized.
+    pub target_contents: Vec<(String, String)>,
 }
 
 impl RepairPromptContext {
@@ -113,6 +116,22 @@ impl RepairPromptContext {
                  Read the error above carefully and make a DIFFERENT change.\n",
                 self.stall_count,
             ));
+        }
+        if !self.target_contents.is_empty() {
+            out.push_str("\n--- Current file contents (use these as exact patch context) ---\n");
+            for (path, content) in &self.target_contents {
+                let fence = if path.ends_with(".yml") || path.ends_with(".yaml") {
+                    "yaml"
+                } else {
+                    "sql"
+                };
+                out.push_str(&format!("\n### {path}\n```{fence}\n"));
+                out.push_str(content);
+                if !content.ends_with('\n') {
+                    out.push('\n');
+                }
+                out.push_str("```\n");
+            }
         }
         out
     }
@@ -1073,6 +1092,7 @@ impl ExecutionState {
                 .as_ref()
                 .map(|s| format!("{:?}", s)),
             guard_note,
+            target_contents: Vec::new(),
         }
     }
 
