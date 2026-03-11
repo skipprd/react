@@ -2329,7 +2329,7 @@ mod tests {
         let plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: None,
@@ -2353,7 +2353,7 @@ mod tests {
         let plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "dim_orders".to_string(),
                 folder: ModelFolder::Marts,
@@ -2381,7 +2381,7 @@ mod tests {
         let cleanse = CleansePlan {
             plan_key: "k1".to_string(),
             status: PlanStatus::Cancelled,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![],
             batches: vec![],
             work_groups: vec![],
@@ -2391,7 +2391,7 @@ mod tests {
         let model = ModelPlan {
             plan_key: "k2".to_string(),
             status: PlanStatus::Completed,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![],
             batches: vec![],
             work_groups: vec![],
@@ -2409,7 +2409,7 @@ mod tests {
         let plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: Some("models/staging/stg_b_c.sql".to_string()),
@@ -2437,7 +2437,7 @@ mod tests {
         let plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: Some("models/staging/stg_b_c.sql".to_string()),
@@ -2462,7 +2462,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 CleanseTask {
                     dataset_id: "a.b.c".to_string(),
@@ -2524,7 +2524,7 @@ mod tests {
         let plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "m".to_string(),
                 folder: ModelFolder::Marts,
@@ -2556,7 +2556,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "fct_orders".to_string(),
                 folder: ModelFolder::Marts,
@@ -2592,7 +2592,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 ModelTask {
                     name: "fct_orders".to_string(),
@@ -2658,7 +2658,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 CleanseTask {
                     dataset_id: "a.b.c".to_string(),
@@ -2724,7 +2724,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 ModelTask {
                     name: "fct_a".to_string(),
@@ -2787,7 +2787,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: Some("models/staging/stg_b_c.sql".to_string()),
@@ -2815,7 +2815,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: None,
@@ -2890,7 +2890,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: None,
@@ -2962,7 +2962,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 ModelTask {
                     name: "dim_customers".to_string(),
@@ -3039,7 +3039,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 CleanseTask {
                     dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
@@ -3089,7 +3089,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 ModelTask {
                     name: "fct_ok".to_string(),
@@ -3136,7 +3136,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "fct_missing_inputs".to_string(),
                 folder: ModelFolder::Marts,
@@ -3166,7 +3166,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "fct_orders".to_string(),
                 folder: ModelFolder::Marts,
@@ -3221,7 +3221,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k2".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "dim_customers".to_string(),
                 folder: ModelFolder::Marts,
@@ -3254,7 +3254,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 expected_model_path: None,
@@ -3281,7 +3281,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 expected_model_path: Some("models/staging/customers.sql".to_string()),
@@ -3309,7 +3309,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 expected_model_path: Some(
@@ -3351,7 +3351,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 CleanseTask {
                     dataset_id: "AwsDataCatalog.test_raw.raw_orders".to_string(),
@@ -3416,7 +3416,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 CleanseTask {
                     dataset_id: "AwsDataCatalog.test_raw.raw_orders".to_string(),
@@ -3488,7 +3488,7 @@ mod tests {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_orders".to_string(),
                 expected_model_path: Some("models/staging/stg_test_raw_raw_orders.sql".to_string()),
@@ -3521,7 +3521,7 @@ mod tests {
         let mut plan = ModelPlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![ModelTask {
                 name: "dim_orders".to_string(),
                 folder: ModelFolder::Marts,

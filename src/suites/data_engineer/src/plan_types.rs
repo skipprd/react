@@ -2,6 +2,30 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Typed container for `Plan.project_snapshot`. Known fields are directly
+/// accessible; all other audit/diagnostic data falls through to `extra`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PlanSnapshot {
+    #[serde(default)]
+    pub pruned_task_count: Option<usize>,
+    #[serde(default)]
+    pub validate_fail_facts: Vec<crate::facts::FactsBundle>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+impl PlanSnapshot {
+    /// Convenience: insert a key-value pair into the `extra` bag.
+    pub fn insert(&mut self, key: impl Into<String>, value: Value) {
+        self.extra.insert(key.into(), value);
+    }
+
+    /// Construct from a JSON Value (deserializes into typed + extra).
+    pub fn from_value(v: Value) -> Self {
+        serde_json::from_value(v).unwrap_or_default()
+    }
+}
+
 /// Compact column definition captured from the catalog at enrichment time.
 /// Stored on each task so the plan explicitly records what source columns it was
 /// built against — auditable, persistent, and available to authoring/review
@@ -443,6 +467,23 @@ pub struct ModelTask {
     pub checklist: Vec<PlanChecklistItem>,
 }
 
+impl ModelTask {
+    /// Re-stamp `source_schema` from the given `SourceSchema` map by merging
+    /// columns from all `self.inputs`. Called after discovery records staging
+    /// model output schemas on the plan.
+    pub fn apply_source_schema_from(&mut self, schemas: &SourceSchema) {
+        let mut merged: Vec<SourceColumnDef> = Vec::new();
+        for inp in &self.inputs {
+            if let Some(cols) = schemas.get(inp.trim()) {
+                merged.extend(cols.iter().cloned());
+            }
+        }
+        if !merged.is_empty() {
+            self.source_schema = merged;
+        }
+    }
+}
+
 impl PlanTask for ModelTask {
     fn task_id(&self) -> &str {
         &self.name
@@ -477,7 +518,7 @@ pub struct Plan<T: PlanTask> {
     pub plan_key: String,
     pub status: PlanStatus,
     #[serde(default)]
-    pub project_snapshot: Value,
+    pub project_snapshot: PlanSnapshot,
     pub tasks: Vec<T>,
     pub batches: Vec<Vec<String>>,
     #[serde(default)]

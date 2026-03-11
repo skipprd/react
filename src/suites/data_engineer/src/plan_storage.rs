@@ -185,17 +185,19 @@ pub async fn save_cleanse_plan(ctx: &AgentCtx, plan: &CleansePlan) -> Result<(),
         .map_err(|e| PlanError::SaveFailed(e.to_string()))
 }
 
-/// Validate grounding and persist. The caller must have already pruned the plan.
+/// Validate grounding and persist. Returns the `GroundedCleansePlan` proof so
+/// callers can carry forward the evidence of successful grounding.
 pub async fn save_cleanse_plan_grounded(
     ctx: &AgentCtx,
     plan: &CleansePlan,
     allowed_raw: &std::collections::BTreeSet<String>,
-) -> Result<(), PlanError> {
+) -> Result<GroundedCleansePlan, PlanError> {
     let mut candidate = plan.clone();
     ensure_expected_model_paths_cleanse(Some(ctx), &mut candidate);
     prune_cleanse_plan_to_grounded_raw_datasets(&mut candidate, allowed_raw);
     let grounded = GroundedCleansePlan::try_from(candidate).map_err(PlanError::GroundingFailed)?;
-    save_cleanse_plan(ctx, &grounded.0).await
+    save_cleanse_plan(ctx, &grounded.0).await?;
+    Ok(grounded)
 }
 
 pub async fn load_model_plan(ctx: &AgentCtx) -> Result<Option<ModelPlan>, PlanError> {
@@ -258,14 +260,16 @@ pub async fn save_model_plan(ctx: &AgentCtx, plan: &ModelPlan) -> Result<(), Pla
 }
 
 /// Validate grounding against the staging model allowlist and persist.
-/// The caller must have already pruned the plan; this function does NOT re-prune.
+/// Returns the `GroundedModelPlan` proof so callers can carry forward the
+/// evidence of successful grounding.
 pub async fn save_model_plan_grounded(
     ctx: &AgentCtx,
     plan: &ModelPlan,
     allowed_staging_models: &std::collections::BTreeSet<String>,
-) -> Result<(), PlanError> {
+) -> Result<GroundedModelPlan, PlanError> {
     let candidate = plan.clone();
     let grounded = GroundedModelPlan::ground(candidate, allowed_staging_models)
         .map_err(PlanError::GroundingFailed)?;
-    save_model_plan(ctx, &grounded.0).await
+    save_model_plan(ctx, &grounded.0).await?;
+    Ok(grounded)
 }

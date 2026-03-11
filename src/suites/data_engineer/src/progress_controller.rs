@@ -40,6 +40,15 @@ pub enum RepairTargetMaterialization {
 /// ad-hoc `(Option<String>, Vec<FailedModelRef>)` tuples. The `format_error_context`
 /// method guarantees that error text is NEVER dropped regardless of whether
 /// specific failing models are identified.
+/// Typed plan data for a single failing task, carried into repair prompts so
+/// the repair LLM sees the exact contract it must satisfy.
+#[derive(Clone, Debug)]
+pub struct TaskRepairSpec {
+    pub task_id: String,
+    pub source_schema: Vec<crate::plan_types::SourceColumnDef>,
+    pub implementation_spec_json: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RepairPromptContext {
     pub brief: Option<String>,
@@ -53,6 +62,9 @@ pub struct RepairPromptContext {
     /// Pre-fetched file contents for failing models (path → content).
     /// Populated asynchronously before prompt rendering; never serialized.
     pub target_contents: Vec<(String, String)>,
+    /// Typed plan data for failing tasks so the repair LLM sees the
+    /// authoritative contract (schema + implementation spec) from the plan.
+    pub task_specs: Vec<TaskRepairSpec>,
 }
 
 impl RepairPromptContext {
@@ -116,6 +128,26 @@ impl RepairPromptContext {
                  Read the error above carefully and make a DIFFERENT change.\n",
                 self.stall_count,
             ));
+        }
+        if !self.task_specs.is_empty() {
+            out.push_str("\n--- Plan contract for failing tasks (AUTHORITATIVE) ---\n");
+            for spec in &self.task_specs {
+                out.push_str(&format!("\n### Task: {}\n", spec.task_id));
+                if !spec.source_schema.is_empty() {
+                    out.push_str("Source columns:\n");
+                    for c in &spec.source_schema {
+                        out.push_str(&format!("  - {} ({})\n", c.name, c.data_type));
+                    }
+                }
+                if !spec.implementation_spec_json.is_empty() {
+                    out.push_str("Implementation spec:\n```json\n");
+                    out.push_str(&spec.implementation_spec_json);
+                    if !spec.implementation_spec_json.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    out.push_str("```\n");
+                }
+            }
         }
         if !self.target_contents.is_empty() {
             out.push_str("\n--- Current file contents (use these as exact patch context) ---\n");
@@ -1093,6 +1125,7 @@ impl ExecutionState {
                 .map(|s| format!("{:?}", s)),
             guard_note,
             target_contents: Vec::new(),
+            task_specs: Vec::new(),
         }
     }
 

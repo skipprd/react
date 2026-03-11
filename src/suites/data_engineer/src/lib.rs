@@ -14,7 +14,6 @@ use react_core::session::ThreadStore;
 use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
 use react_core::tools::ToolRegistry;
 use std::collections::{BTreeSet, HashSet};
-use std::sync::Arc;
 
 pub struct DataEngineerSuite;
 
@@ -463,25 +462,6 @@ impl DataEngineerSuite {
         schema.contains("raw") || table.starts_with("raw_")
     }
 
-    async fn discovered_raw_relations_from_catalog(
-        datasets: Option<&Arc<dyn crate::providers::DatasetCatalogProvider>>,
-    ) -> BTreeSet<String> {
-        let mut out = BTreeSet::new();
-        let Some(ds) = datasets else {
-            return out;
-        };
-        let Ok(items) = ds.list_datasets().await else {
-            return out;
-        };
-        for item in items {
-            let fqn = item.fqn();
-            if Self::is_raw_dataset_id(&fqn) {
-                out.insert(fqn);
-            }
-        }
-        out
-    }
-
     async fn run_deterministic_probe_for_table(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -669,23 +649,19 @@ impl DataEngineerSuite {
     }
 
     fn push_snapshot_array_event(
-        snapshot: &mut serde_json::Value,
+        snapshot: &mut crate::plan_types::PlanSnapshot,
         key: &str,
         event: serde_json::Value,
         max_len: usize,
     ) {
-        if snapshot.is_null() {
-            *snapshot = serde_json::json!({});
-        }
-        if let Some(obj) = snapshot.as_object_mut() {
-            let arr = obj
-                .entry(key.to_string())
-                .or_insert_with(|| serde_json::Value::Array(vec![]));
-            if let Some(items) = arr.as_array_mut() {
-                items.push(event);
-                while items.len() > max_len {
-                    items.remove(0);
-                }
+        let arr = snapshot
+            .extra
+            .entry(key.to_string())
+            .or_insert_with(|| serde_json::Value::Array(vec![]));
+        if let Some(items) = arr.as_array_mut() {
+            items.push(event);
+            while items.len() > max_len {
+                items.remove(0);
             }
         }
     }

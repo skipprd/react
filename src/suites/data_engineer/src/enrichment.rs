@@ -816,7 +816,7 @@ Apply these fixes in the output.",
         crate::plan::CleansePlan {
             plan_key: String::new(),
             status: crate::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks,
             batches,
             work_groups,
@@ -876,7 +876,7 @@ Apply these fixes in the output.",
         crate::plan::ModelPlan {
             plan_key: String::new(),
             status: crate::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks,
             batches,
             work_groups,
@@ -895,7 +895,7 @@ mod tests {
         let mut plan = crate::plan::CleansePlan {
             plan_key: "p".to_string(),
             status: crate::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![crate::plan::CleanseTask {
                 dataset_id: "raw.orders".to_string(),
                 expected_model_path: None,
@@ -943,7 +943,7 @@ mod tests {
         let mut plan = crate::plan::ModelPlan {
             plan_key: "p".to_string(),
             status: crate::plan::PlanStatus::Draft,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![crate::plan::ModelTask {
                 name: "fct_orders".to_string(),
                 folder: crate::plan::ModelFolder::Marts,

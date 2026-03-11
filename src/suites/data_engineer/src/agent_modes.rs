@@ -475,6 +475,52 @@ impl DataEngineerSuite {
                     }
                 }
             }
+            // Populate typed task specs from the plan so the repair LLM
+            // sees the authoritative contract (source_schema + implementation_spec).
+            if let Some(track) = crate::track_spec::TrackKind::from_any_phase(phase) {
+                let actx = Self::plan_agent_ctx(thread_id, sctx);
+                let failing_names: std::collections::HashSet<String> = repair_ctx
+                    .failed_models
+                    .iter()
+                    .map(|fm| fm.name.trim().to_string())
+                    .filter(|n| !n.is_empty())
+                    .collect();
+                if !failing_names.is_empty() {
+                    if track.is_cleanse() {
+                        if let Some(plan) = crate::plan::load_cleanse_plan(&actx).await.ok().flatten() {
+                            for t in &plan.tasks {
+                                if failing_names.contains(t.dataset_id.as_str())
+                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false))
+                                {
+                                    repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
+                                        task_id: t.dataset_id.clone(),
+                                        source_schema: t.source_schema.clone(),
+                                        implementation_spec_json: t.implementation_spec.as_ref()
+                                            .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
+                                            .unwrap_or_default(),
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        if let Some(plan) = crate::plan::load_model_plan(&actx).await.ok().flatten() {
+                            for t in &plan.tasks {
+                                if failing_names.contains(t.name.as_str())
+                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false))
+                                {
+                                    repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
+                                        task_id: t.name.clone(),
+                                        source_schema: t.source_schema.clone(),
+                                        implementation_spec_json: t.implementation_spec.as_ref()
+                                            .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
+                                            .unwrap_or_default(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             match Self::execute_phase(
                 &thread_store,
                 thread_id,

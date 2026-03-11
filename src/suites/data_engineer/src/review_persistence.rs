@@ -81,12 +81,7 @@ async fn mutate_plan_review(
             .await
             .map_err(|e| e.to_string())?
         {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                mutate_snapshot(obj);
-            }
+            mutate_snapshot(&mut p.project_snapshot.extra);
             de_plan::save_cleanse_plan(actx, &p)
                 .await
                 .map_err(|e| format!("failed to persist cleanse {label}: {e}"))?;
@@ -96,12 +91,7 @@ async fn mutate_plan_review(
             .await
             .map_err(|e| e.to_string())?
         {
-            if p.project_snapshot.is_null() {
-                p.project_snapshot = serde_json::json!({});
-            }
-            if let Some(obj) = p.project_snapshot.as_object_mut() {
-                mutate_snapshot(obj);
-            }
+            mutate_snapshot(&mut p.project_snapshot.extra);
             de_plan::save_model_plan(actx, &p)
                 .await
                 .map_err(|e| format!("failed to persist model {label}: {e}"))?;

@@ -1,26 +1,7 @@
 use super::*;
 use crate::control_flow::Phase;
 
-fn append_validate_fail_facts(
-    snapshot: &mut serde_json::Value,
-    facts_bundle: &impl serde::Serialize,
-    max_entries: usize,
-) {
-    if snapshot.is_null() {
-        *snapshot = serde_json::json!({});
-    }
-    if let Some(obj) = snapshot.as_object_mut() {
-        let arr = obj
-            .entry("validate_fail_facts")
-            .or_insert_with(|| serde_json::Value::Array(vec![]));
-        if let Some(a) = arr.as_array_mut() {
-            a.push(serde_json::to_value(facts_bundle).unwrap_or(serde_json::Value::Null));
-            while a.len() > max_entries {
-                a.remove(0);
-            }
-        }
-    }
-}
+const MAX_VALIDATE_FAIL_FACTS: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ValidatePassTransition {
@@ -612,7 +593,10 @@ impl DataEngineerSuite {
         // Keep bounded to avoid unbounded plan growth.
         if phase == Phase::CleanseValidate {
             if let Some(mut p) = crate::plan::load_cleanse_plan(&actx).await? {
-                append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
+                p.project_snapshot.validate_fail_facts.push(facts_bundle.clone());
+                if p.project_snapshot.validate_fail_facts.len() > MAX_VALIDATE_FAIL_FACTS {
+                    p.project_snapshot.validate_fail_facts.remove(0);
+                }
                 crate::plan::save_cleanse_plan(&actx, &p)
                     .await
                     .map_err(|e| {
@@ -621,7 +605,10 @@ impl DataEngineerSuite {
             }
         } else {
             if let Some(mut p) = crate::plan::load_model_plan(&actx).await? {
-                append_validate_fail_facts(&mut p.project_snapshot, &facts_bundle, 5);
+                p.project_snapshot.validate_fail_facts.push(facts_bundle.clone());
+                if p.project_snapshot.validate_fail_facts.len() > MAX_VALIDATE_FAIL_FACTS {
+                    p.project_snapshot.validate_fail_facts.remove(0);
+                }
                 crate::plan::save_model_plan(&actx, &p).await.map_err(|e| {
                     format!("failed to persist model validate-failure facts bundle: {e}")
                 })?;

@@ -238,21 +238,47 @@ impl Tool for StagingModelTool {
                 ));
                 continue;
             }
-            let gating_ds = ds.clone();
-            match crate::transient_retry::retry_transient_default(
-                "staging_model_schema_lookup",
-                || async { gating_wh.schema(&gating_ds).await },
-            )
-            .await
-            {
-                Ok(cols) => {
-                    schema_cols_by_ds.insert(ds, cols);
-                }
-                Err(e) => {
-                    gating_errors.push(format!(
-                        "{}: schema lookup failed (treating as fact): {}",
-                        ds, e
-                    ));
+            // Prefer plan-recorded source_schema (single source of truth captured
+            // at plan compilation time). Fall back to live warehouse only when the
+            // plan doesn't have schema for this dataset.
+            let plan_schema_cols: Option<Vec<(String, String)>> = plan_opt
+                .as_ref()
+                .and_then(|p| p.tasks.iter().find(|t| t.dataset_id == ds))
+                .and_then(|t| {
+                    if t.source_schema.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            t.source_schema
+                                .iter()
+                                .map(|c| (c.name.clone(), c.data_type.clone()))
+                                .collect(),
+                        )
+                    }
+                });
+            if let Some(cols) = plan_schema_cols {
+                schema_cols_by_ds.insert(ds, cols);
+            } else {
+                let gating_ds = ds.clone();
+                match crate::transient_retry::retry_transient_default(
+                    "staging_model_schema_lookup",
+                    || async { gating_wh.schema(&gating_ds).await },
+                )
+                .await
+                {
+                    Ok(cols) => {
+                        tracing::warn!(
+                            "staging_model: schema for {} came from live warehouse (plan source_schema was empty)",
+                            gating_ds
+                        );
+                        schema_cols_by_ds.insert(ds, cols);
+                    }
+                    Err(e) => {
+                        gating_errors.push(format!(
+                            "{}: schema lookup failed (treating as fact): {}",
+                            ds, e
+                        ));
+                    }
                 }
             }
         }
@@ -1291,7 +1317,7 @@ mod tests {
         let plan = crate::plan::CleansePlan {
             plan_key: plan_key.clone(),
             status: crate::plan::PlanStatus::Approved,
-            project_snapshot: Value::Null,
+            project_snapshot: Default::default(),
             tasks: vec![crate::plan::CleanseTask {
                 dataset_id: ds.clone(),
                 expected_model_path: Some("models/staging/stg_test_raw_raw_orders.sql".to_string()),

@@ -77,18 +77,13 @@ pub fn prune_cleanse_plan_to_grounded_raw_datasets(
     if !removed.is_empty() {
         removed.sort();
         removed.dedup();
-        if plan.project_snapshot.is_null() {
-            plan.project_snapshot = serde_json::json!({});
-        }
-        if let Some(obj) = plan.project_snapshot.as_object_mut() {
-            obj.insert(
-                "pruned_dataset_ids".to_string(),
-                serde_json::json!({
-                    "count": removed.len(),
-                    "items": removed.into_iter().take(50).collect::<Vec<_>>()
-                }),
-            );
-        }
+        plan.project_snapshot.insert(
+            "pruned_dataset_ids",
+            serde_json::json!({
+                "count": removed.len(),
+                "items": removed.into_iter().take(50).collect::<Vec<_>>()
+            }),
+        );
     }
     plan.reconcile_work_groups();
 }
@@ -192,18 +187,13 @@ pub fn prune_model_plan_to_grounded_staging_models(
     if !removed.is_empty() {
         removed.sort();
         removed.dedup();
-        if plan.project_snapshot.is_null() {
-            plan.project_snapshot = serde_json::json!({});
-        }
-        if let Some(obj) = plan.project_snapshot.as_object_mut() {
-            obj.insert(
-                "pruned_model_tasks".to_string(),
-                serde_json::json!({
-                    "count": removed.len(),
-                    "items": removed.into_iter().take(50).collect::<Vec<_>>()
-                }),
-            );
-        }
+        plan.project_snapshot.insert(
+            "pruned_model_tasks",
+            serde_json::json!({
+                "count": removed.len(),
+                "items": removed.into_iter().take(50).collect::<Vec<_>>()
+            }),
+        );
     }
     plan.reconcile_work_groups();
 }

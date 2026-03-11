@@ -812,7 +812,7 @@ mod tests {
         let plan_doc = plan::CleansePlan {
             plan_key: plan::new_cleanse_plan_key(ctx),
             status: plan::PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![plan::CleanseTask {
                 dataset_id: "AwsDataCatalog.test_raw.raw_customers".to_string(),
                 expected_model_path: Some(
@@ -887,7 +887,7 @@ mod tests {
         let plan_doc = plan::ModelPlan {
             plan_key: plan::new_model_plan_key(ctx),
             status: plan::PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![plan::ModelTask {
                 name: "dim_customers".to_string(),
                 folder: plan::ModelFolder::Marts,

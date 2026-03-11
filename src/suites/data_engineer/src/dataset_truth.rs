@@ -350,6 +350,90 @@ pub fn render_source_schema_prompt_block(
     out
 }
 
+/// Query the warehouse for output schemas of materialized staging models and
+/// merge them into `source_schemas` keyed by `stg_*` name. This is called during
+/// model plan compilation so the plan records what the gold LLM will see at
+/// authoring time.
+pub async fn record_staging_output_schemas(
+    ctx: &AgentCtx,
+    staging_model_names: &BTreeSet<String>,
+    source_schemas: &mut crate::plan_types::SourceSchema,
+) {
+    let wh = match crate::ctx_ext::actx_warehouse(ctx) {
+        Some(wh) => wh,
+        None => return,
+    };
+    let (container, silver_ns) = crate::resolved_config_from_ctx(ctx)
+        .and_then(|cfg| crate::de_config::de_config_from_resolved(cfg))
+        .map(|p| {
+            let container = p.warehouse.container.clone();
+            let base_schema = p.dbt.naming.target_schema.clone();
+            let silver_suffix = p.dbt.naming.silver_suffix.clone();
+            let db = if base_schema.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{}_{}", base_schema.trim(), silver_suffix.trim())
+            };
+            (container, db)
+        })
+        .unwrap_or_default();
+
+    if container.trim().is_empty() || silver_ns.trim().is_empty() {
+        return;
+    }
+
+    for name_owned in staging_model_names {
+        let name = name_owned.trim();
+        if name.is_empty() || source_schemas.contains_key(name) {
+            continue;
+        }
+        let fqn = format!("{}.{}.{}", container, silver_ns, name);
+        match crate::transient_retry::retry_transient_default(
+            "staging_output_schema",
+            || async { wh.schema(&fqn).await },
+        )
+        .await
+        {
+            Ok(cols) if !cols.is_empty() => {
+                let defs: Vec<crate::plan_types::SourceColumnDef> = cols
+                    .into_iter()
+                    .map(|(n, t)| crate::plan_types::SourceColumnDef {
+                        name: n,
+                        data_type: t,
+                    })
+                    .collect();
+                source_schemas.insert(name.to_string(), defs);
+            }
+            Ok(_) => {
+                tracing::debug!(
+                    "record_staging_output_schemas: empty schema for {} (not yet materialized?)",
+                    fqn
+                );
+            }
+            Err(e) => {
+                tracing::debug!(
+                    "record_staging_output_schemas: schema lookup failed for {}: {}",
+                    fqn,
+                    e
+                );
+            }
+        }
+    }
+}
+
+/// All discovery results from a single pass, threaded through the plan pipeline
+/// so no downstream function re-fetches. Built once at the top of `execute_plan_phase`.
+pub struct PlanDiscoveryContext {
+    /// Every dataset FQN returned by `list_datasets()`.
+    pub dataset_fqns: Vec<String>,
+    /// Subset of `dataset_fqns` that pass the `is_raw_dataset_id` filter.
+    pub raw_dataset_ids: BTreeSet<String>,
+    /// Column schemas keyed by dataset FQN (raw) or staging model name.
+    pub source_schemas: crate::plan_types::SourceSchema,
+    /// Staging models discovered from storage (model track only).
+    pub staging: Option<GroundedStagingModelSet>,
+}
+
 /// Group dataset fqn strings by (catalog, schema) for schema.yml sources emission.
 pub fn group_by_catalog_schema(
     dataset_ids: &BTreeSet<String>,

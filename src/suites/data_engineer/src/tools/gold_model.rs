@@ -989,7 +989,7 @@ mod tests {
         let plan = crate::plan::ModelPlan {
             plan_key: plan_key.clone(),
             status: crate::plan::PlanStatus::Approved,
-            project_snapshot: serde_json::Value::Null,
+            project_snapshot: Default::default(),
             tasks: vec![crate::plan::ModelTask {
                 name: "fct_orders".to_string(),
                 folder: crate::plan::ModelFolder::Marts,

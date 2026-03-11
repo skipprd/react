@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use serde::{Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -24,6 +25,19 @@ use crate::{facts, naming};
 
 use super::review_persistence::*;
 use super::review_prompts::*;
+
+/// Typed container for a single batch item passed to the review LLM.
+/// Serialized to JSON only at the prompt boundary — everything before that is
+/// compile-time checked.
+#[derive(Serialize)]
+pub(crate) struct ReviewBatchItem {
+    pub item: String,
+    pub expected_model_path: String,
+    pub invariants: Vec<String>,
+    pub implementation_spec: Value,
+    pub authoritative_schema: Value,
+    pub dependency_schemas: Value,
+}
 
 pub(super) const REVIEW_SNAPSHOT_VERSION: i64 = 1;
 const DEFAULT_BATCH_SIZE: usize = 5;
@@ -430,71 +444,61 @@ fn deterministic_unify_defaults(
     (tier, dataset_ids)
 }
 
+/// Resolved fields for a single cleanse batch item.
+type CleanseBatchResolved = (
+    String,                                     // dataset_id
+    String,                                     // expected_path
+    Vec<String>,                                // invariants
+    Option<de_plan::CleanseImplementationSpec>,  // implementation_spec
+    Vec<crate::plan_types::SourceColumnDef>,     // source_schema
+);
+
 fn resolve_cleanse_batch_paths(
     plan: &de_plan::CleansePlan,
     batch: &[String],
-) -> Vec<(
-    String,
-    String,
-    Vec<String>,
-    Vec<de_plan::PlanChecklistItem>,
-    Option<de_plan::CleanseImplementationSpec>,
-)> {
-    // returns (dataset_id, expected_path, invariants, checklist, implementation_spec)
-    let mut out: Vec<(
-        String,
-        String,
-        Vec<String>,
-        Vec<de_plan::PlanChecklistItem>,
-        Option<de_plan::CleanseImplementationSpec>,
-    )> = Vec::new();
+) -> Vec<CleanseBatchResolved> {
+    let mut out = Vec::new();
     for ds in batch.iter() {
         if let Some(t) = plan.tasks.iter().find(|t| t.dataset_id == *ds) {
-            let p = t.expected_model_path.clone().unwrap_or_default();
             out.push((
                 ds.clone(),
-                p,
+                t.expected_model_path.clone().unwrap_or_default(),
                 t.invariants.clone(),
-                t.checklist.clone(),
                 t.implementation_spec.clone(),
+                t.source_schema.clone(),
             ));
         } else {
-            out.push((ds.clone(), String::new(), vec![], vec![], None));
+            out.push((ds.clone(), String::new(), vec![], None, vec![]));
         }
     }
     out
 }
 
+/// Resolved fields for a single model batch item.
+type ModelBatchResolved = (
+    String,                                     // name
+    String,                                     // expected_path
+    Vec<String>,                                // invariants
+    Option<de_plan::ModelImplementationSpec>,    // implementation_spec
+    Vec<crate::plan_types::SourceColumnDef>,     // source_schema
+);
+
 fn resolve_model_batch_paths(
     plan: &de_plan::ModelPlan,
     batch: &[String],
-) -> Vec<(
-    String,
-    String,
-    Vec<String>,
-    Vec<de_plan::PlanChecklistItem>,
-    Option<de_plan::ModelImplementationSpec>,
-)> {
-    // returns (name, expected_path, invariants, checklist, implementation_spec)
-    let mut out: Vec<(
-        String,
-        String,
-        Vec<String>,
-        Vec<de_plan::PlanChecklistItem>,
-        Option<de_plan::ModelImplementationSpec>,
-    )> = Vec::new();
+) -> Vec<ModelBatchResolved> {
+    let mut out = Vec::new();
     for name in batch.iter() {
         if let Some(t) = plan.tasks.iter().find(|t| t.name == *name) {
-            let p = t.expected_model_path.clone().unwrap_or_default();
             out.push((
                 name.clone(),
-                p,
+                t.expected_model_path.clone().unwrap_or_default(),
                 t.invariants.clone(),
-                t.checklist.clone(),
                 t.implementation_spec.clone(),
+                t.source_schema.clone(),
             ));
         } else {
-            out.push((name.clone(), String::new(), vec![], vec![], None));
+            out.push((name.clone(), String::new(), vec![], None, vec![]));
         }
     }
     out
@@ -507,76 +511,70 @@ type PlanAndBatches = (
     Option<Value>,
 );
 
-async fn load_cleanse_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_cleanse_plan_by_key(actx, key)
-        .await
-        .ok()
-        .flatten()
-    {
-        let batches = if !p.batches.is_empty() {
-            p.batches.clone()
-        } else {
-            vec![]
-        };
-        let mut map: Vec<Value> = Vec::new();
-        for b in batches.iter() {
-            for (ds, path, inv, checklist, implementation_spec) in
-                resolve_cleanse_batch_paths(&p, b)
-            {
-                map.push(serde_json::json!({
-                    "item": ds,
-                    "expected_model_path": path,
-                    "invariants": inv,
-                    "checklist": checklist,
-                    "implementation_spec": implementation_spec
-                }));
-            }
-        }
-        (
-            Some(PlanKind::Cleanse),
-            Some(key.to_string()),
-            batches,
-            Some(Value::Array(map)),
-        )
+fn load_cleanse_plan_and_batches_from(p: de_plan::CleansePlan) -> PlanAndBatches {
+    let batches = if !p.batches.is_empty() {
+        p.batches.clone()
     } else {
-        (None, None, vec![], None)
+        vec![]
+    };
+    let key = p.plan_key.clone();
+    let mut map: Vec<Value> = Vec::new();
+    for b in batches.iter() {
+        for (ds, path, inv, implementation_spec, source_schema) in
+            resolve_cleanse_batch_paths(&p, b)
+        {
+            let schema_cols: Vec<Value> = source_schema
+                .iter()
+                .map(|c| serde_json::json!({"name": &c.name, "type": &c.data_type}))
+                .collect();
+            map.push(serde_json::json!({
+                "item": ds,
+                "expected_model_path": path,
+                "invariants": inv,
+                "implementation_spec": implementation_spec,
+                "plan_source_schema": schema_cols
+            }));
+        }
     }
+    (
+        Some(PlanKind::Cleanse),
+        Some(key),
+        batches,
+        Some(Value::Array(map)),
+    )
 }
 
-async fn load_model_plan_and_batches(actx: &AgentCtx, key: &str) -> PlanAndBatches {
-    if let Some(p) = de_plan::load_model_plan_by_key(actx, key)
-        .await
-        .ok()
-        .flatten()
-    {
-        let batches = if !p.batches.is_empty() {
-            p.batches.clone()
-        } else {
-            vec![]
-        };
-        let mut map: Vec<Value> = Vec::new();
-        for b in batches.iter() {
-            for (name, path, inv, checklist, implementation_spec) in
-                resolve_model_batch_paths(&p, b)
-            {
-                map.push(serde_json::json!({
-                    "item": name,
-                    "expected_model_path": path,
-                    "invariants": inv,
-                    "checklist": checklist,
-                    "implementation_spec": implementation_spec
-                }));
-            }
-        }
-        (
-            Some(PlanKind::Model),
-            Some(key.to_string()),
-            batches,
-            Some(Value::Array(map)),
-        )
+fn load_model_plan_and_batches_from(p: de_plan::ModelPlan) -> PlanAndBatches {
+    let batches = if !p.batches.is_empty() {
+        p.batches.clone()
     } else {
-        (None, None, vec![], None)
+        vec![]
+    };
+    let key = p.plan_key.clone();
+    let mut map: Vec<Value> = Vec::new();
+    for b in batches.iter() {
+        for (name, path, inv, implementation_spec, source_schema) in
+            resolve_model_batch_paths(&p, b)
+        {
+            let schema_cols: Vec<Value> = source_schema
+                .iter()
+                .map(|c| serde_json::json!({"name": &c.name, "type": &c.data_type}))
+                .collect();
+            map.push(serde_json::json!({
+                "item": name,
+                "expected_model_path": path,
+                "invariants": inv,
+                "implementation_spec": implementation_spec,
+                "plan_source_schema": schema_cols
+            }));
+        }
     }
+    (
+        Some(PlanKind::Model),
+        Some(key),
+        batches,
+        Some(Value::Array(map)),
+    )
 }
 
 async fn build_project_context(actx: &AgentCtx) -> Vec<ProjectFile> {
@@ -788,7 +786,7 @@ async fn review_single_batch(
     item_to_path_inv_notes: &Option<Value>,
 ) -> Result<Value, String> {
     let mut files: Vec<ProjectFile> = Vec::new();
-    let mut batch_detail: Vec<Value> = Vec::new();
+    let mut batch_detail: Vec<ReviewBatchItem> = Vec::new();
 
     let mapping = item_to_path_inv_notes.clone().unwrap_or(Value::Null);
     let mapping_arr = mapping.as_array().cloned().unwrap_or_default();
@@ -802,7 +800,6 @@ async fn review_single_batch(
     for item in batch.iter() {
         let mut expected_path = String::new();
         let mut invariants: Vec<String> = Vec::new();
-        let mut notes: Vec<String> = Vec::new();
         let mut implementation_spec: Value = Value::Null;
         if let Some(m) = map_for(item) {
             expected_path = m
@@ -811,7 +808,6 @@ async fn review_single_batch(
                 .unwrap_or("")
                 .to_string();
             invariants = str_list(m.get("invariants").unwrap_or(&Value::Null));
-            notes = str_list(m.get("notes").unwrap_or(&Value::Null));
             implementation_spec = m.get("implementation_spec").cloned().unwrap_or(Value::Null);
         }
         if expected_path.trim().is_empty() {
@@ -826,7 +822,20 @@ async fn review_single_batch(
             files.push(f);
         }
 
-        let schema_obs = if item.split('.').count() >= 3 {
+        // Prefer plan-recorded source_schema (captured at plan compilation).
+        // Fall back to live warehouse query only when the plan doesn't have it.
+        let plan_schema = map_for(item)
+            .and_then(|m| m.get("plan_source_schema").cloned())
+            .and_then(|v| {
+                if v.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                    None
+                } else {
+                    Some(v)
+                }
+            });
+        let schema_obs = if let Some(ps) = plan_schema {
+            ps
+        } else if item.split('.').count() >= 3 {
             let raw = schema_for_dataset_fqn(sctx, actx, item).await;
             cap_schema_columns(&raw)
         } else {
@@ -841,15 +850,14 @@ async fn review_single_batch(
         } else {
             Value::Array(vec![])
         };
-        batch_detail.push(serde_json::json!({
-            "item": item,
-            "expected_model_path": expected_path,
-            "invariants": invariants,
-            "task_notes": notes,
-            "implementation_spec": implementation_spec,
-            "authoritative_schema": schema_obs
-            ,"dependency_schemas": deps
-        }));
+        batch_detail.push(ReviewBatchItem {
+            item: item.clone(),
+            expected_model_path: expected_path,
+            invariants,
+            implementation_spec,
+            authoritative_schema: schema_obs,
+            dependency_schemas: deps,
+        });
     }
 
     let batch_user = format!(
@@ -1059,52 +1067,36 @@ pub async fn run_batched_review(
         Option<Value>,
     ) = match phase {
         Phase::CleanseReview => {
-            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_cleanse.json")
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                load_cleanse_plan_and_batches(&actx, &k).await
+            // Use the same plan-loading path as authoring (oldest active, non-terminal)
+            // to ensure review sees the exact same plan version.
+            if let Some(p) = de_plan::load_cleanse_plan(&actx).await.map_err(|e| e.to_string())? {
+                load_cleanse_plan_and_batches_from(p)
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::ModelReview => {
-            if let Some(k) = de_plan::newest_plan_key_any(&actx, "_model.json")
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                load_model_plan_and_batches(&actx, &k).await
+            if let Some(p) = de_plan::load_model_plan(&actx).await.map_err(|e| e.to_string())? {
+                load_model_plan_and_batches_from(p)
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::PostPublishReview => {
-            let kc = de_plan::newest_plan_key_any(&actx, "_cleanse.json")
-                .await
-                .map_err(|e| e.to_string())?;
-            let km = de_plan::newest_plan_key_any(&actx, "_model.json")
-                .await
-                .map_err(|e| e.to_string())?;
-            let choose: Option<PlanKind> = match (&kc, &km) {
+            // For post-publish, try both tracks; prefer whichever has an active plan.
+            let cp = de_plan::load_cleanse_plan(&actx).await.ok().flatten();
+            let mp = de_plan::load_model_plan(&actx).await.ok().flatten();
+            match (cp, mp) {
                 (Some(c), Some(m)) => {
-                    if c >= m {
-                        Some(PlanKind::Cleanse)
+                    if c.plan_key >= m.plan_key {
+                        load_cleanse_plan_and_batches_from(c)
                     } else {
-                        Some(PlanKind::Model)
+                        load_model_plan_and_batches_from(m)
                     }
                 }
-                (Some(_), None) => Some(PlanKind::Cleanse),
-                (None, Some(_)) => Some(PlanKind::Model),
-                (None, None) => None,
-            };
-            match (choose, kc, km) {
-                (Some(PlanKind::Cleanse), Some(ref k), _) => {
-                    load_cleanse_plan_and_batches(&actx, k).await
-                }
-                (Some(PlanKind::Model), _, Some(ref k)) => {
-                    load_model_plan_and_batches(&actx, k).await
-                }
-                _ => (None, None, vec![], None),
+                (Some(c), None) => load_cleanse_plan_and_batches_from(c),
+                (None, Some(m)) => load_model_plan_and_batches_from(m),
+                (None, None) => (None, None, vec![], None),
             }
         }
         _ => (None, None, vec![], None),
@@ -1372,7 +1364,7 @@ mod tests {
         let mut plan = de_plan::CleansePlan {
             plan_key: "k_cleanse".to_string(),
             status: de_plan::PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![
                 de_plan::CleanseTask {
                     dataset_id: "a.b.a".to_string(),
@@ -1557,6 +1549,7 @@ mod tests {
             .expect("plan");
         let review = loaded
             .project_snapshot
+            .extra
             .get("review")
             .cloned()
             .unwrap_or(Value::Null);
@@ -1760,7 +1753,7 @@ mod tests {
         let plan = de_plan::CleansePlan {
             plan_key: de_plan::new_cleanse_plan_key(&actx),
             status: de_plan::PlanStatus::Approved,
-            project_snapshot: serde_json::json!({}),
+            project_snapshot: Default::default(),
             tasks: vec![de_plan::CleanseTask {
                 dataset_id: "a.b.c".to_string(),
                 expected_model_path: Some("models/staging/stg_a.sql".to_string()),

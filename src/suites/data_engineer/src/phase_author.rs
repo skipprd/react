@@ -447,14 +447,13 @@ async fn check_batch_lock_and_loopback(
 }
 
 fn extract_validate_fail_context(
-    project_snapshot: &serde_json::Value,
+    snapshot: &crate::plan_types::PlanSnapshot,
 ) -> Option<serde_json::Value> {
-    project_snapshot
-        .as_object()
-        .and_then(|obj| obj.get("validate_fail_facts"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.last())
-        .cloned()
+    if snapshot.validate_fail_facts.is_empty() {
+        None
+    } else {
+        serde_json::to_value(&snapshot.validate_fail_facts).ok()
+    }
 }
 
 // ---------------------------------------------------------------------------
