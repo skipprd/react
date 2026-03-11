@@ -37,7 +37,57 @@ impl DataEngineerSuite {
         out_frames: &mut Vec<FlowFrame>,
     ) -> Result<PhaseExecutorOutcome, PhaseError> {
         let review_q = Self::build_review_question_with_context(question, phase, execution_state);
-        let frames = review_batched::run_batched_review(thread_id, &review_q, phase, sctx).await?;
+        let frames = match review_batched::run_batched_review(thread_id, &review_q, phase, sctx)
+            .await
+        {
+            Ok(f) => f,
+            Err(e) => {
+                let validate_passed = execution_state
+                    .telemetry
+                    .last_validate
+                    .as_ref()
+                    .and_then(|lv| lv.ok)
+                    == Some(true);
+                if validate_passed {
+                    tracing::warn!(
+                        "data_engineer: review infra failure (phase={}) but validate already passed; proceeding. error={}",
+                        phase.as_str(),
+                        e
+                    );
+                    let next = match phase {
+                        control_flow::Phase::CleanseReview => control_flow::Phase::ModelPlan,
+                        control_flow::Phase::ModelReview => {
+                            control_flow::Phase::PublishAwaitApproval
+                        }
+                        control_flow::Phase::PostPublishReview => control_flow::Phase::Done,
+                        _ => control_flow::Phase::Done,
+                    };
+                    out_frames.push(FlowFrame::Review {
+                        text: format!(
+                            "Review skipped due to infrastructure error (validate passed): {}",
+                            e
+                        ),
+                        meta: None,
+                    });
+                    commit_phase_decision(
+                        thread_store,
+                        thread_id,
+                        Some(phase),
+                        PhaseDecision::forward(
+                            next,
+                            Some(PhaseReasonCode::ReviewProceed),
+                            Some(serde_json::json!({
+                                "review_skipped_reason": "infra_failure_after_validate_pass",
+                                "error": e.to_string(),
+                            })),
+                        ),
+                    )
+                    .await?;
+                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
+                }
+                return Err(PhaseError::from(e));
+            }
+        };
         let first = frames.into_iter().next().unwrap_or(FlowFrame::Complete {
             kind: FlowKind::new("generic"),
             payload: serde_json::json!({ "text": "" }),

@@ -305,6 +305,26 @@ pub fn validate_cleanse_plan_semantics(plan: &CleansePlan) -> PlanSemanticValida
                 tid
             ));
         }
+        if !t.source_schema.is_empty() {
+            let known: std::collections::BTreeSet<String> = t
+                .source_schema
+                .iter()
+                .map(|c| c.name.clone())
+                .collect();
+            for field in &spec.output_fields {
+                for sc in &field.source_columns {
+                    if !known.contains(sc.as_str()) {
+                        errors.push(format!(
+                            "{}: output_fields[{}].source_columns references '{}' which is not in the task's authoritative source_schema (available: {})",
+                            tid,
+                            field.name,
+                            sc,
+                            known.iter().cloned().collect::<Vec<_>>().join(", ")
+                        ));
+                    }
+                }
+            }
+        }
     }
     validation_result(errors)
 }

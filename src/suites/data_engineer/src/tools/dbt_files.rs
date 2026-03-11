@@ -689,6 +689,8 @@ impl Tool for FilesTool {
                 {
                     return Err("patch produced no file changes".to_string());
                 }
+                let is_additive_only =
+                    outcome.existed && outcome.lines_removed == 0 && outcome.lines_added > 0;
 
                 // Safety: reject staging schema YAML that references columns not produced by
                 // the sibling staging SQL output (prevents COLUMN_NOT_FOUND runtime errors).
@@ -741,20 +743,27 @@ impl Tool for FilesTool {
                 if let (Some(store), Some(thread_id)) =
                     (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
                 {
-                    let paths = vec![outcome.rel_path.clone()];
-                    let select_terms = select_terms_from_paths(&paths);
-                    let _ = crate::state_manager::mutate_execution_state(
-                        &store.control_store(),
-                        thread_id,
-                        |es| {
-                            es.set_last_mutation_summary(
-                                crate::progress_controller::MutationOp::Patch,
-                                paths.clone(),
-                                select_terms.clone(),
-                            )
-                        },
-                    )
-                    .await;
+                    if is_additive_only {
+                        tracing::warn!(
+                            "data_engineer: patch on existing file was additive-only (lines_added={}, lines_removed=0); not recording as mutation progress to prevent stall masking",
+                            outcome.lines_added
+                        );
+                    } else {
+                        let paths = vec![outcome.rel_path.clone()];
+                        let select_terms = select_terms_from_paths(&paths);
+                        let _ = crate::state_manager::mutate_execution_state(
+                            &store.control_store(),
+                            thread_id,
+                            |es| {
+                                es.set_last_mutation_summary(
+                                    crate::progress_controller::MutationOp::Patch,
+                                    paths.clone(),
+                                    select_terms.clone(),
+                                )
+                            },
+                        )
+                        .await;
+                    }
                 }
                 Ok(response)
             }

@@ -279,6 +279,30 @@ impl DataEngineerSuite {
         )
     }
 
+    /// Render a per-task schema block so the LLM sees each task's available
+    /// columns directly adjacent to the task_id it is enriching.
+    fn render_per_task_schema_block(
+        task_ids: &[String],
+        source_schemas: &crate::plan_types::SourceSchema,
+    ) -> String {
+        let mut out = String::new();
+        for tid in task_ids {
+            if let Some(cols) = source_schemas.get(tid.trim()) {
+                if cols.is_empty() {
+                    continue;
+                }
+                out.push_str(&format!(
+                    "\nAVAILABLE COLUMNS FOR {} (source_columns MUST reference ONLY these):\n",
+                    tid
+                ));
+                for c in cols {
+                    out.push_str(&format!("  - {} ({})\n", c.name, c.data_type));
+                }
+            }
+        }
+        out
+    }
+
     fn unresolved_enrichment_task_ids<T: EnrichableTask>(
         plan: &crate::plan::Plan<T>,
         task_ids: &[String],
@@ -309,8 +333,9 @@ impl DataEngineerSuite {
         for chunk in task_ids.chunks(Self::plan_enrich_chunk_size()) {
             let chunk_vec = chunk.to_vec();
             let summary = T::summarize_plan(plan, 50);
+            let per_task_schema = Self::render_per_task_schema_block(&chunk_vec, source_schemas);
             let base_user = format!(
-                "{}\n\nTarget task_ids:\n{}\n\nReturn schema-valid enrichment JSON.",
+                "{}\n\nTarget task_ids:\n{}\n{}\nReturn schema-valid enrichment JSON.",
                 Self::build_enrichment_prompt_envelope(
                     T::phase(),
                     crate::prompt_packets::TurnDirective::Compile,
@@ -323,7 +348,8 @@ impl DataEngineerSuite {
                     &chunk_vec,
                     &[],
                 ),
-                serde_json::to_string_pretty(&chunk_vec).unwrap_or_else(|_| "[]".to_string())
+                serde_json::to_string_pretty(&chunk_vec).unwrap_or_else(|_| "[]".to_string()),
+                per_task_schema,
             );
             let reason_user = format!(
                 "Think through the enrichment strategy for these task_ids. Return plain text only, no JSON.\n\n{}",
