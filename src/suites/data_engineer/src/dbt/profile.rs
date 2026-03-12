@@ -340,7 +340,7 @@ pub fn generate_profiles_yml(
     }
 }
 
-fn derive_scope_db_name(cfg: &ReactResolvedConfig) -> String {
+pub(crate) fn derive_scope_db_name(cfg: &ReactResolvedConfig) -> String {
     // Default to a simple, stable base schema derived from project_id.
     //
     // dbt's default generate_schema_name macro will append our tier suffixes, yielding:

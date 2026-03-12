@@ -350,58 +350,46 @@ pub fn render_source_schema_prompt_block(
     out
 }
 
+/// Resolve the effective dbt target_schema, falling back to `scope.project_id`
+/// (matching the dbt profile generation logic) when not explicitly configured.
+fn effective_target_schema(ctx: &AgentCtx) -> Option<(String, crate::de_config::ProvidersResolved)> {
+    let cfg = crate::resolved_config_from_ctx(ctx)?;
+    let p = crate::de_config::de_config_from_resolved(cfg)?;
+    let ts = p.dbt.naming.target_schema.trim().to_string();
+    let base = if ts.is_empty() {
+        crate::dbt::profile::derive_scope_db_name(cfg)
+    } else {
+        ts
+    };
+    if base.is_empty() {
+        None
+    } else {
+        Some((base, p))
+    }
+}
+
 /// Canonical warehouse prefix for staged silver relations, e.g.
 /// `AwsDataCatalog.example_silver`.
 pub fn staging_relation_prefix(ctx: &AgentCtx) -> Option<String> {
-    crate::resolved_config_from_ctx(ctx)
-        .and_then(crate::de_config::de_config_from_resolved)
-        .map(|p| {
-            let container = p.warehouse.container.clone();
-            let base_schema = p.dbt.naming.target_schema.clone();
-            let silver_suffix = p.dbt.naming.silver_suffix.clone();
-            let db = if base_schema.trim().is_empty() {
-                String::new()
-            } else {
-                format!("{}_{}", base_schema.trim(), silver_suffix.trim())
-            };
-            (container, db)
-        })
-        .and_then(|(container, db)| {
-            let container = container.trim().to_string();
-            let db = db.trim().to_string();
-            if container.is_empty() || db.is_empty() {
-                None
-            } else {
-                Some(format!("{}.{}", container, db))
-            }
-        })
+    let (base_schema, p) = effective_target_schema(ctx)?;
+    let container = p.warehouse.container.trim().to_string();
+    let silver_suffix = p.dbt.naming.silver_suffix.trim().to_string();
+    if container.is_empty() || silver_suffix.is_empty() {
+        return None;
+    }
+    Some(format!("{}.{}_{}", container, base_schema, silver_suffix))
 }
 
 /// Canonical warehouse prefix for gold (marts/core) relations, e.g.
 /// `AwsDataCatalog.example_warehouse`.
 pub fn gold_relation_prefix(ctx: &AgentCtx) -> Option<String> {
-    crate::resolved_config_from_ctx(ctx)
-        .and_then(crate::de_config::de_config_from_resolved)
-        .map(|p| {
-            let container = p.warehouse.container.clone();
-            let base_schema = p.dbt.naming.target_schema.clone();
-            let gold_suffix = p.dbt.naming.gold_suffix.clone();
-            let db = if base_schema.trim().is_empty() {
-                String::new()
-            } else {
-                format!("{}_{}", base_schema.trim(), gold_suffix.trim())
-            };
-            (container, db)
-        })
-        .and_then(|(container, db)| {
-            let container = container.trim().to_string();
-            let db = db.trim().to_string();
-            if container.is_empty() || db.is_empty() {
-                None
-            } else {
-                Some(format!("{}.{}", container, db))
-            }
-        })
+    let (base_schema, p) = effective_target_schema(ctx)?;
+    let container = p.warehouse.container.trim().to_string();
+    let gold_suffix = p.dbt.naming.gold_suffix.trim().to_string();
+    if container.is_empty() || gold_suffix.is_empty() {
+        return None;
+    }
+    Some(format!("{}.{}_{}", container, base_schema, gold_suffix))
 }
 
 /// Query the warehouse for output schemas of materialized staging models and
