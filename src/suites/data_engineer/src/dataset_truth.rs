@@ -159,27 +159,40 @@ pub fn is_staging_model_name(name: &str) -> bool {
     name.trim().to_ascii_lowercase().starts_with("stg_")
 }
 
-pub fn is_ref_only_gold_input(input: &str) -> bool {
-    // Enforce “gold reads from silver”: only ref stg_* models.
-    is_staging_model_name(input)
+/// Check whether `input` is a valid gold-model dependency: either a staging
+/// model (`stg_*`) or another gold model in the same plan.
+pub fn is_valid_gold_input(input: &str, plan_task_names: &BTreeSet<String>) -> bool {
+    is_staging_model_name(input) || plan_task_names.contains(input.trim())
 }
 
-/// Append an IMMUTABLE FACTS block listing the exact staging model names that
-/// GOLD models must reference via `ref()`.  Used to ground both the design memo
-/// and candidate generation so the LLM never invents abbreviated names.
+/// Append an IMMUTABLE FACTS block listing the exact model names that GOLD
+/// models may reference via `ref()`.  Includes staging models (always) and
+/// intra-plan gold models when a plan is available.
 ///
-/// When `staging_schemas` is provided, each model name is annotated with its
+/// When `staging_schemas` is provided, each staging model is annotated with its
 /// column list so the LLM can reason about structure.
 pub fn enrich_query_with_staging_models(
     q: &str,
     staging: &GroundedStagingModelSet,
     staging_schemas: &crate::plan_types::SourceSchema,
 ) -> String {
+    enrich_query_with_available_models(q, staging, staging_schemas, &[])
+}
+
+/// Like [`enrich_query_with_staging_models`] but also lists intra-plan gold
+/// model names as valid `ref()` targets.
+pub fn enrich_query_with_available_models(
+    q: &str,
+    staging: &GroundedStagingModelSet,
+    staging_schemas: &crate::plan_types::SourceSchema,
+    plan_gold_names: &[String],
+) -> String {
     let mut out = q.to_string();
-    if !staging.allowed_models.is_empty() {
+    if !staging.allowed_models.is_empty() || !plan_gold_names.is_empty() {
         out.push_str(
-            "\n\nIMMUTABLE FACTS (existing staging models \u{2014} GOLD models MUST reference these exact names via ref()):\n",
+            "\n\nIMMUTABLE FACTS (available models \u{2014} GOLD models MUST reference these exact names via ref()):\n",
         );
+        out.push_str("Staging models:\n");
         for name in &staging.allowed_models {
             if let Some(cols) = staging_schemas.get(name.as_str()) {
                 let cols_str: Vec<String> = cols
@@ -188,6 +201,12 @@ pub fn enrich_query_with_staging_models(
                     .collect();
                 out.push_str(&format!("- {} => [{}]\n", name, cols_str.join(", ")));
             } else {
+                out.push_str(&format!("- {name}\n"));
+            }
+        }
+        if !plan_gold_names.is_empty() {
+            out.push_str("Intra-plan gold models (also valid ref() targets):\n");
+            for name in plan_gold_names {
                 out.push_str(&format!("- {name}\n"));
             }
         }

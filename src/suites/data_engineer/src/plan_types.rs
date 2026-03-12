@@ -373,7 +373,7 @@ pub struct ModelImplementationSpec {
     pub spec_version: i64,
     /// Grain contract, e.g. "1 row per order_id".
     pub grain: String,
-    /// Inputs should align with task.inputs (stg_* only).
+    /// Inputs should align with task.inputs (stg_* or intra-plan gold models).
     #[serde(default)]
     pub inputs: Vec<String>,
     /// Join contract for composing the model.

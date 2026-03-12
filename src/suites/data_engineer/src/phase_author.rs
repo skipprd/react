@@ -1315,7 +1315,7 @@ async fn build_author_prompt(
             names.sort();
             names.dedup();
             if !names.is_empty() {
-                q.push_str("\n\nCurrent staged silver models (use ref('stg_*') from these):\n");
+                q.push_str("\n\nCurrent staged silver models (use ref() from these, plus any intra-plan gold models):\n");
                 for n in names.into_iter().take(60) {
                     q.push_str("- ");
                     q.push_str(&n);

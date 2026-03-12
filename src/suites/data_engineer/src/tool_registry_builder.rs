@@ -383,7 +383,7 @@ impl DataEngineerSuite {
                             );
                         } else {
                             lines.push("- gold_model(args:{items:[{name:string, folder?:\"marts\"|\"core\", goal?:string, description?:string, inputs:[string], instructions?:string}]})".to_string());
-                            lines.push("  - IMPORTANT: max 5 items per call. Gold MUST use ref('stg_*') only; NO source().".to_string());
+                            lines.push("  - IMPORTANT: max 5 items per call. Gold uses ref() for inputs (stg_* or intra-plan gold models); NO source().".to_string());
                             lines.push(
                                 "- apply_next_model_schema_batch(args:{instructions?:string})"
                                     .to_string(),

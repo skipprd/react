@@ -75,7 +75,7 @@ fn build_gold_sys_prompt(
          \n\
          CRITICAL gold rules:\n\
          - You MUST write a SELECT-based dbt model.\n\
-         - Gold models MUST ONLY read from silver models under models/staging/ using ref('stg_*').\n\
+         - Gold models read from silver models (stg_*) or other gold models in the plan via ref(). NO source().\n\
          - Gold models MUST NOT call source() anywhere.\n\
          - IMPORTANT: The user payload may include plan invariants/notes; invariants are hard requirements.\n\
          - Prefer minimal, stable columns for business use; do not invent fields.\n\
@@ -183,7 +183,7 @@ impl Tool for GoldModelTool {
                 continue;
             }
             if it.inputs.is_empty() {
-                errors.push(format!("{name}: gold_model item.inputs is required (list of stg_* model names or paths)"));
+                errors.push(format!("{name}: gold_model item.inputs is required (list of model names: stg_* or intra-plan gold)"));
                 continue;
             }
 
@@ -428,10 +428,9 @@ impl Tool for GoldModelTool {
                     }
                 };
                 repl_validate.insert(ph.clone(), query.quote_fqn(&id));
-                // Materialize: ref('stg_*') only for named inputs; path-like inputs are invalid for gold.
                 if inp.trim().contains('/') || inp.trim().ends_with(".sql") {
                     errors.push(format!(
-                        "{name}: gold inputs must be stg_* names, not paths ('{inp}')"
+                        "{name}: gold inputs must be model names, not paths ('{inp}')"
                     ));
                     continue;
                 }
@@ -489,10 +488,10 @@ impl Tool for GoldModelTool {
                 &repl_materialize,
                 |dbt_sql| {
                     if naming::contains_source_call(dbt_sql) {
-                        return Err("invalid gold SQL: contains source(). Gold must only read from silver via ref('stg_*').".to_string());
+                        return Err("invalid gold SQL: contains source(). Gold must only read from other models via ref().".to_string());
                     }
                     if !naming::contains_ref_call(dbt_sql) {
-                        return Err("invalid gold SQL: must reference at least one silver model via ref('stg_*').".to_string());
+                        return Err("invalid gold SQL: must reference at least one model via ref().".to_string());
                     }
                     Ok(())
                 },

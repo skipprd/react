@@ -10,7 +10,7 @@ pub fn model_system_prompt() -> String {
 Model-specific rules:
 - Source discipline by tier:
   - Silver: select from raw/bronze sources (use source()).
-  - Gold: select ONLY from silver models under models/staging/ (use ref()), never raw/bronze sources in gold SQL.
+  - Gold: select from silver models or other gold models in the plan (use ref()), never raw/bronze sources in gold SQL.
 - Relationships & event flow:
   - Discover entity identifiers (user/profile/account/device/session ids) and timestamps via sql_schema + sql_sample/sql_stats.
   - Normalize keys/timestamps in staging to make downstream joins reliable.

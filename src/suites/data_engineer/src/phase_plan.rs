@@ -553,7 +553,7 @@ async fn build_plan_query(
         )
     } else {
         format!(
-            "Create a GOLD/model execution plan (batched in groups of {MAX_BATCH_SIZE}) based ONLY on existing silver models under models/staging/.\n\nOriginal goal:\n{}\n",
+            "Create a GOLD/model execution plan (batched in groups of {MAX_BATCH_SIZE}) based on existing silver models and any intra-plan gold dependencies.\n\nOriginal goal:\n{}\n",
             question
         )
     };

@@ -401,7 +401,7 @@ fn validate_model_sql_identity(rel: &str, content: &str) -> Result<(), String> {
     let sources = naming::extract_source_calls(content);
     if !sources.is_empty() {
         return Err(format!(
-            "invalid gold/core model SQL at '{}': gold models must NOT reference dbt source() (raw/bronze). Use ref('stg_*') to read from silver. Found source() call(s): {:?}",
+            "invalid gold/core model SQL at '{}': gold models must NOT reference dbt source() (raw/bronze). Use ref() to read from silver or other gold models. Found source() call(s): {:?}",
             rel, sources
         ));
     }

@@ -476,7 +476,14 @@ impl Tool for ApplyNextModelBatchTool {
             }));
         }
 
-        // Truth gating: gold/model must only rely on existing silver models under models/staging/.
+        // Truth gating: gold/model inputs must be either existing staging models
+        // or other tasks within the same plan (intra-plan gold dependencies).
+        let plan_task_names: std::collections::BTreeSet<String> = plan
+            .tasks
+            .iter()
+            .map(|t| t.name.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         let mut gating_errors: Vec<String> = Vec::new();
         for n in batch_names.iter() {
             if let Some(t) = plan.tasks.iter().find(|t| t.name == *n) {
@@ -485,15 +492,16 @@ impl Tool for ApplyNextModelBatchTool {
                     if it.is_empty() {
                         continue;
                     }
-                    if !dataset_truth::is_ref_only_gold_input(it) {
+                    if !dataset_truth::is_valid_gold_input(it, &plan_task_names) {
                         gating_errors.push(format!(
-                            "{n}: invalid gold input '{it}' (gold must read from stg_* only)"
+                            "{n}: invalid gold input '{it}' (must be a staging model or an intra-plan gold model)"
                         ));
                         continue;
                     }
-                    if !stg.allowed_models.contains(it) {
+                    if dataset_truth::is_staging_model_name(it) && !stg.allowed_models.contains(it)
+                    {
                         gating_errors.push(format!(
-                            "{n}: missing silver model input '{it}' (not present under models/staging/)"
+                            "{n}: missing staging model input '{it}' (not present under models/staging/)"
                         ));
                     }
                 }
@@ -501,7 +509,7 @@ impl Tool for ApplyNextModelBatchTool {
         }
         if !gating_errors.is_empty() {
             let err_brief =
-                "gold inputs are not grounded in existing silver models under models/staging/";
+                "gold inputs are not grounded in known staging models or plan tasks";
             mark_needs_update_model(&mut plan, &batch_names, err_brief);
             controller_kernel::note_batch_result(&mut plan.progress, false);
             emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, err_brief, |n| {
