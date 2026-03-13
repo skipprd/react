@@ -277,6 +277,7 @@ async fn agent_authoring_hard_mutation_phase_locks_tools() {
         &super::PlanState::Unconstrained,
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -356,6 +357,7 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
         &super::PlanState::Unconstrained,
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -434,6 +436,7 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
         &super::PlanState::Unconstrained,
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -470,6 +473,7 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -500,6 +504,7 @@ async fn hard_mutation_single_target_hides_schema_batch_tools() {
         &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         Some("models/staging/stg_test_raw_raw_order_items.sql".to_string()),
         false,
+        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -541,6 +546,7 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
         &super::PlanState::Unconstrained,
         Some("models/marts/fct_orders.sql".to_string()),
         false,
+        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -610,6 +616,7 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
         &super::PlanState::Unconstrained,
         Some("models/marts/fct_orders.sql".to_string()),
         false,
+        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -674,6 +681,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         &super::PlanState::Unconstrained,
         Some("models/marts/fct_orders.sql".to_string()),
         false,
+        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -723,13 +731,13 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         .await
         .unwrap_err();
     assert!(
-        target_err.contains("replace_contents requires op='patch'"),
-        "replace_contents step should reject rm even on target path"
+        target_err.contains("replace_contents requires op='write'"),
+        "replace_contents step should reject rm even on target path: {target_err}"
     );
 }
 
 #[tokio::test]
-async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
+async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
@@ -751,6 +759,7 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
         &super::PlanState::Unconstrained,
         Some("models/marts/fct_orders.sql".to_string()),
         false,
+        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -795,14 +804,18 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_allows_rm() {
         .unwrap_err();
     assert!(patch_err.contains("fs_op requires op='rm' or op='mv'"));
 
-    let rm_result = reg
+    let rm_target_err = reg
         .call(
             "file",
             serde_json::json!({"op":"rm","path":"models/marts/fct_orders.sql"}),
             &actx,
         )
-        .await;
-    assert!(rm_result.is_ok(), "fs_op should allow rm on target path");
+        .await
+        .unwrap_err();
+    assert!(
+        rm_target_err.contains("cannot rm the primary repair target"),
+        "fs_op should reject rm on the primary repair target: {rm_target_err}"
+    );
 }
 
 #[tokio::test]
@@ -820,6 +833,7 @@ async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
         &super::PlanState::Unconstrained,
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -881,6 +895,7 @@ async fn plan_batched_staging_model_is_not_exposed_to_agent() {
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -916,6 +931,7 @@ async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
         &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
     assert!(card.contains("apply_next_cleanse_schema_batch"));
@@ -945,6 +961,7 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
         &super::PlanState::ModelSqlItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -979,6 +996,7 @@ async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
         &super::PlanState::ModelSchemaItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
     assert!(card.contains("apply_next_model_schema_batch"));
@@ -1220,6 +1238,7 @@ async fn model_plan_can_disable_json_file_after_manifest_retry_suppression() {
         &super::PlanState::Unconstrained,
         None,
         true,
+        None,
     )
     .expect("build_tools_for_phase should succeed");
     let err = reg

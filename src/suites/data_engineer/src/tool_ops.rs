@@ -5,6 +5,7 @@ pub enum FileOpKind {
     Get,
     List,
     Patch,
+    Write,
     Rm,
     Mv,
     Other,
@@ -15,6 +16,7 @@ pub fn classify_file_op(args: &Value) -> FileOpKind {
         Some("get") => FileOpKind::Get,
         Some("list") => FileOpKind::List,
         Some("patch") => FileOpKind::Patch,
+        Some("write") => FileOpKind::Write,
         Some("rm") => FileOpKind::Rm,
         Some("mv") => FileOpKind::Mv,
         _ => FileOpKind::Other,
@@ -28,6 +30,6 @@ pub fn is_file_read_op(args: &Value) -> bool {
 pub fn is_file_mutation_op(args: &Value) -> bool {
     matches!(
         classify_file_op(args),
-        FileOpKind::Patch | FileOpKind::Rm | FileOpKind::Mv
+        FileOpKind::Patch | FileOpKind::Write | FileOpKind::Rm | FileOpKind::Mv
     )
 }

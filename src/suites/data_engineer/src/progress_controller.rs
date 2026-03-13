@@ -62,9 +62,19 @@ pub struct RepairPromptContext {
     /// Pre-fetched file contents for failing models (path → content).
     /// Populated asynchronously before prompt rendering; never serialized.
     pub target_contents: Vec<(String, String)>,
+    /// Recent failed mutating file operations from this thread so the repair
+    /// prompt can explicitly steer away from repeating the same broken patch.
+    pub recent_failed_file_ops: Vec<RecentFailedFileOp>,
     /// Typed plan data for failing tasks so the repair LLM sees the
     /// authoritative contract (schema + implementation spec) from the plan.
     pub task_specs: Vec<TaskRepairSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentFailedFileOp {
+    pub op: String,
+    pub path: String,
+    pub error_brief: String,
 }
 
 impl RepairPromptContext {
@@ -121,6 +131,20 @@ impl RepairPromptContext {
                 out.push('\n');
             }
         }
+        if !self.recent_failed_file_ops.is_empty() {
+            out.push_str("\nRecent failed file mutations (do NOT repeat these verbatim):\n");
+            for item in self.recent_failed_file_ops.iter().take(3) {
+                out.push_str(&format!(
+                    "- file op='{}' path='{}' failed: {}\n",
+                    item.op,
+                    item.path,
+                    item.error_brief
+                ));
+            }
+            out.push_str(
+                "If a prior patch failed, read the exact current file content and make a materially different edit.\n",
+            );
+        }
         if self.stall_count >= 2 {
             out.push_str(&format!(
                 "\nWARNING: This repair has stalled for {} consecutive iterations \
@@ -169,7 +193,10 @@ impl RepairPromptContext {
     }
 
     pub fn has_context(&self) -> bool {
-        self.brief.is_some() || !self.failed_models.is_empty() || self.guard_note.is_some()
+        self.brief.is_some()
+            || !self.failed_models.is_empty()
+            || self.guard_note.is_some()
+            || !self.recent_failed_file_ops.is_empty()
     }
 }
 
@@ -951,6 +978,8 @@ pub struct RepairState {
     pub last_error_brief: Option<String>,
     #[serde(default)]
     pub pending_patch_impl: Option<PatchImplIntent>,
+    #[serde(default)]
+    pub last_batch_infra_transient: bool,
 }
 
 impl RepairState {
@@ -972,6 +1001,10 @@ impl RepairState {
             RepairModeState::Schema(_) => None,
             RepairModeState::SqlTarget(mode) => Some(mode.target_path.as_str()),
         }
+    }
+
+    pub fn take_batch_infra_transient(&mut self) -> bool {
+        std::mem::take(&mut self.last_batch_infra_transient)
     }
 
     fn core(&self) -> Option<&RepairModeCore> {
@@ -1126,6 +1159,7 @@ impl ExecutionState {
                 .map(|s| format!("{:?}", s)),
             guard_note,
             target_contents: Vec::new(),
+            recent_failed_file_ops: Vec::new(),
             task_specs: Vec::new(),
         }
     }
@@ -1788,6 +1822,12 @@ impl ExecutionState {
                 failed_targets,
                 brief,
             } => {
+                if kind == FailureKind::InfraTransient {
+                    self.repair.last_batch_infra_transient = true;
+                    self.repair.last_error_brief = Some(brief);
+                    self.debug_assert_invariants();
+                    return;
+                }
                 let failure_class = kind;
                 let backlog = repair_backlog_from_failed_models(failure_class, &failed_targets);
                 let repair_intent = repair_intent_from_backlog(failure_class, backlog.clone());
@@ -2284,6 +2324,23 @@ mod tests {
         assert_eq!(st.repair.stall_count, 2);
         st.record_stepboundary_progress(true);
         assert_eq!(st.repair.stall_count, 0);
+    }
+
+    #[test]
+    fn repair_prompt_context_includes_recent_failed_file_ops() {
+        let ctx = RepairPromptContext {
+            recent_failed_file_ops: vec![RecentFailedFileOp {
+                op: "patch".to_string(),
+                path: "models/staging/stg_orders.yml".to_string(),
+                error_brief: "invalid YAML: duplicate entry with key \"version\"".to_string(),
+            }],
+            ..Default::default()
+        };
+        let rendered = ctx.format_error_context();
+        assert!(ctx.has_context());
+        assert!(rendered.contains("Recent failed file mutations"));
+        assert!(rendered.contains("stg_orders.yml"));
+        assert!(rendered.contains("duplicate entry with key"));
     }
 
     #[test]
@@ -2921,6 +2978,44 @@ mod tests {
             st.single_target_repair_path().as_deref(),
             Some("models/staging/stg_test_raw_raw_orders.sql")
         );
+    }
+
+    #[test]
+    fn apply_event_batch_authoring_failed_infra_transient_skips_repair() {
+        let mut st = ExecutionState::new();
+        st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
+            tier: ExecutionTier::Cleanse,
+            kind: FailureKind::InfraTransient,
+            failed_targets: vec![FailedModelRef {
+                name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
+                file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                materialization: RepairTargetMaterialization::Missing,
+                ..Default::default()
+            }],
+            brief: "service error".to_string(),
+        });
+        assert!(
+            !st.hard_mutation_repair_mode(),
+            "infra-transient must not enter repair mode"
+        );
+        assert!(
+            st.repair.last_batch_infra_transient,
+            "flag must be set for step-boundary short-circuit"
+        );
+        assert_eq!(st.repair.stall_count, 0, "stall_count must not increment");
+        assert_eq!(
+            st.repair.last_error_brief.as_deref(),
+            Some("service error")
+        );
+    }
+
+    #[test]
+    fn take_batch_infra_transient_clears_flag() {
+        let mut repair = RepairState::default();
+        repair.last_batch_infra_transient = true;
+        assert!(repair.take_batch_infra_transient());
+        assert!(!repair.last_batch_infra_transient);
+        assert!(!repair.take_batch_infra_transient());
     }
 
     #[test]

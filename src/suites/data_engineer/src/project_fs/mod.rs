@@ -225,7 +225,47 @@ pub async fn move_file(
     }))
 }
 
-fn sha256_hex(s: &str) -> String {
+pub async fn write_file(
+    ctx: &AgentCtx,
+    path: &str,
+    content: &str,
+) -> Result<Value, String> {
+    let rel = normalize_rel_path(path)?;
+    let key = join_storage_key(ctx, &rel);
+
+    let existing = ctx.storage().get_bytes(&key).await.ok();
+    let existed = existing.is_some();
+    let old_content = existing
+        .as_ref()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    let base_sha256 = sha256_hex(&old_content);
+    let new_sha256 = sha256_hex(content);
+    let mutated = base_sha256 != new_sha256;
+
+    if mutated {
+        ctx.storage()
+            .put_bytes(&key, content.as_bytes(), "text/plain")
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "mutated": mutated,
+        "results": [{
+            "op": "write",
+            "path": rel,
+            "key": key,
+            "existed": existed,
+            "mutated": mutated,
+            "base_sha256": base_sha256,
+            "new_sha256": new_sha256
+        }]
+    }))
+}
+
+pub(crate) fn sha256_hex(s: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(s.as_bytes());
     let out = hasher.finalize();

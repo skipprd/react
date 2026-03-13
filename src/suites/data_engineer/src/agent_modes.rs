@@ -53,6 +53,80 @@ pub(super) enum AgentToolCapability {
 }
 
 impl DataEngineerSuite {
+    fn collect_recent_failed_file_ops(
+        log: &react_core::session::ThreadLog,
+    ) -> Vec<crate::progress_controller::RecentFailedFileOp> {
+        use react_core::session::{ThreadStep, ToolStepStatus};
+
+        let mut out: Vec<crate::progress_controller::RecentFailedFileOp> = Vec::new();
+        let mut seen: std::collections::BTreeSet<(String, String, String)> =
+            std::collections::BTreeSet::new();
+
+        for step in log.steps.iter().rev() {
+            let ThreadStep::ToolEnd {
+                name,
+                args,
+                status,
+                observation,
+                ..
+            } = step
+            else {
+                continue;
+            };
+            if *status != ToolStepStatus::Failed || name != "file" {
+                continue;
+            }
+            let op = args
+                .get("op")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !matches!(op.as_str(), "patch" | "rm" | "mv") {
+                continue;
+            }
+            let path = match op.as_str() {
+                "mv" => {
+                    let from = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if from.is_empty() && to.is_empty() {
+                        continue;
+                    }
+                    format!("{from} -> {to}").trim().to_string()
+                }
+                _ => args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            };
+            if path.is_empty() {
+                continue;
+            }
+            let error_brief = observation
+                .errors
+                .first()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "tool failed without a specific error message".to_string());
+            let key = (op.clone(), path.clone(), error_brief.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            out.push(crate::progress_controller::RecentFailedFileOp {
+                op,
+                path,
+                error_brief,
+            });
+            if out.len() >= 3 {
+                break;
+            }
+        }
+
+        out
+    }
+
     pub(super) fn agent_capability_profile(
         agent_mode: AgentMode,
         allow_user_interrupt_tools: bool,
@@ -398,7 +472,9 @@ impl DataEngineerSuite {
 
         let mut remaining_steps = max_phase_steps;
         let mut total_steps: usize = 0;
-        let mut max_phase_idx_seen: usize = 0;
+        let mut last_phase: Option<control_flow::Phase> = None;
+        let mut consecutive_waiting: usize = 0;
+        const MAX_CONSECUTIVE_WAITING: usize = 5;
 
         while remaining_steps > 0 {
             total_steps += 1;
@@ -414,15 +490,10 @@ impl DataEngineerSuite {
                 .phase
                 .current_phase
                 .unwrap_or(control_flow::Phase::Preflight);
-            let thread_state_step_count = thread_store
-                .get(thread_id)
-                .await
-                .map(|log| log.steps.len())
-                .unwrap_or(0);
-            let idx = phase.ordinal();
-            if idx > max_phase_idx_seen {
-                max_phase_idx_seen = idx;
-                // Reset the budget when we advance phases (i.e. not looping).
+            let thread_log = thread_store.get(thread_id).await.ok();
+            let thread_state_step_count = thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
+            if last_phase != Some(phase) {
+                last_phase = Some(phase);
                 remaining_steps = max_phase_steps;
             }
             let guard: DerivedGuardState =
@@ -457,6 +528,9 @@ impl DataEngineerSuite {
             }
 
             let mut repair_ctx = execution_state.repair_prompt_context();
+            if let Some(log) = thread_log.as_ref() {
+                repair_ctx.recent_failed_file_ops = Self::collect_recent_failed_file_ops(log);
+            }
             // Pre-fetch file contents for failing models so the repair LLM
             // sees exact file content instead of hallucinating patch context.
             for fm in &repair_ctx.failed_models {
@@ -538,13 +612,36 @@ impl DataEngineerSuite {
                 PhaseExecutorOutcome::StayedWithProgress { detail } => {
                     tracing::debug!(thread_id = %thread_id, phase_progress = %detail);
                     remaining_steps = max_phase_steps;
+                    consecutive_waiting = 0;
                     continue;
                 }
                 PhaseExecutorOutcome::StayedWaiting { reason } => {
-                    tracing::debug!(thread_id = %thread_id, phase_waiting = %reason);
+                    consecutive_waiting += 1;
+                    // No real work happened — refund the budget step so the
+                    // progress budget only counts meaningful phase executions.
+                    remaining_steps += 1;
+                    tracing::debug!(
+                        thread_id = %thread_id,
+                        phase_waiting = %reason,
+                        consecutive_waiting,
+                    );
+                    if consecutive_waiting >= MAX_CONSECUTIVE_WAITING {
+                        tracing::error!(
+                            thread_id = %thread_id,
+                            consecutive_waiting,
+                            phase = ?phase,
+                            "phase returned StayedWaiting {consecutive_waiting} times consecutively without progress",
+                        );
+                        return Err(format!(
+                            "phase {phase:?} stuck: returned StayedWaiting {consecutive_waiting} times consecutively without progress (last reason: {reason})",
+                        ));
+                    }
                     continue;
                 }
-                PhaseExecutorOutcome::TransitionCommitted => continue,
+                PhaseExecutorOutcome::TransitionCommitted => {
+                    consecutive_waiting = 0;
+                    continue;
+                }
                 PhaseExecutorOutcome::Return(frames) => return Ok(frames),
                 PhaseExecutorOutcome::Failed { reason } => return Err(reason),
             }

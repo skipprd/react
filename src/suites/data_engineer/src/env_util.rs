@@ -200,10 +200,11 @@ pub const DEFAULT_TOP_K: usize = 30;
 
 pub const ASK_MAX_STEPS: usize = 50;
 pub const REVIEW_MAX_STEPS: usize = 40;
-pub const PLAN_MAX_STEPS: usize = 40;
+pub const PLAN_MAX_STEPS: usize = 60;
 pub const APPROVAL_PARSE_MAX_STEPS: usize = 6;
+pub const AUTHOR_MAX_STEPS: usize = 4;
 
-pub const DEFAULT_MAX_PHASE_STEPS: usize = 40;
+pub const DEFAULT_MAX_PHASE_STEPS: usize = 80;
 pub const MIN_PHASE_STEPS: usize = 8;
 pub const MAX_PHASE_STEPS: usize = 400;
 

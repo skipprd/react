@@ -443,6 +443,10 @@ impl Tool for GoldModelTool {
                 continue;
             }
 
+            let has_unmaterialized_gold_dep = it
+                .inputs
+                .iter()
+                .any(|inp| !crate::dataset_truth::is_staging_model_name(inp.trim()));
             let loop_config = engine::AuthorLoopConfig {
                 max_tokens: max_tokens as usize,
                 max_attempts,
@@ -450,6 +454,7 @@ impl Tool for GoldModelTool {
                 repair_prompt_id: "data_engineer.tools.gold_model.sql_first_repair",
                 initial_temp: 0.12,
                 repair_temp: 0.08,
+                skip_warehouse_validation: has_unmaterialized_gold_dep,
             };
             let sys2 = sys.clone();
             let loop_result = engine::sql_first_author_loop(

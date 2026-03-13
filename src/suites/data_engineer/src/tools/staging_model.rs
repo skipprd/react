@@ -732,6 +732,7 @@ impl Tool for StagingModelTool {
                 repair_prompt_id: "data_engineer.tools.staging_model.sql_first_repair",
                 initial_temp: 0.08,
                 repair_temp: 0.05,
+                skip_warehouse_validation: false,
             };
             let cols_for_sql_clone = cols_for_sql.clone();
             let loop_result = engine::sql_first_author_loop(

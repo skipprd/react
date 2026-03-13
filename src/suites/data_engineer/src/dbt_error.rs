@@ -172,6 +172,32 @@ fn extract_runtime_failures_from_stdout(stdout: &str) -> Vec<serde_json::Value> 
     out
 }
 
+/// Extract unique model names from data-test runtime failures.
+///
+/// Returns the `model_hint` values for failures where `kind == "test"`, which
+/// can be resolved against the dbt manifest to locate the SQL model file.
+pub fn test_failure_model_hints(runtime_failures: &[serde_json::Value]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for rf in runtime_failures {
+        let kind = rf.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        if kind != "test" {
+            continue;
+        }
+        if let Some(hint) = rf
+            .get("model_hint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            if seen.insert(hint.to_string()) {
+                out.push(hint.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Extract failing DBT models from dbt `build`/`run` stdout.
 ///
 /// This complements `extract_runtime_failures_from_logs`, which is test-focused (FAIL lines).
@@ -650,5 +676,35 @@ mod tests {
         // `.len()` is bytes; ellipsis is multi-byte. Bound by chars.
         assert!(out.summary.chars().count() <= 11); // 10 + ellipsis
         assert_eq!(out.failing_nodes, vec!["stg_x".to_string()]);
+    }
+
+    #[test]
+    fn test_failure_model_hints_extracts_unique_hints() {
+        let failures = vec![
+            serde_json::json!({"kind": "test", "model_hint": "fct_order", "name": "not_null_fct_order_order_date"}),
+            serde_json::json!({"kind": "test", "model_hint": "fct_order", "name": "not_null_fct_order_customer_id"}),
+            serde_json::json!({"kind": "test", "model_hint": "dim_customer", "name": "unique_dim_customer_customer_sk"}),
+        ];
+        let hints = test_failure_model_hints(&failures);
+        assert_eq!(hints, vec!["fct_order", "dim_customer"]);
+    }
+
+    #[test]
+    fn test_failure_model_hints_skips_non_test_kinds() {
+        let failures = vec![
+            serde_json::json!({"kind": "model", "model_hint": "stg_orders", "name": "stg_orders"}),
+            serde_json::json!({"kind": "test", "model_hint": "fct_order", "name": "not_null_fct_order_order_id"}),
+        ];
+        let hints = test_failure_model_hints(&failures);
+        assert_eq!(hints, vec!["fct_order"]);
+    }
+
+    #[test]
+    fn test_failure_model_hints_empty_on_no_hints() {
+        let failures = vec![
+            serde_json::json!({"kind": "test", "name": "custom_test_without_model"}),
+        ];
+        let hints = test_failure_model_hints(&failures);
+        assert!(hints.is_empty());
     }
 }

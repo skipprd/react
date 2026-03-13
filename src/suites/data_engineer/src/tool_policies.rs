@@ -202,34 +202,30 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                         }
                     }
                     crate::progress_controller::RepairLadderStep::ReplaceContents => {
-                        if op != "patch" {
+                        if op != "write" {
                             return Err(format!(
-                                "deterministic repair ladder step for '{}': replace_contents requires op='patch'.",
+                                "deterministic repair ladder step for '{}': replace_contents requires op='write'. Provide the complete correct file content.",
                                 want,
                             ));
                         }
-                        // Hard cutover: Cursor/Aider hunks-only patches only.
-                        let patch_text = args
-                            .get("patch_text")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let has_patch_text = !patch_text.trim().is_empty()
-                            && patch_text.trim_start().starts_with("@@");
                         let guard_path_ok = args
                             .get("path")
                             .and_then(|v| v.as_str())
                             .map(|p| p.trim() == want)
                             .unwrap_or(false);
-                        if patch_text.contains("@@ ... @@") {
+                        if !guard_path_ok {
                             return Err(format!(
-                                "deterministic repair ladder step for '{}': placeholder hunk header '@@ ... @@' is not allowed. Use real hunks with exact context lines from the current file content.",
-                                want
+                                "deterministic repair ladder step for '{}': args.path must equal '{}'.",
+                                want, want
                             ));
                         }
-                        if !has_patch_text || !guard_path_ok {
+                        let content = args
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if content.trim().is_empty() {
                             return Err(format!(
-                                "deterministic repair ladder step requires a guarded single-file patch for '{}': args must include path='{}' + patch_text starting with '@@' (Cursor/Aider hunks-only; no ---/+++ headers).",
-                                want,
+                                "deterministic repair ladder step for '{}': op='write' requires non-empty content.",
                                 want
                             ));
                         }
@@ -240,6 +236,19 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                                 "deterministic repair ladder step for '{}': fs_op requires op='rm' or op='mv'.",
                                 want
                             ));
+                        }
+                        if op == "rm" {
+                            let rm_path = args
+                                .get("path")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .trim();
+                            if rm_path == want {
+                                return Err(format!(
+                                    "deterministic repair ladder step for '{}': cannot rm the primary repair target; use op='mv' to relocate it instead.",
+                                    want
+                                ));
+                            }
                         }
                     }
                 }

@@ -216,8 +216,8 @@ pub fn canonical_work_groups_from_batches(
         schema_group_ids.push(schema_group_id);
     }
     if !schema_group_ids.is_empty() {
-        let mut validate_items: Vec<WorkGroupItemRef> = Vec::new();
-        for b in batches.iter() {
+        for (idx, b) in batches.iter().enumerate() {
+            let mut validate_items: Vec<WorkGroupItemRef> = Vec::new();
             for item in b.iter() {
                 let id = item.trim();
                 if id.is_empty() {
@@ -230,15 +230,16 @@ pub fn canonical_work_groups_from_batches(
                     });
                 }
             }
-        }
-        if !validate_items.is_empty() {
-            out.push(PlanWorkGroup {
-                group_id: format!("{item_prefix}_validate"),
-                label: "Validate plan".to_string(),
-                kind: WorkGroupKind::Validate,
-                items: validate_items,
-                depends_on_group_ids: Some(schema_group_ids),
-            });
+            if !validate_items.is_empty() {
+                let ord = idx + 1;
+                out.push(PlanWorkGroup {
+                    group_id: format!("{item_prefix}_validate_{ord:03}"),
+                    label: format!("Validate batch {}", ord),
+                    kind: WorkGroupKind::Validate,
+                    items: validate_items,
+                    depends_on_group_ids: Some(schema_group_ids.clone()),
+                });
+            }
         }
     }
     out

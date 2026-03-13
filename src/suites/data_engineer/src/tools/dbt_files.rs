@@ -767,7 +767,50 @@ impl Tool for FilesTool {
                 }
                 Ok(response)
             }
-            _ => Err("unsupported op; use 'list', 'get', 'patch', 'rm', or 'mv'".to_string()),
+            "write" => {
+                let path = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "file op=write: path is required".to_string())?;
+                let content = args
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "file op=write: content is required".to_string())?;
+
+                let rel = project_fs::normalize_rel_path(path)?;
+                let (want_rel, _from_opt) = canonicalize_silver_folder_alias(&rel);
+
+                validate_sql_model_folder_policy(&want_rel)?;
+
+                let out = project_fs::write_file(ctx, &want_rel, content).await?;
+
+                let mutated = out
+                    .get("mutated")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if let (Some(store), Some(thread_id)) =
+                    (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
+                {
+                    if mutated {
+                        let paths = vec![want_rel.clone()];
+                        let select_terms = select_terms_from_paths(&paths);
+                        let _ = crate::state_manager::mutate_execution_state(
+                            &store.control_store(),
+                            thread_id,
+                            |es| {
+                                es.set_last_mutation_summary(
+                                    crate::progress_controller::MutationOp::Patch,
+                                    paths.clone(),
+                                    select_terms.clone(),
+                                )
+                            },
+                        )
+                        .await;
+                    }
+                }
+                Ok(out)
+            }
+            _ => Err("unsupported op; use 'list', 'get', 'patch', 'write', 'rm', or 'mv'".to_string()),
         }
     }
 }

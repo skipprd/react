@@ -27,7 +27,7 @@ Good args example:
 pub fn file_patch_contract() -> String {
     format!(
         r#"file operations contract (MUST follow exactly):
-- args.op MUST be one of: "patch" | "rm" | "mv"
+- args.op MUST be one of: "patch" | "write" | "rm" | "mv"
 
 op="patch":
 - Hard cutover: Cursor/Aider hunks-only unified diff ONLY.
@@ -37,6 +37,14 @@ op="patch":
   - Hunk headers MUST be Cursor/Aider style: '@@ ... @@' (no line numbers; never '@@ -a,b +c,d @@').
 Example args:
 {}
+
+op="write":
+- Full file overwrite. Use when patches fail or the file needs to be rewritten from scratch.
+- args: {{op:"write", path:string, content:string}}
+  - args.path MUST be the single file to write.
+  - args.content is the complete file content (replaces everything).
+Example args:
+{{"op":"write","path":"models/staging/stg_example.sql","content":"{{{{ config(materialized='view') }}}}\n\nselect * from {{{{ source('raw','events') }}}}"}}
 
 op="rm":
 - args: {{path:string, expected_sha256?:string}}

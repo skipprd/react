@@ -272,17 +272,17 @@ mod tests {
     use crate::control_flow::Phase;
 
     #[test]
-    fn patch_based_repair_step_detection_is_explicit() {
-        assert!(is_patch_based_repair_step(
+    fn content_based_repair_step_detection_is_explicit() {
+        assert!(is_content_based_repair_step(
             &crate::progress_controller::RepairLadderStep::PatchTarget
         ));
-        assert!(is_patch_based_repair_step(
+        assert!(is_content_based_repair_step(
             &crate::progress_controller::RepairLadderStep::ReplaceContents
         ));
-        assert!(!is_patch_based_repair_step(
+        assert!(!is_content_based_repair_step(
             &crate::progress_controller::RepairLadderStep::FsOp
         ));
-        assert!(!is_patch_based_repair_step(
+        assert!(!is_content_based_repair_step(
             &crate::progress_controller::RepairLadderStep::Stop
         ));
     }
@@ -502,7 +502,7 @@ fn build_repair_mode_context(
             "Next action: call file with op='patch' targeting the failing path.".to_string()
         }
         crate::progress_controller::RepairLadderStep::ReplaceContents => {
-            "Next action: replace_contents step is active; rewrite the target file content with a single guarded patch.".to_string()
+            "Next action: replace_contents step is active; provide the complete correct file content using file op='write'.".to_string()
         }
         crate::progress_controller::RepairLadderStep::FsOp => {
             "Next action: fs_op step is active; use file op='mv' or op='rm' only for filesystem corrections on the target path.".to_string()
@@ -536,7 +536,7 @@ fn build_repair_mode_context(
 }
 
 #[cfg(test)]
-fn is_patch_based_repair_step(ladder: &crate::progress_controller::RepairLadderStep) -> bool {
+fn is_content_based_repair_step(ladder: &crate::progress_controller::RepairLadderStep) -> bool {
     matches!(
         ladder,
         crate::progress_controller::RepairLadderStep::PatchTarget
@@ -595,7 +595,8 @@ fn build_schema_checklist_context(
         "apply_next_model_schema_batch"
     };
     let mut ctx = format!(
-        "Approved {kind} plan (stored at: {plan_key}).\nPending schema checklist work (checklist_item_id={checklist_item_id} ; max 5):\n- {}\n\nNext action: call {batch_tool} (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
+        "Approved {kind} plan (stored at: {plan_key}).\nPending schema checklist work (checklist_item_id={checklist_item_id} ; max {}):\n- {}\n\nNext action: call {batch_tool} (do NOT call file directly).\n\nExpected model SQL paths:\n- {}\n",
+        crate::plan_progress::MAX_BATCH_SIZE,
         ids.join("\n- "),
         expected_paths.join("\n- "),
     );
@@ -940,7 +941,8 @@ async fn load_cleanse_author_context(
     } else {
         Ok(AuthorPlanLoadResult::Ready {
             plan_context: format!(
-                "Approved cleanse plan (stored at: {}).\nNext batch (deterministic, max 5):\n- {}\n\nNext action: call the deterministic batch authoring tool from the current tool card (do NOT call staging_model directly).",
+                "Approved cleanse plan (stored at: {}).\nNext batch (deterministic, max {}):\n- {}\n\nNext action: call the deterministic batch authoring tool from the current tool card (do NOT call staging_model directly).",
+                crate::plan_progress::MAX_BATCH_SIZE,
                 plan.plan_key,
                 next.join("\n- ")
             ),
@@ -1119,6 +1121,9 @@ async fn load_model_author_context(
         }
     } else if next_names.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
+            // Reconcile: if models/schema.yml already contains stanzas for all
+            // pending models, mark the checklist items done and report progress.
+            // Otherwise fall through to present the schema batch tool to the LLM.
             {
                 let key =
                     crate::project_fs::join_storage_key(actx, crate::project_fs::MODELS_SCHEMA_YML);
@@ -1139,41 +1144,39 @@ async fn load_model_author_context(
                                 }
                             }
                         }
-                        let mut changed = false;
-                        let checklist_item_id = resolve_checklist_item_id(actx);
-                        for n in ids.iter() {
-                            if !names_in_schema.contains(n) {
+                        let all_present = ids.iter().all(|n| names_in_schema.contains(n));
+                        if all_present {
+                            let mut changed = false;
+                            let checklist_item_id = resolve_checklist_item_id(actx);
+                            for n in ids.iter() {
+                                if let Some(t) = plan.tasks.iter().find(|t| t.name == *n) {
+                                    let done = t
+                                        .checklist
+                                        .iter()
+                                        .find(|it| it.checklist_item_id == checklist_item_id)
+                                        .map(|it| {
+                                            it.status == crate::plan::ChecklistItemStatus::Done
+                                        })
+                                        .unwrap_or(false);
+                                    if !done {
+                                        changed = true;
+                                    }
+                                }
+                                crate::plan::model_checklist_mark_status(
+                                    &mut plan,
+                                    n,
+                                    &checklist_item_id,
+                                    crate::plan::ChecklistItemStatus::Done,
+                                );
+                            }
+                            if changed {
+                                crate::plan::save_model_plan(actx, &plan).await?;
                                 return Ok(AuthorPlanLoadResult::EarlyReturn(
-                                    PhaseExecutorOutcome::stayed_waiting(
-                                        "model schema checklist is still missing required model stanzas",
+                                    PhaseExecutorOutcome::stayed_with_progress(
+                                        "marked existing schema checklist items done after reconciling models/schema.yml",
                                     ),
                                 ));
                             }
-                            if let Some(t) = plan.tasks.iter().find(|t| t.name == *n) {
-                                let done = t
-                                    .checklist
-                                    .iter()
-                                    .find(|it| it.checklist_item_id == checklist_item_id)
-                                    .map(|it| it.status == crate::plan::ChecklistItemStatus::Done)
-                                    .unwrap_or(false);
-                                if !done {
-                                    changed = true;
-                                }
-                            }
-                            crate::plan::model_checklist_mark_status(
-                                &mut plan,
-                                n,
-                                &checklist_item_id,
-                                crate::plan::ChecklistItemStatus::Done,
-                            );
-                        }
-                        if changed {
-                            crate::plan::save_model_plan(actx, &plan).await?;
-                            return Ok(AuthorPlanLoadResult::EarlyReturn(
-                                PhaseExecutorOutcome::stayed_with_progress(
-                                    "marked existing schema checklist items done after reconciling models/schema.yml",
-                                ),
-                            ));
                         }
                     }
                 }
@@ -1263,7 +1266,8 @@ async fn load_model_author_context(
         }
         Ok(AuthorPlanLoadResult::Ready {
             plan_context: format!(
-                "Approved model plan (stored at: {}).\nNext batch (deterministic, max 5):\n{}\n\nNext action: call the deterministic batch authoring tool from the current tool card (do NOT call gold_model directly).",
+                "Approved model plan (stored at: {}).\nNext batch (deterministic, max {}):\n{}\n\nNext action: call the deterministic batch authoring tool from the current tool card (do NOT call gold_model directly).",
+                crate::plan_progress::MAX_BATCH_SIZE,
                 plan.plan_key,
                 details.join("\n")
             ),
@@ -1407,14 +1411,21 @@ async fn build_author_prompt(
         }
     }
     if let Some(target) = single_target_repair_path {
+        let ladder = params.execution_state.ladder_step();
+        let allowed_ops = match ladder {
+            crate::progress_controller::RepairLadderStep::PatchTarget => "op=patch",
+            crate::progress_controller::RepairLadderStep::ReplaceContents => "op=write",
+            crate::progress_controller::RepairLadderStep::FsOp => "op=rm|mv",
+            crate::progress_controller::RepairLadderStep::Stop => "op=patch",
+        };
         q.push_str("\n\nDETERMINISTIC SINGLE-TARGET REPAIR MODE:\n");
-        q.push_str(
-            "- You MUST mutate ONLY this file path in your next mutation (file op=patch|rm|mv):\n",
-        );
+        q.push_str(&format!(
+            "- You MUST mutate ONLY this file path using file {allowed_ops}:\n",
+        ));
         q.push_str("- ");
         q.push_str(target);
         q.push_str(
-            "\n- Do NOT patch, move, or remove any other file until this target validates.\n",
+            "\n- Do NOT modify any other file until this target validates.\n",
         );
     }
 
@@ -1630,24 +1641,26 @@ async fn build_author_prompt(
             .map_err(|e| format!("invalid repair prompt envelope: {e}"))?;
 
         repair.push_str("\nRules:\n");
-        repair.push_str("- You MUST call file with a mutating op next.\n");
         repair.push_str("- You MUST mutate ONLY the target file above.\n");
-        repair.push_str("- Do NOT use placeholder patch headers like '@@ ... @@'; use real hunks with exact context from the current file content.\n");
+        if !params.repair_ctx.recent_failed_file_ops.is_empty() {
+            repair.push_str(
+                "- Recent failed file mutations are listed below. Do NOT repeat the same patch shape or top-level rewrite; make a materially different edit.\n",
+            );
+        }
         if target.ends_with(".yml") || target.ends_with(".yaml") {
             repair.push_str("- YAML repair rule: edit existing keys in place; do NOT append duplicate top-level keys like 'version:' or 'models:'.\n");
         }
         match ladder {
             crate::progress_controller::RepairLadderStep::PatchTarget => {
-                repair.push_str("- REQUIRED OP MODE: patch_target. Use file op='patch' only.\n");
+                repair.push_str("- REQUIRED OP: file op='patch'. No other op is accepted.\n");
+                repair.push_str("- Do NOT use placeholder patch headers like '@@ ... @@'; use real hunks with exact context from the current file content.\n");
             }
             crate::progress_controller::RepairLadderStep::ReplaceContents => {
-                repair.push_str("- REQUIRED OP MODE: replace_contents. Use file op='patch' only and rewrite target content decisively.\n");
-                if !target_exists {
-                    repair.push_str("- The target file does not exist yet. Create it with a guarded single-file patch against the empty file content shown below.\n");
-                }
+                repair.push_str("- REQUIRED OP: file op='write'. Provide the complete correct file content. No other op is accepted.\n");
+                repair.push_str("  args: {op:\"write\", path:\"<target>\", content:\"<complete file content>\"}\n");
             }
             crate::progress_controller::RepairLadderStep::FsOp => {
-                repair.push_str("- REQUIRED OP MODE: fs_op. Use file op='mv' or op='rm' only (no patch in this step).\n");
+                repair.push_str("- REQUIRED OP: file op='mv' or op='rm'. No other op is accepted.\n");
             }
             crate::progress_controller::RepairLadderStep::Stop => {
                 repair
@@ -1668,6 +1681,31 @@ async fn build_author_prompt(
             repair.push('\n');
         }
         repair.push_str("```\n");
+
+        // When the repair target is a SQL file but the failing test is defined
+        // in schema.yml, include the YAML as read-only reference so the LLM can
+        // decide whether to fix the SQL or relax the test definition.
+        if target.ends_with(".sql") {
+            if let Some(brief) = &params.repair_ctx.brief {
+                if brief.contains("schema.yml") || brief.contains("schema.yaml") {
+                    let base = actx
+                        .keyspace()
+                        .scoped_prefix(actx.scope(), &["dbt"])
+                        .trim_end_matches('/')
+                        .to_string();
+                    let schema_key = format!("{}/models/schema.yml", base);
+                    if let Ok(bytes) = actx.storage().get_bytes(&schema_key).await {
+                        let schema_content = String::from_utf8_lossy(&bytes);
+                        repair.push_str("\nSchema file where the failing test is defined (read-only reference — patch the SQL target above, or note if the test itself should be relaxed):\n```yaml\n");
+                        repair.push_str(&schema_content);
+                        if !schema_content.ends_with('\n') {
+                            repair.push('\n');
+                        }
+                        repair.push_str("```\n");
+                    }
+                }
+            }
+        }
 
         let error_ctx = params.repair_ctx.format_error_context();
         if !error_ctx.is_empty() {
@@ -1856,6 +1894,18 @@ async fn handle_author_run_outcome(
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
 
+            if post_state.repair.take_batch_infra_transient() {
+                post_state
+                    .save(&params.thread_store.control_store(), params.thread_id)
+                    .await
+                    .map_err(|e| {
+                        format!("failed to persist infra-transient flag clear: {e}")
+                    })?;
+                return Ok(PhaseExecutorOutcome::stayed_waiting(
+                    "batch failed with transient infrastructure error; will retry",
+                ));
+            }
+
             let mutation_advanced = post_state.repair.mutation_epoch > pre_mutation_epoch;
             post_state.record_stepboundary_progress(mutation_advanced);
             post_state
@@ -1971,7 +2021,7 @@ impl DataEngineerSuite {
         )
         .top_k(30)
         .per_step_timeout_secs(10)
-        .max_steps(1)
+        .max_steps(crate::env_util::AUTHOR_MAX_STEPS)
         .thread_id(thread_id.to_string())
         .trace_tx(sctx.trace_tx().clone())
         .agent_name(crate::env_util::DEFAULT_AGENT_NAME)
@@ -2018,6 +2068,11 @@ impl DataEngineerSuite {
         } else {
             None
         };
+        let repair_ladder_step = if single_target_repair_path.is_some() {
+            Some(params.execution_state.ladder_step())
+        } else {
+            None
+        };
         let (registry, tools_card) = Self::build_tools_for_phase(
             params.phase,
             params.phase_guard,
@@ -2026,6 +2081,7 @@ impl DataEngineerSuite {
             &plan_state,
             single_target_repair_path.clone(),
             false,
+            repair_ladder_step,
         )?;
 
         let author_prompt = build_author_prompt(

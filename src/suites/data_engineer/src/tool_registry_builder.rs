@@ -169,6 +169,7 @@ impl DataEngineerSuite {
         plan_state: &PlanState,
         single_target_repair_path: Option<String>,
         suppress_manifest_json_in_plan: bool,
+        repair_ladder_step: Option<crate::progress_controller::RepairLadderStep>,
     ) -> Result<(ToolRegistry, String), String> {
         use crate::tools::{
             artifacts::ArtifactsTool, files_tool::FilesTool, json_file::JsonFileTool,
@@ -292,17 +293,37 @@ impl DataEngineerSuite {
                             tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
                         }
                     }
-                    tool_lines.extend_from_slice(&[
-                        "- file(args:{op:\"patch\"|\"rm\"|\"mv\", ...})".to_string(),
-                        "  - op=patch args: {path:string, patch_text:string} (Cursor/Aider hunks-only; patch_text starts with '@@' and MUST NOT include ---/+++ or diff --git)".to_string(),
-                        "  - op=rm args: {path:string, expected_sha256?:string} (allowed only in fs_op ladder step)".to_string(),
-                        "  - op=mv args: {from:string, to:string, expected_sha256?:string}".to_string(),
-                    ]);
+                    {
+                        use crate::progress_controller::RepairLadderStep;
+                        match repair_ladder_step {
+                            Some(RepairLadderStep::PatchTarget) => {
+                                tool_lines.push("- file(args:{op:\"patch\", ...})".to_string());
+                                tool_lines.push("  - op=patch args: {path:string, patch_text:string} (Cursor/Aider hunks-only; patch_text starts with '@@' and MUST NOT include ---/+++ or diff --git)".to_string());
+                                tool_lines.push("Deterministic single-target repair mode (patch_target): only file op=patch targeting the current failing model file is allowed.".to_string());
+                            }
+                            Some(RepairLadderStep::ReplaceContents) => {
+                                tool_lines.push("- file(args:{op:\"write\", ...})".to_string());
+                                tool_lines.push("  - op=write args: {path:string, content:string} (full file overwrite with complete correct content)".to_string());
+                                tool_lines.push("Deterministic single-target repair mode (replace_contents): only file op=write targeting the current failing model file is allowed.".to_string());
+                            }
+                            Some(RepairLadderStep::FsOp) => {
+                                tool_lines.push("- file(args:{op:\"rm\"|\"mv\", ...})".to_string());
+                                tool_lines.push("  - op=rm args: {path:string, expected_sha256?:string}".to_string());
+                                tool_lines.push("  - op=mv args: {from:string, to:string, expected_sha256?:string}".to_string());
+                                tool_lines.push("Deterministic single-target repair mode (fs_op): only file op=rm or op=mv is allowed.".to_string());
+                            }
+                            Some(RepairLadderStep::Stop) | None => {
+                                tool_lines.extend_from_slice(&[
+                                    "- file(args:{op:\"patch\"|\"rm\"|\"mv\", ...})".to_string(),
+                                    "  - op=patch args: {path:string, patch_text:string} (Cursor/Aider hunks-only; patch_text starts with '@@' and MUST NOT include ---/+++ or diff --git)".to_string(),
+                                    "  - op=rm args: {path:string, expected_sha256?:string}".to_string(),
+                                    "  - op=mv args: {from:string, to:string, expected_sha256?:string}".to_string(),
+                                ]);
+                            }
+                        }
+                    }
                     if allow_probe_sql {
                         tool_lines.push("- run_sql(args:{sql:string}) (targeted probes are currently required by probe gate)".to_string());
-                    }
-                    if single_target_repair_path.is_some() {
-                        tool_lines.push("Deterministic single-target repair mode is active: only file op=patch/rm/mv targeting the current failing model file is allowed.".to_string());
                     }
                     tools_card = Self::build_tools_card(
                         "Allowed tools (authoring phase; HARD constraint: mutation required next):",
@@ -383,7 +404,7 @@ impl DataEngineerSuite {
                             );
                         } else {
                             lines.push("- gold_model(args:{items:[{name:string, folder?:\"marts\"|\"core\", goal?:string, description?:string, inputs:[string], instructions?:string}]})".to_string());
-                            lines.push("  - IMPORTANT: max 5 items per call. Gold uses ref() for inputs (stg_* or intra-plan gold models); NO source().".to_string());
+                            lines.push(format!("  - IMPORTANT: max {} items per call. Gold uses ref() for inputs (stg_* or intra-plan gold models); NO source().", crate::plan_progress::MAX_BATCH_SIZE));
                             lines.push(
                                 "- apply_next_model_schema_batch(args:{instructions?:string})"
                                     .to_string(),

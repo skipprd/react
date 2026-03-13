@@ -112,6 +112,9 @@ pub(crate) struct AuthorLoopConfig {
     pub repair_prompt_id: &'static str,
     pub initial_temp: f64,
     pub repair_temp: f64,
+    /// When true, skip warehouse SQL validation (used for gold models whose
+    /// inputs include unmaterialized intra-plan dependencies).
+    pub skip_warehouse_validation: bool,
 }
 
 pub(crate) struct AuthorLoopOutcome {
@@ -188,18 +191,24 @@ where
             continue;
         }
 
-        match sql_first::validate_sql_quick(ctx, &d.sql, replacements).await {
+        if config.skip_warehouse_validation {
+            tracing::info!(
+                "{entity_id}: skipping warehouse validation (unmaterialized intra-plan deps)"
+            );
+            return Ok(AuthorLoopOutcome { draft: d });
+        }
+
+        let sql_ref = &d.sql;
+        let validate_result = crate::transient_retry::retry_transient_default(
+            &format!("{entity_id}_validate"),
+            || async { sql_first::validate_sql_quick(ctx, sql_ref, replacements).await },
+        )
+        .await;
+        match validate_result {
             Ok(()) => {
                 return Ok(AuthorLoopOutcome { draft: d });
             }
             Err(err) => {
-                if crate::failure_text::is_infra_transient(
-                    &crate::failure_text::normalize_text(&err),
-                ) {
-                    return Err(vec![format!(
-                        "{entity_id}: sql validation failed: {err}"
-                    )]);
-                }
                 last_err = err.clone();
                 prev_sql = Some(d.sql.clone());
             }

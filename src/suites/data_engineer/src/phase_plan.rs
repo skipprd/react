@@ -1197,6 +1197,7 @@ impl DataEngineerSuite {
             &PlanState::Unconstrained,
             None,
             manifest_retry_signal.retry_suppressed,
+            None,
         )?;
         let llm_options = if track.is_cleanse() {
             Self::planning_llm_options(
@@ -1263,8 +1264,8 @@ impl DataEngineerSuite {
                 }
             }
             Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
-                Ok(PhaseExecutorOutcome::stayed_waiting(
-                    "plan phase hit its single-step boundary and is awaiting the next controller turn",
+                Ok(PhaseExecutorOutcome::stayed_with_progress(
+                    "plan discovery agent exhausted its inner step budget; resetting outer budget for next attempt",
                 ))
             }
             Err(e) => Err(e.to_string().into()),
