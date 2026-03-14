@@ -130,6 +130,12 @@ pub struct PlanProgress {
     /// Total failed batch attempts across the plan lifetime (diagnostics only).
     #[serde(default)]
     pub total_batch_failures: usize,
+
+    /// Consecutive infra_transient failures (resets on success). When this
+    /// reaches `MAX_CONSECUTIVE_INFRA_TRANSIENT`, the failure is promoted to a
+    /// regular batch failure so the batch-lock circuit-breaker can fire.
+    #[serde(default)]
+    pub consecutive_infra_transient_failures: usize,
 }
 
 impl Default for PlanProgress {
@@ -138,6 +144,7 @@ impl Default for PlanProgress {
             last_applied_step_idx: 0,
             consecutive_batch_failures: 0,
             total_batch_failures: 0,
+            consecutive_infra_transient_failures: 0,
         }
     }
 }

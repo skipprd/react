@@ -862,6 +862,7 @@ pub enum SubjectiveRetryKind {
     PlanGroundingEmptyAfterPrune,
     PlanGroundingStagingDiscoveryEmpty,
     ReviewPatchImpl,
+    ReviewPlanChange,
     ValidatePrecheckFailed,
     ValidateExecutionFailed,
 }

@@ -4,6 +4,7 @@ use crate::plan;
 use react_core::session::ThreadStore;
 
 pub const MAX_CONSECUTIVE_BATCH_FAILURES: usize = 3;
+pub const MAX_CONSECUTIVE_INFRA_TRANSIENT: usize = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetryBudget {
@@ -53,10 +54,18 @@ pub fn note_batch_result_with_failure_kind(
     failure_kind: Option<FailureKind>,
 ) -> RetryBudget {
     if ok {
+        progress.consecutive_infra_transient_failures = 0;
         return note_batch_result(progress, true);
     }
     if matches!(failure_kind, Some(FailureKind::InfraTransient)) {
-        // Transient upstream outages must not consume deterministic batch-lock budget.
+        progress.consecutive_infra_transient_failures = progress
+            .consecutive_infra_transient_failures
+            .saturating_add(1);
+        if progress.consecutive_infra_transient_failures >= MAX_CONSECUTIVE_INFRA_TRANSIENT {
+            // Persistent infra outage: promote to a regular batch failure so
+            // the batch-lock circuit-breaker can fire and stop spinning.
+            return note_batch_result(progress, false);
+        }
         return batch_budget(progress);
     }
     note_batch_result(progress, false)
@@ -159,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn infra_transient_failure_does_not_consume_budget() {
+    fn infra_transient_failure_does_not_consume_budget_initially() {
         let mut progress = plan::PlanProgress::default();
         let budget = note_batch_result_with_failure_kind(
             &mut progress,
@@ -168,5 +177,39 @@ mod tests {
         );
         assert_eq!(budget.used, 0);
         assert_eq!(progress.total_batch_failures, 0);
+        assert_eq!(progress.consecutive_infra_transient_failures, 1);
+    }
+
+    #[test]
+    fn infra_transient_promotes_after_cap() {
+        let mut progress = plan::PlanProgress::default();
+        for _ in 0..MAX_CONSECUTIVE_INFRA_TRANSIENT - 1 {
+            let budget = note_batch_result_with_failure_kind(
+                &mut progress,
+                false,
+                Some(FailureKind::InfraTransient),
+            );
+            assert_eq!(budget.used, 0, "should not consume budget before cap");
+        }
+        let budget = note_batch_result_with_failure_kind(
+            &mut progress,
+            false,
+            Some(FailureKind::InfraTransient),
+        );
+        assert_eq!(budget.used, 1, "should consume budget at cap");
+        assert_eq!(progress.consecutive_batch_failures, 1);
+    }
+
+    #[test]
+    fn infra_transient_counter_resets_on_success() {
+        let mut progress = plan::PlanProgress::default();
+        note_batch_result_with_failure_kind(
+            &mut progress,
+            false,
+            Some(FailureKind::InfraTransient),
+        );
+        assert_eq!(progress.consecutive_infra_transient_failures, 1);
+        note_batch_result_with_failure_kind(&mut progress, true, None);
+        assert_eq!(progress.consecutive_infra_transient_failures, 0);
     }
 }

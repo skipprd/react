@@ -144,19 +144,22 @@ impl DataEngineerSuite {
         }
         let review_retry_count;
         let mut forced_proceed_by_patch_exhaustion = false;
-        let is_patch_impl = meta.decision == ReviewDecision::PatchImpl;
-        if is_patch_impl {
+        let subjective_kind = match meta.decision {
+            ReviewDecision::PatchImpl => {
+                Some(crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl)
+            }
+            ReviewDecision::PlanChange => {
+                Some(crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange)
+            }
+            _ => None,
+        };
+        if let Some(kind) = subjective_kind {
             use crate::retry_budget::SubjectiveRetryOutcome;
-            match Self::check_subjective_retry_budget(
-                thread_store,
-                thread_id,
-                crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
-            )
-            .await?
-            {
+            match Self::check_subjective_retry_budget(thread_store, thread_id, kind).await? {
                 SubjectiveRetryOutcome::Exhausted(tries) => {
                     tracing::warn!(
-                        "data_engineer: review patch_impl retry budget exhausted; forcing proceed phase={} tries={}",
+                        "data_engineer: review {:?} retry budget exhausted; forcing proceed phase={} tries={}",
+                        kind,
                         phase.as_str(),
                         tries
                     );
@@ -164,6 +167,7 @@ impl DataEngineerSuite {
                         matches!(
                             k,
                             crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
+                                | crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange
                         )
                     })
                     .await?;
@@ -181,6 +185,7 @@ impl DataEngineerSuite {
                 matches!(
                     k,
                     crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
+                        | crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange
                 )
             })
             .await?;

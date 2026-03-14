@@ -3343,6 +3343,7 @@ mod tests {
                 consecutive_batch_failures: 3,
                 total_batch_failures: 3,
                 last_applied_step_idx: 0,
+                consecutive_infra_transient_failures: 0,
             },
         };
         let log = ThreadLog {

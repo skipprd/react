@@ -1950,6 +1950,25 @@ async fn handle_author_run_outcome(
                 }
                 crate::authoring_driver::AuthoringTurnResult::Continue => {}
             }
+            // When in repair mode and the agent made a mutation, transition to
+            // validate immediately rather than burning more step budget patching
+            // blindly. The agent already applied a fix — let validation confirm.
+            if mutation_advanced && params.hard_mutation_repair_mode {
+                let track = crate::track_spec::TrackKind::from_any_phase(params.phase)
+                    .unwrap_or(crate::track_spec::TrackKind::Model);
+                crate::phase_contract::commit_phase_decision(
+                    params.thread_store,
+                    params.thread_id,
+                    Some(params.phase),
+                    crate::phase_contract::PhaseDecision::forward(
+                        track.validate_phase(),
+                        Some(crate::domain_types::PhaseReasonCode::WorkGroupValidate),
+                        None,
+                    ),
+                )
+                .await?;
+                return Ok(PhaseExecutorOutcome::TransitionCommitted);
+            }
             if mutation_advanced {
                 Ok(PhaseExecutorOutcome::stayed_with_progress(
                     "authoring turn made mutations at the step boundary; resetting budget",
