@@ -321,12 +321,15 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
         ok: Some(false),
         ..crate::progress_controller::LastValidateState::default()
     });
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-        crate::progress_controller::SqlTargetRepairMode {
-            target_path: crate::progress_controller::SqlModelPath::parse(
-                "models/staging/stg_probe.sql".to_string(),
-            )
-            .expect("valid sql model path"),
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+        crate::progress_controller::RepairMode {
+            repair_type: crate::progress_controller::RepairType::SqlTarget,
+            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_probe.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+            )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
@@ -392,12 +395,15 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
         ok: Some(false),
         ..crate::progress_controller::LastValidateState::default()
     });
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-        crate::progress_controller::SqlTargetRepairMode {
-            target_path: crate::progress_controller::SqlModelPath::parse(
-                "models/staging/stg_probe.sql".to_string(),
-            )
-            .expect("valid sql model path"),
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+        crate::progress_controller::RepairMode {
+            repair_type: crate::progress_controller::RepairType::SqlTarget,
+            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_probe.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+            )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
@@ -557,12 +563,15 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse(
-                    "models/marts/fct_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
+        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+            crate::progress_controller::RepairMode {
+                repair_type: crate::progress_controller::RepairType::SqlTarget,
+                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                    crate::progress_controller::SqlModelPath::parse(
+                        "models/marts/fct_orders.sql".to_string(),
+                    )
+                    .expect("valid sql model path"),
+                )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
@@ -634,12 +643,15 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse(
-                    "models/marts/fct_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
+        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+            crate::progress_controller::RepairMode {
+                repair_type: crate::progress_controller::RepairType::SqlTarget,
+                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                    crate::progress_controller::SqlModelPath::parse(
+                        "models/marts/fct_orders.sql".to_string(),
+                    )
+                    .expect("valid sql model path"),
+                )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
@@ -702,12 +714,15 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse(
-                    "models/marts/fct_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
+        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+            crate::progress_controller::RepairMode {
+                repair_type: crate::progress_controller::RepairType::SqlTarget,
+                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                    crate::progress_controller::SqlModelPath::parse(
+                        "models/marts/fct_orders.sql".to_string(),
+                    )
+                    .expect("valid sql model path"),
+                )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::ReplaceContents,
@@ -784,12 +799,15 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target()
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse(
-                    "models/marts/fct_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
+        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+            crate::progress_controller::RepairMode {
+                repair_type: crate::progress_controller::RepairType::SqlTarget,
+                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                    crate::progress_controller::SqlModelPath::parse(
+                        "models/marts/fct_orders.sql".to_string(),
+                    )
+                    .expect("valid sql model path"),
+                )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::FsOp,
@@ -1124,12 +1142,15 @@ fn patch_impl_intent_requires_mutation_epoch_advance() {
 fn derive_primary_repair_target_prefers_execution_state_target() {
     use crate::progress_controller::{ExecutionState, FailedModelRef};
     let mut st = ExecutionState::new();
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-        crate::progress_controller::SqlTargetRepairMode {
-            target_path: crate::progress_controller::SqlModelPath::parse(
-                "models/staging/stg_orders.sql".to_string(),
-            )
-            .expect("valid sql model path"),
+    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+        crate::progress_controller::RepairMode {
+            repair_type: crate::progress_controller::RepairType::SqlTarget,
+            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+            )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
@@ -1193,12 +1214,15 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     );
 
     // A recorded patch mutation flips patched_since_fail via typed mutation receipt.
-    state.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-        crate::progress_controller::SqlTargetRepairMode {
-            target_path: crate::progress_controller::SqlModelPath::parse(
-                "models/staging/stg_orders.sql".to_string(),
-            )
-            .expect("valid sql model path"),
+    state.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+        crate::progress_controller::RepairMode {
+            repair_type: crate::progress_controller::RepairType::SqlTarget,
+            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                crate::progress_controller::SqlModelPath::parse(
+                    "models/staging/stg_orders.sql".to_string(),
+                )
+                .expect("valid sql model path"),
+            )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
                 ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,

@@ -135,12 +135,15 @@ mod tests {
         let control = test_control_store();
         let tid = "tid-state-manager-invariant-save";
         let mut st = ExecutionState::new();
-        st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
-            crate::progress_controller::SqlTargetRepairMode {
-                target_path: crate::progress_controller::SqlModelPath::parse(
-                    "models/staging/stg_x.sql".to_string(),
-                )
-                .expect("valid sql model path"),
+        st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
+            crate::progress_controller::RepairMode {
+                repair_type: crate::progress_controller::RepairType::SqlTarget,
+                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
+                    crate::progress_controller::SqlModelPath::parse(
+                        "models/staging/stg_x.sql".to_string(),
+                    )
+                    .expect("valid sql model path"),
+                )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
                     ladder_step: crate::progress_controller::RepairLadderStep::Stop,
