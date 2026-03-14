@@ -17,7 +17,6 @@ pub enum RepairStopReason {
     DbtOk,
     MaxIterations,
     MissingSource,
-    WarehouseConfig,
     InfraTransient,
     LlmNoProgress,
     PackagesNoProgress,
@@ -205,10 +204,6 @@ pub fn classify_repair_iteration(
         return RepairIterationOutcome::Stop(RepairStopReason::DbtOk);
     }
 
-    if matches!(failure_class, FailureKind::WarehouseConfig) {
-        return RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig);
-    }
-
     if matches!(failure_class, FailureKind::InfraTransient) {
         return RepairIterationOutcome::Stop(RepairStopReason::InfraTransient);
     }
@@ -394,15 +389,12 @@ pub async fn run_repair_loop(
             change_diffs = diffs;
         } else if matches!(class, FailureKind::MissingSource) {
             notes.push("missing dbt source definition; treat as dataset grounding failure (schema.yml vs actual datasets)".to_string());
-        } else {
-            let allow_llm_repair = matches!(class, FailureKind::SqlRuntime | FailureKind::Unknown);
-            if allow_llm_repair && !res.ok {
-                let rem = attempt_remediation(ctx, &res, args, datasets).await;
-                llm_changed_files = rem.llm_changed_files;
-                changed_keys = rem.changed_keys;
-                change_diffs = rem.change_diffs;
-                notes = rem.notes;
-            }
+        } else if !res.ok {
+            let rem = attempt_remediation(ctx, &res, args, datasets).await;
+            llm_changed_files = rem.llm_changed_files;
+            changed_keys = rem.changed_keys;
+            change_diffs = rem.change_diffs;
+            notes = rem.notes;
         }
 
         tracing::info!(
@@ -1206,7 +1198,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_warehouse_config_stops() {
+    fn classify_warehouse_config_continues_to_repair() {
         assert_eq!(
             classify_repair_iteration(
                 0,
@@ -1216,9 +1208,9 @@ mod tests {
                 false,
                 false,
                 false,
-                0
+                1
             ),
-            RepairIterationOutcome::Stop(RepairStopReason::WarehouseConfig),
+            RepairIterationOutcome::Continue,
         );
     }
 

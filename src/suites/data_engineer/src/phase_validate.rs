@@ -468,16 +468,6 @@ impl DataEngineerSuite {
             };
         if matches!(
             failure_class,
-            crate::failure_kind::FailureKind::WarehouseConfig
-        ) {
-            return Err(format!(
-                "dbt_validate failed due to a warehouse/aws configuration issue: {}",
-                brief
-            )
-            .into());
-        }
-        if matches!(
-            failure_class,
             crate::failure_kind::FailureKind::InfraTransient
         ) {
             return Err(PhaseError::Fatal(format!(

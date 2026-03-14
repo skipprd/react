@@ -533,6 +533,9 @@ impl DataEngineerSuite {
             }
             // Pre-fetch file contents for failing models so the repair LLM
             // sees exact file content instead of hallucinating patch context.
+            // Track which files actually exist so we can filter phantoms.
+            let mut verified_files: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             for fm in &repair_ctx.failed_models {
                 if fm.file.trim().is_empty() {
                     continue;
@@ -545,7 +548,60 @@ impl DataEngineerSuite {
                 let key = format!("{}/{}", base, fm.file);
                 if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
                     if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                        verified_files.insert(fm.file.clone());
                         repair_ctx.target_contents.push((fm.file.clone(), text));
+                    }
+                }
+            }
+            // Remove phantom targets (files that don't exist in storage)
+            // so they don't mislead the LLM.
+            repair_ctx.failed_models.retain(|fm| {
+                fm.file.trim().is_empty() || verified_files.contains(&fm.file)
+            });
+            // Always pre-load models/schema.yml if it exists — it's commonly
+            // involved in failures and the LLM needs it for diagnosis.
+            {
+                let schema_path = "models/schema.yml";
+                let already_loaded = repair_ctx
+                    .target_contents
+                    .iter()
+                    .any(|(p, _)| p == schema_path);
+                if !already_loaded {
+                    let base = sctx
+                        .keyspace()
+                        .scoped_prefix(sctx.scope(), &["dbt"])
+                        .trim_end_matches('/')
+                        .to_string();
+                    let key = format!("{}/{}", base, schema_path);
+                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                            repair_ctx
+                                .target_contents
+                                .push((schema_path.to_string(), text));
+                        }
+                    }
+                }
+            }
+            // Pre-load the primary repair target file if it wasn't already
+            // loaded from the failed_models or schema.yml paths.
+            if let Some(target_path) = execution_state.single_target_repair_path() {
+                let already_loaded = repair_ctx
+                    .target_contents
+                    .iter()
+                    .any(|(p, _)| p.as_str() == target_path);
+                if !already_loaded {
+                    let base = sctx
+                        .keyspace()
+                        .scoped_prefix(sctx.scope(), &["dbt"])
+                        .trim_end_matches('/')
+                        .to_string();
+                    let key = format!("{}/{}", base, target_path);
+                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                            repair_ctx
+                                .target_contents
+                                .push((target_path.to_string(), text));
+                        }
                     }
                 }
             }

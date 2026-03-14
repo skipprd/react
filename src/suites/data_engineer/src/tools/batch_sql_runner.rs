@@ -20,9 +20,6 @@ pub(crate) fn classify_schema_batch_failure_kind(msg: &str) -> FailureKind {
     if crate::failure_text::is_infra_transient(&s) {
         return FailureKind::InfraTransient;
     }
-    if crate::failure_text::is_schema_or_contract(&s) || s.contains("column") {
-        return FailureKind::Schema;
-    }
     FailureKind::Unknown
 }
 
@@ -30,12 +27,6 @@ pub(crate) fn classify_authoring_batch_failure_kind(msg: &str) -> FailureKind {
     let s = crate::failure_text::normalize_text(msg);
     if crate::failure_text::is_infra_transient(&s) {
         return FailureKind::InfraTransient;
-    }
-    if crate::failure_text::is_sql_or_runtime_strict(&s) {
-        return FailureKind::SqlRuntime;
-    }
-    if crate::failure_text::is_schema_or_contract(&s) {
-        return FailureKind::Schema;
     }
     FailureKind::Unknown
 }
@@ -45,17 +36,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_authoring_sql_validation() {
+    fn classify_authoring_non_infra_is_unknown() {
         let k = classify_authoring_batch_failure_kind(
             "sql validation failed: Athena/Trino cannot reference a SELECT-list alias",
         );
-        assert_eq!(k, FailureKind::SqlRuntime);
+        assert_eq!(k, FailureKind::Unknown);
     }
 
     #[test]
-    fn classify_authoring_schema_error() {
+    fn classify_authoring_schema_error_is_unknown() {
         let k = classify_authoring_batch_failure_kind("invalid model folder 'models/raw/x.sql'");
-        assert_eq!(k, FailureKind::Schema);
+        assert_eq!(k, FailureKind::Unknown);
     }
 
     #[test]

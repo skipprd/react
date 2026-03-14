@@ -314,21 +314,8 @@ pub fn classify(errors: &[String]) -> DbtErrorClass {
     if s.contains("could not find profile named") {
         return DbtErrorClass::ProfilesYaml;
     }
-    if crate::failure_text::is_warehouse_config(&s) {
-        return DbtErrorClass::WarehouseConfig;
-    }
-    // Missing dbt source definitions (grounding failure, not SQL).
-    // Typical dbt phrasing:
-    //   "depends on a source named 'test_raw.raw_products' which was not found"
     if crate::failure_text::is_missing_source(&s) {
         return DbtErrorClass::MissingSource;
-    }
-    // Generic SQL failures (compilation/runtime/database execution)
-    if crate::failure_text::is_sql_or_runtime_strict(&s) {
-        return DbtErrorClass::SqlFailure;
-    }
-    if s.contains("sql") {
-        return DbtErrorClass::SqlOrModel;
     }
     DbtErrorClass::Unknown
 }
@@ -519,9 +506,9 @@ mod tests {
     }
 
     #[test]
-    fn classify_workgroup_missing() {
+    fn classify_workgroup_missing_is_unknown() {
         let errs = vec!["InvalidRequestException: WorkGroup is not found.".to_string()];
-        assert_eq!(classify(&errs), DbtErrorClass::WarehouseConfig);
+        assert_eq!(classify(&errs), DbtErrorClass::Unknown);
     }
 
     #[test]

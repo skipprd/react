@@ -107,7 +107,7 @@ mod tests {
     fn preturn_gate_prioritizes_mutate_stall_failfast() {
         let mut st = ExecutionState::new();
         st.phase.mode = ExecutionMode::Mutate;
-        st.repair.stall_count = 3;
+        st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
         let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
         match d {
             PreTurnDirective::FailFast { kind, .. } => {
@@ -147,7 +147,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/staging/stg_orders.sql".to_string(),
@@ -179,7 +179,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/staging/stg_orders.sql".to_string(),
@@ -232,7 +232,7 @@ mod tests {
                 name: "stall_has_priority_over_replan",
                 setup: |st| {
                     st.phase.mode = ExecutionMode::Mutate;
-                    st.repair.stall_count = 3;
+                    st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
                     st.phase.replan_backtracks = 10;
                 },
                 expect_fail: true,

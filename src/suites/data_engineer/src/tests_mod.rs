@@ -323,7 +323,7 @@ async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
     });
     st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
         crate::progress_controller::RepairMode {
-            repair_type: crate::progress_controller::RepairType::SqlTarget,
+
             target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                 crate::progress_controller::SqlModelPath::parse(
                     "models/staging/stg_probe.sql".to_string(),
@@ -397,7 +397,7 @@ async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
     });
     st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
         crate::progress_controller::RepairMode {
-            repair_type: crate::progress_controller::RepairType::SqlTarget,
+
             target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                 crate::progress_controller::SqlModelPath::parse(
                     "models/staging/stg_probe.sql".to_string(),
@@ -565,7 +565,7 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
         });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+    
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/marts/fct_orders.sql".to_string(),
@@ -645,7 +645,7 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
         });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+    
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/marts/fct_orders.sql".to_string(),
@@ -716,7 +716,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+    
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/marts/fct_orders.sql".to_string(),
@@ -767,7 +767,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
 }
 
 #[tokio::test]
-async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target() {
+async fn hard_mutation_mode_single_target_fs_op_rejects_rm_of_target() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
@@ -801,7 +801,7 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target()
         });
         seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+    
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/marts/fct_orders.sql".to_string(),
@@ -823,23 +823,10 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target()
             .expect("seed fs-op hard repair state");
     }
 
-    let patch_err = reg
-        .call(
-            "file",
-            serde_json::json!({
-                "op":"patch",
-                "path":"models/marts/fct_orders.sql",
-                "patch_text":"@@\n- select 1 as id\n+ select 2 as id\n"
-            }),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        patch_err.contains("repair ladder step (fs_op)") && patch_err.contains("op=rm|op=mv"),
-        "fs_op should reject op=patch: {patch_err}"
-    );
-
+    // With cumulative ops, FsOp allows [Patch, Write, Rm, Mv].
+    // Patch at FsOp level may still fail due to content mismatch, but
+    // should not be rejected by the ladder policy itself.
+    // We only verify that rm of the primary repair target is still blocked.
     let rm_target_err = reg
         .call(
             "file",
@@ -1144,7 +1131,7 @@ fn derive_primary_repair_target_prefers_execution_state_target() {
     let mut st = ExecutionState::new();
     st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
         crate::progress_controller::RepairMode {
-            repair_type: crate::progress_controller::RepairType::SqlTarget,
+
             target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                 crate::progress_controller::SqlModelPath::parse(
                     "models/staging/stg_orders.sql".to_string(),
@@ -1216,7 +1203,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     // A recorded patch mutation flips patched_since_fail via typed mutation receipt.
     state.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
         crate::progress_controller::RepairMode {
-            repair_type: crate::progress_controller::RepairType::SqlTarget,
+
             target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                 crate::progress_controller::SqlModelPath::parse(
                     "models/staging/stg_orders.sql".to_string(),

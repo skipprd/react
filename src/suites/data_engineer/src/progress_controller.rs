@@ -10,7 +10,7 @@ use react_core::session::ControlStateStore;
 use crate::control_flow::Phase;
 
 pub const EXECUTION_STATE_SCHEMA_VERSION: u32 = 2;
-pub const DEFAULT_MAX_STALL_COUNT: usize = 3;
+pub const DEFAULT_MAX_STALL_COUNT: usize = 5;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -340,8 +340,8 @@ impl RepairLadderStep {
         use crate::tool_ops::FileOpKind;
         match self {
             Self::PatchTarget => &[FileOpKind::Patch],
-            Self::ReplaceContents => &[FileOpKind::Write],
-            Self::FsOp => &[FileOpKind::Rm, FileOpKind::Mv],
+            Self::ReplaceContents => &[FileOpKind::Patch, FileOpKind::Write],
+            Self::FsOp => &[FileOpKind::Patch, FileOpKind::Write, FileOpKind::Rm, FileOpKind::Mv],
             Self::Stop => &[],
         }
     }
@@ -407,20 +407,6 @@ impl RepairLadderStep {
                     .to_string()
             }
         }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RepairType {
-    Unknown,
-    Schema,
-    SqlTarget,
-}
-
-impl Default for RepairType {
-    fn default() -> Self {
-        Self::Unknown
     }
 }
 
@@ -567,8 +553,6 @@ pub struct RepairModeCore {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RepairMode {
-    #[serde(default)]
-    pub repair_type: RepairType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_path: Option<RepairTargetPath>,
     #[serde(default)]
@@ -578,31 +562,22 @@ pub struct RepairMode {
 }
 
 impl RepairMode {
-    pub fn for_existing_sql_target(target: SqlModelPath) -> Self {
-        Self {
-            repair_type: RepairType::SqlTarget,
-            target_path: Some(RepairTargetPath::SqlModel(target)),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore::default(),
-        }
-    }
-    pub fn for_missing_sql_target(target: SqlModelPath) -> Self {
-        Self {
-            repair_type: RepairType::SqlTarget,
-            target_path: Some(RepairTargetPath::SqlModel(target)),
-            materialization: RepairTargetMaterialization::Missing,
-            core: RepairModeCore {
+    pub fn new(
+        target_path: Option<RepairTargetPath>,
+        materialization: RepairTargetMaterialization,
+    ) -> Self {
+        let core = if materialization == RepairTargetMaterialization::Missing {
+            RepairModeCore {
                 ladder_step: RepairLadderStep::ReplaceContents,
                 ..RepairModeCore::default()
-            },
-        }
-    }
-    pub fn for_schema(target_path: Option<RepairTargetPath>) -> Self {
+            }
+        } else {
+            RepairModeCore::default()
+        };
         Self {
-            repair_type: RepairType::Schema,
             target_path,
-            materialization: RepairTargetMaterialization::default(),
-            core: RepairModeCore::default(),
+            materialization,
+            core,
         }
     }
     pub fn ladder_step(&self) -> RepairLadderStep {
@@ -1062,13 +1037,6 @@ impl RepairState {
         !matches!(self.repair_mode, RepairModeState::Inactive)
     }
 
-    pub fn repair_type(&self) -> RepairType {
-        match &self.repair_mode {
-            RepairModeState::Inactive => RepairType::Unknown,
-            RepairModeState::Active(mode) => mode.repair_type,
-        }
-    }
-
     pub fn single_target_repair_path(&self) -> Option<&str> {
         match &self.repair_mode {
             RepairModeState::Inactive => None,
@@ -1252,9 +1220,6 @@ impl ExecutionState {
     pub fn hard_mutation_repair_mode(&self) -> bool {
         self.repair_state().hard_mutation_repair_mode()
     }
-    pub fn repair_type(&self) -> RepairType {
-        self.repair_state().repair_type()
-    }
     pub fn ladder_step(&self) -> RepairLadderStep {
         self.repair_state().ladder_step()
     }
@@ -1283,20 +1248,24 @@ impl ExecutionState {
     fn enable_repair_mode(repair: &mut RepairState, repair_intent: &RepairIntent) {
         repair.repair_mode = match repair_intent {
             RepairIntent::Schema { backlog, .. } => {
-                let target_path = backlog
-                    .iter()
-                    .find_map(|t| t.path.clone());
-                let mut mode = RepairMode::for_schema(target_path);
+                let target_path = backlog.iter().find_map(|t| t.path.clone());
+                let mut mode = RepairMode::new(target_path, RepairTargetMaterialization::default());
                 mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
                 RepairModeState::Active(mode)
             }
             RepairIntent::SqlPatch { target, .. } => {
-                let mut mode = RepairMode::for_existing_sql_target(target.clone());
+                let mut mode = RepairMode::new(
+                    Some(RepairTargetPath::SqlModel(target.clone())),
+                    RepairTargetMaterialization::Existing,
+                );
                 mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
                 RepairModeState::Active(mode)
             }
             RepairIntent::SqlRewrite { target, .. } => {
-                let mut mode = RepairMode::for_missing_sql_target(target.clone());
+                let mut mode = RepairMode::new(
+                    Some(RepairTargetPath::SqlModel(target.clone())),
+                    RepairTargetMaterialization::Missing,
+                );
                 mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
                 RepairModeState::Active(mode)
             }
@@ -1574,7 +1543,6 @@ impl ExecutionState {
             if ok && mutated {
                 if let Some(core) = state.repair.core_mut() {
                     core.consecutive_noop_patches = 0;
-                    core.ladder_step = RepairLadderStep::PatchTarget;
                 }
                 if let RepairModeState::Active(mode) = &mut state.repair.repair_mode {
                     mode.note_materialized();
@@ -1591,12 +1559,6 @@ impl ExecutionState {
             }
             if let Some(core) = state.repair.core_mut() {
                 core.consecutive_noop_patches = core.consecutive_noop_patches.saturating_add(1);
-                core.ladder_step = match core.ladder_step {
-                    RepairLadderStep::PatchTarget => RepairLadderStep::ReplaceContents,
-                    RepairLadderStep::ReplaceContents => RepairLadderStep::FsOp,
-                    RepairLadderStep::FsOp => RepairLadderStep::Stop,
-                    RepairLadderStep::Stop => RepairLadderStep::Stop,
-                };
             }
             state.repair.stall_count = state.repair.stall_count.saturating_add(1);
             state.repair.last_progress_delta = Some(ProgressDelta {
@@ -2111,30 +2073,14 @@ pub fn repair_backlog_from_failed_models(
             materialization: fm.materialization,
         })
         .filter(|target| match failure_class {
-            FailureKind::Schema => target
-                .path
-                .as_ref()
-                .map(|p| matches!(p, RepairTargetPath::SchemaDoc(_)))
-                .unwrap_or(false),
-            FailureKind::SqlRuntime => target
-                .path
-                .as_ref()
-                .map(|p| {
-                    matches!(
-                        p,
-                        RepairTargetPath::SqlModel(_) | RepairTargetPath::SchemaDoc(_)
-                    )
-                })
-                .unwrap_or(false),
-            FailureKind::WarehouseConfig
-            | FailureKind::InfraTransient
+            FailureKind::InfraTransient
             | FailureKind::MissingSource
-            | FailureKind::NoFailure
-            | FailureKind::Unknown => false,
+            | FailureKind::NoFailure => false,
+            _ => target.path.is_some(),
         })
         .collect();
 
-    if failure_class == FailureKind::SqlRuntime {
+    {
         let siblings: Vec<RepairTarget> = out
             .iter()
             .filter_map(|t| match &t.path {
@@ -2184,8 +2130,13 @@ pub fn repair_intent_from_backlog(
     backlog: Vec<RepairTarget>,
 ) -> RepairIntent {
     match failure_class {
-        FailureKind::Schema => RepairIntent::Schema { backlog },
-        FailureKind::SqlRuntime => {
+        FailureKind::InfraTransient
+        | FailureKind::MissingSource
+        | FailureKind::NoFailure => RepairIntent::NoRepair {
+            reason: NoRepairReason::FailureClassNotRepairable,
+            backlog,
+        },
+        _ => {
             let sql_targets: Vec<(SqlModelPath, RepairTargetMaterialization)> = backlog
                 .iter()
                 .filter_map(|item| match &item.path {
@@ -2225,14 +2176,6 @@ pub fn repair_intent_from_backlog(
                 }
             }
         }
-        FailureKind::WarehouseConfig
-        | FailureKind::InfraTransient
-        | FailureKind::MissingSource
-        | FailureKind::NoFailure
-        | FailureKind::Unknown => RepairIntent::NoRepair {
-            reason: NoRepairReason::FailureClassNotRepairable,
-            backlog,
-        },
     }
 }
 
@@ -2379,7 +2322,7 @@ mod tests {
 
     #[test]
     fn authoring_stepboundary_snapshot_flags_no_mutation_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(4, 4, 3);
+        let snapshot = snapshot_authoring_stepboundary_progress(4, 4, DEFAULT_MAX_STALL_COUNT);
         assert!(!snapshot.progress_made);
         assert_eq!(
             snapshot.reason,
@@ -2405,7 +2348,7 @@ mod tests {
     fn record_stepboundary_progress_advances_ladder_on_no_mutation() {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -2452,7 +2395,7 @@ mod tests {
     fn validate_success_resets_repair_and_retry_state() {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -2470,7 +2413,6 @@ mod tests {
         assert_eq!(st.phase.current_tier, ExecutionTier::Model);
         assert_eq!(st.phase.mode, ExecutionMode::Done);
         assert!(!st.hard_mutation_repair_mode());
-        assert_eq!(st.repair_type(), RepairType::Unknown);
         assert_eq!(
             st.subjective_retries
                 .get(&SubjectiveRetryKind::PlanSemanticInvalid),
@@ -2484,7 +2426,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_failure_sets_typed_repair_type() {
+    fn validate_failure_activates_repair_mode() {
         let mut st = ExecutionState::new();
         let sig = FailureSignature {
             class: FailureKind::Schema,
@@ -2499,7 +2441,7 @@ mod tests {
             },
             Some("schema fail".to_string()),
         );
-        assert_eq!(st.repair_type(), RepairType::Schema);
+        assert!(st.hard_mutation_repair_mode());
 
         let sig2 = FailureSignature {
             class: FailureKind::SqlRuntime,
@@ -2520,7 +2462,11 @@ mod tests {
             },
             Some("sql fail".to_string()),
         );
-        assert_eq!(st.repair_type(), RepairType::SqlTarget);
+        assert!(st.hard_mutation_repair_mode());
+        assert_eq!(
+            st.single_target_repair_path().as_deref(),
+            Some("models/staging/stg_orders.sql")
+        );
     }
 
     #[test]
@@ -2544,7 +2490,7 @@ mod tests {
             },
             Some("dbt test fail".to_string()),
         );
-        assert_eq!(st.repair_type(), RepairType::Schema);
+        assert!(st.hard_mutation_repair_mode());
         assert_eq!(
             st.single_target_repair_path().as_deref(),
             Some("models/staging/stg_orders.yml"),
@@ -2572,7 +2518,7 @@ mod tests {
     }
 
     #[test]
-    fn repair_backlog_filters_targets_by_failure_class() {
+    fn repair_backlog_includes_all_model_targets_for_unknown() {
         let failing = vec![
             FailedModelRef {
                 name: "model.pkg.stg_orders".to_string(),
@@ -2593,43 +2539,44 @@ mod tests {
             },
         ];
 
-        let schema_backlog = repair_backlog_from_failed_models(FailureKind::Schema, &failing);
-        assert_eq!(schema_backlog.len(), 1);
-        assert_eq!(
-            schema_backlog[0].path.as_ref().map(|p| p.as_str()),
-            Some("models/staging/stg_orders.yml")
-        );
-
-        let sql_backlog = repair_backlog_from_failed_models(FailureKind::SqlRuntime, &failing);
-        assert_eq!(sql_backlog.len(), 2);
-        assert!(sql_backlog
+        let backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
+        assert!(backlog
             .iter()
             .any(|entry| entry.path.as_ref().map(|p| p.as_str())
                 == Some("models/staging/stg_orders.sql")));
-        assert!(sql_backlog
+        assert!(backlog
             .iter()
             .any(|entry| entry.path.as_ref().map(|p| p.as_str())
                 == Some("models/staging/stg_orders.yml")));
+        assert!(
+            !backlog.iter().any(|entry| entry
+                .model_name
+                .as_deref()
+                .map(|n| n.contains("readme"))
+                .unwrap_or(false)),
+            "README.md should not parse as a repair target"
+        );
 
-        let unknown_backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
-        assert!(unknown_backlog.is_empty());
+        let infra_backlog =
+            repair_backlog_from_failed_models(FailureKind::InfraTransient, &failing);
+        assert!(infra_backlog.is_empty());
     }
 
     #[test]
-    fn repair_backlog_derives_sibling_sql_for_schema_only_sql_runtime() {
+    fn repair_backlog_derives_sibling_sql_for_schema_only_target() {
         let failing = vec![FailedModelRef {
             name: "not_null_stg_orders_line_id".to_string(),
             file: "models/staging/stg_orders.yml".to_string(),
             materialization: RepairTargetMaterialization::Existing,
             ..Default::default()
         }];
-        let backlog = repair_backlog_from_failed_models(FailureKind::SqlRuntime, &failing);
+        let backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
         assert!(
             backlog
                 .iter()
                 .any(|t| t.path.as_ref().map(|p| p.as_str())
                     == Some("models/staging/stg_orders.sql")),
-            "SqlRuntime with only .yml target should derive sibling .sql: {backlog:?}"
+            "should derive sibling .sql from .yml target: {backlog:?}"
         );
         assert!(
             backlog
@@ -2641,22 +2588,22 @@ mod tests {
     }
 
     #[test]
-    fn repair_intent_uses_batch_mode_for_multi_target_sql_runtime() {
+    fn repair_intent_uses_batch_mode_for_multi_target() {
         let backlog = vec![
             RepairTarget {
                 model_name: Some("stg_orders".to_string()),
                 path: Some(repair_target_path("models/staging/stg_orders.sql")),
-                error_class: Some(FailureKind::SqlRuntime),
+                error_class: None,
                 materialization: RepairTargetMaterialization::Existing,
             },
             RepairTarget {
                 model_name: Some("stg_order_items".to_string()),
                 path: Some(repair_target_path("models/staging/stg_order_items.sql")),
-                error_class: Some(FailureKind::SqlRuntime),
+                error_class: None,
                 materialization: RepairTargetMaterialization::Existing,
             },
         ];
-        let intent = repair_intent_from_backlog(FailureKind::SqlRuntime, backlog);
+        let intent = repair_intent_from_backlog(FailureKind::Unknown, backlog);
         assert!(matches!(
             intent,
             RepairIntent::NoRepair {
@@ -2671,10 +2618,10 @@ mod tests {
         let backlog = vec![RepairTarget {
             model_name: Some("model.pkg.stg_orders".to_string()),
             path: Some(repair_target_path("models/staging/stg_orders.sql")),
-            error_class: Some(FailureKind::SqlRuntime),
+            error_class: None,
             materialization: RepairTargetMaterialization::Unknown,
         }];
-        let intent = repair_intent_from_backlog(FailureKind::SqlRuntime, backlog);
+        let intent = repair_intent_from_backlog(FailureKind::Unknown, backlog);
         assert!(matches!(
             intent,
             RepairIntent::NoRepair {
@@ -2745,7 +2692,7 @@ mod tests {
         assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_err());
 
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -2779,7 +2726,7 @@ mod tests {
             ..LastValidateState::default()
         });
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -2809,7 +2756,7 @@ mod tests {
             ..LastValidateState::default()
         });
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -3057,7 +3004,6 @@ mod tests {
             brief: "sql validation failed".to_string(),
         });
         assert!(st.hard_mutation_repair_mode());
-        assert_eq!(st.repair_type(), RepairType::SqlTarget);
         assert_eq!(
             st.single_target_repair_path().as_deref(),
             Some("models/staging/stg_test_raw_raw_customers.sql")
@@ -3084,7 +3030,6 @@ mod tests {
             brief: "sql authoring never materialized target".to_string(),
         });
         assert!(st.hard_mutation_repair_mode());
-        assert_eq!(st.repair_type(), RepairType::SqlTarget);
         assert_eq!(st.ladder_step(), RepairLadderStep::ReplaceContents);
         assert_eq!(
             st.single_target_repair_path().as_deref(),
@@ -3134,7 +3079,7 @@ mod tests {
     fn invariants_reject_patch_target_when_target_is_missing() {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/staging/stg_test.sql"))),
             materialization: RepairTargetMaterialization::Missing,
             core: RepairModeCore {
@@ -3152,7 +3097,7 @@ mod tests {
     fn apply_event_batch_authoring_recovered_clears_repair_mode() {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/staging/x.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {
@@ -3164,7 +3109,6 @@ mod tests {
         });
         st.apply_event(DataEngineerEvent::BatchAuthoringRecovered);
         assert!(!st.hard_mutation_repair_mode());
-        assert_eq!(st.repair_type(), RepairType::Unknown);
         assert!(st.single_target_repair_path().is_none());
     }
 
@@ -3181,7 +3125,7 @@ mod tests {
     fn invariants_reject_repair_ladder_stop_without_required_attempts() {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = RepairModeState::Active(RepairMode {
-            repair_type: RepairType::SqlTarget,
+
             target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/staging/stg_test.sql"))),
             materialization: RepairTargetMaterialization::Existing,
             core: RepairModeCore {

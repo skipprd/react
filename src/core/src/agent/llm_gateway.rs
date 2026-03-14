@@ -401,7 +401,7 @@ impl AgentCtx {
             return Ok(v);
         }
 
-        let repaired = escape_control_chars_in_json_strings(&raw);
+        let repaired = crate::json_repair::escape_control_chars_in_json_strings(&raw);
         if let Ok(v) = serde_json::from_str::<T>(&repaired) {
             return Ok(v);
         }
@@ -427,60 +427,3 @@ impl AgentCtx {
     }
 }
 
-/// Repair raw control characters inside JSON string literals.
-///
-/// Some model backends emit "JSON-like" text with literal control characters (e.g. raw newlines)
-/// inside string values. This function escapes them so `serde_json` can parse the result.
-pub(crate) fn escape_control_chars_in_json_strings(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    let mut in_str = false;
-    let mut esc = false;
-    for ch in s.chars() {
-        if in_str {
-            if esc {
-                out.push(ch);
-                esc = false;
-                continue;
-            }
-            if ch == '\\' {
-                out.push(ch);
-                esc = true;
-                continue;
-            }
-            match ch {
-                '\n' => out.push_str("\\n"),
-                '\r' => out.push_str("\\r"),
-                '\t' => out.push_str("\\t"),
-                '\u{08}' => out.push_str("\\b"),
-                '\u{0C}' => out.push_str("\\f"),
-                '"' => {
-                    out.push(ch);
-                    in_str = false;
-                }
-                c if (c as u32) < 0x20 => {
-                    out.push_str(&format!("\\u{:04x}", c as u32));
-                }
-                _ => out.push(ch),
-            }
-            continue;
-        }
-
-        if esc {
-            out.push(ch);
-            esc = false;
-            continue;
-        }
-        match ch {
-            '"' => {
-                out.push(ch);
-                in_str = true;
-            }
-            '\\' => {
-                out.push(ch);
-                esc = true;
-            }
-            _ => out.push(ch),
-        }
-    }
-    out
-}

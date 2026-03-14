@@ -1,11 +1,6 @@
 use super::*;
 use crate::control_flow::Phase;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PrecheckAuthoringHandoff {
-    None,
-    SchemaRepair,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AuthorValidateTrigger {
@@ -67,20 +62,10 @@ struct AuthorPhaseCtx<'a> {
     phase: Phase,
     track: TrackKind,
     hard_mutation_repair_mode: bool,
-    repair_type: crate::progress_controller::RepairType,
     execution_state: &'a crate::progress_controller::ExecutionState,
     repair_ctx: &'a crate::progress_controller::RepairPromptContext,
     phase_guard: &'a crate::control_flow::DerivedGuardState,
     guard: &'a crate::control_flow::DerivedGuardState,
-    precheck_handoff: PrecheckAuthoringHandoff,
-}
-
-fn precheck_authoring_handoff(reason_code: Option<PhaseReasonCode>) -> PrecheckAuthoringHandoff {
-    if reason_code == Some(PhaseReasonCode::PrecheckFailed) {
-        PrecheckAuthoringHandoff::SchemaRepair
-    } else {
-        PrecheckAuthoringHandoff::None
-    }
 }
 
 fn decide_author_validate_trigger(
@@ -293,7 +278,7 @@ mod tests {
         let mut st = crate::progress_controller::ExecutionState::new();
         st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
@@ -329,22 +314,6 @@ mod tests {
         assert!(reason.contains("stg_test_raw_raw_order_items.sql"));
         assert!(reason.contains("\"ladder_step\": \"ReplaceContents\""));
         assert!(reason.contains("\"storage_read_error\": \"not found\""));
-    }
-
-    #[test]
-    fn precheck_handoff_is_typed() {
-        assert_eq!(
-            precheck_authoring_handoff(Some(PhaseReasonCode::PrecheckFailed)),
-            PrecheckAuthoringHandoff::SchemaRepair
-        );
-        assert_eq!(
-            precheck_authoring_handoff(Some(PhaseReasonCode::ValidateFail)),
-            PrecheckAuthoringHandoff::None
-        );
-        assert_eq!(
-            precheck_authoring_handoff(None),
-            PrecheckAuthoringHandoff::None
-        );
     }
 
     #[test]
@@ -498,25 +467,26 @@ fn build_repair_mode_context(
     ladder_step: &crate::progress_controller::RepairLadderStep,
     attempt_count: usize,
     defer_schema_work: bool,
-    all_tasks_done_but_validate_failed: bool,
+    _all_tasks_done_but_validate_failed: bool,
 ) -> String {
     let kind = track.as_str();
-    let next_action_line = ladder_step.next_action_line();
-    let mut ctx = if all_tasks_done_but_validate_failed {
-        format!(
-            "Approved {kind} plan (stored at: {plan_key}).\nAll plan tasks are currently marked done, but the last dbt_validate failed.\nRepair ladder state: step={:?}, attempt_count={}.\n{next_action_line}\n\nRepair targets (fix these DBT files directly; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n",
-            ladder_step,
-            attempt_count,
-            crate::patch_contract::single_file_patch_good_example_json()
-        )
-    } else {
-        format!(
-            "Approved {kind} plan (stored at: {plan_key}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\nRepair ladder state: step={:?}, attempt_count={}.\n{next_action_line}\n- If using patch: args.path + args.patch_text (Cursor/Aider hunks-only: '@@ ... @@'; no ---/+++ headers).\nExample args: {}\n\n",
-            ladder_step,
-            attempt_count,
-            crate::patch_contract::single_file_patch_good_example_json()
-        )
-    };
+    let allowed_ops = ladder_step.allowed_ops_label();
+    let mut ctx = format!(
+        "REPAIR MODE — Diagnosis First\n\n\
+         Approved {kind} plan (stored at: {plan_key}).\n\
+         The last validation failed. Repair ladder: step={:?}, attempt={}, allowed_ops=[{allowed_ops}].\n\n\
+         Your job:\n\
+         1. READ the error details and file contents below carefully.\n\
+         2. READ any additional project files you need to understand the root cause.\n\
+         3. DIAGNOSE the issue with confidence before making changes.\n\
+         4. APPLY targeted fixes to the specific files that need changing.\n\n\
+         You may read as many files as you need. You may edit any project file.\n\
+         Try op=patch first for each file. If patch context misses, use op=write for that file.\n\
+         Example patch args: {}\n\n",
+        ladder_step,
+        attempt_count,
+        crate::patch_contract::single_file_patch_good_example_json()
+    );
     ctx.push_str(&repair_ctx.format_error_context());
     if defer_schema_work {
         ctx.push_str(
@@ -551,7 +521,6 @@ fn build_missing_target_repair_abort_reason(
         "target_storage_key": target_storage_key,
         "ladder_step": format!("{:?}", ladder),
         "attempt_count": execution_state.attempt_count(),
-        "repair_type": format!("{:?}", execution_state.repair_type()),
         "hard_mutation_repair_mode": execution_state.hard_mutation_repair_mode(),
         "last_validate_brief": repair_ctx.brief.clone(),
         "storage_read_error": target_read_error,
@@ -801,13 +770,7 @@ async fn load_cleanse_author_context(
         });
     }
 
-    if params.hard_mutation_repair_mode
-        && matches!(
-            params.repair_type,
-            crate::progress_controller::RepairType::SqlTarget
-                | crate::progress_controller::RepairType::Unknown
-        )
-    {
+    if params.hard_mutation_repair_mode {
         let ctx = build_repair_mode_context(
             params.track,
             &plan.plan_key,
@@ -821,44 +784,6 @@ async fn load_cleanse_author_context(
             plan_context: ctx,
             plan_state: PlanState::Unconstrained,
         })
-    } else if params.hard_mutation_repair_mode {
-        if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
-            let checklist_item_id = resolve_checklist_item_id(actx);
-            let expected_paths = crate::phase_author_lifecycle::collect_expected_paths(
-                &plan.tasks,
-                ids,
-                |task| task.dataset_id.as_str(),
-                |task| task.expected_model_path.as_deref(),
-            );
-            let ctx = build_schema_checklist_context(
-                params.track,
-                &plan.plan_key,
-                &checklist_item_id,
-                ids,
-                &expected_paths,
-            );
-            Ok(AuthorPlanLoadResult::Ready {
-                plan_context: ctx,
-                plan_state: PlanState::CleanseSchemaDatasetIds(ids.clone()),
-            })
-        } else {
-            let mut ctx = format!(
-                "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file {}; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
-                plan.plan_key,
-                crate::tool_ops::general_mutation_ops_label(),
-                crate::patch_contract::single_file_patch_good_example_json()
-            );
-            ctx.push_str(&params.repair_ctx.format_error_context());
-            let plan_state = if !next.is_empty() {
-                PlanState::CleanseSqlDatasetIds(next.clone())
-            } else {
-                PlanState::Unconstrained
-            };
-            Ok(AuthorPlanLoadResult::Ready {
-                plan_context: ctx,
-                plan_state,
-            })
-        }
     } else if next.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
             let checklist_item_id = resolve_checklist_item_id(actx);
@@ -1054,13 +979,7 @@ async fn load_model_author_context(
         });
     }
 
-    if params.hard_mutation_repair_mode
-        && matches!(
-            params.repair_type,
-            crate::progress_controller::RepairType::SqlTarget
-                | crate::progress_controller::RepairType::Unknown
-        )
-    {
+    if params.hard_mutation_repair_mode {
         let ctx = build_repair_mode_context(
             params.track,
             &plan.plan_key,
@@ -1074,44 +993,6 @@ async fn load_model_author_context(
             plan_context: ctx,
             plan_state: PlanState::Unconstrained,
         })
-    } else if params.hard_mutation_repair_mode {
-        if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
-            let checklist_item_id = resolve_checklist_item_id(actx);
-            let expected_paths = crate::phase_author_lifecycle::collect_expected_paths(
-                &plan.tasks,
-                ids,
-                |task| task.name.as_str(),
-                |task| task.expected_model_path.as_deref(),
-            );
-            let ctx = build_schema_checklist_context(
-                params.track,
-                &plan.plan_key,
-                &checklist_item_id,
-                ids,
-                &expected_paths,
-            );
-            Ok(AuthorPlanLoadResult::Ready {
-                plan_context: ctx,
-                plan_state: PlanState::ModelSchemaItemNames(ids.clone()),
-            })
-        } else {
-            let mut ctx = format!(
-                "Approved model plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file {}; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
-                plan.plan_key,
-                crate::tool_ops::general_mutation_ops_label(),
-                crate::patch_contract::single_file_patch_good_example_json()
-            );
-            ctx.push_str(&params.repair_ctx.format_error_context());
-            let plan_state = if !next_names.is_empty() {
-                PlanState::ModelSqlItemNames(next_names.clone())
-            } else {
-                PlanState::Unconstrained
-            };
-            Ok(AuthorPlanLoadResult::Ready {
-                plan_context: ctx,
-                plan_state,
-            })
-        }
     } else if next_names.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
             // Reconcile: if models/schema.yml already contains stanzas for all
@@ -1451,7 +1332,7 @@ async fn build_author_prompt(
             }
         }
     }
-    if params.precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
+    if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::PrecheckFailed) {
         if let Some(detail) = params.execution_state.phase.phase_reason_detail.as_ref() {
             q.push_str("\n\nPre-check failure detail (fix before validate):\n");
             q.push_str(
@@ -1679,9 +1560,6 @@ async fn build_author_prompt(
                     }
                 }
             } else if target.ends_with(".sql") {
-                // Target is SQL — include schema.yml if the error
-                // mentions it, so the LLM can relax a test definition
-                // rather than change SQL if appropriate.
                 let mention_schema = params
                     .repair_ctx
                     .brief
@@ -1692,7 +1570,7 @@ async fn build_author_prompt(
                     let schema_key = format!("{}/models/schema.yml", base);
                     if let Ok(bytes) = actx.storage().get_bytes(&schema_key).await {
                         let schema_content = String::from_utf8_lossy(&bytes);
-                        repair.push_str("\nSchema file where tests are defined — you may edit this file if relaxing/adjusting a test is the correct fix:\n```yaml\n");
+                        repair.push_str("\nSchema file (models/schema.yml):\n```yaml\n");
                         repair.push_str(&schema_content);
                         if !schema_content.ends_with('\n') {
                             repair.push('\n');
@@ -2010,16 +1888,11 @@ impl DataEngineerSuite {
         };
 
         let mut phase_guard = guard.clone();
-        let precheck_handoff = precheck_authoring_handoff(execution_state.phase.phase_reason_code);
-        if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
+        if execution_state.phase.phase_reason_code == Some(PhaseReasonCode::PrecheckFailed) {
             phase_guard.last_validate_failed = true;
             phase_guard.mutated_since_fail = false;
         }
         let hard_mutation_repair_mode = execution_state.hard_mutation_repair_mode();
-        let mut repair_type = execution_state.repair_type();
-        if precheck_handoff == PrecheckAuthoringHandoff::SchemaRepair {
-            repair_type = crate::progress_controller::RepairType::Schema;
-        }
 
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
             prompts::cleanse_system_prompt()
@@ -2036,7 +1909,11 @@ impl DataEngineerSuite {
         )
         .top_k(30)
         .per_step_timeout_secs(10)
-        .max_steps(crate::env_util::AUTHOR_MAX_STEPS)
+        .max_steps(if hard_mutation_repair_mode {
+            crate::env_util::REPAIR_MAX_STEPS
+        } else {
+            crate::env_util::AUTHOR_MAX_STEPS
+        })
         .thread_id(thread_id.to_string())
         .trace_tx(sctx.trace_tx().clone())
         .agent_name(crate::env_util::DEFAULT_AGENT_NAME)
@@ -2052,12 +1929,10 @@ impl DataEngineerSuite {
             phase,
             track,
             hard_mutation_repair_mode,
-            repair_type,
             execution_state,
             repair_ctx,
             phase_guard: &phase_guard,
             guard,
-            precheck_handoff,
         };
 
         let (plan_context, plan_state) = if params.track.is_cleanse() {

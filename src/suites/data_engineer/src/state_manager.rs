@@ -137,7 +137,7 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
             crate::progress_controller::RepairMode {
-                repair_type: crate::progress_controller::RepairType::SqlTarget,
+
                 target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
                     crate::progress_controller::SqlModelPath::parse(
                         "models/staging/stg_x.sql".to_string(),

@@ -203,6 +203,7 @@ pub const REVIEW_MAX_STEPS: usize = 40;
 pub const PLAN_MAX_STEPS: usize = 60;
 pub const APPROVAL_PARSE_MAX_STEPS: usize = 6;
 pub const AUTHOR_MAX_STEPS: usize = 4;
+pub const REPAIR_MAX_STEPS: usize = 20;
 
 pub const DEFAULT_MAX_PHASE_STEPS: usize = 80;
 pub const MIN_PHASE_STEPS: usize = 8;

@@ -50,63 +50,9 @@ pub fn is_infra_transient(s: &str) -> bool {
     )
 }
 
-pub fn is_warehouse_config(s: &str) -> bool {
-    contains_any(
-        s,
-        &[
-            "workgroup is not found",
-            "datacatalog",
-            "accessdenied",
-            "expiredtoken",
-            "signaturedoesnotmatch",
-        ],
-    ) && (!s.contains("sql validation"))
-}
-
 pub fn is_missing_source(s: &str) -> bool {
     (s.contains("depends on a source named") && s.contains("which was not found"))
         || (s.contains("source named") && s.contains("was not found"))
-}
-
-pub fn is_schema_or_contract(s: &str) -> bool {
-    contains_any(
-        s,
-        &[
-            "schema",
-            "schema.yml",
-            "yaml",
-            "profiles.yml",
-            "dbt_project.yml",
-            "additional properties are not allowed",
-            "contract",
-            "parse",
-            "invalid model folder",
-        ],
-    )
-}
-
-pub fn is_sql_or_runtime_strict(s: &str) -> bool {
-    contains_any(
-        s,
-        &[
-            "sql validation",
-            "compilation error",
-            "runtime error",
-            "database error",
-            "failed to execute query",
-            "invalidrequestexception",
-            "athena/trino",
-            "trino",
-            "materialized sql",
-            "source() call",
-            "dbt source()",
-            "syntax error",
-        ],
-    )
-}
-
-pub fn is_sql_or_runtime(s: &str) -> bool {
-    is_sql_or_runtime_strict(s) || s.contains("sql")
 }
 
 pub fn classify_dbt_failure(errors: &[String]) -> FailureKind {
@@ -117,17 +63,8 @@ pub fn classify_dbt_failure(errors: &[String]) -> FailureKind {
     if is_infra_transient(&s) {
         return FailureKind::InfraTransient;
     }
-    if is_warehouse_config(&s) {
-        return FailureKind::WarehouseConfig;
-    }
     if is_missing_source(&s) {
         return FailureKind::MissingSource;
-    }
-    if is_schema_or_contract(&s) {
-        return FailureKind::Schema;
-    }
-    if is_sql_or_runtime(&s) {
-        return FailureKind::SqlRuntime;
     }
     FailureKind::Unknown
 }
@@ -145,9 +82,21 @@ mod tests {
     }
 
     #[test]
-    fn classify_dbt_failure_sql_runtime() {
+    fn classify_dbt_failure_non_infra_is_unknown() {
         let errors = vec!["Runtime Error: syntax error at or near FROM".to_string()];
-        assert_eq!(classify_dbt_failure(&errors), FailureKind::SqlRuntime);
+        assert_eq!(classify_dbt_failure(&errors), FailureKind::Unknown);
+    }
+
+    #[test]
+    fn classify_dbt_failure_schema_error_is_unknown() {
+        let errors = vec!["Compilation Error: schema.yml parse failure".to_string()];
+        assert_eq!(classify_dbt_failure(&errors), FailureKind::Unknown);
+    }
+
+    #[test]
+    fn classify_dbt_failure_warehouse_config_is_unknown() {
+        let errors = vec!["accessdenied: user is not authorized".to_string()];
+        assert_eq!(classify_dbt_failure(&errors), FailureKind::Unknown);
     }
 
     #[test]
@@ -189,4 +138,5 @@ mod tests {
         assert!(!is_infra_transient("syntax error at or near select"));
         assert!(!is_infra_transient("compilation error in model"));
     }
+
 }
