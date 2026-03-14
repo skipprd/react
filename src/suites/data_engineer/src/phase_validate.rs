@@ -492,59 +492,6 @@ impl DataEngineerSuite {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
 
-        // Data-test reclassification: when the schema compiled fine but a data
-        // test failed at runtime, the actual fix is in the SQL model (not the
-        // YAML where the test is defined). Resolve the SQL path from the dbt
-        // manifest so repair mode targets the correct file.
-        let (failure_class, failure_signature, failing_targets) =
-            if failure_class == crate::failure_kind::FailureKind::Schema
-                && compile_ok
-                && !run_ok
-            {
-                let runtime_failures = obs
-                    .observation
-                    .get("logs")
-                    .map(|l| crate::dbt_error::extract_runtime_failures_from_logs(l))
-                    .unwrap_or_default();
-                let model_hints = crate::dbt_error::test_failure_model_hints(&runtime_failures);
-                if model_hints.is_empty() {
-                    (failure_class, failure_signature, failing_targets)
-                } else {
-                    let manifest_index = crate::facts::load_manifest_index(&actx).await;
-                    let resolved: Vec<crate::domain_types::ValidateFailingTarget> = model_hints
-                        .iter()
-                        .filter_map(|hint| {
-                            let (_fqn, file_path) = manifest_index.get(hint.as_str())?;
-                            let target_path =
-                                crate::domain_types::ValidateTargetPath::parse(file_path.clone())
-                                    .ok()?;
-                            Some(crate::domain_types::ValidateFailingTarget {
-                                node_id: hint.clone(),
-                                target_path,
-                                error_code: "sql_runtime".to_string(),
-                            })
-                        })
-                        .collect();
-                    if resolved.is_empty() {
-                        (failure_class, failure_signature, failing_targets)
-                    } else {
-                        let new_sig = crate::domain_types::FailureSignature {
-                            class: crate::failure_kind::FailureKind::SqlRuntime,
-                            node_id: resolved[0].node_id.clone(),
-                            target_path: resolved[0].target_path.clone(),
-                            error_code: "sql_runtime".to_string(),
-                        };
-                        (
-                            crate::failure_kind::FailureKind::SqlRuntime,
-                            new_sig,
-                            resolved,
-                        )
-                    }
-                }
-            } else {
-                (failure_class, failure_signature, failing_targets)
-            };
-
         // Update canonical execution state from this validate failure (hard-cutover: primary decision source).
         {
             let tier = if phase == Phase::CleanseValidate {

@@ -61,12 +61,12 @@ pub fn evaluate_pre_turn_directive(
         };
     }
 
-    let single_target_repair_path = derive_single_target_repair_path(execution_state);
+    let primary_repair_target = derive_primary_repair_target(execution_state);
     if repair_state.hard_mutation_repair_mode()
-        && single_target_repair_path.is_some()
+        && primary_repair_target.is_some()
         && repair_state.ladder_step() == RepairLadderStep::Stop
     {
-        let target = single_target_repair_path.as_deref().unwrap_or("(unknown)");
+        let target = primary_repair_target.as_deref().unwrap_or("(unknown)");
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
             reason: guard_reason(
@@ -91,7 +91,7 @@ pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Ph
     intent.phase == phase && repair.mutation_epoch <= intent.entry_mutation_epoch
 }
 
-pub fn derive_single_target_repair_path(execution_state: &ExecutionState) -> Option<String> {
+pub fn derive_primary_repair_target(execution_state: &ExecutionState) -> Option<String> {
     let repair = execution_state.repair_state();
     repair
         .single_target_repair_path()

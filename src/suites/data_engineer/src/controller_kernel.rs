@@ -23,7 +23,7 @@ impl GuardReason {
         match self {
             Self::MutationRequiredAfterValidateFailure => {
                 "dbt_validate is blocked after a failed validation until you APPLY A FIX to the dbt project.\n\
-                 Next step must be a mutating fix action (e.g. `staging_model` or `file op=patch|rm|mv` to update schema/tests)."
+                 Next step must be a mutating fix action (e.g. `staging_model` or `file` with a mutation op to update schema/tests)."
             }
             Self::ProbeRequiredAfterRuntimeFailure => {
                 "dbt_validate (build/run) is blocked after a runtime failure until you run meaningful SQL probes.\n\
@@ -43,7 +43,7 @@ impl BatchLockReason {
     pub fn message(self) -> &'static str {
         match self {
             Self::ConsecutiveFailureBudgetExhausted => {
-                "too many consecutive batch failures; apply a targeted mutating fix (file op=patch|rm|mv) before retrying"
+                "too many consecutive batch failures; apply a targeted mutating fix (file mutation op) before retrying"
             }
         }
     }
@@ -86,9 +86,10 @@ Plan:\n\
     }
     if !expected_paths.is_empty() {
         s.push_str("\nRecommended next step:\n");
-        s.push_str(
-            "- Apply a targeted mutating fix (`file op=patch|rm|mv`) to the failing artifact(s):\n",
-        );
+        s.push_str(&format!(
+            "- Apply a targeted mutating fix (`file {}`) to the failing artifact(s):\n",
+            crate::tool_ops::general_mutation_ops_label(),
+        ));
         for p in expected_paths.iter().take(6) {
             s.push_str("  - ");
             s.push_str(p);
@@ -98,9 +99,10 @@ Plan:\n\
             "\nThen retry. This lock exists to prevent infinite loops when batch application repeatedly fails.\n",
         );
     } else {
-        s.push_str(
-            "\nRecommended next step:\n- Apply a targeted mutating fix (`file op=patch|rm|mv`) to the failing DBT artifact(s), then retry.\n",
-        );
+        s.push_str(&format!(
+            "\nRecommended next step:\n- Apply a targeted mutating fix (`file {}`) to the failing DBT artifact(s), then retry.\n",
+            crate::tool_ops::general_mutation_ops_label(),
+        ));
     }
     s
 }

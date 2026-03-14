@@ -65,8 +65,9 @@ Rules:
   - Your primary job is CONFORMANCE REVIEW: does the SQL/YAML implement the provided implementation_spec and obey prohibited_ops?
   - Do NOT propose changing the contract as part of review. If you believe the contract itself is wrong/ambiguous, prefix the finding with "REQUIRES PLAN CHANGE: ..." and do NOT propose an implementation change.
 - EVIDENCE-ONLY: every finding in "findings" MUST cite a specific file path, column name, or SQL construct you can see in the provided batch contents. Do NOT speculate about files or code you have not been shown.
+- MATERIALITY THRESHOLD: only flag issues that would cause incorrect query results, broken compilation, or violate an explicit prohibition in the spec. Do NOT flag stylistic preferences, naming conventions, or "nice to have" improvements unless they violate the spec.
 - If no concrete, evidence-backed findings exist for this batch, return {{"findings": []}}.
-- Hard cap: at most 3 findings total.
+- Hard cap: at most 3 findings total. Prefer fewer; empty findings is the ideal outcome for conformant code.
 - Each finding must be decision-oriented: impacted metric/decision, concrete evidence from the provided SQL/schema, and smallest next action to reduce risk.
 - IMPORTANT: Do NOT suggest adding/selecting fields that are not present in the provided authoritative schema.
 {tier_focus}{quality_lens}- No tool calls and no file edits."#,
@@ -90,16 +91,19 @@ pub(super) fn system_prompt_for_unify(plan_kind: Option<PlanKind>) -> String {
          {schema}\n\n\
          Interpretation rules (CRITICAL):\n\
          - decision=\"proceed\" means: no action required now; the implementation conforms and there are no net-new/still-unresolved high-value issues.\n\
-         - decision=\"patch_impl\" means: a concrete implementation change is required NOW to match the approved plan/spec (conformance/correctness fix), without changing the plan/spec.\n\
-         - decision=\"plan_change\" means: the implementation should NOT be patched now because the blocker is in the approved plan/spec itself; request plan revision instead of implementation edits.\n\n\
+         - decision=\"patch_impl\" means: a concrete, high-severity implementation defect exists that MUST be fixed NOW to avoid incorrect query results or broken compilation — NOT stylistic or speculative improvements.\n\
+         - decision=\"plan_change\" means: the implementation fundamentally contradicts the approved plan/spec in a way that CANNOT be resolved by patching the implementation alone. This is rare — use only for genuine contradictions, not debatable design preferences.\n\n\
+         Decision bias (CRITICAL):\n\
+         - DEFAULT TO \"proceed\" unless there is a clear, high-severity conformance violation. The implementation has already passed dbt validation (compilation and tests). Stylistic improvements, naming suggestions, and \"nice to have\" enhancements are NOT grounds for patch_impl or plan_change.\n\
+         - If the review context mentions a prior review cycle, apply a HIGHER BAR for patch_impl: only block on issues that are strictly worse than what was already reviewed. Findings that were visible in the prior cycle but not flagged should be considered implicitly accepted.\n\n\
          {tier_rule}\n\n\
          Unify requirements (CRITICAL):\n\
          - EVIDENCE-ONLY: you may ONLY promote issues that appear in the batch findings. Do NOT introduce new issues based on project_notes or general knowledge.\n\
          - If the batch findings are empty, set decision=\"proceed\" and keep the body brief.\n\
          - If the main finding is prefixed \"REQUIRES PLAN CHANGE\", set decision=\"plan_change\".\n\
-         - Set decision=\"patch_impl\" only when a batch finding identifies a concrete implementation defect that can be fixed now without changing the plan/spec.\n\
+         - Set decision=\"patch_impl\" only when a batch finding identifies a concrete defect that would produce incorrect data or broken queries — not for improvements or style.\n\
          - Hard cap: at most 3 issues total across the final review body.\n\
-         - Delta-first: suppress repeated advice that has no new evidence since the prior review context.",
+         - Delta-first: suppress repeated advice that has no new evidence since the prior review context. If a finding was present in the prior review and the implementation was already patched for it, do NOT re-flag unless the patch introduced a new defect.",
         schema = render_output_schema::<crate::domain_types::ReviewUnifyOutput>(),
     )
 }

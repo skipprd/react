@@ -167,7 +167,7 @@ impl DataEngineerSuite {
         _allow_ask_approval: bool,
         sctx: &SuiteCtx,
         plan_state: &PlanState,
-        single_target_repair_path: Option<String>,
+        primary_repair_target: Option<String>,
         suppress_manifest_json_in_plan: bool,
         repair_ladder_step: Option<crate::progress_controller::RepairLadderStep>,
     ) -> Result<(ToolRegistry, String), String> {
@@ -248,17 +248,17 @@ impl DataEngineerSuite {
             control_flow::Phase::CleanseAuthor | control_flow::Phase::ModelAuthor => {
                 // Authoring phases: allow investigation + mutations; validation/publish are suite-driven.
                 //
-                // Deterministic repair hard-cutover:
+                // Repair hard-cutover:
                 // - classic gate: after validate fail with no mutation yet, require mutation next.
-                // - single-target repair mode: ALWAYS require mutation next, even if a prior mutation
-                //   already happened in this repair cycle (prevents read/get loops against removed targets).
+                // - repair target mode: ALWAYS require mutation next, even if a prior mutation
+                //   already happened in this repair cycle (prevents read/get loops).
                 let hard_mutation_only = (guard.last_validate_failed && !guard.mutated_since_fail)
-                    || single_target_repair_path.is_some();
+                    || primary_repair_target.is_some();
                 let allow_probe_sql = guard.probe_required && !guard.probe_satisfied;
                 let plan_state_is_batched = !matches!(plan_state, PlanState::Unconstrained);
                 let authoring_policy = crate::authoring_driver::derive_authoring_tool_policy(
                     hard_mutation_only,
-                    single_target_repair_path.is_some(),
+                    primary_repair_target.is_some(),
                     plan_state_is_batched,
                 );
 
@@ -267,7 +267,7 @@ impl DataEngineerSuite {
                         inner: FilesTool {
                             datasets: crate::ctx_ext::sctx_datasets(sctx),
                         },
-                        single_target_path: single_target_repair_path.clone(),
+                        primary_repair_target: primary_repair_target.clone(),
                     });
 
                     if allow_probe_sql {
@@ -293,34 +293,12 @@ impl DataEngineerSuite {
                             tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
                         }
                     }
-                    {
-                        use crate::progress_controller::RepairLadderStep;
-                        match repair_ladder_step {
-                            Some(RepairLadderStep::PatchTarget) => {
-                                tool_lines.push("- file(args:{op:\"patch\", ...})".to_string());
-                                tool_lines.push("  - op=patch args: {path:string, patch_text:string} (Cursor/Aider hunks-only; patch_text starts with '@@' and MUST NOT include ---/+++ or diff --git)".to_string());
-                                tool_lines.push("Deterministic single-target repair mode (patch_target): only file op=patch targeting the current failing model file is allowed.".to_string());
-                            }
-                            Some(RepairLadderStep::ReplaceContents) => {
-                                tool_lines.push("- file(args:{op:\"write\", ...})".to_string());
-                                tool_lines.push("  - op=write args: {path:string, content:string} (full file overwrite with complete correct content)".to_string());
-                                tool_lines.push("Deterministic single-target repair mode (replace_contents): only file op=write targeting the current failing model file is allowed.".to_string());
-                            }
-                            Some(RepairLadderStep::FsOp) => {
-                                tool_lines.push("- file(args:{op:\"rm\"|\"mv\", ...})".to_string());
-                                tool_lines.push("  - op=rm args: {path:string, expected_sha256?:string}".to_string());
-                                tool_lines.push("  - op=mv args: {from:string, to:string, expected_sha256?:string}".to_string());
-                                tool_lines.push("Deterministic single-target repair mode (fs_op): only file op=rm or op=mv is allowed.".to_string());
-                            }
-                            Some(RepairLadderStep::Stop) | None => {
-                                tool_lines.extend_from_slice(&[
-                                    "- file(args:{op:\"patch\"|\"rm\"|\"mv\", ...})".to_string(),
-                                    "  - op=patch args: {path:string, patch_text:string} (Cursor/Aider hunks-only; patch_text starts with '@@' and MUST NOT include ---/+++ or diff --git)".to_string(),
-                                    "  - op=rm args: {path:string, expected_sha256?:string}".to_string(),
-                                    "  - op=mv args: {from:string, to:string, expected_sha256?:string}".to_string(),
-                                ]);
-                            }
-                        }
+                    if let Some(ref step) = repair_ladder_step {
+                        tool_lines.extend(step.tool_card_lines());
+                    } else {
+                        tool_lines.extend(crate::tool_ops::tool_card_lines_for_ops(
+                            crate::tool_ops::GENERAL_MUTATION_OPS,
+                        ));
                     }
                     if allow_probe_sql {
                         tool_lines.push("- run_sql(args:{sql:string}) (targeted probes are currently required by probe gate)".to_string());

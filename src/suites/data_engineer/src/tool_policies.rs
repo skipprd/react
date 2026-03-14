@@ -115,7 +115,10 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
 
 pub(super) struct PutOnlyFilesTool {
     pub(super) inner: FilesTool,
-    pub(super) single_target_path: Option<String>,
+    /// Primary repair target — used for ladder op enforcement, rm guard, and
+    /// state tracking. NOT a hard path restriction: the LLM may mutate other
+    /// files when it determines that is the correct fix.
+    pub(super) primary_repair_target: Option<String>,
 }
 #[async_trait::async_trait]
 impl react_core::tools::Tool for PutOnlyFilesTool {
@@ -129,126 +132,78 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
     ) -> Result<serde_json::Value, String> {
         let op = args.get("op").and_then(|x| x.as_str()).unwrap_or("get");
         let is_repair_mutation = crate::tool_ops::is_file_mutation_op(&args);
-        if self.single_target_path.is_some() && !is_repair_mutation {
-            return Err("file is in deterministic single-target repair mode; only repair mutation ops are allowed.".to_string());
+        if !is_repair_mutation {
+            return Err(format!(
+                "file is mutation-only right now (a mutating fix is required before any further validation). Allowed ops: {}.",
+                crate::tool_ops::general_mutation_ops_label()
+            ));
         }
-        if self.single_target_path.is_none() && !is_repair_mutation {
-            return Err("file is mutation-only right now (a mutating fix is required before any further validation). Allowed ops: patch/rm/mv.".to_string());
-        }
-        if let Some(want) = self.single_target_path.as_ref() {
-            fn collect_paths(v: &serde_json::Value) -> Vec<String> {
-                let mut out: Vec<String> = Vec::new();
-                if let Some(p) = v.get("path").and_then(|x| x.as_str()) {
-                    let p = p.trim();
-                    if !p.is_empty() {
-                        out.push(p.to_string());
-                    }
-                }
-                if let Some(p) = v.get("from").and_then(|x| x.as_str()) {
-                    let p = p.trim();
-                    if !p.is_empty() {
-                        out.push(p.to_string());
-                    }
-                }
-                out
-            }
-            let mut paths = collect_paths(&args);
-            paths.sort();
-            paths.dedup();
-            if paths.is_empty() {
-                return Err(format!(
-                    "file deterministic repair mode requires explicit path/from='{}'.",
-                    want
-                ));
-            }
-            if paths.len() != 1 || paths[0] != *want {
-                return Err(format!(
-                    "file deterministic single-target repair mode violation: only '{}' may be mutated right now (got: {}).",
-                    want,
-                    paths.join(", ")
-                ));
-            }
-        }
-        // Deterministic repair ladder enforcement (hard cutover).
-        if let (Some(store), Some(thread_id), Some(want)) = (
-            ctx.thread_store().as_ref(),
-            ctx.thread_id().as_deref(),
-            self.single_target_path.as_ref(),
-        ) {
-            if is_repair_mutation {
+        // Repair ladder enforcement: constrain the operation *type* (not path)
+        // based on the current ladder step, plus guard rm on the primary target.
+        if let (Some(store), Some(thread_id)) =
+            (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
+        {
+            if self.primary_repair_target.is_some() {
                 let es = crate::progress_controller::ExecutionState::load(
                     &store.control_store(),
                     thread_id,
                 )
                 .await
                 .map_err(|e| {
-                    format!("failed to load execution state for deterministic repair ladder: {e}")
+                    format!("failed to load execution state for repair ladder enforcement: {e}")
                 })?
                 .unwrap_or_else(crate::progress_controller::ExecutionState::new);
 
-                match es.ladder_step() {
-                    crate::progress_controller::RepairLadderStep::Stop => {
-                        return Err(format!(
-                            "deterministic repair ladder stop: '{}' did not converge after prior repair attempts. Stop and apply a manual fix for '{}' before re-running.",
-                            want, want
-                        ));
+                let ladder = es.ladder_step();
+                let allowed = ladder.allowed_file_ops();
+
+                if allowed.is_empty() {
+                    let target_label = self
+                        .primary_repair_target
+                        .as_deref()
+                        .unwrap_or("(unknown)");
+                    return Err(format!(
+                        "repair ladder stop: '{}' did not converge after prior repair attempts. \
+                         Stop and apply a manual fix before re-running.",
+                        target_label,
+                    ));
+                }
+
+                let op_kind = crate::tool_ops::classify_file_op(&args);
+                if !allowed.contains(&op_kind) {
+                    return Err(format!(
+                        "repair ladder step ({}): requires {}; got op='{}'.",
+                        ladder.step_name(),
+                        ladder.allowed_ops_label(),
+                        op,
+                    ));
+                }
+
+                if op == "write" {
+                    let content = args
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    if content.trim().is_empty() {
+                        return Err(
+                            "repair ladder: op='write' requires non-empty content.".to_string()
+                        );
                     }
-                    crate::progress_controller::RepairLadderStep::PatchTarget => {
-                        if op != "patch" {
-                            return Err(format!(
-                                "deterministic repair ladder step for '{}': patch_target requires op='patch'.",
-                                want
-                            ));
-                        }
-                    }
-                    crate::progress_controller::RepairLadderStep::ReplaceContents => {
-                        if op != "write" {
-                            return Err(format!(
-                                "deterministic repair ladder step for '{}': replace_contents requires op='write'. Provide the complete correct file content.",
-                                want,
-                            ));
-                        }
-                        let guard_path_ok = args
+                }
+
+                if op == "rm" {
+                    if let Some(primary) = self.primary_repair_target.as_ref() {
+                        let rm_path = args
                             .get("path")
                             .and_then(|v| v.as_str())
-                            .map(|p| p.trim() == want)
-                            .unwrap_or(false);
-                        if !guard_path_ok {
+                            .unwrap_or("")
+                            .trim();
+                        if rm_path == primary {
                             return Err(format!(
-                                "deterministic repair ladder step for '{}': args.path must equal '{}'.",
-                                want, want
+                                "repair ladder: cannot rm the primary repair target '{}'; \
+                                 use op='mv' to relocate it instead.",
+                                primary,
                             ));
-                        }
-                        let content = args
-                            .get("content")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        if content.trim().is_empty() {
-                            return Err(format!(
-                                "deterministic repair ladder step for '{}': op='write' requires non-empty content.",
-                                want
-                            ));
-                        }
-                    }
-                    crate::progress_controller::RepairLadderStep::FsOp => {
-                        if op != "rm" && op != "mv" {
-                            return Err(format!(
-                                "deterministic repair ladder step for '{}': fs_op requires op='rm' or op='mv'.",
-                                want
-                            ));
-                        }
-                        if op == "rm" {
-                            let rm_path = args
-                                .get("path")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .trim();
-                            if rm_path == want {
-                                return Err(format!(
-                                    "deterministic repair ladder step for '{}': cannot rm the primary repair target; use op='mv' to relocate it instead.",
-                                    want
-                                ));
-                            }
                         }
                     }
                 }
@@ -257,11 +212,11 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
 
         let res = self.inner.call(args.clone(), ctx).await;
 
-        // Update repair state after the attempt (best-effort, but should fail fast if persistence breaks).
-        if let (Some(store), Some(thread_id), Some(want)) = (
+        // Update repair state after the attempt (best-effort).
+        if let (Some(store), Some(thread_id), Some(primary)) = (
             ctx.thread_store().as_ref(),
             ctx.thread_id().as_deref(),
-            self.single_target_path.as_ref(),
+            self.primary_repair_target.as_ref(),
         ) {
             if is_repair_mutation {
                 let mut es = crate::progress_controller::ExecutionState::load(
@@ -269,23 +224,27 @@ impl react_core::tools::Tool for PutOnlyFilesTool {
                     thread_id,
                 )
                 .await
-                .map_err(|e| format!("failed to load execution state for repair persistence: {e}"))?
+                .map_err(|e| {
+                    format!("failed to load execution state for repair persistence: {e}")
+                })?
                 .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-                if let Ok(path) = crate::progress_controller::SqlModelPath::parse(want.clone()) {
+                if let Ok(path) =
+                    crate::progress_controller::SqlModelPath::parse(primary.clone())
+                {
                     es.ensure_repair_target_path(path);
                 }
 
                 match &res {
                     Ok(v) => {
                         let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
-                        let mutated = v.get("mutated").and_then(|x| x.as_bool()).unwrap_or(false);
+                        let mutated =
+                            v.get("mutated").and_then(|x| x.as_bool()).unwrap_or(false);
                         es.note_patch_attempt(ok, mutated);
                     }
                     Err(_) => {
                         es.note_patch_attempt(false, false);
                     }
                 }
-                // Persist state; hard fail if we cannot persist during repair mode.
                 es.save(&store.control_store(), thread_id).await?;
             }
         }

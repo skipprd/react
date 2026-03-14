@@ -15,7 +15,12 @@ const DEFAULT_EVENT_HUB_CAPACITY: usize = 4096;
 
 fn classify_error(summary: &str) -> &'static str {
     let s = summary.to_ascii_lowercase();
-    if s.contains("timed out reading response")
+    if s.contains("llm_error")
+        || s.contains("an error occurred while processing your request")
+        || s.contains("overloaded")
+    {
+        "llm_transient"
+    } else if s.contains("timed out reading response")
         || s.contains("timed out")
         || s.contains("network error")
     {

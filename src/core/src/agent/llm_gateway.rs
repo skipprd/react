@@ -78,7 +78,30 @@ impl AgentCtx {
         res
     }
 
-    async fn invoke_llm(
+    const LLM_TRANSIENT_MAX_RETRIES: usize = 2;
+    const LLM_TRANSIENT_BACKOFF_BASE_MS: u64 = 2000;
+
+    fn is_llm_transient(msg: &str) -> bool {
+        let s = msg.to_ascii_lowercase();
+        s.contains("an error occurred while processing your request")
+            || s.contains("timeout")
+            || s.contains("timed out")
+            || s.contains("rate limit")
+            || s.contains("too many requests")
+            || s.contains("service unavailable")
+            || s.contains("internal server error")
+            || s.contains("bad gateway")
+            || s.contains("gateway timeout")
+            || s.contains("http 502")
+            || s.contains("http 503")
+            || s.contains("http 504")
+            || s.contains("http 529")
+            || s.contains("overloaded")
+            || s.contains("connection reset")
+            || s.contains("connection aborted")
+    }
+
+    async fn invoke_llm_once(
         &self,
         messages: &[ChatMessage],
         options: &LlmCallOptions,
@@ -107,6 +130,67 @@ impl AgentCtx {
                 .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
                 .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e)))
         }
+    }
+
+    /// Wraps `invoke_llm_once` with retry for transient LLM errors.
+    ///
+    /// Handles two failure shapes:
+    /// - `Err(CoreError::Agent(msg))` where `msg` looks transient (timeout, 5xx, etc.)
+    /// - `Ok(text)` where `text` starts with `LLM_ERROR:` and the message is transient
+    async fn invoke_llm(
+        &self,
+        messages: &[ChatMessage],
+        options: &LlmCallOptions,
+    ) -> Result<String, CoreError> {
+        let mut last_result = self.invoke_llm_once(messages, options).await;
+
+        for attempt in 1..=Self::LLM_TRANSIENT_MAX_RETRIES {
+            let should_retry = match &last_result {
+                Err(CoreError::Agent(msg)) => Self::is_llm_transient(msg),
+                Ok(text) if text.trim_start().starts_with("LLM_ERROR:") => {
+                    Self::is_llm_transient(text)
+                }
+                _ => false,
+            };
+            if !should_retry {
+                break;
+            }
+
+            let err_summary = match &last_result {
+                Err(e) => e.to_string(),
+                Ok(text) => text.trim().to_string(),
+            };
+            let backoff_ms =
+                Self::LLM_TRANSIENT_BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(3));
+            tracing::warn!(
+                prompt_id = %options.prompt_id,
+                attempt,
+                max_retries = Self::LLM_TRANSIENT_MAX_RETRIES,
+                backoff_ms,
+                error = %err_summary,
+                "LLM transient error; retrying after backoff"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+
+            last_result = self.invoke_llm_once(messages, options).await;
+
+            if let Ok(ref text) = last_result {
+                if !text.trim_start().starts_with("LLM_ERROR:") {
+                    tracing::info!(
+                        prompt_id = %options.prompt_id,
+                        attempt,
+                        "LLM transient retry succeeded"
+                    );
+                }
+            }
+        }
+
+        if let Ok(ref text) = last_result {
+            if text.trim_start().starts_with("LLM_ERROR:") {
+                return Err(CoreError::Agent(text.trim().to_string()));
+            }
+        }
+        last_result
     }
 
     async fn prepare_observability(

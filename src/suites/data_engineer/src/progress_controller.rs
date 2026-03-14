@@ -145,11 +145,17 @@ impl RepairPromptContext {
                 "If a prior patch failed, read the exact current file content and make a materially different edit.\n",
             );
         }
+        out.push_str(
+            "\nCRITICAL REPAIR RULES:\n\
+             - You MUST change the SQL logic or test definition to fix the actual error described above.\n\
+             - Read the error message carefully: identify the failing column/expression, then edit \
+             the SQL model to produce correct values (filter NULLs, fix joins, cast types, etc.).\n",
+        );
         if self.stall_count >= 2 {
             out.push_str(&format!(
                 "\nWARNING: This repair has stalled for {} consecutive iterations \
                  with the same error. Previous patches did NOT resolve the issue. \
-                 Read the error above carefully and make a DIFFERENT change.\n",
+                 You MUST make a DIFFERENT, substantive change to the SQL logic.\n",
                 self.stall_count,
             ));
         }
@@ -320,6 +326,90 @@ impl Default for RepairLadderStep {
     }
 }
 
+impl RepairLadderStep {
+    pub fn step_name(&self) -> &'static str {
+        match self {
+            Self::PatchTarget => "patch_target",
+            Self::ReplaceContents => "replace_contents",
+            Self::FsOp => "fs_op",
+            Self::Stop => "stop",
+        }
+    }
+
+    pub fn allowed_file_ops(&self) -> &'static [crate::tool_ops::FileOpKind] {
+        use crate::tool_ops::FileOpKind;
+        match self {
+            Self::PatchTarget => &[FileOpKind::Patch],
+            Self::ReplaceContents => &[FileOpKind::Write],
+            Self::FsOp => &[FileOpKind::Rm, FileOpKind::Mv],
+            Self::Stop => &[],
+        }
+    }
+
+    pub fn allowed_ops_label(&self) -> String {
+        crate::tool_ops::ops_label(self.allowed_file_ops())
+    }
+
+    pub fn tool_card_lines(&self) -> Vec<String> {
+        let ops = self.allowed_file_ops();
+        if ops.is_empty() {
+            return vec![
+                "Repair ladder reached stop; no file operations are available.".to_string(),
+            ];
+        }
+        let mut out = crate::tool_ops::tool_card_lines_for_ops(ops);
+        out.push(format!(
+            "Repair mode ({}): only file {} is accepted.",
+            self.step_name(),
+            self.allowed_ops_label(),
+        ));
+        out
+    }
+
+    pub fn prompt_rule_text(&self) -> String {
+        match self {
+            Self::PatchTarget => format!(
+                "- REQUIRED OP: file {}. No other op is accepted.\n\
+                 - Do NOT use placeholder patch headers like '@@ ... @@'; use real hunks with exact context from the current file content.\n",
+                self.allowed_ops_label()
+            ),
+            Self::ReplaceContents => format!(
+                "- REQUIRED OP: file {}. Provide the complete correct file content. No other op is accepted.\n\
+                 - args: {{op:\"write\", path:\"<target>\", content:\"<complete file content>\"}}\n",
+                self.allowed_ops_label()
+            ),
+            Self::FsOp => format!(
+                "- REQUIRED OP: file {}. No other op is accepted.\n",
+                self.allowed_ops_label()
+            ),
+            Self::Stop => {
+                "- STOP: prior repair attempts did not converge. Do not continue.\n".to_string()
+            }
+        }
+    }
+
+    pub fn next_action_line(&self) -> String {
+        match self {
+            Self::PatchTarget => format!(
+                "Next action: call file with {} targeting the failing path.",
+                self.allowed_ops_label()
+            ),
+            Self::ReplaceContents => format!(
+                "Next action: replace_contents step is active; provide the complete correct file content using file {}.",
+                self.allowed_ops_label()
+            ),
+            Self::FsOp => format!(
+                "Next action: fs_op step is active; use file {} only for filesystem corrections.",
+                self.allowed_ops_label()
+            ),
+            Self::Stop => {
+                "Repair ladder is at stop; do not continue autonomous edits without a manual fix."
+                    .to_string()
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RepairType {
@@ -478,6 +568,8 @@ pub struct RepairModeCore {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRepairMode {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_path: Option<String>,
     #[serde(flatten)]
     pub core: RepairModeCore,
 }
@@ -495,6 +587,7 @@ pub struct SqlTargetRepairMode {
 impl Default for SchemaRepairMode {
     fn default() -> Self {
         Self {
+            target_path: None,
             core: RepairModeCore::default(),
         }
     }
@@ -998,7 +1091,7 @@ impl RepairState {
     pub fn single_target_repair_path(&self) -> Option<&str> {
         match &self.repair_mode {
             RepairModeState::Inactive => None,
-            RepairModeState::Schema(_) => None,
+            RepairModeState::Schema(mode) => mode.target_path.as_deref(),
             RepairModeState::SqlTarget(mode) => Some(mode.target_path.as_str()),
         }
     }
@@ -1203,12 +1296,18 @@ impl ExecutionState {
 
     fn enable_repair_mode(repair: &mut RepairState, repair_intent: &RepairIntent) {
         repair.repair_mode = match repair_intent {
-            RepairIntent::Schema { .. } => RepairModeState::Schema(SchemaRepairMode {
-                core: RepairModeCore {
-                    repair_started_mutation_epoch: Some(repair.mutation_epoch),
-                    ..RepairModeCore::default()
-                },
-            }),
+            RepairIntent::Schema { backlog, .. } => {
+                let target_path = backlog
+                    .iter()
+                    .find_map(|t| t.path.as_ref().map(|p| p.as_str().to_string()));
+                RepairModeState::Schema(SchemaRepairMode {
+                    target_path,
+                    core: RepairModeCore {
+                        repair_started_mutation_epoch: Some(repair.mutation_epoch),
+                        ..RepairModeCore::default()
+                    },
+                })
+            }
             RepairIntent::SqlPatch { target, .. } => {
                 let mut mode = SqlTargetRepairMode::for_existing_target(target.clone());
                 mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
@@ -1779,12 +1878,27 @@ impl ExecutionState {
     }
 
     /// Track authoring step-boundary progress for stall detection.
-    /// Resets stall_count on mutation progress; increments it otherwise.
+    /// Resets stall_count and ladder on mutation progress; advances the repair
+    /// ladder and increments stall_count otherwise so the next attempt uses a
+    /// more permissive operation (e.g. write instead of patch).
     pub fn record_stepboundary_progress(&mut self, mutation_advanced: bool) {
         if mutation_advanced {
             self.repair.stall_count = 0;
+            if let Some(core) = self.repair.core_mut() {
+                core.ladder_step = RepairLadderStep::PatchTarget;
+                core.consecutive_noop_patches = 0;
+            }
         } else {
             self.repair.stall_count = self.repair.stall_count.saturating_add(1);
+            if let Some(core) = self.repair.core_mut() {
+                core.consecutive_noop_patches = core.consecutive_noop_patches.saturating_add(1);
+                core.ladder_step = match core.ladder_step {
+                    RepairLadderStep::PatchTarget => RepairLadderStep::ReplaceContents,
+                    RepairLadderStep::ReplaceContents => RepairLadderStep::FsOp,
+                    RepairLadderStep::FsOp => RepairLadderStep::Stop,
+                    RepairLadderStep::Stop => RepairLadderStep::Stop,
+                };
+            }
         }
     }
 
@@ -2315,15 +2429,32 @@ mod tests {
     }
 
     #[test]
-    fn record_stepboundary_progress_increments_on_no_mutation() {
+    fn record_stepboundary_progress_advances_ladder_on_no_mutation() {
         let mut st = ExecutionState::new();
+        st.repair.repair_mode = RepairModeState::SqlTarget(SqlTargetRepairMode {
+            target_path: sql_model_path("models/marts/fct_orders.sql"),
+            materialization: RepairTargetMaterialization::Existing,
+            core: RepairModeCore {
+                ladder_step: RepairLadderStep::PatchTarget,
+                attempt_count: 0,
+                repair_started_mutation_epoch: None,
+                consecutive_noop_patches: 0,
+            },
+        });
         assert_eq!(st.repair.stall_count, 0);
+        assert_eq!(st.ladder_step(), RepairLadderStep::PatchTarget);
+
         st.record_stepboundary_progress(false);
         assert_eq!(st.repair.stall_count, 1);
+        assert_eq!(st.ladder_step(), RepairLadderStep::ReplaceContents);
+
         st.record_stepboundary_progress(false);
         assert_eq!(st.repair.stall_count, 2);
+        assert_eq!(st.ladder_step(), RepairLadderStep::FsOp);
+
         st.record_stepboundary_progress(true);
         assert_eq!(st.repair.stall_count, 0);
+        assert_eq!(st.ladder_step(), RepairLadderStep::PatchTarget);
     }
 
     #[test]
@@ -2439,7 +2570,10 @@ mod tests {
             Some("dbt test fail".to_string()),
         );
         assert_eq!(st.repair_type(), RepairType::Schema);
-        assert!(st.single_target_repair_path().is_none());
+        assert_eq!(
+            st.single_target_repair_path().as_deref(),
+            Some("models/staging/stg_orders.yml"),
+        );
     }
 
     #[test]

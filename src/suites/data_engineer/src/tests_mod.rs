@@ -578,7 +578,10 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
             .expect("seed hard repair state");
     }
 
-    let err = reg
+    // With relaxed single-target: off-target paths are now allowed (the LLM
+    // chooses which file to edit). This call should succeed or fail for file-
+    // system reasons, NOT for path-restriction reasons.
+    let result = reg
         .call(
             "file",
             serde_json::json!({
@@ -588,9 +591,14 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
             }),
             &actx,
         )
-        .await
-        .unwrap_err();
-    assert!(err.contains("single-target repair mode violation"));
+        .await;
+    // It won't contain a path-restriction error; any error is a file-system error.
+    if let Err(e) = &result {
+        assert!(
+            !e.contains("single-target") && !e.contains("repair mode violation"),
+            "path restriction should be relaxed: {e}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -655,7 +663,10 @@ async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
         )
         .await
         .unwrap_err();
-    assert!(err_target.contains("patch_target requires op='patch'"));
+    assert!(
+        err_target.contains("repair ladder step (patch_target)") && err_target.contains("op=patch"),
+        "patch_target should reject op=rm: {err_target}"
+    );
 }
 
 #[tokio::test]
@@ -712,6 +723,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
             .expect("seed replace-contents hard repair state");
     }
 
+    // Off-target rm is now rejected by ladder (wrong op), NOT by path restriction.
     let err_off_target = reg
         .call(
             "file",
@@ -720,7 +732,10 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         )
         .await
         .unwrap_err();
-    assert!(err_off_target.contains("single-target repair mode violation"));
+    assert!(
+        err_off_target.contains("repair ladder step (replace_contents)") && err_off_target.contains("op=write"),
+        "replace_contents should reject op=rm: {err_off_target}"
+    );
 
     let target_err = reg
         .call(
@@ -731,7 +746,7 @@ async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
         .await
         .unwrap_err();
     assert!(
-        target_err.contains("replace_contents requires op='write'"),
+        target_err.contains("repair ladder step (replace_contents)") && target_err.contains("op=write"),
         "replace_contents step should reject rm even on target path: {target_err}"
     );
 }
@@ -802,7 +817,10 @@ async fn hard_mutation_mode_single_target_fs_op_rejects_patch_and_rm_of_target()
         )
         .await
         .unwrap_err();
-    assert!(patch_err.contains("fs_op requires op='rm' or op='mv'"));
+    assert!(
+        patch_err.contains("repair ladder step (fs_op)") && patch_err.contains("op=rm|op=mv"),
+        "fs_op should reject op=patch: {patch_err}"
+    );
 
     let rm_target_err = reg
         .call(
@@ -1103,7 +1121,7 @@ fn patch_impl_intent_requires_mutation_epoch_advance() {
 }
 
 #[test]
-fn derive_single_target_repair_path_prefers_execution_state_target() {
+fn derive_primary_repair_target_prefers_execution_state_target() {
     use crate::progress_controller::{ExecutionState, FailedModelRef};
     let mut st = ExecutionState::new();
     st.repair.repair_mode = crate::progress_controller::RepairModeState::SqlTarget(
@@ -1126,12 +1144,12 @@ fn derive_single_target_repair_path_prefers_execution_state_target() {
         file: "models/staging/stg_other.sql".to_string(),
         ..Default::default()
     }];
-    let got = crate::phase_gate::derive_single_target_repair_path(&st);
+    let got = crate::phase_gate::derive_primary_repair_target(&st);
     assert_eq!(got, Some("models/staging/stg_orders.sql".to_string()));
 }
 
 #[test]
-fn derive_single_target_repair_path_does_not_fallback_to_failed_model_file() {
+fn derive_primary_repair_target_does_not_fallback_to_failed_model_file() {
     use crate::progress_controller::{ExecutionState, FailedModelRef};
     let st = ExecutionState::new();
     let failed = vec![FailedModelRef {
@@ -1140,7 +1158,7 @@ fn derive_single_target_repair_path_does_not_fallback_to_failed_model_file() {
         ..Default::default()
     }];
     let _ = failed;
-    let got = crate::phase_gate::derive_single_target_repair_path(&st);
+    let got = crate::phase_gate::derive_primary_repair_target(&st);
     assert_eq!(got, None);
 }
 

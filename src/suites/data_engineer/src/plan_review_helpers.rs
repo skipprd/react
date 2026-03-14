@@ -262,15 +262,15 @@ impl DataEngineerSuite {
     ) -> String {
         let mut base = match phase {
             control_flow::Phase::CleanseReview => format!(
-                "Review the DBT project after cleanse/staging work. Identify any issues or improvements to apply.\n\nOriginal goal:\n{}",
+                "Conformance review of the DBT project after cleanse/staging work. Verify implementation matches the approved spec. Only flag correctness violations.\n\nOriginal goal:\n{}",
                 question
             ),
             control_flow::Phase::ModelReview => format!(
-                "Review the DBT project after modeling (core/gold) work. Identify any issues or improvements to apply.\n\nOriginal goal:\n{}",
+                "Conformance review of the DBT project after modeling (core/gold) work. Verify implementation matches the approved spec. Only flag correctness violations.\n\nOriginal goal:\n{}",
                 question
             ),
             _ => format!(
-                "Final review after publish. Identify any remaining actionable improvements.\n\nOriginal goal:\n{}",
+                "Final conformance review after publish. Only flag remaining correctness violations.\n\nOriginal goal:\n{}",
                 question
             ),
         };
@@ -283,10 +283,11 @@ impl DataEngineerSuite {
             .unwrap_or(serde_json::Value::Null);
 
         let mut prior_review_block: Option<String> = None;
-        if matches!(
+        let is_re_review = matches!(
             entry_reason_code,
             Some(PhaseReasonCode::ReviewProceed | PhaseReasonCode::ReviewPatchImpl)
-        ) {
+        );
+        if is_re_review {
             let parsed = serde_json::from_value::<
                 crate::phase_reason_detail::ReviewDecisionTransitionDetail,
             >(entry_reason_detail.clone())
@@ -313,9 +314,18 @@ impl DataEngineerSuite {
                     cleaned
                 }
             };
+            let cycle_count = parsed
+                .as_ref()
+                .map(|rd| rd.review_subjective_retry_count)
+                .unwrap_or(0);
 
             prior_review_block = Some(format!(
-                "Previous review decision:\n- review_phase: {review_phase}\n- meta: {meta}\n- excerpt: {excerpt}",
+                "Previous review decision (this is RE-REVIEW cycle {cycle}):\n\
+                 - review_phase: {review_phase}\n\
+                 - meta: {meta}\n\
+                 - excerpt: {excerpt}\n\
+                 IMPORTANT: This code has already been reviewed and patched. Apply a HIGHER BAR for new findings. Only flag issues that are strictly new or represent a regression from the patch.",
+                cycle = cycle_count + 1,
                 review_phase = review_phase,
                 meta = meta,
                 excerpt = excerpt.replace('\n', " "),

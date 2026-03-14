@@ -179,9 +179,10 @@ fn build_review_patch_plan_context(
             "Review targets were not mapped to file paths. Use the prior review feedback plus the approved plan to identify the relevant implementation and patch it directly.\n",
         );
     } else {
-        ctx.push_str(
-            "\nReviewed implementation targets (patch these files directly with file op=patch|rm|mv):\n",
-        );
+        ctx.push_str(&format!(
+            "\nReviewed implementation targets (patch these files directly with file {}):\n",
+            crate::tool_ops::general_mutation_ops_label(),
+        ));
         for path in review_target_paths {
             ctx.push_str("- ");
             ctx.push_str(path);
@@ -497,20 +498,7 @@ fn build_repair_mode_context(
     all_tasks_done_but_validate_failed: bool,
 ) -> String {
     let kind = track.as_str();
-    let next_action_line = match ladder_step {
-        crate::progress_controller::RepairLadderStep::PatchTarget => {
-            "Next action: call file with op='patch' targeting the failing path.".to_string()
-        }
-        crate::progress_controller::RepairLadderStep::ReplaceContents => {
-            "Next action: replace_contents step is active; provide the complete correct file content using file op='write'.".to_string()
-        }
-        crate::progress_controller::RepairLadderStep::FsOp => {
-            "Next action: fs_op step is active; use file op='mv' or op='rm' only for filesystem corrections on the target path.".to_string()
-        }
-        crate::progress_controller::RepairLadderStep::Stop => {
-            "Repair ladder is at stop; do not continue autonomous edits without a manual fix.".to_string()
-        }
-    };
+    let next_action_line = ladder_step.next_action_line();
     let mut ctx = if all_tasks_done_but_validate_failed {
         format!(
             "Approved {kind} plan (stored at: {plan_key}).\nAll plan tasks are currently marked done, but the last dbt_validate failed.\nRepair ladder state: step={:?}, attempt_count={}.\n{next_action_line}\n\nRepair targets (fix these DBT files directly; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n",
@@ -852,8 +840,9 @@ async fn load_cleanse_author_context(
             })
         } else {
             let mut ctx = format!(
-                "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
+                "Approved cleanse plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file {}; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
                 plan.plan_key,
+                crate::tool_ops::general_mutation_ops_label(),
                 crate::patch_contract::single_file_patch_good_example_json()
             );
             ctx.push_str(&params.repair_ctx.format_error_context());
@@ -1104,8 +1093,9 @@ async fn load_model_author_context(
             })
         } else {
             let mut ctx = format!(
-                "Approved model plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file op=patch|rm|mv; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
+                "Approved model plan (stored at: {}).\nThe last dbt_validate failed and a mutating fix is required before any further validation.\n\nRepair targets (fix these DBT files directly with file {}; if patching, use Cursor/Aider hunks-only patch_text).\nExample args: {}\n\n",
                 plan.plan_key,
+                crate::tool_ops::general_mutation_ops_label(),
                 crate::patch_contract::single_file_patch_good_example_json()
             );
             ctx.push_str(&params.repair_ctx.format_error_context());
@@ -1286,7 +1276,7 @@ async fn build_author_prompt(
     question: &str,
     plan_context: &str,
     plan_state: &PlanState,
-    single_target_repair_path: Option<&str>,
+    primary_repair_target: Option<&str>,
 ) -> Result<AuthorPrompt, PhaseError> {
     let mut q = if params.track.is_cleanse() {
         DataEngineerSuite::inject_cleanse_question(question)
@@ -1410,22 +1400,19 @@ async fn build_author_prompt(
             q.push_str("Fix these first (prefer patching the listed file paths).\n");
         }
     }
-    if let Some(target) = single_target_repair_path {
+    if let Some(target) = primary_repair_target {
         let ladder = params.execution_state.ladder_step();
-        let allowed_ops = match ladder {
-            crate::progress_controller::RepairLadderStep::PatchTarget => "op=patch",
-            crate::progress_controller::RepairLadderStep::ReplaceContents => "op=write",
-            crate::progress_controller::RepairLadderStep::FsOp => "op=rm|mv",
-            crate::progress_controller::RepairLadderStep::Stop => "op=patch",
-        };
-        q.push_str("\n\nDETERMINISTIC SINGLE-TARGET REPAIR MODE:\n");
+        q.push_str("\n\nREPAIR MODE:\n");
         q.push_str(&format!(
-            "- You MUST mutate ONLY this file path using file {allowed_ops}:\n",
+            "- Primary repair target: {}\n",
+            target,
         ));
-        q.push_str("- ");
-        q.push_str(target);
+        q.push_str(&format!(
+            "- Required operation: file {}\n",
+            ladder.allowed_ops_label(),
+        ));
         q.push_str(
-            "\n- Do NOT modify any other file until this target validates.\n",
+            "- Analyze the error and fix whatever file(s) need changing. You may edit any project file.\n",
         );
     }
 
@@ -1537,15 +1524,8 @@ async fn build_author_prompt(
         q.push_str("\n\nIMPORTANT: invariant failed: there are no DBT model SQL files yet. Your first task is to create at least one staging model under models/ using staging_model or file op=patch.");
     }
 
-    if params.hard_mutation_repair_mode
-        && matches!(
-            params.repair_type,
-            crate::progress_controller::RepairType::SqlTarget
-                | crate::progress_controller::RepairType::Unknown
-        )
-        && single_target_repair_path.is_some()
-    {
-        let target = single_target_repair_path
+    if params.hard_mutation_repair_mode && primary_repair_target.is_some() {
+        let target = primary_repair_target
             .map(|s| s.trim().to_string())
             .unwrap_or_default();
         let mut es = crate::progress_controller::ExecutionState::load(
@@ -1641,7 +1621,7 @@ async fn build_author_prompt(
             .map_err(|e| format!("invalid repair prompt envelope: {e}"))?;
 
         repair.push_str("\nRules:\n");
-        repair.push_str("- You MUST mutate ONLY the target file above.\n");
+        repair.push_str("- Analyze the error and fix whatever file(s) need changing. The primary target is shown below but you may edit any project file.\n");
         if !params.repair_ctx.recent_failed_file_ops.is_empty() {
             repair.push_str(
                 "- Recent failed file mutations are listed below. Do NOT repeat the same patch shape or top-level rewrite; make a materially different edit.\n",
@@ -1650,23 +1630,7 @@ async fn build_author_prompt(
         if target.ends_with(".yml") || target.ends_with(".yaml") {
             repair.push_str("- YAML repair rule: edit existing keys in place; do NOT append duplicate top-level keys like 'version:' or 'models:'.\n");
         }
-        match ladder {
-            crate::progress_controller::RepairLadderStep::PatchTarget => {
-                repair.push_str("- REQUIRED OP: file op='patch'. No other op is accepted.\n");
-                repair.push_str("- Do NOT use placeholder patch headers like '@@ ... @@'; use real hunks with exact context from the current file content.\n");
-            }
-            crate::progress_controller::RepairLadderStep::ReplaceContents => {
-                repair.push_str("- REQUIRED OP: file op='write'. Provide the complete correct file content. No other op is accepted.\n");
-                repair.push_str("  args: {op:\"write\", path:\"<target>\", content:\"<complete file content>\"}\n");
-            }
-            crate::progress_controller::RepairLadderStep::FsOp => {
-                repair.push_str("- REQUIRED OP: file op='mv' or op='rm'. No other op is accepted.\n");
-            }
-            crate::progress_controller::RepairLadderStep::Stop => {
-                repair
-                    .push_str("- STOP: prior repair attempts did not converge. Do not continue.\n");
-            }
-        }
+        repair.push_str(&ladder.prompt_rule_text());
 
         let fence_lang = if target.ends_with(".yml") || target.ends_with(".yaml") {
             "yaml"
@@ -1682,21 +1646,50 @@ async fn build_author_prompt(
         }
         repair.push_str("```\n");
 
-        // When the repair target is a SQL file but the failing test is defined
-        // in schema.yml, include the YAML as read-only reference so the LLM can
-        // decide whether to fix the SQL or relax the test definition.
-        if target.ends_with(".sql") {
-            if let Some(brief) = &params.repair_ctx.brief {
-                if brief.contains("schema.yml") || brief.contains("schema.yaml") {
-                    let base = actx
-                        .keyspace()
-                        .scoped_prefix(actx.scope(), &["dbt"])
-                        .trim_end_matches('/')
-                        .to_string();
+        // Cross-reference: when the target is one file type, include the
+        // counterpart so the LLM can decide which file actually needs fixing.
+        {
+            let base = actx
+                .keyspace()
+                .scoped_prefix(actx.scope(), &["dbt"])
+                .trim_end_matches('/')
+                .to_string();
+            if target.ends_with(".yml") || target.ends_with(".yaml") {
+                // Target is YAML — include SQL model files from the
+                // repair backlog so the LLM can fix SQL if that's the
+                // real issue (e.g. data test failures).
+                for fm in &params.repair_ctx.failed_models {
+                    if fm.file.ends_with(".sql") {
+                        let key = format!("{}/{}", base, fm.file);
+                        if let Ok(bytes) = actx.storage().get_bytes(&key).await {
+                            let sql_content = String::from_utf8_lossy(&bytes);
+                            repair.push_str(&format!(
+                                "\nRelated SQL model ({}) — you may edit this file instead if the root cause is in the SQL:\n```sql\n",
+                                fm.file
+                            ));
+                            repair.push_str(&sql_content);
+                            if !sql_content.ends_with('\n') {
+                                repair.push('\n');
+                            }
+                            repair.push_str("```\n");
+                        }
+                    }
+                }
+            } else if target.ends_with(".sql") {
+                // Target is SQL — include schema.yml if the error
+                // mentions it, so the LLM can relax a test definition
+                // rather than change SQL if appropriate.
+                let mention_schema = params
+                    .repair_ctx
+                    .brief
+                    .as_deref()
+                    .map(|b| b.contains("schema.yml") || b.contains("schema.yaml"))
+                    .unwrap_or(false);
+                if mention_schema {
                     let schema_key = format!("{}/models/schema.yml", base);
                     if let Ok(bytes) = actx.storage().get_bytes(&schema_key).await {
                         let schema_content = String::from_utf8_lossy(&bytes);
-                        repair.push_str("\nSchema file where the failing test is defined (read-only reference — patch the SQL target above, or note if the test itself should be relaxed):\n```yaml\n");
+                        repair.push_str("\nSchema file where tests are defined — you may edit this file if relaxing/adjusting a test is the correct fix:\n```yaml\n");
                         repair.push_str(&schema_content);
                         if !schema_content.ends_with('\n') {
                             repair.push('\n');
@@ -2063,12 +2056,12 @@ impl DataEngineerSuite {
             }
         };
 
-        let single_target_repair_path = if params.hard_mutation_repair_mode {
-            crate::phase_gate::derive_single_target_repair_path(params.execution_state)
+        let primary_repair_target = if params.hard_mutation_repair_mode {
+            crate::phase_gate::derive_primary_repair_target(params.execution_state)
         } else {
             None
         };
-        let repair_ladder_step = if single_target_repair_path.is_some() {
+        let repair_ladder_step = if primary_repair_target.is_some() {
             Some(params.execution_state.ladder_step())
         } else {
             None
@@ -2079,7 +2072,7 @@ impl DataEngineerSuite {
             false,
             sctx,
             &plan_state,
-            single_target_repair_path.clone(),
+            primary_repair_target.clone(),
             false,
             repair_ladder_step,
         )?;
@@ -2090,7 +2083,7 @@ impl DataEngineerSuite {
             question,
             &plan_context,
             &plan_state,
-            single_target_repair_path.as_deref(),
+            primary_repair_target.as_deref(),
         )
         .await?;
 
