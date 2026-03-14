@@ -1,8 +1,8 @@
 use serde_json::Value;
 
-use super::llm_gateway::escape_control_chars_in_json_strings;
 use super::{Agent, AgentStepTypeV1, AgentStepV1, CompleteEnvelope, ParsedStep, SchemaId};
 use crate::error::CoreError;
+use crate::json_repair;
 
 impl Agent {
     fn strip_markdown_code_fences(raw: &str) -> String {
@@ -24,29 +24,11 @@ impl Agent {
         let cleaned = Self::strip_markdown_code_fences(raw);
         let trimmed = cleaned.trim();
 
-        fn parse_json_from_model_string_field(
-            raw_json: &str,
-            what: &str,
-        ) -> Result<Value, CoreError> {
-            match serde_json::from_str::<Value>(raw_json) {
-                Ok(v) => Ok(v),
-                Err(e) => {
-                    let repaired = escape_control_chars_in_json_strings(raw_json);
-                    serde_json::from_str::<Value>(&repaired).map_err(|_| {
-                        CoreError::Agent(format!("{what} is not valid JSON string: {e}"))
-                    })
-                }
-            }
-        }
-
-        let v = match serde_json::from_str::<Value>(trimmed) {
-            Ok(v) => v,
-            Err(e) => {
-                let repaired = escape_control_chars_in_json_strings(trimmed);
-                serde_json::from_str::<Value>(&repaired)
-                    .map_err(|_| CoreError::Agent(format!("invalid JSON from model: {}", e)))?
-            }
-        };
+        let v: Value = json_repair::resilient_parse(trimmed)
+            .map_err(|_| CoreError::Agent(format!(
+                "invalid JSON from model: {}",
+                serde_json::from_str::<Value>(trimmed).unwrap_err()
+            )))?;
 
         crate::schema_registry::validate(SchemaId::AgentStepV1, &v)?;
         let step: AgentStepV1 = serde_json::from_value::<AgentStepV1>(v).map_err(|e| {
@@ -75,10 +57,10 @@ impl Agent {
                             .to_string(),
                     ));
                 }
-                let args: Value = parse_json_from_model_string_field(
-                    &args_json,
-                    "agent.step.v1 validation error: args",
-                )?;
+                let args: Value = json_repair::resilient_parse_string_field(&args_json)
+                    .map_err(|e| CoreError::Agent(format!(
+                        "agent.step.v1 validation error: args {e}"
+                    )))?;
                 Ok(ParsedStep::Tool { name, args })
             }
             AgentStepTypeV1::Complete => {
@@ -93,10 +75,10 @@ impl Agent {
                         "agent.step.v1 validation error: missing complete".to_string(),
                     ));
                 };
-                let payload: Value = parse_json_from_model_string_field(
-                    &comp.payload,
-                    "agent.step.v1 validation error: complete.payload",
-                )?;
+                let payload: Value = json_repair::resilient_parse_string_field(&comp.payload)
+                    .map_err(|e| CoreError::Agent(format!(
+                        "agent.step.v1 validation error: complete.payload {e}"
+                    )))?;
                 Ok(ParsedStep::Complete {
                     complete_env: CompleteEnvelope {
                         kind: comp.kind,

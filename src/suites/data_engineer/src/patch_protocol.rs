@@ -183,24 +183,10 @@ fn format_with_line_numbers(s: &str, max_chars: usize) -> (String, bool, usize, 
 }
 
 fn parse_json_object_from_llm(text: &str) -> Result<Map<String, Value>, String> {
-    // The prompt instructs JSON-only, but be resilient to accidental wrappers.
-    if let Ok(v) = serde_json::from_str::<Value>(text) {
-        if let Some(obj) = v.as_object() {
-            return Ok(obj.clone());
-        }
-    }
-    let s = text.trim();
-    let vals = extract_all_json_values(s, 8);
-    for vtxt in vals.iter().rev() {
-        if let Ok(v) = serde_json::from_str::<Value>(vtxt) {
-            if v.is_object() {
-                if let Some(obj) = v.as_object() {
-                    return Ok(obj.clone());
-                }
-            }
-        }
-    }
-    Err("LLM response did not contain valid JSON object".to_string())
+    let v: Value = react_core::json_repair::resilient_parse(text)?;
+    v.as_object()
+        .cloned()
+        .ok_or_else(|| "LLM response was not a JSON object".to_string())
 }
 
 fn looks_like_patch_object(v: &Value) -> bool {
@@ -209,7 +195,6 @@ fn looks_like_patch_object(v: &Value) -> bool {
 }
 
 fn parse_patch_json_from_llm(text: &str) -> Result<Map<String, Value>, String> {
-    // Like parse_json_from_llm, but prefer the JSON object that actually contains patch primitives.
     if let Ok(v) = serde_json::from_str::<Value>(text) {
         if v.is_object() && looks_like_patch_object(&v) {
             if let Some(obj) = v.as_object() {
@@ -218,7 +203,7 @@ fn parse_patch_json_from_llm(text: &str) -> Result<Map<String, Value>, String> {
         }
     }
     let s = text.trim();
-    let vals = extract_all_json_values(s, 16);
+    let vals = react_core::json_repair::extract_all_json_values(s, 16);
     let mut last_obj: Option<Map<String, Value>> = None;
     for vtxt in vals.iter().rev() {
         if let Ok(v) = serde_json::from_str::<Value>(vtxt) {
@@ -236,73 +221,6 @@ fn parse_patch_json_from_llm(text: &str) -> Result<Map<String, Value>, String> {
         return Ok(v);
     }
     Err("LLM response did not contain valid JSON object".to_string())
-}
-
-fn extract_all_json_values(s: &str, max: usize) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    if max == 0 {
-        return out;
-    }
-    let mut i = 0usize;
-    while i < s.len() && out.len() < max {
-        let mut start: Option<usize> = None;
-        for (off, ch) in s[i..].char_indices() {
-            if ch == '{' || ch == '[' {
-                start = Some(i + off);
-                break;
-            }
-        }
-        let Some(st) = start else { break };
-
-        let mut stack: Vec<char> = Vec::new();
-        let mut in_str = false;
-        let mut esc = false;
-        let mut end: Option<usize> = None;
-        for (pos, ch) in s[st..].char_indices() {
-            let abs = st + pos;
-
-            if stack.is_empty() {
-                stack.push(ch);
-                continue;
-            }
-            if in_str {
-                if esc {
-                    esc = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    esc = true;
-                    continue;
-                }
-                if ch == '"' {
-                    in_str = false;
-                }
-                continue;
-            }
-
-            match ch {
-                '"' => in_str = true,
-                '{' | '[' => stack.push(ch),
-                '}' => {
-                    if matches!(stack.pop(), Some('{')) && stack.is_empty() {
-                        end = Some(abs);
-                        break;
-                    }
-                }
-                ']' => {
-                    if matches!(stack.pop(), Some('[')) && stack.is_empty() {
-                        end = Some(abs);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(en) = end else { break };
-        out.push(s[st..=en].to_string());
-        i = en + 1;
-    }
-    out
 }
 
 fn parse_llm_patch_response(

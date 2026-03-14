@@ -309,16 +309,26 @@ fn parse_agent_step_repairs_raw_newlines_inside_json_strings() {
 }
 
 #[test]
-fn parse_agent_step_rejects_concatenated_multiple_json_objects() {
+fn parse_agent_step_extracts_first_object_from_concatenated_json() {
     let raw = concat!(
         "{\"type\":\"tool\",\"name\":\"noop\",\"args\":\"{}\",\"complete\":null}",
         "{\"type\":\"complete\",\"name\":null,\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{}\",\"display\":null}}"
     );
-    let err = Agent::parse_agent_step(raw).expect_err("should reject concatenation");
-    assert!(
-        err.to_string().contains("invalid JSON from model:"),
-        "unexpected err: {err}"
-    );
+    let step = Agent::parse_agent_step(raw).expect("should extract first JSON object");
+    match step {
+        ParsedStep::Tool { name, .. } => assert_eq!(name, "noop"),
+        _ => panic!("expected tool step from first JSON object"),
+    }
+}
+
+#[test]
+fn parse_agent_step_handles_invalid_escapes_in_args() {
+    let raw = r#"{"type":"tool","name":"file","args":"{\"op\":\"patch\",\"path\":\"test.sql\",\"patch_text\":\"regexp_like(email, '^[^@\\s]+$')\"}","complete":null}"#;
+    let step = Agent::parse_agent_step(raw).expect("should repair invalid escapes in args");
+    match step {
+        ParsedStep::Tool { name, .. } => assert_eq!(name, "file"),
+        _ => panic!("expected tool step"),
+    }
 }
 
 struct NoopTool;

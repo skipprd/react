@@ -480,7 +480,9 @@ fn build_repair_mode_context(
          2. READ any additional project files you need to understand the root cause.\n\
          3. DIAGNOSE the issue with confidence before making changes.\n\
          4. APPLY targeted fixes to the specific files that need changing.\n\n\
-         You may read as many files as you need. You may edit any project file.\n\
+         CRITICAL: You MUST produce at least one file operation (op=patch or op=write) in this turn.\n\
+         Reading files alone is not sufficient — after diagnosing, commit to a fix.\n\
+         If you are uncertain, make your best attempt; the repair ladder will escalate if needed.\n\n\
          Try op=patch first for each file. If patch context misses, use op=write for that file.\n\
          Example patch args: {}\n\n",
         ladder_step,
@@ -1296,7 +1298,8 @@ async fn build_author_prompt(
             ladder.allowed_ops_label(),
         ));
         q.push_str(
-            "- Analyze the error and fix whatever file(s) need changing. You may edit any project file.\n",
+            "- Analyze the error and fix whatever file(s) need changing. You may edit any project file.\n\
+             - You MUST produce at least one file operation (op=patch or op=write). Reading alone is not enough.\n",
         );
     }
 
