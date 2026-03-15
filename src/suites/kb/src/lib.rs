@@ -96,6 +96,7 @@ impl KbSuite {
                 temperature: None,
                 top_p: None,
                 timeout_secs: None,
+                model: None,
             }
         })
         .await

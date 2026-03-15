@@ -174,6 +174,7 @@ pub async fn llm_draft_sql_json(
     let opts = LlmCallOptions {
         prompt_id,
         thread_id: ctx.thread_id().clone(),
+        model: None,
         expected_format: LlmExpectedFormat::JsonObject,
         temperature: Some(temperature),
         top_p: Some(1.0),

@@ -675,14 +675,35 @@ impl Tool for FilesTool {
                 validate_sql_model_folder_policy(&want_rel)?;
 
                 let base_state = crate::patch_protocol::read_patch_base_state(ctx, &want_rel).await;
-                let outcome = crate::patch_protocol::apply_single_file_patch_with_base(
+                let outcome = match crate::patch_protocol::apply_single_file_patch_with_base(
                     ctx,
                     self.datasets.as_ref(),
                     &want_rel,
                     patch_in.as_str(),
                     &base_state,
                 )
-                .await?;
+                .await
+                {
+                    Ok(o) => o,
+                    Err(e) if e.contains("patch_hunk_context_miss") => {
+                        let key = crate::project_fs::join_storage_key(ctx, &want_rel);
+                        let current = ctx
+                            .storage()
+                            .get_bytes(&key)
+                            .await
+                            .ok()
+                            .and_then(|b| String::from_utf8(b.to_vec()).ok())
+                            .unwrap_or_default();
+                        let preview_len = current.len().min(6000);
+                        let preview = &current[..preview_len];
+                        return Err(format!(
+                            "{e}\n\nCurrent file content for '{want_rel}':\n```\n{preview}\n```\n\n\
+                             Re-read this content carefully and produce a patch whose context lines \
+                             match the actual file, or use op=write with the complete corrected content.",
+                        ));
+                    }
+                    Err(e) => return Err(e),
+                };
 
                 if outcome.base_sha256 == outcome.new_sha256
                     && (outcome.lines_added + outcome.lines_removed) == 0
@@ -1044,10 +1065,8 @@ mod tests {
                 )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
                     repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
                 },
             },
         );
@@ -1098,10 +1117,8 @@ mod tests {
                 )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
                     repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
                 },
             },
         );

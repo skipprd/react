@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::dbt_repair::remediate::active_provider_dialect;
+use crate::dialect::active_provider_dialect;
 use crate::failure_kind::FailureKind;
 use crate::naming::{canonical_staging_model_name, contains_expected_source_call};
 use crate::plan;

@@ -1197,7 +1197,6 @@ impl DataEngineerSuite {
             &PlanState::Unconstrained,
             None,
             manifest_retry_signal.retry_suppressed,
-            None,
         )?;
         let llm_options = if track.is_cleanse() {
             Self::planning_llm_options(

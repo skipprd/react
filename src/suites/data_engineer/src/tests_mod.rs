@@ -256,208 +256,6 @@ async fn review_registry_is_read_only() {
 }
 
 #[tokio::test]
-async fn agent_authoring_hard_mutation_phase_locks_tools() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-    let (reg, card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        None,
-        false,
-        None,
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    // Tool card should advertise direct overwrite patching (not apply_next_* tools).
-    assert!(card.contains("patch_text"));
-    assert!(!card.contains("apply_next_model_batch"));
-
-    // run_sql should not be available in hard mutation-only mode
-    assert!(reg
-        .call("run_sql", serde_json::json!({"sql":"SELECT 1"}), &actx)
-        .await
-        .is_err());
-
-    // file get should be blocked (put-only wrapper)
-    assert!(reg
-        .call(
-            "file",
-            serde_json::json!({"op":"get","path":"dbt_project.yml"}),
-            &actx
-        )
-        .await
-        .is_err());
-
-    // apply_next_* tools should not be available in hard mutation-only mode
-    let err = reg
-        .call("apply_next_model_batch", serde_json::json!({}), &actx)
-        .await
-        .unwrap_err();
-    assert!(err.contains("unknown tool"));
-}
-
-#[tokio::test]
-async fn hard_mutation_run_sql_records_probe_attempts_to_execution_state() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("probe-thread", &sctx);
-    let store = actx.thread_store().as_ref().expect("thread_store");
-
-    let mut st = crate::progress_controller::ExecutionState::new();
-    st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-        ok: Some(false),
-        ..crate::progress_controller::LastValidateState::default()
-    });
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-        crate::progress_controller::RepairMode {
-
-            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                crate::progress_controller::SqlModelPath::parse(
-                    "models/staging/stg_probe.sql".to_string(),
-                )
-                .expect("valid sql model path"),
-            )),
-            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-            core: crate::progress_controller::RepairModeCore {
-                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
-            },
-        },
-    );
-    st.telemetry.probe.required = true;
-    st.save(&store.control_store(), "probe-thread")
-        .await
-        .expect("save state");
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-    let (reg, _) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        None,
-        false,
-        None,
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    let err = reg
-        .call(
-            "run_sql",
-            serde_json::json!({"sql":"SELECT count(*) FROM some_table"}),
-            &actx,
-        )
-        .await
-        .expect_err("run_sql should not be exposed in hard mutation mode");
-    assert!(err.contains("unknown tool"));
-
-    let updated =
-        crate::progress_controller::ExecutionState::load(&store.control_store(), "probe-thread")
-            .await
-            .expect("state should load")
-            .expect("state should exist");
-    assert_eq!(updated.telemetry.probe.attempts_total, 0);
-    assert_eq!(updated.telemetry.probe.meaningful_attempts, 0);
-}
-
-#[tokio::test]
-async fn hard_mutation_run_sql_is_blocked_after_probe_exhaustion() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("probe-exhausted-thread", &sctx);
-    let store = actx.thread_store().as_ref().expect("thread_store");
-
-    let mut st = crate::progress_controller::ExecutionState::new();
-    st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-        ok: Some(false),
-        ..crate::progress_controller::LastValidateState::default()
-    });
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-        crate::progress_controller::RepairMode {
-
-            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                crate::progress_controller::SqlModelPath::parse(
-                    "models/staging/stg_probe.sql".to_string(),
-                )
-                .expect("valid sql model path"),
-            )),
-            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-            core: crate::progress_controller::RepairModeCore {
-                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
-            },
-        },
-    );
-    st.telemetry.probe.required = true;
-    let sig = crate::progress_controller::ProbeSignature::from_run_sql(
-        "select * from t limit 10",
-        &serde_json::json!({"ok":true}),
-    );
-    let _ = st.note_probe_attempt("select * from t limit 10", true, sig.clone());
-    let _ = st.note_probe_attempt("select * from t limit 10", true, sig.clone());
-    let _ = st.note_probe_attempt("select * from t limit 10", true, sig.clone());
-    let _ = st.note_probe_attempt("select * from t limit 10", true, sig);
-    st.save(&store.control_store(), "probe-exhausted-thread")
-        .await
-        .expect("save state");
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-    let (reg, _) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        None,
-        false,
-        None,
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    let err = reg
-        .call(
-            "run_sql",
-            serde_json::json!({"sql":"SELECT count(*) FROM some_table"}),
-            &actx,
-        )
-        .await
-        .expect_err("run_sql should be blocked after exhaustion");
-    assert!(err.contains("unknown tool"));
-}
-
-#[tokio::test]
 async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
@@ -479,54 +277,11 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
 
     assert!(card.contains("patch_text"));
     assert!(card.contains("apply_next_cleanse_batch"));
-}
-
-#[tokio::test]
-async fn hard_mutation_single_target_hides_schema_batch_tools() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
-    let (reg, card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::CleanseAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
-        Some("models/staging/stg_test_raw_raw_order_items.sql".to_string()),
-        false,
-        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    assert!(
-        !card.contains("apply_next_cleanse_schema_batch"),
-        "single-target SQL repair mode must not expose schema batch tools"
-    );
-    let err = reg
-        .call(
-            "apply_next_cleanse_schema_batch",
-            serde_json::json!({}),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(err.contains("unknown tool"));
 }
 
 #[tokio::test]
@@ -552,7 +307,6 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
         &super::PlanState::Unconstrained,
         Some("models/marts/fct_orders.sql".to_string()),
         false,
-        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -574,10 +328,8 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
                 )),
                 materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
                 core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                     attempt_count: 0,
                     repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
                 },
             },
         );
@@ -611,237 +363,6 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
 }
 
 #[tokio::test]
-async fn hard_mutation_mode_single_target_patch_target_rejects_rm() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
-    let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        Some("models/marts/fct_orders.sql".to_string()),
-        false,
-        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    if let Some(store) = actx.thread_store().as_ref() {
-        let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-    
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/marts/fct_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        seeded
-            .save(&store.control_store(), "t")
-            .await
-            .expect("seed patch-target hard repair state");
-    }
-
-    let err_target = reg
-        .call(
-            "file",
-            serde_json::json!({"op":"rm","path":"models/marts/fct_orders.sql"}),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        err_target.contains("repair ladder step (patch_target)") && err_target.contains("op=patch"),
-        "patch_target should reject op=rm: {err_target}"
-    );
-}
-
-#[tokio::test]
-async fn hard_mutation_mode_single_target_replace_contents_rejects_rm() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
-    let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        Some("models/marts/fct_orders.sql".to_string()),
-        false,
-        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    if let Some(store) = actx.thread_store().as_ref() {
-        let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-    
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/marts/fct_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::ReplaceContents,
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        seeded
-            .save(&store.control_store(), "t")
-            .await
-            .expect("seed replace-contents hard repair state");
-    }
-
-    // Off-target rm is now rejected by ladder (wrong op), NOT by path restriction.
-    let err_off_target = reg
-        .call(
-            "file",
-            serde_json::json!({"op":"rm","path":"models/marts/fct_other.sql"}),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        err_off_target.contains("repair ladder step (replace_contents)") && err_off_target.contains("op=write"),
-        "replace_contents should reject op=rm: {err_off_target}"
-    );
-
-    let target_err = reg
-        .call(
-            "file",
-            serde_json::json!({"op":"rm","path":"models/marts/fct_orders.sql"}),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        target_err.contains("repair ladder step (replace_contents)") && target_err.contains("op=write"),
-        "replace_contents step should reject rm even on target path: {target_err}"
-    );
-}
-
-#[tokio::test]
-async fn hard_mutation_mode_single_target_fs_op_rejects_rm_of_target() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
-    let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::Unconstrained,
-        Some("models/marts/fct_orders.sql".to_string()),
-        false,
-        Some(crate::progress_controller::RepairLadderStep::PatchTarget),
-    )
-    .expect("build_tools_for_phase should succeed");
-
-    if let Some(store) = actx.thread_store().as_ref() {
-        let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-    
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/marts/fct_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::FsOp,
-                    attempt_count: 2,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        seeded
-            .save(&store.control_store(), "t")
-            .await
-            .expect("seed fs-op hard repair state");
-    }
-
-    // With cumulative ops, FsOp allows [Patch, Write, Rm, Mv].
-    // Patch at FsOp level may still fail due to content mismatch, but
-    // should not be rejected by the ladder policy itself.
-    // We only verify that rm of the primary repair target is still blocked.
-    let rm_target_err = reg
-        .call(
-            "file",
-            serde_json::json!({"op":"rm","path":"models/marts/fct_orders.sql"}),
-            &actx,
-        )
-        .await
-        .unwrap_err();
-    assert!(
-        rm_target_err.contains("cannot rm the primary repair target"),
-        "fs_op should reject rm on the primary repair target: {rm_target_err}"
-    );
-}
-
-#[tokio::test]
 async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
@@ -856,7 +377,6 @@ async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
         &super::PlanState::Unconstrained,
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -918,7 +438,6 @@ async fn plan_batched_staging_model_is_not_exposed_to_agent() {
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -954,7 +473,6 @@ async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
         &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
     assert!(card.contains("apply_next_cleanse_schema_batch"));
@@ -984,7 +502,6 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
         &super::PlanState::ModelSqlItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
 
@@ -1019,7 +536,6 @@ async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
         &super::PlanState::ModelSchemaItemNames(vec!["fct_orders".to_string()]),
         None,
         false,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
     assert!(card.contains("apply_next_model_schema_batch"));
@@ -1140,10 +656,8 @@ fn derive_primary_repair_target_prefers_execution_state_target() {
             )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
-                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,
                 repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
             },
         },
     );
@@ -1212,10 +726,8 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
             )),
             materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
             core: crate::progress_controller::RepairModeCore {
-                ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
                 attempt_count: 0,
                 repair_started_mutation_epoch: None,
-                consecutive_noop_patches: 0,
             },
         },
     );
@@ -1267,7 +779,6 @@ async fn model_plan_can_disable_json_file_after_manifest_retry_suppression() {
         &super::PlanState::Unconstrained,
         None,
         true,
-        None,
     )
     .expect("build_tools_for_phase should succeed");
     let err = reg

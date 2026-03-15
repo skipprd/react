@@ -41,7 +41,7 @@ use react_core::resolved_config as rc;
 /// llm:
 ///   provider: OPENAI_COMPAT
 ///   base_url: https://api.openai.com
-///   chat_model: gpt-5.1
+///   reason_model: gpt-5.1
 ///   embed_model: text-embedding-3-small
 ///   context_length: 4096
 ///   http_timeout_secs: 30
@@ -128,12 +128,12 @@ pub struct ScopeFile {
 pub struct LlmFile {
     pub provider: Option<String>,
     pub base_url: Option<String>,
-    pub chat_model: Option<String>,
+    pub reason_model: Option<String>,
+    pub task_model: Option<String>,
     pub embed_model: Option<String>,
     pub context_length: Option<usize>,
     pub gpu_layers: Option<usize>,
 
-    // Common tuning knobs already supported via env in `react` today.
     pub http_timeout_secs: Option<u64>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
@@ -271,7 +271,8 @@ pub fn resolve_config(
     let llm = LlmResolved {
         provider,
         base_url: getenv_nonempty("LLM_BASE_URL").or(llmf.base_url),
-        chat_model: getenv_nonempty("LLM_CHAT_MODEL").or(llmf.chat_model),
+        reason_model: getenv_nonempty("LLM_REASON_MODEL").or(llmf.reason_model),
+        task_model: getenv_nonempty("LLM_TASK_MODEL").or(llmf.task_model),
         embed_model: getenv_nonempty("LLM_EMBED_MODEL").or(llmf.embed_model),
         context_length: getenv_nonempty("LLM_CONTEXT_LENGTH")
             .and_then(|v| v.parse::<usize>().ok())
@@ -321,7 +322,8 @@ mod tests {
         "REACT_STORAGE_MODE",
         "REACT_STORAGE_PATH",
         "LLM_PROVIDER",
-        "LLM_CHAT_MODEL",
+        "LLM_REASON_MODEL",
+        "LLM_TASK_MODEL",
         "LLM_BASE_URL",
         "LLM_EMBED_MODEL",
         "LLM_CONTEXT_LENGTH",
@@ -476,13 +478,13 @@ mod tests {
         with_clean_env(|| {
             clear_env(ALL_TEST_ENV_KEYS);
             std::env::set_var("LLM_PROVIDER", "NULL");
-            std::env::set_var("LLM_CHAT_MODEL", "preset-chat-model");
+            std::env::set_var("LLM_REASON_MODEL", "preset-reason-model");
             std::env::set_var("DBT_TARGET", "preset-target");
             std::env::set_var("DBT_SILVER_SUFFIX", "preset-silver");
             let file = ReactConfigFile {
                 llm: Some(LlmFile {
                     provider: Some("OPENAI_COMPAT".to_string()),
-                    chat_model: Some("gpt-5.1".to_string()),
+                    reason_model: Some("gpt-5.1".to_string()),
                     ..Default::default()
                 }),
                 providers: Some(serde_json::json!({
@@ -497,8 +499,8 @@ mod tests {
             let _ = resolve_config(file, ServeOverrides::default()).expect("resolve");
             assert_eq!(std::env::var("LLM_PROVIDER").ok().as_deref(), Some("NULL"));
             assert_eq!(
-                std::env::var("LLM_CHAT_MODEL").ok().as_deref(),
-                Some("preset-chat-model")
+                std::env::var("LLM_REASON_MODEL").ok().as_deref(),
+                Some("preset-reason-model")
             );
             assert_eq!(
                 std::env::var("DBT_TARGET").ok().as_deref(),

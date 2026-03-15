@@ -131,41 +131,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replace_execution_state_rejects_invariant_violations() {
-        let control = test_control_store();
-        let tid = "tid-state-manager-invariant-save";
-        let mut st = ExecutionState::new();
-        st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/stg_x.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::Stop,
-                    attempt_count: 1,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        let err = replace_execution_state(&control, tid, st)
-            .await
-            .expect_err("invalid state must fail save");
-        assert!(
-            matches!(
-                err,
-                StateError::ValidationFailed(_) | StateError::StorageFailed(_)
-            ),
-            "expected validation or storage error, got: {err}"
-        );
-    }
-
-    #[tokio::test]
     async fn mutate_execution_state_rejects_invalid_mutator_result() {
         let control = test_control_store();
         let tid = "tid-state-manager-invariant-mutate";

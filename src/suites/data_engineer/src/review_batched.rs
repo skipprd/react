@@ -343,6 +343,7 @@ impl ReviewLlmConfig {
             LlmCallOptions {
                 prompt_id: self.prompt_id,
                 thread_id: Some(thread_id.to_string()),
+                model: None,
                 expected_format: expected_format.clone(),
                 temperature: Some(temp),
                 top_p: Some(1.0),
@@ -354,6 +355,7 @@ impl ReviewLlmConfig {
             LlmCallOptions {
                 prompt_id: "data_engineer.review_batched.llm_json",
                 thread_id: None,
+                model: None,
                 expected_format: expected_format.clone(),
                 max_output_tokens: None,
                 temperature: None,

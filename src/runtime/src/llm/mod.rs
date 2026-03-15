@@ -10,7 +10,8 @@ pub enum LlmProviderType {
 #[derive(Clone, Debug)]
 pub struct LlmConfig {
     pub provider: LlmProviderType,
-    pub chat_model: Option<String>,
+    pub reason_model: Option<String>,
+    pub task_model: Option<String>,
     pub embed_model: Option<String>,
     pub base_url: Option<String>,
     pub api_key: Option<String>,
@@ -22,7 +23,8 @@ impl Default for LlmConfig {
     fn default() -> Self {
         LlmConfig {
             provider: LlmProviderType::Local,
-            chat_model: None,
+            reason_model: None,
+            task_model: None,
             embed_model: None,
             base_url: None,
             api_key: None,
@@ -51,7 +53,8 @@ pub fn config_from_resolved(cfg: &crate::config::ReactResolvedConfig) -> LlmConf
     };
     LlmConfig {
         provider,
-        chat_model: cfg.llm.chat_model.clone().or_else(|| rs::llm_chat_model()),
+        reason_model: cfg.llm.reason_model.clone().or_else(|| rs::llm_reason_model()),
+        task_model: cfg.llm.task_model.clone().or_else(|| rs::llm_task_model()),
         embed_model: cfg
             .llm
             .embed_model

@@ -79,10 +79,16 @@ pub fn llm_api_key() -> Option<String> {
     env_opt("LLM_API_KEY")
 }
 
-pub fn llm_chat_model() -> Option<String> {
+pub fn llm_reason_model() -> Option<String> {
     resolved_config()
-        .and_then(|cfg| cfg.llm.chat_model.clone())
-        .or_else(|| env_opt("LLM_CHAT_MODEL"))
+        .and_then(|cfg| cfg.llm.reason_model.clone())
+        .or_else(|| env_opt("LLM_REASON_MODEL"))
+}
+
+pub fn llm_task_model() -> Option<String> {
+    resolved_config()
+        .and_then(|cfg| cfg.llm.task_model.clone())
+        .or_else(|| env_opt("LLM_TASK_MODEL"))
 }
 
 pub fn llm_embed_model() -> Option<String> {

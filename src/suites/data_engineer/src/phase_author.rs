@@ -258,65 +258,6 @@ mod tests {
     use crate::control_flow::Phase;
 
     #[test]
-    fn content_based_repair_step_detection_is_explicit() {
-        assert!(is_content_based_repair_step(
-            &crate::progress_controller::RepairLadderStep::PatchTarget
-        ));
-        assert!(is_content_based_repair_step(
-            &crate::progress_controller::RepairLadderStep::ReplaceContents
-        ));
-        assert!(!is_content_based_repair_step(
-            &crate::progress_controller::RepairLadderStep::FsOp
-        ));
-        assert!(!is_content_based_repair_step(
-            &crate::progress_controller::RepairLadderStep::Stop
-        ));
-    }
-
-    #[test]
-    fn missing_target_abort_reason_includes_structured_context() {
-        let mut st = crate::progress_controller::ExecutionState::new();
-        st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/stg_test_raw_raw_order_items.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: crate::progress_controller::RepairLadderStep::PatchTarget,
-                    attempt_count: 2,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        let repair_ctx = crate::progress_controller::RepairPromptContext {
-            brief: Some("compile failed".to_string()),
-            ..Default::default()
-        };
-        let reason = build_missing_target_repair_abort_reason(
-            Phase::CleanseAuthor,
-            "models/staging/stg_test_raw_raw_order_items.sql",
-            Some(
-                "picnic/dev/example2/dbt/models/staging/stg_test_raw_raw_order_items.sql"
-                    .to_string(),
-            ),
-            &crate::progress_controller::RepairLadderStep::ReplaceContents,
-            &st,
-            &repair_ctx,
-            Some("not found".to_string()),
-        );
-        assert!(reason.contains("repair_target_content_unavailable"));
-        assert!(reason.contains("stg_test_raw_raw_order_items.sql"));
-        assert!(reason.contains("\"ladder_step\": \"ReplaceContents\""));
-        assert!(reason.contains("\"storage_read_error\": \"not found\""));
-    }
-
-    #[test]
     fn author_validate_trigger_is_single_source() {
         let incomplete = crate::plan::PlanCompletionSnapshot {
             all_done: false,
@@ -458,80 +399,6 @@ async fn track_completion_snapshot_all_done(actx: &AgentCtx, track: TrackKind) -
             })
             .unwrap_or(false)
     }
-}
-
-fn build_repair_mode_context(
-    track: TrackKind,
-    plan_key: &str,
-    repair_ctx: &crate::progress_controller::RepairPromptContext,
-    ladder_step: &crate::progress_controller::RepairLadderStep,
-    attempt_count: usize,
-    defer_schema_work: bool,
-    _all_tasks_done_but_validate_failed: bool,
-) -> String {
-    let kind = track.as_str();
-    let allowed_ops = ladder_step.allowed_ops_label();
-    let mut ctx = format!(
-        "REPAIR MODE — Diagnosis First\n\n\
-         Approved {kind} plan (stored at: {plan_key}).\n\
-         The last validation failed. Repair ladder: step={:?}, attempt={}, allowed_ops=[{allowed_ops}].\n\n\
-         Your job:\n\
-         1. READ the error details and file contents below carefully.\n\
-         2. READ any additional project files you need to understand the root cause.\n\
-         3. DIAGNOSE the issue with confidence before making changes.\n\
-         4. APPLY targeted fixes to the specific files that need changing.\n\n\
-         CRITICAL: You MUST produce at least one file operation (op=patch or op=write) in this turn.\n\
-         Reading files alone is not sufficient — after diagnosing, commit to a fix.\n\
-         If you are uncertain, make your best attempt; the repair ladder will escalate if needed.\n\n\
-         Try op=patch first for each file. If patch context misses, use op=write for that file.\n\
-         Example patch args: {}\n\n",
-        ladder_step,
-        attempt_count,
-        crate::patch_contract::single_file_patch_good_example_json()
-    );
-    ctx.push_str(&repair_ctx.format_error_context());
-    if defer_schema_work {
-        ctx.push_str(
-            "\nIMPORTANT: Defer any new checklist expansion or schema contract work until dbt_validate passes.\n",
-        );
-    }
-    ctx
-}
-
-#[cfg(test)]
-fn is_content_based_repair_step(ladder: &crate::progress_controller::RepairLadderStep) -> bool {
-    matches!(
-        ladder,
-        crate::progress_controller::RepairLadderStep::PatchTarget
-            | crate::progress_controller::RepairLadderStep::ReplaceContents
-    )
-}
-
-fn build_missing_target_repair_abort_reason(
-    phase: crate::control_flow::Phase,
-    target_path: &str,
-    target_storage_key: Option<String>,
-    ladder: &crate::progress_controller::RepairLadderStep,
-    execution_state: &crate::progress_controller::ExecutionState,
-    repair_ctx: &crate::progress_controller::RepairPromptContext,
-    target_read_error: Option<String>,
-) -> String {
-    let detail = serde_json::json!({
-        "reason": "repair_target_content_unavailable",
-        "phase": phase.as_str(),
-        "target_path": target_path,
-        "target_storage_key": target_storage_key,
-        "ladder_step": format!("{:?}", ladder),
-        "attempt_count": execution_state.attempt_count(),
-        "hard_mutation_repair_mode": execution_state.hard_mutation_repair_mode(),
-        "last_validate_brief": repair_ctx.brief.clone(),
-        "storage_read_error": target_read_error,
-        "action": "repair aborted to avoid blind patch generation; provide target content path/state and retry",
-    });
-    format!(
-        "hard repair aborted: target content unavailable for patch-based repair. {}",
-        serde_json::to_string_pretty(&detail).unwrap_or_else(|_| detail.to_string())
-    )
 }
 
 fn resolve_checklist_item_id(actx: &AgentCtx) -> String {
@@ -773,17 +640,8 @@ async fn load_cleanse_author_context(
     }
 
     if params.hard_mutation_repair_mode {
-        let ctx = build_repair_mode_context(
-            params.track,
-            &plan.plan_key,
-            params.repair_ctx,
-            &params.execution_state.ladder_step(),
-            params.execution_state.attempt_count(),
-            true,
-            false,
-        );
         Ok(AuthorPlanLoadResult::Ready {
-            plan_context: ctx,
+            plan_context: String::new(),
             plan_state: PlanState::Unconstrained,
         })
     } else if next.is_empty() {
@@ -832,17 +690,8 @@ async fn load_cleanse_author_context(
             }
 
             if params.guard.last_validate_failed {
-                let ctx = build_repair_mode_context(
-                    params.track,
-                    &plan.plan_key,
-                    params.repair_ctx,
-                    &params.execution_state.ladder_step(),
-                    params.execution_state.attempt_count(),
-                    false,
-                    true,
-                );
                 Ok(AuthorPlanLoadResult::Ready {
-                    plan_context: ctx,
+                    plan_context: String::new(),
                     plan_state: PlanState::Unconstrained,
                 })
             } else {
@@ -982,17 +831,8 @@ async fn load_model_author_context(
     }
 
     if params.hard_mutation_repair_mode {
-        let ctx = build_repair_mode_context(
-            params.track,
-            &plan.plan_key,
-            params.repair_ctx,
-            &params.execution_state.ladder_step(),
-            params.execution_state.attempt_count(),
-            true,
-            false,
-        );
         Ok(AuthorPlanLoadResult::Ready {
-            plan_context: ctx,
+            plan_context: String::new(),
             plan_state: PlanState::Unconstrained,
         })
     } else if next_names.is_empty() {
@@ -1102,17 +942,8 @@ async fn load_model_author_context(
             }
 
             if params.guard.last_validate_failed {
-                let ctx = build_repair_mode_context(
-                    params.track,
-                    &plan.plan_key,
-                    params.repair_ctx,
-                    &params.execution_state.ladder_step(),
-                    params.execution_state.attempt_count(),
-                    false,
-                    true,
-                );
                 Ok(AuthorPlanLoadResult::Ready {
-                    plan_context: ctx,
+                    plan_context: String::new(),
                     plan_state: PlanState::Unconstrained,
                 })
             } else {
@@ -1215,7 +1046,7 @@ async fn build_author_prompt(
         let dialect = crate::facts::SqlDialect(
             crate::resolved_config_from_ctx(actx)
                 .as_ref()
-                .map(|cfg| crate::dbt_repair::remediate::active_provider_dialect(cfg))
+                .map(|cfg| crate::dialect::active_provider_dialect(cfg))
                 .unwrap_or_else(|| "Unknown SQL dialect".to_string()),
         );
         let mut batch_relations: Vec<String> = Vec::new();
@@ -1287,15 +1118,10 @@ async fn build_author_prompt(
         }
     }
     if let Some(target) = primary_repair_target {
-        let ladder = params.execution_state.ladder_step();
         q.push_str("\n\nREPAIR MODE:\n");
         q.push_str(&format!(
             "- Primary repair target: {}\n",
             target,
-        ));
-        q.push_str(&format!(
-            "- Required operation: file {}\n",
-            ladder.allowed_ops_label(),
         ));
         q.push_str(
             "- Analyze the error and fix whatever file(s) need changing. You may edit any project file.\n\
@@ -1439,12 +1265,7 @@ async fn build_author_prompt(
                 )
             })?;
         }
-        let ladder = es.ladder_step();
-
         let mut content = String::new();
-        let mut target_exists = false;
-        let mut target_storage_key: Option<String> = None;
-        let mut target_read_error: Option<String> = None;
         if !target.is_empty() {
             let base = actx
                 .keyspace()
@@ -1452,41 +1273,9 @@ async fn build_author_prompt(
                 .trim_end_matches('/')
                 .to_string();
             let key = format!("{}/{}", base, target);
-            target_storage_key = Some(key.clone());
-            match actx.storage().get_bytes(&key).await {
-                Ok(bytes) => {
-                    target_exists = true;
-                    content = String::from_utf8_lossy(&bytes).to_string();
-                }
-                Err(e) => {
-                    target_read_error = Some(e.to_string());
-                }
+            if let Ok(bytes) = actx.storage().get_bytes(&key).await {
+                content = String::from_utf8_lossy(&bytes).to_string();
             }
-        }
-
-        if matches!(
-            ladder,
-            crate::progress_controller::RepairLadderStep::PatchTarget
-        ) && !target_exists
-        {
-            let reason = build_missing_target_repair_abort_reason(
-                params.phase,
-                &target,
-                target_storage_key,
-                &ladder,
-                &es,
-                params.repair_ctx,
-                target_read_error,
-            );
-            apply_guard_block(
-                params.thread_store,
-                params.thread_id,
-                params.phase,
-                GuardBlockKind::AuthoringToValidate,
-                reason.clone(),
-            )
-            .await?;
-            return Err(reason.into());
         }
 
         let envelope = crate::prompt_packets::PromptEnvelope {
@@ -1497,7 +1286,6 @@ async fn build_author_prompt(
             batch: None,
             repair: Some(crate::prompt_packets::RepairPacket {
                 target_path: target.clone(),
-                ladder_step: ladder.clone(),
                 last_validate_brief: params.repair_ctx.brief.clone(),
                 patch_contract: Some(
                     crate::prompts::patch_contract::file_patch_contract().to_string(),
@@ -1517,8 +1305,6 @@ async fn build_author_prompt(
         if target.ends_with(".yml") || target.ends_with(".yaml") {
             repair.push_str("- YAML repair rule: edit existing keys in place; do NOT append duplicate top-level keys like 'version:' or 'models:'.\n");
         }
-        repair.push_str(&ladder.prompt_rule_text());
-
         let fence_lang = if target.ends_with(".yml") || target.ends_with(".yaml") {
             "yaml"
         } else {
@@ -1602,6 +1388,7 @@ async fn build_author_prompt(
         LlmCallOptions {
             prompt_id: "data_engineer.cleanse_author",
             thread_id: None,
+            model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             temperature: Some(0.05),
             top_p: Some(1.0),
@@ -1618,6 +1405,7 @@ async fn build_author_prompt(
         LlmCallOptions {
             prompt_id: "data_engineer.model_author",
             thread_id: None,
+            model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             temperature: Some(0.12),
             top_p: Some(1.0),
@@ -1961,11 +1749,6 @@ impl DataEngineerSuite {
         } else {
             None
         };
-        let repair_ladder_step = if primary_repair_target.is_some() {
-            Some(params.execution_state.ladder_step())
-        } else {
-            None
-        };
         let (registry, tools_card) = Self::build_tools_for_phase(
             params.phase,
             params.phase_guard,
@@ -1974,7 +1757,6 @@ impl DataEngineerSuite {
             &plan_state,
             primary_repair_target.clone(),
             false,
-            repair_ladder_step,
         )?;
 
         let author_prompt = build_author_prompt(

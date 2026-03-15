@@ -167,9 +167,8 @@ impl DataEngineerSuite {
         _allow_ask_approval: bool,
         sctx: &SuiteCtx,
         plan_state: &PlanState,
-        primary_repair_target: Option<String>,
+        _primary_repair_target: Option<String>,
         suppress_manifest_json_in_plan: bool,
-        repair_ladder_step: Option<crate::progress_controller::RepairLadderStep>,
     ) -> Result<(ToolRegistry, String), String> {
         use crate::tools::{
             artifacts::ArtifactsTool, files_tool::FilesTool, json_file::JsonFileTool,
@@ -246,74 +245,7 @@ impl DataEngineerSuite {
                 );
             }
             control_flow::Phase::CleanseAuthor | control_flow::Phase::ModelAuthor => {
-                // Authoring phases: allow investigation + mutations; validation/publish are suite-driven.
-                //
-                // Repair hard-cutover:
-                // - classic gate: after validate fail with no mutation yet, require mutation next.
-                // - repair target mode: ALWAYS require mutation next, even if a prior mutation
-                //   already happened in this repair cycle (prevents read/get loops).
-                let hard_mutation_only = (guard.last_validate_failed && !guard.mutated_since_fail)
-                    || primary_repair_target.is_some();
-                let allow_probe_sql = guard.probe_required && !guard.probe_satisfied;
-                let plan_state_is_batched = !matches!(plan_state, PlanState::Unconstrained);
-                let authoring_policy = crate::authoring_driver::derive_authoring_tool_policy(
-                    hard_mutation_only,
-                    primary_repair_target.is_some(),
-                    plan_state_is_batched,
-                );
-
-                if hard_mutation_only {
-                    reg.register(PutOnlyFilesTool {
-                        inner: FilesTool {
-                            datasets: crate::ctx_ext::sctx_datasets(sctx),
-                        },
-                        primary_repair_target: primary_repair_target.clone(),
-                    });
-
-                    if allow_probe_sql {
-                        reg.register(ProbeAwareRunSqlTool {
-                            inner: SqlRunTool {
-                                query: query.clone(),
-                            },
-                        });
-                    }
-
-                    let mut tool_lines: Vec<String> = Vec::new();
-                    if !matches!(
-                        authoring_policy,
-                        crate::authoring_driver::AuthoringToolPolicy::HardMutationSingleTarget
-                    ) {
-                        let batch_tool_name = register_batch_tool_for_plan_state(
-                            &mut reg,
-                            phase,
-                            plan_state,
-                            &datasets_opt,
-                        );
-                        if let Some(name) = batch_tool_name {
-                            tool_lines.push(format!("- {name}(args:{{instructions?:string}})"));
-                        }
-                    }
-                    if let Some(ref step) = repair_ladder_step {
-                        tool_lines.extend(step.tool_card_lines());
-                    } else {
-                        tool_lines.extend(crate::tool_ops::tool_card_lines_for_ops(
-                            crate::tool_ops::GENERAL_MUTATION_OPS,
-                        ));
-                    }
-                    if allow_probe_sql {
-                        tool_lines.push("- run_sql(args:{sql:string}) (targeted probes are currently required by probe gate)".to_string());
-                    }
-                    tools_card = Self::build_tools_card(
-                        "Allowed tools (authoring phase; HARD constraint: mutation required next):",
-                        tool_lines,
-                        Vec::new(),
-                        Some(
-                            "Not available: read/explore tools, dbt_validate, publish_dbt_to_provider."
-                                .to_string(),
-                        ),
-                    );
-                } else {
-                    // Normal authoring: batch tool from PlanState + read/explore tools.
+                {
                     let batch_tool_name = register_batch_tool_for_plan_state(
                         &mut reg,
                         phase,

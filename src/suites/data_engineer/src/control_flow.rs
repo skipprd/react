@@ -309,7 +309,7 @@ pub fn derive_guard_state_from_execution_state(
         last_validate_failed,
         mutated_since_fail,
         patched_since_fail,
-        mutation_failures_since_validate: st.consecutive_noop_patches(),
+        mutation_failures_since_validate: st.repair_state().stall_count,
         probe_required,
         probe_satisfied,
     }
@@ -419,7 +419,7 @@ impl DeterministicDbtValidateOnce {
         if let Some(obj) = v.as_object_mut() {
             obj.insert(
                 "dialect".to_string(),
-                serde_json::json!(crate::dbt_repair::remediate::active_provider_dialect(cfg)),
+                serde_json::json!(crate::dialect::active_provider_dialect(cfg)),
             );
             let rf = crate::dbt_error::extract_runtime_failures_from_logs(
                 &obj.get("logs").cloned().unwrap_or(Value::Null),

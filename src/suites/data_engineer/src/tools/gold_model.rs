@@ -9,7 +9,7 @@ use react_core::agent::AgentCtx;
 use react_core::keyspace::encode_key_component;
 use react_core::tools::Tool;
 
-use crate::dbt_repair::remediate::active_provider_dialect;
+use crate::dialect::active_provider_dialect;
 use crate::{naming, plan, sql_first};
 
 use super::model_authoring_engine::{self as engine, build_provider_prompt_rules, dedup_notes};

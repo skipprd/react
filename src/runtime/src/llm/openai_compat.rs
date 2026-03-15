@@ -26,7 +26,8 @@ mod tests {
 
         let cfg = LlmConfig {
             provider: LlmProviderType::OpenAICompat,
-            chat_model: Some("gpt-test".to_string()),
+            reason_model: Some("gpt-test".to_string()),
+            task_model: None,
             embed_model: Some("text-emb".to_string()),
             base_url: Some(server.base_url()),
             api_key: Some("x".to_string()),
@@ -49,6 +50,7 @@ mod tests {
                     top_p: None,
                     reasoning_effort: None,
                     timeout_secs: None,
+                    model: None,
                 },
             )
             .unwrap();
@@ -101,11 +103,11 @@ impl LargeLanguageModel for OpenAICompatModel {
             .base_url
             .clone()
             .ok_or_else(|| "missing base_url".to_string())?;
-        let model = self
-            .cfg
-            .chat_model
+        let model = options
+            .model
             .clone()
-            .ok_or_else(|| "missing chat_model".to_string())?;
+            .or_else(|| self.cfg.reason_model.clone())
+            .ok_or_else(|| "missing reason_model".to_string())?;
         let use_responses = model.starts_with("gpt-5") || model.starts_with("o4");
         if use_responses {
             #[derive(serde::Serialize)]

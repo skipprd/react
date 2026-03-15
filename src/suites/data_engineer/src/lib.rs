@@ -99,8 +99,8 @@ pub mod ctx_ext;
 pub(crate) mod dataset_truth;
 pub(crate) mod dbt;
 pub(crate) mod dbt_error;
-pub(crate) mod dbt_repair;
 pub mod de_config;
+pub(crate) mod dialect;
 pub(crate) mod domain_types;
 mod enrichment;
 pub(crate) mod env_util;
@@ -108,6 +108,7 @@ pub(crate) mod facts;
 pub mod failure_kind;
 pub mod failure_text;
 mod llm_profiles;
+pub(crate) mod model_dispatch;
 pub(crate) mod naming;
 pub(crate) mod patch_contract;
 pub(crate) mod patch_protocol;
@@ -141,6 +142,8 @@ pub(crate) mod prompt_packets;
 pub(crate) mod prompts;
 pub mod providers;
 pub(crate) mod references;
+pub(crate) mod repair_session;
+pub(crate) mod repair_subroutine;
 pub(crate) mod retry_budget;
 mod review_batched;
 mod review_persistence;
@@ -285,6 +288,15 @@ impl AgentPolicy for InterruptOnlyPolicy {
         thread_id: &str,
         complete_env: &react_core::agent::CompleteEnvelope,
     ) -> Result<react_core::agent::CompleteDecision, String> {
+        if complete_env.kind == "blocking_requirement" {
+            return Ok(react_core::agent::CompleteDecision::Reject {
+                reason: "blocking_requirement is not a valid completion. \
+                         You have tool access to read files and apply patches. \
+                         Use the available tools to read any files you need and \
+                         then apply the fix in this same turn."
+                    .to_string(),
+            });
+        }
         react_core::agent::DefaultPolicy
             .handle_complete(tools, ctx, transcript, store, thread_id, complete_env)
             .await

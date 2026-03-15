@@ -116,6 +116,7 @@ async fn agent_default_policy_accepts_typed_complete() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -166,6 +167,7 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -215,6 +217,7 @@ async fn agent_interrupts_only_when_policy_requests_it() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await

@@ -289,6 +289,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id: "data_engineer.ask_user_parse",
                     thread_id: None,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     max_output_tokens: None,
                     temperature: None,
@@ -332,6 +333,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id: "data_engineer.ask_approval_parse",
                     thread_id: None,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     max_output_tokens: None,
                     temperature: None,
@@ -469,7 +471,7 @@ impl DataEngineerSuite {
         let model_name = sctx
             .resolved_config()
             .as_ref()
-            .and_then(|c| c.llm.chat_model.clone())
+            .and_then(|c| c.llm.reason_model.clone())
             .unwrap_or_default();
         let max_phase_steps: usize = env_util::max_phase_steps_for_model(&model_name);
         let max_replan_backtracks: usize = control_flow::replan_backtrack_counter_cap();
@@ -486,7 +488,8 @@ impl DataEngineerSuite {
         let mut total_steps: usize = 0;
         let mut last_phase: Option<control_flow::Phase> = None;
         let mut consecutive_waiting: usize = 0;
-        const MAX_CONSECUTIVE_WAITING: usize = 5;
+        const MAX_CONSECUTIVE_WAITING_IDLE: usize = 5;
+        const MAX_CONSECUTIVE_WAITING_ACTIVE: usize = 12;
 
         while remaining_steps > 0 {
             total_steps += 1;
@@ -619,6 +622,8 @@ impl DataEngineerSuite {
             }
             // Populate typed task specs from the plan so the repair LLM
             // sees the authoritative contract (source_schema + implementation_spec).
+            // Also pre-load SQL model files for matched tasks so the LLM doesn't
+            // only see the YAML test definition when a test failure occurs.
             if let Some(track) = crate::track_spec::TrackKind::from_any_phase(phase) {
                 let actx = Self::plan_agent_ctx(thread_id, sctx);
                 let failing_names: std::collections::HashSet<String> = repair_ctx
@@ -628,12 +633,15 @@ impl DataEngineerSuite {
                     .filter(|n| !n.is_empty())
                     .collect();
                 if !failing_names.is_empty() {
+                    let mut matched_model_paths: Vec<String> = Vec::new();
                     if track.is_cleanse() {
                         if let Some(plan) = crate::plan::load_cleanse_plan(&actx).await.ok().flatten() {
                             for t in &plan.tasks {
-                                if failing_names.contains(t.dataset_id.as_str())
-                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false))
-                                {
+                                let task_name = t.dataset_id.as_str();
+                                let matched = failing_names.contains(task_name)
+                                    || failing_names.iter().any(|n| n.contains(task_name))
+                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false));
+                                if matched {
                                     repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
                                         task_id: t.dataset_id.clone(),
                                         source_schema: t.source_schema.clone(),
@@ -641,15 +649,20 @@ impl DataEngineerSuite {
                                             .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
                                             .unwrap_or_default(),
                                     });
+                                    if let Some(mp) = t.expected_model_path.as_deref() {
+                                        matched_model_paths.push(mp.to_string());
+                                    }
                                 }
                             }
                         }
                     } else {
                         if let Some(plan) = crate::plan::load_model_plan(&actx).await.ok().flatten() {
                             for t in &plan.tasks {
-                                if failing_names.contains(t.name.as_str())
-                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false))
-                                {
+                                let task_name = t.name.as_str();
+                                let matched = failing_names.contains(task_name)
+                                    || failing_names.iter().any(|n| n.contains(task_name))
+                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false));
+                                if matched {
                                     repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
                                         task_id: t.name.clone(),
                                         source_schema: t.source_schema.clone(),
@@ -657,7 +670,30 @@ impl DataEngineerSuite {
                                             .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
                                             .unwrap_or_default(),
                                     });
+                                    if let Some(mp) = t.expected_model_path.as_deref() {
+                                        matched_model_paths.push(mp.to_string());
+                                    }
                                 }
+                            }
+                        }
+                    }
+                    let base = sctx
+                        .keyspace()
+                        .scoped_prefix(sctx.scope(), &["dbt"])
+                        .trim_end_matches('/')
+                        .to_string();
+                    for mp in matched_model_paths {
+                        let already_loaded = repair_ctx
+                            .target_contents
+                            .iter()
+                            .any(|(p, _)| p.as_str() == mp.as_str());
+                        if already_loaded {
+                            continue;
+                        }
+                        let key = format!("{}/{}", base, mp);
+                        if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                repair_ctx.target_contents.push((mp, text));
                             }
                         }
                     }
@@ -684,16 +720,32 @@ impl DataEngineerSuite {
                     continue;
                 }
                 PhaseExecutorOutcome::StayedWaiting { reason } => {
-                    consecutive_waiting += 1;
-                    // No real work happened — refund the budget step so the
-                    // progress budget only counts meaningful phase executions.
                     remaining_steps += 1;
+                    let new_step_count = thread_store
+                        .get(thread_id)
+                        .await
+                        .ok()
+                        .map(|log| log.steps.len())
+                        .unwrap_or(0);
+                    let was_active = new_step_count > thread_state_step_count + 2;
+                    if was_active {
+                        consecutive_waiting += 1;
+                    } else {
+                        consecutive_waiting += 2;
+                    }
+                    let limit = if was_active {
+                        MAX_CONSECUTIVE_WAITING_ACTIVE
+                    } else {
+                        MAX_CONSECUTIVE_WAITING_IDLE
+                    };
                     tracing::debug!(
                         thread_id = %thread_id,
                         phase_waiting = %reason,
                         consecutive_waiting,
+                        was_active,
+                        limit,
                     );
-                    if consecutive_waiting >= MAX_CONSECUTIVE_WAITING {
+                    if consecutive_waiting >= limit {
                         tracing::error!(
                             thread_id = %thread_id,
                             consecutive_waiting,
@@ -848,18 +900,29 @@ impl DataEngineerSuite {
                 .await
             }
             Phase::CleanseAuthor | Phase::ModelAuthor => {
-                Self::execute_author_phase(
-                    thread_store,
-                    thread_id,
-                    phase,
-                    question,
-                    sctx,
-                    execution_state,
-                    guard,
-                    thread_state_step_count,
-                    repair_ctx,
-                )
-                .await
+                if execution_state.hard_mutation_repair_mode() {
+                    Self::execute_repair_phase(
+                        thread_store,
+                        thread_id,
+                        sctx,
+                        execution_state,
+                        repair_ctx,
+                    )
+                    .await
+                } else {
+                    Self::execute_author_phase(
+                        thread_store,
+                        thread_id,
+                        phase,
+                        question,
+                        sctx,
+                        execution_state,
+                        guard,
+                        thread_state_step_count,
+                        repair_ctx,
+                    )
+                    .await
+                }
             }
             Phase::CleanseValidate | Phase::ModelValidate => {
                 Self::execute_validate_phase(
@@ -892,6 +955,77 @@ impl DataEngineerSuite {
             }
             Phase::Publish => Self::execute_publish_phase(thread_store, thread_id, sctx).await,
             Phase::Done => Self::execute_done_phase(out_frames),
+        }
+    }
+
+    async fn execute_repair_phase(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        sctx: &SuiteCtx,
+        _execution_state: &crate::progress_controller::ExecutionState,
+        repair_ctx: &crate::progress_controller::RepairPromptContext,
+    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+        let actx = Self::agent_tool_ctx(thread_id, sctx);
+        let cfg = crate::resolved_config_from_ctx(&actx);
+        let dispatch = cfg
+            .map(|c| crate::model_dispatch::ModelDispatch::from_resolved(&c.llm))
+            .unwrap_or_else(|| crate::model_dispatch::ModelDispatch {
+                reason_model: "gpt-4o-mini".into(),
+                task_model: "gpt-4o-mini".into(),
+            });
+
+        let error_context = crate::repair_session::RepairErrorContext {
+            validate_brief: repair_ctx
+                .failed_models
+                .iter()
+                .map(|m| {
+                    format!(
+                        "{}: {}",
+                        m.name,
+                        m.error.as_deref().unwrap_or("unknown error")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+            failing_tests: Vec::new(),
+            failed_models: repair_ctx
+                .failed_models
+                .iter()
+                .map(|m| crate::repair_session::FailedModelBrief {
+                    name: m.name.clone(),
+                    file: m.file.clone(),
+                    error: m.error.clone(),
+                })
+                .collect(),
+        };
+
+        match crate::repair_subroutine::run_repair(
+            sctx,
+            thread_store,
+            thread_id,
+            &dispatch,
+            error_context,
+            None,
+        )
+        .await
+        {
+            Ok(session_log) => {
+                let passed = session_log
+                    .last()
+                    .and_then(|it| it.validate_outcome.as_ref())
+                    .map(|v| v.passed)
+                    .unwrap_or(false);
+                if passed {
+                    Ok(PhaseExecutorOutcome::TransitionCommitted)
+                } else {
+                    Ok(PhaseExecutorOutcome::StayedWithProgress {
+                        detail: "repair subroutine completed but validation still failing".into(),
+                    })
+                }
+            }
+            Err(e) => Ok(PhaseExecutorOutcome::StayedWithProgress {
+                detail: format!("repair subroutine failed: {e}"),
+            }),
         }
     }
 

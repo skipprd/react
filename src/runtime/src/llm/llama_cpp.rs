@@ -16,7 +16,7 @@ mod inner {
     use std::path::Path;
     use std::sync::Arc;
     fn pick_model_path(cfg: &LlmConfig) -> Result<String, String> {
-        if let Some(p) = cfg.chat_model.clone() {
+        if let Some(p) = cfg.reason_model.clone() {
             return Ok(p);
         }
         let candidates = vec!["./models"];
@@ -32,7 +32,7 @@ mod inner {
                 }
             }
         }
-        Err("no GGUF model found; set LLM_CHAT_MODEL".to_string())
+        Err("no GGUF model found; set LLM_REASON_MODEL".to_string())
     }
 
     fn load_tuning_map() -> serde_json::Value {
@@ -323,8 +323,8 @@ mod inner {
         };
         let backend = &shared.backend;
         let mut cfg2 = cfg.clone();
-        if cfg2.chat_model.is_none() {
-            cfg2.chat_model = cfg2.embed_model.clone();
+        if cfg2.reason_model.is_none() {
+            cfg2.reason_model = cfg2.embed_model.clone();
         }
         let model = &shared.model;
 

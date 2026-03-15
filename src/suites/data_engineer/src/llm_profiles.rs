@@ -39,6 +39,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.20),
                     top_p: Some(1.0),
@@ -66,6 +67,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.55),
                     top_p: Some(0.95),
@@ -87,6 +89,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::Text,
                     temperature: Some(0.2),
                     top_p: Some(1.0),
@@ -105,6 +108,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(
                         react_core::schema_registry::OpenAiStrictSchema::for_type::<
                             crate::plan_schema::PlanDesignCritiqueV1,
@@ -128,6 +132,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.1),
                     top_p: Some(1.0),
@@ -146,6 +151,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
                     temperature: Some(0.10),
                     top_p: Some(1.0),
@@ -164,6 +170,7 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
+                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::Text,
                     temperature: Some(0.20),
                     top_p: Some(1.0),

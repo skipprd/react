@@ -119,7 +119,8 @@ pub struct StorageResolved {
 pub struct LlmResolved {
     pub provider: LlmProvider,
     pub base_url: Option<String>,
-    pub chat_model: Option<String>,
+    pub reason_model: Option<String>,
+    pub task_model: Option<String>,
     pub embed_model: Option<String>,
     pub context_length: Option<usize>,
     pub gpu_layers: Option<usize>,

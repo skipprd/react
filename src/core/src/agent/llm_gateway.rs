@@ -265,7 +265,7 @@ impl AgentCtx {
     fn resolved_model_name(&self) -> String {
         self.resolved_config
             .as_ref()
-            .and_then(|c| c.llm.chat_model.clone())
+            .and_then(|c| c.llm.reason_model.clone())
             .unwrap_or_else(|| "unknown".to_string())
     }
 

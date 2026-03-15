@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::control_flow::Phase;
-use crate::progress_controller::RepairLadderStep;
 use crate::track_spec::PlanKind;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,8 +51,6 @@ pub struct AuthorBatchPacket {
 #[serde(deny_unknown_fields)]
 pub struct RepairPacket {
     pub target_path: String,
-    #[serde(default)]
-    pub ladder_step: RepairLadderStep,
     #[serde(default)]
     pub last_validate_brief: Option<String>,
     /// Tool contract text (canonical, not generated).

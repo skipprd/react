@@ -125,6 +125,7 @@ impl Tool for CatalogNoteTool {
         let opts = react_core::llm::LlmCallOptions {
             prompt_id: "data_engineer.tools.catalog_note.curate",
             thread_id: Some(thread_id.clone()),
+            model: None,
             expected_format: react_core::llm::LlmExpectedFormat::Text,
             max_output_tokens: None,
             temperature: None,

@@ -48,6 +48,9 @@ pub struct LlmCallOptions {
     ///
     /// This must be passed explicitly because `spawn_blocking` does not propagate tokio task-locals.
     pub thread_id: Option<String>,
+    /// Per-call model override. When `Some`, the runtime uses this model instead of the
+    /// default reason_model. Used by `ModelDispatch` to route gather calls to the task_model.
+    pub model: Option<String>,
     pub expected_format: LlmExpectedFormat,
     pub max_output_tokens: Option<u32>,
     pub temperature: Option<f32>,
@@ -66,6 +69,7 @@ impl Default for LlmCallOptions {
         Self {
             prompt_id: "",
             thread_id: None,
+            model: None,
             expected_format: LlmExpectedFormat::default(),
             max_output_tokens: None,
             temperature: None,

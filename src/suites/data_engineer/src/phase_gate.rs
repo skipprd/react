@@ -1,9 +1,7 @@
 use crate::domain_types::GuardBlockKind;
 
 use crate::control_flow::Phase;
-use crate::progress_controller::{
-    ExecutionMode, ExecutionState, RepairLadderStep, DEFAULT_MAX_STALL_COUNT,
-};
+use crate::progress_controller::{ExecutionMode, ExecutionState, DEFAULT_MAX_STALL_COUNT};
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
@@ -56,25 +54,6 @@ pub fn evaluate_pre_turn_directive(
                         "action",
                         "inspect validate/review errors and apply a targeted fix",
                     ),
-                ],
-            ),
-        };
-    }
-
-    let primary_repair_target = derive_primary_repair_target(execution_state);
-    if repair_state.hard_mutation_repair_mode()
-        && primary_repair_target.is_some()
-        && repair_state.ladder_step() == RepairLadderStep::Stop
-    {
-        let target = primary_repair_target.as_deref().unwrap_or("(unknown)");
-        return PreTurnDirective::FailFast {
-            kind: GuardBlockKind::AuthoringToValidate,
-            reason: guard_reason(
-                "repair_ladder_stop",
-                &[
-                    ("target", target.trim()),
-                    ("attempts", &repair_state.attempt_count().to_string()),
-                    ("action", "apply a manual fix and rerun"),
                 ],
             ),
         };
@@ -137,77 +116,6 @@ mod tests {
             PreTurnDirective::FailFast { kind, reason } => {
                 assert_eq!(kind, GuardBlockKind::BatchLocked);
                 assert!(reason.contains("replan_backtrack_limit"));
-            }
-            _ => panic!("expected failfast"),
-        }
-    }
-
-    #[test]
-    fn preturn_gate_hard_repair_ladder_stop_failfast() {
-        let mut st = ExecutionState::new();
-        st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/stg_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: RepairLadderStep::Stop,
-                    attempt_count: 7,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
-        match d {
-            PreTurnDirective::FailFast { kind, reason } => {
-                assert_eq!(kind, GuardBlockKind::AuthoringToValidate);
-                assert!(reason.contains("repair_ladder_stop"));
-                assert!(reason.contains("stg_orders.sql"));
-            }
-            _ => panic!("expected failfast"),
-        }
-    }
-
-    #[test]
-    fn preturn_gate_hard_repair_ladder_stop_uses_failed_model_fallback() {
-        let mut st = ExecutionState::new();
-        st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/stg_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    ladder_step: RepairLadderStep::Stop,
-                    attempt_count: 3,
-                    repair_started_mutation_epoch: None,
-                    consecutive_noop_patches: 0,
-                },
-            },
-        );
-        st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            failed_models: vec![crate::progress_controller::FailedModelRef {
-                name: "stg_orders".to_string(),
-                file: "models/staging/stg_orders.sql".to_string(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        });
-        let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
-        match d {
-            PreTurnDirective::FailFast { kind, reason } => {
-                assert_eq!(kind, GuardBlockKind::AuthoringToValidate);
-                assert!(reason.contains("stg_orders.sql"));
             }
             _ => panic!("expected failfast"),
         }

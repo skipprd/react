@@ -254,6 +254,7 @@ impl LlmRouter {
                 top_p: None,
                 reasoning_effort: None,
                 timeout_secs: None,
+                model: None,
             };
             let text = model.chat(&msgs, &opts)?;
             return Ok(ChatResponse { text, raw: None });

@@ -63,8 +63,11 @@ fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
 
 impl LargeLanguageModel for RouterModel {
     fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String> {
-        let model =
-            crate::runtime_settings::llm_chat_model().unwrap_or_else(|| "gpt-4o-mini".to_string());
+        let model = options
+            .model
+            .clone()
+            .or_else(|| crate::runtime_settings::llm_reason_model())
+            .unwrap_or_else(|| "gpt-4o-mini".to_string());
 
         let default_max_output_tokens = crate::runtime_settings::llm_max_tokens().or_else(|| {
             crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")

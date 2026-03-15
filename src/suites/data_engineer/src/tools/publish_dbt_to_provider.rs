@@ -32,12 +32,6 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish started");
         let cfg = resolved_config(ctx)?;
 
-        let max_iters: usize =
-            crate::env_util::env_usize(crate::env_util::env_keys::DBT_REPAIR_MAX_ITERS)
-                .unwrap_or(8)
-                .max(1)
-                .min(25);
-
         // Enforce single active warehouse provider for publishing.
         let threads = crate::ctx_ext::actx_query(ctx).map(|q| q.max_concurrency());
         let gen = crate::dbt::profile::generate_profiles_yml(cfg, threads)?;
@@ -71,23 +65,18 @@ impl Tool for PublishDbtToProviderTool {
         p.push("profiles.yml");
         fs::write(&p, gen.profiles_yml.as_bytes()).map_err(|e| e.to_string())?;
 
-        // Eagerly repair/refresh + compile until the project compiles cleanly (bounded).
-        let (compile_res, compile_repair) = crate::dbt_repair::repair_loop::run_repair_loop(
-            ctx,
-            &dbt,
-            &crate::providers::DbtValidateArgs {
-                project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
-                profiles_dir: Some(td.path().to_string_lossy().to_string()),
-                target: provider_target.clone(),
-                run: false,
-                build: false,
-                select: None,
-                exclude: None,
-            },
-            max_iters,
-            self.datasets.as_ref(),
-            self.catalog.as_ref(),
-            dataset_ids.as_deref(),
+        let compile_args = crate::providers::DbtValidateArgs {
+            project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
+            profiles_dir: Some(td.path().to_string_lossy().to_string()),
+            target: provider_target.clone(),
+            run: false,
+            build: false,
+            select: None,
+            exclude: None,
+        };
+        let compile_res = crate::transient_retry::retry_transient_default(
+            "publish_compile",
+            || async { dbt.validate_project(ctx.scope(), &compile_args).await },
         )
         .await?;
 
@@ -97,8 +86,7 @@ impl Tool for PublishDbtToProviderTool {
                 "ok": false,
                 "stage": "compile",
                 "result": compile_res,
-                "dialect": crate::dbt_repair::remediate::active_provider_dialect(cfg),
-                "repair_report": compile_repair
+                "dialect": crate::dialect::active_provider_dialect(cfg)
             }));
         }
 
@@ -141,8 +129,7 @@ impl Tool for PublishDbtToProviderTool {
                 "stage": "no_change",
                 "plan_sha256": plan_sha256,
                 "relations": relations,
-                "dialect": crate::dbt_repair::remediate::active_provider_dialect(cfg),
-                "repair_report": compile_repair
+                "dialect": crate::dialect::active_provider_dialect(cfg)
             }));
         }
 
@@ -185,8 +172,7 @@ impl Tool for PublishDbtToProviderTool {
                 "plan_sha256": plan_sha256,
                 "relations": relations,
                 "exists": exists,
-                "dialect": crate::dbt_repair::remediate::active_provider_dialect(cfg),
-                "repair_report": compile_repair
+                "dialect": crate::dialect::active_provider_dialect(cfg)
             }));
         } else {
             // confirm=true: ensure we have a matching pending plan (best-effort safety)
@@ -200,23 +186,18 @@ impl Tool for PublishDbtToProviderTool {
             }
         }
 
-        // Run dbt build to publish, with eager repair until success (bounded).
-        let (build_res, build_repair) = crate::dbt_repair::repair_loop::run_repair_loop(
-            ctx,
-            &dbt,
-            &crate::providers::DbtValidateArgs {
-                project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
-                profiles_dir: Some(td.path().to_string_lossy().to_string()),
-                target: provider_target.clone(),
-                run: false,
-                build: true,
-                select: None,
-                exclude: None,
-            },
-            max_iters,
-            self.datasets.as_ref(),
-            self.catalog.as_ref(),
-            dataset_ids.as_deref(),
+        let build_args = crate::providers::DbtValidateArgs {
+            project_name: crate::env_util::SUITE_PROJECT_NAME.to_string(),
+            profiles_dir: Some(td.path().to_string_lossy().to_string()),
+            target: provider_target.clone(),
+            run: false,
+            build: true,
+            select: None,
+            exclude: None,
+        };
+        let build_res = crate::transient_retry::retry_transient_default(
+            "publish_build",
+            || async { dbt.validate_project(ctx.scope(), &build_args).await },
         )
         .await?;
 
@@ -226,8 +207,7 @@ impl Tool for PublishDbtToProviderTool {
                 "ok": false,
                 "stage": "build",
                 "result": build_res,
-                "dialect": crate::dbt_repair::remediate::active_provider_dialect(cfg),
-                "repair_report": build_repair
+                "dialect": crate::dialect::active_provider_dialect(cfg)
             }));
         }
 
@@ -270,8 +250,7 @@ impl Tool for PublishDbtToProviderTool {
             "plan_sha256": plan_sha256,
             "relations": relations,
             "dbt": build_res,
-            "dialect": crate::dbt_repair::remediate::active_provider_dialect(cfg),
-            "repair_report": build_repair
+            "dialect": crate::dialect::active_provider_dialect(cfg)
         }))
     }
 }

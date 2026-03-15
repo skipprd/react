@@ -156,6 +156,7 @@ async fn per_tool_timeout_override_is_used() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -214,6 +215,7 @@ async fn run_until_block_passes_llm_call_options_through() {
         max_output_tokens: Some(1234),
         reasoning_effort: None,
         timeout_secs: None,
+        model: None,
     };
     let _out = Agent::run_until_block(&reg, &ctx, "sys", "tools", "q", opts)
         .await
@@ -272,6 +274,7 @@ async fn complete_payload_round_trips_as_json_value() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -394,6 +397,7 @@ async fn invalid_json_from_model_is_retried_with_minimal_prompt() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -459,6 +463,7 @@ async fn llm_error_text_does_not_trigger_invalid_json_retries() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await;
@@ -592,6 +597,7 @@ async fn patch_protocol_response_is_wrapped_as_file_patch_action() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -691,6 +697,7 @@ async fn run_until_block_non_interactive_suppresses_policy_interrupts() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -754,6 +761,7 @@ async fn run_until_block_non_interactive_returns_step_boundary_on_step_budget_ex
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -833,6 +841,7 @@ async fn run_until_block_records_policy_blocked_stop() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
@@ -892,6 +901,7 @@ async fn run_until_block_records_rejected_complete_stop() {
             top_p: None,
             reasoning_effort: None,
             timeout_secs: None,
+            model: None,
         },
     )
     .await
