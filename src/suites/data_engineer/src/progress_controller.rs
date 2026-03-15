@@ -75,6 +75,7 @@ pub struct RecentFailedFileOp {
     pub op: String,
     pub path: String,
     pub error_brief: String,
+    pub count: usize,
 }
 
 impl RepairPromptContext {
@@ -133,17 +134,42 @@ impl RepairPromptContext {
         }
         if !self.recent_failed_file_ops.is_empty() {
             out.push_str("\nRecent failed file mutations (do NOT repeat these verbatim):\n");
-            for item in self.recent_failed_file_ops.iter().take(3) {
-                out.push_str(&format!(
-                    "- file op='{}' path='{}' failed: {}\n",
-                    item.op,
-                    item.path,
-                    item.error_brief
-                ));
+            let mut total_failure_count: usize = 0;
+            for item in self.recent_failed_file_ops.iter().take(8) {
+                total_failure_count += item.count;
+                if item.count > 1 {
+                    out.push_str(&format!(
+                        "- file op='{}' path='{}' failed {} times: {}\n",
+                        item.op, item.path, item.count, item.error_brief
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "- file op='{}' path='{}' failed: {}\n",
+                        item.op, item.path, item.error_brief
+                    ));
+                }
             }
             out.push_str(
                 "If a prior patch failed, read the exact current file content and make a materially different edit.\n",
             );
+            for item in self.recent_failed_file_ops.iter().take(8) {
+                if item.count >= 3 {
+                    out.push_str(&format!(
+                        "\nBLOCKED: file op='{}' path='{}' has failed {} times with the same error. \
+                         You MUST NOT attempt the same operation again. Re-read the error and take a completely different approach \
+                         (e.g. rename the file with op=mv, change the source reference, or use op=write instead of op=patch).\n",
+                        item.op, item.path, item.count
+                    ));
+                }
+            }
+            if total_failure_count >= 3 {
+                out.push_str(&format!(
+                    "\nYou have {} recent failed file mutations. You MUST take a fundamentally different approach.\n\
+                     If patching a YAML file keeps failing, consider using op=write with the complete correct file content.\n\
+                     If the same path validation error repeats, re-read the error and change your approach entirely.\n",
+                    total_failure_count
+                ));
+            }
         }
         out.push_str(
             "\nCRITICAL REPAIR RULES:\n\
@@ -2381,6 +2407,7 @@ mod tests {
                 op: "patch".to_string(),
                 path: "models/staging/stg_orders.yml".to_string(),
                 error_brief: "invalid YAML: duplicate entry with key \"version\"".to_string(),
+                count: 1,
             }],
             ..Default::default()
         };

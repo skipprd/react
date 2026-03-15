@@ -689,6 +689,21 @@ impl Tool for FilesTool {
                 {
                     return Err("patch produced no file changes".to_string());
                 }
+
+                if want_rel.ends_with(".yml") || want_rel.ends_with(".yaml") {
+                    if let Err(e) = serde_yaml::from_str::<serde_yaml::Value>(&outcome.content) {
+                        let preview_len = outcome.content.len().min(4000);
+                        let preview = &outcome.content[..preview_len];
+                        return Err(format!(
+                            "patch produced invalid YAML for '{}': {}. \
+                             Read the current file content and produce a valid YAML patch, \
+                             or use op=write with the complete correct YAML content.\n\n\
+                             Current file content:\n```yaml\n{}\n```",
+                            want_rel, e, preview
+                        ));
+                    }
+                }
+
                 let is_additive_only =
                     outcome.existed && outcome.lines_removed == 0 && outcome.lines_added > 0;
 
@@ -782,7 +797,7 @@ impl Tool for FilesTool {
 
                 validate_sql_model_folder_policy(&want_rel)?;
 
-                let out = project_fs::write_file(ctx, &want_rel, content).await?;
+                let out = project_fs::write_file(ctx, self.datasets.as_ref(), &want_rel, content).await?;
 
                 let mutated = out
                     .get("mutated")

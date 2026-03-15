@@ -58,9 +58,9 @@ impl DataEngineerSuite {
     ) -> Vec<crate::progress_controller::RecentFailedFileOp> {
         use react_core::session::{ThreadStep, ToolStepStatus};
 
-        let mut out: Vec<crate::progress_controller::RecentFailedFileOp> = Vec::new();
-        let mut seen: std::collections::BTreeSet<(String, String, String)> =
-            std::collections::BTreeSet::new();
+        let mut counts: std::collections::BTreeMap<(String, String), (String, usize)> =
+            std::collections::BTreeMap::new();
+        let mut insertion_order: Vec<(String, String)> = Vec::new();
 
         for step in log.steps.iter().rev() {
             let ThreadStep::ToolEnd {
@@ -82,7 +82,7 @@ impl DataEngineerSuite {
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            if !matches!(op.as_str(), "patch" | "rm" | "mv") {
+            if !matches!(op.as_str(), "patch" | "rm" | "mv" | "write") {
                 continue;
             }
             let path = match op.as_str() {
@@ -110,21 +110,28 @@ impl DataEngineerSuite {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "tool failed without a specific error message".to_string());
-            let key = (op.clone(), path.clone(), error_brief.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-            out.push(crate::progress_controller::RecentFailedFileOp {
-                op,
-                path,
-                error_brief,
+            let key = (op.clone(), path.clone());
+            let entry = counts.entry(key.clone()).or_insert_with(|| {
+                insertion_order.push(key);
+                (error_brief.clone(), 0)
             });
-            if out.len() >= 3 {
-                break;
-            }
+            entry.0 = error_brief;
+            entry.1 += 1;
         }
 
-        out
+        insertion_order
+            .into_iter()
+            .take(8)
+            .filter_map(|(op, path)| {
+                let (error_brief, count) = counts.remove(&(op.clone(), path.clone()))?;
+                Some(crate::progress_controller::RecentFailedFileOp {
+                    op,
+                    path,
+                    error_brief,
+                    count,
+                })
+            })
+            .collect()
     }
 
     pub(super) fn agent_capability_profile(
@@ -459,7 +466,12 @@ impl DataEngineerSuite {
         // Phase-step budget is reset when we make clear forward progress (phase advances).
         // This prevents aborting a healthy thread that is steadily moving through phases,
         // while still bounding degenerate loops.
-        let max_phase_steps: usize = env_util::max_phase_steps();
+        let model_name = sctx
+            .resolved_config()
+            .as_ref()
+            .and_then(|c| c.llm.chat_model.clone())
+            .unwrap_or_default();
+        let max_phase_steps: usize = env_util::max_phase_steps_for_model(&model_name);
         let max_replan_backtracks: usize = control_flow::replan_backtrack_counter_cap();
 
         let thread_store = ThreadStore::new(

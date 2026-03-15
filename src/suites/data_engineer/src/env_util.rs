@@ -103,14 +103,20 @@ pub mod env_keys {
 // Centralized reader functions (with defaults, clamping, etc.)
 // ---------------------------------------------------------------------------
 
-pub fn max_phase_steps() -> usize {
-    static CACHE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *CACHE.get_or_init(|| {
-        env_usize(env_keys::AGENT_MAX_PHASE_STEPS)
-            .unwrap_or(DEFAULT_MAX_PHASE_STEPS)
-            .max(MIN_PHASE_STEPS)
-            .min(MAX_PHASE_STEPS)
-    })
+const MODEL_PHASE_STEP_OVERRIDES: &[(&str, usize)] = &[
+    ("gpt-5.4", 140),
+];
+
+pub fn max_phase_steps_for_model(model: &str) -> usize {
+    if let Some(v) = env_usize(env_keys::AGENT_MAX_PHASE_STEPS) {
+        return v.max(MIN_PHASE_STEPS).min(MAX_PHASE_STEPS);
+    }
+    for &(prefix, steps) in MODEL_PHASE_STEP_OVERRIDES {
+        if model.starts_with(prefix) {
+            return steps.max(MIN_PHASE_STEPS).min(MAX_PHASE_STEPS);
+        }
+    }
+    DEFAULT_MAX_PHASE_STEPS
 }
 
 pub fn max_replan_backtracks() -> usize {
