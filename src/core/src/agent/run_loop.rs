@@ -182,7 +182,8 @@ impl Agent {
 
             let prompt = Self::prompt_from_transcript(ctx, &mut transcript, &output_contract_line);
             let mut raw = Self::llm_chat_once(ctx, prompt, llm_options.clone()).await?;
-            if raw.trim_start().starts_with("LLM_ERROR:") {
+            let trimmed = raw.trim_start();
+            if trimmed.starts_with("LLM_ERROR:") || trimmed.starts_with("LLM_FATAL_ERROR:") {
                 return Err(CoreError::Agent(raw.trim().to_string()));
             }
             let step = Self::parse_with_retry(

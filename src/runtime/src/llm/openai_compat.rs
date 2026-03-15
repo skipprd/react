@@ -64,8 +64,8 @@ mod tests {
     }
 }
 use super::types::{
-    extract_response_text, pretty_json, OaiChatMessage, OaiChatReq, OaiChatResp, OaiEmbReq,
-    OaiEmbResp,
+    classify_oai_error, extract_response_text, pretty_json, OaiChatMessage, OaiChatReq,
+    OaiChatResp, OaiEmbReq, OaiEmbResp,
 };
 use super::{ChatMessage, LargeLanguageModel, LlmConfig};
 
@@ -349,6 +349,16 @@ impl LargeLanguageModel for OpenAICompatModel {
                                 status_cc,
                                 pretty_json(&body_text_cc)
                             );
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body_text_cc) {
+                                if let Some(error_obj) = v.get("error") {
+                                    if let Some((prefix, msg)) = classify_oai_error(error_obj) {
+                                        return Err(format!("{prefix}: {msg}"));
+                                    }
+                                }
+                            }
+                            if status_cc == 401 || status_cc == 403 {
+                                return Err(format!("LLM_FATAL_ERROR: http {}: {}", status_cc, snippet));
+                            }
                             return Err(format!(
                                 "http 400 (responses) and fallback chat {}: {}",
                                 status_cc, snippet
@@ -361,6 +371,18 @@ impl LargeLanguageModel for OpenAICompatModel {
                             ));
                         }
                     }
+                }
+                // Classify HTTP errors: try to parse body for structured error
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body_text) {
+                    if let Some(error_obj) = v.get("error") {
+                        if let Some((prefix, msg)) = classify_oai_error(error_obj) {
+                            return Err(format!("{prefix}: {msg}"));
+                        }
+                    }
+                }
+                // 401/403 are permanent auth errors even without structured body
+                if status == 401 || status == 403 {
+                    return Err(format!("LLM_FATAL_ERROR: http {}: {}", status, snippet));
                 }
                 return Err(format!("http {}: {}", status, snippet));
             }
@@ -472,7 +494,22 @@ impl LargeLanguageModel for OpenAICompatModel {
                     status,
                     pretty_json(&body_text)
                 );
-                return Err(format!("http {}", status));
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body_text) {
+                    if let Some(error_obj) = v.get("error") {
+                        if let Some((prefix, msg)) = classify_oai_error(error_obj) {
+                            return Err(format!("{prefix}: {msg}"));
+                        }
+                    }
+                }
+                let snippet_cc = if body_text.len() > 500 {
+                    format!("{}...", &body_text[..500])
+                } else {
+                    body_text
+                };
+                if status == 401 || status == 403 {
+                    return Err(format!("LLM_FATAL_ERROR: http {}: {}", status, snippet_cc));
+                }
+                return Err(format!("http {}: {}", status, snippet_cc));
             }
             let body_text = resp.into_string().map_err(|e| e.to_string())?;
             tracing::debug!(

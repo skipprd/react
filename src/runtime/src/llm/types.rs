@@ -30,19 +30,53 @@ pub(crate) fn text_from_part(p: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Classify an OpenAI-style error response into a severity prefix.
+/// Permanent errors (quota, auth, billing) get `LLM_FATAL_ERROR:` so callers
+/// can fail-fast instead of burning retries on a dead API key.
+pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'static str, String)> {
+    let msg = error_obj.get("message").and_then(|x| x.as_str())?;
+    if msg.trim().is_empty() {
+        return None;
+    }
+    let code = error_obj
+        .get("code")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    let etype = error_obj
+        .get("type")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    let lower = msg.to_ascii_lowercase();
+
+    let is_permanent = code == "insufficient_quota"
+        || code == "billing_hard_limit_reached"
+        || code == "account_deactivated"
+        || etype == "insufficient_quota"
+        || lower.contains("exceeded your current quota")
+        || lower.contains("billing")
+        || lower.contains("account is not active")
+        || lower.contains("invalid api key")
+        || lower.contains("incorrect api key")
+        || lower.contains("permission denied")
+        || lower.contains("organization has been disabled");
+
+    let prefix = if is_permanent {
+        "LLM_FATAL_ERROR"
+    } else {
+        "LLM_ERROR"
+    };
+    Some((prefix, msg.to_string()))
+}
+
 pub(crate) fn extract_response_text(v: &serde_json::Value) -> Option<String> {
     if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
         if !s.trim().is_empty() {
             return Some(s.to_string());
         }
     }
-    if let Some(msg) = v
-        .get("error")
-        .and_then(|e| e.get("message"))
-        .and_then(|x| x.as_str())
-    {
-        if !msg.trim().is_empty() {
-            return Some(format!("LLM_ERROR: {msg}"));
+    if let Some(error_obj) = v.get("error") {
+        if let Some((prefix, msg)) = classify_oai_error(error_obj) {
+            return Some(format!("{prefix}: {msg}"));
         }
     }
     let mut chunks: Vec<String> = Vec::new();

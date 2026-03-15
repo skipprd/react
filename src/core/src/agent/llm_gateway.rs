@@ -132,11 +132,19 @@ impl AgentCtx {
         }
     }
 
+    fn is_llm_fatal(msg: &str) -> bool {
+        msg.contains("LLM_FATAL_ERROR:")
+    }
+
+    fn is_llm_error_prefix(text: &str) -> bool {
+        let t = text.trim_start();
+        t.starts_with("LLM_ERROR:") || t.starts_with("LLM_FATAL_ERROR:")
+    }
+
     /// Wraps `invoke_llm_once` with retry for transient LLM errors.
     ///
-    /// Handles two failure shapes:
-    /// - `Err(CoreError::Agent(msg))` where `msg` looks transient (timeout, 5xx, etc.)
-    /// - `Ok(text)` where `text` starts with `LLM_ERROR:` and the message is transient
+    /// Fatal errors (quota, auth, billing) are never retried — the provider
+    /// prefixes these with `LLM_FATAL_ERROR:` so we can fail-fast.
     async fn invoke_llm(
         &self,
         messages: &[ChatMessage],
@@ -145,11 +153,18 @@ impl AgentCtx {
         let mut last_result = self.invoke_llm_once(messages, options).await;
 
         for attempt in 1..=Self::LLM_TRANSIENT_MAX_RETRIES {
+            let is_fatal = match &last_result {
+                Err(CoreError::Agent(msg)) => Self::is_llm_fatal(msg),
+                Ok(text) => Self::is_llm_fatal(text),
+                _ => false,
+            };
+            if is_fatal {
+                break;
+            }
+
             let should_retry = match &last_result {
                 Err(CoreError::Agent(msg)) => Self::is_llm_transient(msg),
-                Ok(text) if text.trim_start().starts_with("LLM_ERROR:") => {
-                    Self::is_llm_transient(text)
-                }
+                Ok(text) if Self::is_llm_error_prefix(text) => Self::is_llm_transient(text),
                 _ => false,
             };
             if !should_retry {
@@ -175,7 +190,7 @@ impl AgentCtx {
             last_result = self.invoke_llm_once(messages, options).await;
 
             if let Ok(ref text) = last_result {
-                if !text.trim_start().starts_with("LLM_ERROR:") {
+                if !Self::is_llm_error_prefix(text) {
                     tracing::info!(
                         prompt_id = %options.prompt_id,
                         attempt,
@@ -186,7 +201,7 @@ impl AgentCtx {
         }
 
         if let Ok(ref text) = last_result {
-            if text.trim_start().starts_with("LLM_ERROR:") {
+            if Self::is_llm_error_prefix(text) {
                 return Err(CoreError::Agent(text.trim().to_string()));
             }
         }
