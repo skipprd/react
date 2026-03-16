@@ -308,7 +308,6 @@ impl DataEngineerSuite {
                 new_evidence_refs: new_evidence_refs.to_vec(),
             }),
             batch: None,
-            repair: None,
         };
         crate::prompt_packets::render_envelope(&envelope).unwrap_or_else(|_| "{}".to_string())
     }

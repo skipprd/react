@@ -9,7 +9,7 @@ use super::control_flow::Phase;
 use super::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
 use super::plan as de_plan;
 use super::review_batched::{utc_ts, MAX_BATCHES_SAVED, REVIEW_SNAPSHOT_VERSION};
-use super::track_spec::PlanKind;
+use super::plan_kind::PlanKind;
 
 pub(super) async fn append_review_step(
     store: &ThreadStore,

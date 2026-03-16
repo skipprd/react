@@ -1,10 +1,38 @@
+use async_trait::async_trait;
 use react_core::agent::{Agent, AgentCtx, AgentCtxBuilder};
 use react_core::llm::{ChatMessage, ChatRole};
 use react_core::session::ThreadStore;
-use react_core::suite::SuiteCtx;
+use react_core::suite::{FlowFrame, SuiteCtx};
 use react_core::tools::ToolRegistry;
+use react_core::workflow::{PhaseExecutor, PhaseOutcome, WorkflowConfig};
 use serde::Deserialize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+/// Column contract for one upstream model, extracted from investigation results.
+#[derive(Clone, Debug, serde::Serialize, Deserialize, schemars::JsonSchema)]
+struct UpstreamModelSchema {
+    /// Relative path (e.g. "models/marts/gold_dim_customers.sql").
+    model_path: String,
+    /// Exact column names exposed by this model's final SELECT.
+    columns: Vec<String>,
+}
+
+/// Structured diagnosis output from the gather stage.
+///
+/// Sent to the LLM as an OpenAI Strict Schema so the response is guaranteed to
+/// conform (on providers that support it).  Deserialized directly — no
+/// string-inside-string payload gymnastics.
+#[derive(Clone, Debug, serde::Serialize, Deserialize, schemars::JsonSchema)]
+struct GatherDiagnosisV1 {
+    /// Root-cause analysis explaining why the dbt model(s) are failing.
+    diagnosis: String,
+    /// Relative file paths of models that likely need to be fixed.
+    affected_files: Vec<String>,
+    /// Column schemas of upstream models referenced via ref() by the failing model(s).
+    /// Extracted from file contents or sql_schema tool observations.
+    upstream_schemas: Vec<UpstreamModelSchema>,
+}
 
 use crate::control_flow::DeterministicDbtValidateOnce;
 use crate::model_dispatch::ModelDispatch;
@@ -16,82 +44,151 @@ use crate::repair_session::{
 const GATHER_MAX_STEPS: usize = 8;
 const DEFAULT_MAX_ITERATIONS: usize = 5;
 
-/// Three-stage repair subroutine: Gather → Reason → Apply → Validate.
-///
-/// Each iteration accumulates into the `RepairSessionLog` so prompts are never identical
-/// and the LLM always sees full history of prior attempts.
-pub async fn run_repair(
-    sctx: &SuiteCtx,
-    thread_store: &ThreadStore,
-    thread_id: &str,
-    dispatch: &ModelDispatch,
-    error_context: RepairErrorContext,
-    max_iterations: Option<usize>,
-) -> Result<RepairSessionLog, String> {
-    let max_iters = max_iterations.unwrap_or(DEFAULT_MAX_ITERATIONS);
-    let mut session_log = RepairSessionLog::new(error_context);
+struct RepairExecutor<'a> {
+    sctx: &'a SuiteCtx,
+    thread_id: &'a str,
+    dispatch: &'a ModelDispatch,
+    session_log: std::sync::Mutex<RepairSessionLog>,
+    iteration: AtomicUsize,
+}
 
-    for i in 0..max_iters {
-        let gathered = run_gather(sctx, thread_id, dispatch, &session_log, i).await?;
+#[async_trait]
+impl<'a> PhaseExecutor for RepairExecutor<'a> {
+    async fn execute_turn(&self, _out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
+        let i = self.iteration.fetch_add(1, Ordering::Relaxed);
+        let log_snapshot = self.session_log.lock().unwrap().clone();
 
-        let fix_plan = run_reason(sctx, dispatch, &gathered, &session_log, i).await?;
+        let gathered = match run_gather(self.sctx, self.thread_id, self.dispatch, &log_snapshot, i)
+            .await
+        {
+            Ok(g) => g,
+            Err(e) => return PhaseOutcome::Failed { reason: e },
+        };
 
-        let apply_results = apply_fixes(sctx, thread_id, &fix_plan).await;
+        let fix_plan =
+            match run_reason(self.sctx, self.dispatch, &gathered, &log_snapshot, i).await {
+                Ok(p) => p,
+                Err(e) => return PhaseOutcome::Failed { reason: e },
+            };
 
-        session_log.record(
-            i,
-            gathered.files,
-            fix_plan,
-            apply_results,
-        );
+        let apply_results = apply_fixes(self.sctx, self.thread_id, &fix_plan).await;
 
-        let has_mutations = session_log
+        {
+            let mut log = self.session_log.lock().unwrap();
+            log.record(i, gathered.files, gathered.diagnosis, fix_plan, apply_results);
+        }
+
+        let has_mutations = self
+            .session_log
+            .lock()
+            .unwrap()
             .last()
             .map(|it| it.has_mutations())
             .unwrap_or(false);
 
         if has_mutations {
-            let actx = build_tool_ctx(sctx, thread_id);
-            match DeterministicDbtValidateOnce::run(&actx, true, false, None).await {
-                Ok(contract) => {
-                    if contract.outcome_v2.ok {
-                        session_log.record_validate(ValidateOutcome {
+            let actx = build_tool_ctx(self.sctx, self.thread_id);
+            let validate_result =
+                DeterministicDbtValidateOnce::run(&actx, true, false, None).await;
+
+            let (passed, entry_clone) = {
+                let mut log = self.session_log.lock().unwrap();
+                match validate_result {
+                    Ok(contract) if contract.outcome_v2.ok => {
+                        log.record_validate(ValidateOutcome {
                             passed: true,
                             error_summary: "all tests passed".into(),
                         });
-                        index_to_vector_store(sctx, session_log.last().unwrap(), true).await;
-                        return Ok(session_log);
                     }
-                    let error_summary = serde_json::to_string(&contract.observation)
-                        .unwrap_or_else(|_| "validation failed".into());
-                    let truncated = if error_summary.len() > 4000 {
-                        format!("{}…", &error_summary[..4000])
-                    } else {
-                        error_summary
-                    };
-                    session_log.record_validate(ValidateOutcome {
-                        passed: false,
-                        error_summary: truncated,
-                    });
+                    Ok(contract) => {
+                        let error_summary = serde_json::to_string(&contract.observation)
+                            .unwrap_or_else(|_| "validation failed".into());
+                        let truncated = if error_summary.len() > 4000 {
+                            format!("{}…", &error_summary[..4000])
+                        } else {
+                            error_summary
+                        };
+                        log.record_validate(ValidateOutcome {
+                            passed: false,
+                            error_summary: truncated,
+                        });
+                    }
+                    Err(e) => {
+                        log.record_validate(ValidateOutcome {
+                            passed: false,
+                            error_summary: format!("validate execution error: {e}"),
+                        });
+                    }
                 }
-                Err(e) => {
-                    session_log.record_validate(ValidateOutcome {
-                        passed: false,
-                        error_summary: format!("validate execution error: {e}"),
-                    });
-                }
+                let p = log
+                    .last()
+                    .and_then(|it| it.validate_outcome.as_ref())
+                    .map(|v| v.passed)
+                    .unwrap_or(false);
+                (p, log.last().cloned())
+            };
+
+            if let Some(entry) = entry_clone.as_ref() {
+                index_to_vector_store(self.sctx, entry, passed).await;
             }
-            index_to_vector_store(sctx, session_log.last().unwrap(), false).await;
+            if passed {
+                return PhaseOutcome::Return(vec![]);
+            }
         }
+
+        PhaseOutcome::TransitionCommitted
     }
 
-    Err(format!(
-        "repair_exhausted after {} iterations",
-        max_iters
-    ))
+    async fn on_budget_exhausted(&self, _out_frames: &mut Vec<FlowFrame>, _total_steps: usize) {}
+
+    async fn step_count(&self) -> usize {
+        self.iteration.load(Ordering::Relaxed)
+    }
 }
 
-/// Stage 1: Gather — uses the task_model with read tools to investigate the failure.
+/// Three-stage repair subroutine: Gather → Reason → Apply → Validate.
+///
+/// Uses the common workflow runner with one turn per iteration. Each iteration
+/// accumulates into the `RepairSessionLog` so prompts are never identical
+/// and the LLM always sees full history of prior attempts.
+pub async fn run_repair(
+    sctx: &SuiteCtx,
+    _thread_store: &ThreadStore,
+    thread_id: &str,
+    dispatch: &ModelDispatch,
+    error_context: RepairErrorContext,
+    max_iterations: Option<usize>,
+) -> Result<Vec<FlowFrame>, String> {
+    let max_iters = max_iterations.unwrap_or(DEFAULT_MAX_ITERATIONS);
+
+    let executor = RepairExecutor {
+        sctx,
+        thread_id,
+        dispatch,
+        session_log: std::sync::Mutex::new(RepairSessionLog::new(error_context)),
+        iteration: AtomicUsize::new(0),
+    };
+
+    let config = WorkflowConfig {
+        max_phase_steps: max_iters,
+        max_consecutive_waiting_idle: max_iters,
+        max_consecutive_waiting_active: max_iters,
+        ..Default::default()
+    };
+
+    react_core::workflow::runner::run(&executor, &config).await
+}
+
+/// Stage 1: Gather — two-phase approach.
+///
+/// Phase A: Run an agent with read-only tools to investigate the failure.
+///          The agent reads SQL models, YAML schemas, and queries the vector store.
+///          We don't care about its completion payload — only about the tool observations
+///          it leaves in the thread store.
+///
+/// Phase B: Make a single structured LLM call (with `GatherDiagnosisV1` JSON schema)
+///          using the investigation observations as context.  The response deserialises
+///          directly into a Rust struct — no string-inside-string, no fallback parsing.
 async fn run_gather(
     sctx: &SuiteCtx,
     thread_id: &str,
@@ -99,8 +196,11 @@ async fn run_gather(
     session_log: &RepairSessionLog,
     iteration: usize,
 ) -> Result<GatheredContext, String> {
+    // ── Phase A: investigation agent (tool calls) ────────────────────────
     let registry = build_gather_tools(sctx)?;
     let tools_card = gather_tools_card();
+
+    let gather_tid = format!("{thread_id}__gather_{iteration}");
 
     let actx = AgentCtxBuilder::new(
         sctx.llm().clone(),
@@ -112,7 +212,7 @@ async fn run_gather(
     .top_k(crate::env_util::DEFAULT_TOP_K)
     .per_step_timeout_secs(10)
     .max_steps(GATHER_MAX_STEPS)
-    .thread_id(thread_id)
+    .thread_id(&gather_tid)
     .trace_tx(sctx.trace_tx().clone())
     .agent_name("repair_gather")
     .vector(sctx.vector().clone())
@@ -124,22 +224,35 @@ async fn run_gather(
     .resolved_config(sctx.resolved_config().clone())
     .build();
 
-    let system_prompt = "You are a dbt repair investigator. Read the relevant SQL models, YAML schema files, and query the vector store for similar past errors. Produce a structured diagnosis of the root cause.";
+    let system_prompt = "\
+You are a dbt repair investigator. Read the relevant SQL models, YAML schema files, \
+and query the vector store for similar past errors.\n\n\
+STRICT RULES:\n\
+- NEVER call the same tool with the same arguments twice.\n\
+- Read each file ONCE. Do not re-read files you have already read.\n\
+- If vect_query returns empty results, do NOT retry the same query.\n\
+- You have a strict budget of 8 tool calls. Be efficient.\n\
+- When you have read the failing model and its upstream refs, STOP.";
 
     let history = session_log.format_for_prompt();
     let question = format!(
-        "Investigate this dbt failure and diagnose the root cause.\n\n{history}\n\n\
+        "Investigate this dbt failure.\n\n{history}\n\n\
          [Repair iteration {iter} of {max}]\n\n\
-         Read the SQL model files and schema YAML that are relevant to the failing tests. \
-         Use vect_query to search for similar past repair attempts. \
-         After reading, summarise your diagnosis in your final message.",
+         Follow these steps in order:\n\
+         1. Read the failing model SQL file.\n\
+         2. Read each upstream model SQL file referenced via ref().\n\
+         3. Optionally call sql_schema on upstream models for column types.\n\
+         4. Call vect_query ONCE with scope \"doc\" to check for similar past repairs.\n\
+         5. Finish immediately — do not repeat any reads.",
         iter = iteration + 1,
         max = DEFAULT_MAX_ITERATIONS,
     );
 
     let options = dispatch.task_call_options("repair_gather");
 
-    let outcome = Agent::run_until_block_non_interactive(
+    // We intentionally ignore the outcome variant — the value is in the
+    // tool observations left in the thread store, not in the completion payload.
+    let _ = Agent::run_until_block_non_interactive(
         &registry,
         &actx,
         system_prompt,
@@ -147,26 +260,144 @@ async fn run_gather(
         &question,
         options,
     )
-    .await
-    .map_err(|e| format!("gather stage failed: {e}"))?;
+    .await;
 
-    let diagnosis = match outcome {
-        react_core::agent::RunOutcomeNonInteractive::Complete { .. } => {
-            extract_last_assistant_message(sctx, thread_id).await
-        }
-        react_core::agent::RunOutcomeNonInteractive::StepBoundary { .. } => {
-            extract_last_assistant_message(sctx, thread_id).await
-        }
-    };
+    // ── Phase B: structured diagnosis extraction ─────────────────────────
+    let investigation_context = collect_investigation_context(sctx, &gather_tid).await;
+    let error_brief = session_log.format_for_prompt();
+
+    let diag = extract_diagnosis_structured(
+        sctx,
+        dispatch,
+        &error_brief,
+        &investigation_context,
+        iteration,
+    )
+    .await?;
 
     Ok(GatheredContext {
         files: Vec::new(),
-        diagnosis,
+        diagnosis: diag.diagnosis,
+        upstream_schemas: diag.upstream_schemas,
     })
 }
 
+/// Collect tool observations from the gather agent's thread to build
+/// a prompt-ready investigation context string.
+///
+/// Deduplicates by (tool_name, args) so repeated calls don't bloat context.
+async fn collect_investigation_context(sctx: &SuiteCtx, thread_id: &str) -> String {
+    let store = ThreadStore::new(
+        sctx.storage().clone(),
+        sctx.scope().clone(),
+        sctx.keyspace().clone(),
+    );
+    let log = match store.get(thread_id).await {
+        Ok(log) => log,
+        Err(_) => return String::new(),
+    };
+
+    let mut sections: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for step in &log.steps {
+        if let react_core::session::ThreadStep::ToolEnd {
+            name,
+            args,
+            observation,
+            ..
+        } = step
+        {
+            let args_brief = serde_json::to_string(args).unwrap_or_default();
+
+            let dedup_key = format!("{name}:{args_brief}");
+            if !seen.insert(dedup_key) {
+                continue;
+            }
+
+            let obs_text = if observation.ok {
+                serde_json::to_string(&observation.extra).unwrap_or_default()
+            } else {
+                let errs = observation.errors.join("; ");
+                format!("ERROR: {errs}")
+            };
+            let obs_capped = if obs_text.len() > 3000 {
+                format!("{}…(truncated)", &obs_text[..3000])
+            } else {
+                obs_text
+            };
+            sections.push(format!("### Tool: {name}\nArgs: {args_brief}\n{obs_capped}"));
+        }
+    }
+    sections.join("\n\n")
+}
+
+/// Single structured LLM call that produces a [`GatherDiagnosisV1`].
+///
+/// Uses `LlmExpectedFormat::JsonSchema` so the provider enforces the schema
+/// server-side when available (GPT structured outputs).
+async fn extract_diagnosis_structured(
+    sctx: &SuiteCtx,
+    dispatch: &ModelDispatch,
+    error_brief: &str,
+    investigation_context: &str,
+    iteration: usize,
+) -> Result<GatherDiagnosisV1, String> {
+    let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<GatherDiagnosisV1>(
+        "repair.gather_diagnosis",
+    )
+    .map_err(|e| format!("schema build error: {e}"))?;
+
+    let options = react_core::llm::LlmCallOptions {
+        prompt_id: "repair.gather_diagnosis",
+        model: Some(dispatch.reason_model.clone()),
+        temperature: Some((0.1 + (iteration as f32 * 0.05)).min(0.3)),
+        expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
+        ..Default::default()
+    };
+
+    let messages = vec![
+        ChatMessage {
+            role: ChatRole::System,
+            content: "You are a dbt repair diagnostician. Analyse the error context and \
+                      investigation results below and produce a structured JSON diagnosis.\n\n\
+                      IMPORTANT: For upstream_schemas, extract the EXACT column names from the \
+                      SQL model files in the investigation results. Look at each upstream model's \
+                      final SELECT statement and list every column name it produces. \
+                      Do NOT guess or rename — use the exact names from the SQL."
+                .to_string(),
+        },
+        ChatMessage {
+            role: ChatRole::User,
+            content: format!(
+                "## Error Context\n{error_brief}\n\n\
+                 ## Investigation Results\n{investigation_context}\n\n\
+                 Produce a JSON object with:\n\
+                 - \"diagnosis\": a thorough root-cause analysis\n\
+                 - \"affected_files\": list of relative file paths that likely need fixing\n\
+                 - \"upstream_schemas\": for each upstream model referenced via ref() by the \
+                   failing model(s), list the model_path and the exact column names from its \
+                   final SELECT statement",
+            ),
+        },
+    ];
+
+    let actx = build_tool_ctx(sctx, "repair_diagnosis");
+    actx.llm_chat_json::<GatherDiagnosisV1>(&messages, &options)
+        .await
+        .map_err(|e| format!("diagnosis extraction failed: {e}"))
+}
+
+/// Wrapper struct so the LLM returns a top-level JSON object (required by
+/// OpenAI Structured Outputs) instead of a bare array.
+#[derive(Clone, Debug, serde::Serialize, Deserialize, schemars::JsonSchema)]
+struct RepairFixPlanV1 {
+    /// One or more fixes to apply. Each fix targets a single file.
+    fixes: Vec<PlannedFix>,
+}
+
 /// Stage 2: Reason — single LLM call with the reason_model, no tools.
-/// Produces a JSON array of planned fixes.
+/// Produces a JSON object containing an array of planned fixes, enforced
+/// via `LlmExpectedFormat::JsonSchema`.
 async fn run_reason(
     sctx: &SuiteCtx,
     dispatch: &ModelDispatch,
@@ -179,27 +410,50 @@ async fn run_reason(
         .map(|cfg| crate::dialect::active_provider_dialect(cfg))
         .unwrap_or_else(|| "Unknown SQL dialect".into());
 
+    let schema =
+        react_core::schema_registry::OpenAiStrictSchema::for_type::<RepairFixPlanV1>(
+            "repair.fix_plan",
+        )
+        .map_err(|e| format!("schema build error: {e}"))?;
+
+    let upstream_block = if !gathered.upstream_schemas.is_empty() {
+        let mut lines = vec![
+            "## Upstream Model Contracts (SOURCE OF TRUTH)".to_string(),
+            "These are the ONLY columns available from each upstream model. \
+             Do NOT reference any column not listed here."
+                .to_string(),
+        ];
+        for schema in &gathered.upstream_schemas {
+            lines.push(format!("\n### {}", schema.model_path));
+            lines.push(format!("Columns: {}", schema.columns.join(", ")));
+        }
+        lines.join("\n")
+    } else {
+        String::new()
+    };
+
     let prompt = format!(
         "You are a senior dbt engineer. Based on the diagnosis and full repair history below, \
-         produce a JSON array of fixes.\n\n\
+         produce fixes for the failing models.\n\n\
          SQL dialect: {dialect}\n\n\
          ## Diagnosis\n{diagnosis}\n\n\
+         {upstream_block}\n\n\
          ## Full Repair History\n{history}\n\n\
-         Respond with ONLY a JSON array. Each element must have:\n\
-         - \"path\": relative file path (e.g. \"models/staging/stg_orders.sql\")\n\
-         - \"op\": \"patch\" or \"write\"\n\
-         - \"content\": for op=patch, a unified diff; for op=write, the complete file content\n\n\
          Rules:\n\
-         - If a prior patch attempt failed, use op=write instead.\n\
+         - If a prior patch attempt failed, use op \"write\" instead of \"patch\".\n\
          - Fix the actual SQL model files when tests fail, not just the schema YAML.\n\
-         - Produce at least one fix. An empty array means no progress.",
+         - Produce at least one fix.\n\
+         - CRITICAL: Only SELECT columns that appear in the Upstream Model Contracts above. \
+           If you need a different output name, use a SQL alias \
+           (e.g. `created_at_ts as customer_created_at_ts`). \
+           NEVER reference a column that does not exist upstream.",
         diagnosis = gathered.diagnosis,
     );
 
     let messages = vec![
         ChatMessage {
             role: ChatRole::System,
-            content: "You are a dbt repair planner. Output only valid JSON.".to_string(),
+            content: "You are a dbt repair planner.".to_string(),
         },
         ChatMessage {
             role: ChatRole::User,
@@ -207,15 +461,21 @@ async fn run_reason(
         },
     ];
 
-    let options = dispatch.reason_call_options("repair_reason", iteration);
+    let options = react_core::llm::LlmCallOptions {
+        prompt_id: "repair.fix_plan",
+        model: Some(dispatch.reason_model.clone()),
+        temperature: Some((0.15 + (iteration as f32 * 0.05)).min(0.35)),
+        expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
+        ..Default::default()
+    };
 
     let actx = build_tool_ctx(sctx, "repair_reason");
-    let raw = actx
-        .llm_chat(&messages, &options)
+    let plan: RepairFixPlanV1 = actx
+        .llm_chat_json(&messages, &options)
         .await
         .map_err(|e| format!("reason stage LLM call failed: {e}"))?;
 
-    parse_fix_plan(&raw)
+    Ok(plan.fixes)
 }
 
 /// Stage 3: Apply — mechanically apply each planned fix.
@@ -372,63 +632,10 @@ fn build_tool_ctx(sctx: &SuiteCtx, thread_id: &str) -> AgentCtx {
     actx
 }
 
-async fn extract_last_assistant_message(_sctx: &SuiteCtx, _thread_id: &str) -> String {
-    String::new()
-}
-
-fn parse_fix_plan(raw: &str) -> Result<Vec<PlannedFix>, String> {
-    let trimmed = raw.trim();
-
-    if let Ok(fixes) = serde_json::from_str::<Vec<RawPlannedFix>>(trimmed) {
-        return Ok(fixes.into_iter().map(Into::into).collect());
-    }
-
-    let repaired = react_core::json_repair::resilient_parse::<serde_json::Value>(trimmed)
-        .map_err(|e| format!("failed to parse fix plan JSON: {e}"))?;
-
-    if let Some(arr) = repaired.as_array() {
-        let fixes: Vec<RawPlannedFix> = arr
-            .iter()
-            .filter_map(|v| serde_json::from_value(v.clone()).ok())
-            .collect();
-        if fixes.is_empty() {
-            return Err("fix plan array was empty or contained no valid entries".into());
-        }
-        return Ok(fixes.into_iter().map(Into::into).collect());
-    }
-
-    if let Ok(single) = serde_json::from_value::<RawPlannedFix>(repaired) {
-        return Ok(vec![single.into()]);
-    }
-
-    Err("could not parse fix plan from LLM response".into())
-}
-
-#[derive(Deserialize)]
-struct RawPlannedFix {
-    path: String,
-    op: String,
-    content: String,
-}
-
-impl From<RawPlannedFix> for PlannedFix {
-    fn from(raw: RawPlannedFix) -> Self {
-        let op = if raw.op.eq_ignore_ascii_case("write") {
-            FileOp::Write
-        } else {
-            FileOp::Patch
-        };
-        PlannedFix {
-            path: raw.path,
-            op,
-            content: raw.content,
-        }
-    }
-}
-
 struct GatheredContext {
     files: Vec<(String, String)>,
     diagnosis: String,
+    upstream_schemas: Vec<UpstreamModelSchema>,
 }
 
 /// Index a repair iteration to the vector store for future retrieval.
@@ -483,25 +690,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_fix_plan_array() {
-        let json = r#"[{"path":"models/stg_orders.sql","op":"write","content":"SELECT 1"}]"#;
-        let fixes = parse_fix_plan(json).unwrap();
-        assert_eq!(fixes.len(), 1);
-        assert_eq!(fixes[0].path, "models/stg_orders.sql");
-        assert_eq!(fixes[0].op, FileOp::Write);
+    fn repair_fix_plan_v1_round_trips() {
+        let json = r#"{"fixes":[{"path":"models/stg_orders.sql","op":"write","content":"SELECT 1"}]}"#;
+        let plan: RepairFixPlanV1 = serde_json::from_str(json).unwrap();
+        assert_eq!(plan.fixes.len(), 1);
+        assert_eq!(plan.fixes[0].path, "models/stg_orders.sql");
+        assert_eq!(plan.fixes[0].op, FileOp::Write);
     }
 
     #[test]
-    fn parse_fix_plan_single_object() {
-        let json = r#"{"path":"models/schema.yml","op":"patch","content":"---\n..."}"#;
-        let fixes = parse_fix_plan(json).unwrap();
-        assert_eq!(fixes.len(), 1);
-        assert_eq!(fixes[0].op, FileOp::Patch);
+    fn repair_fix_plan_v1_schema_is_valid() {
+        let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<RepairFixPlanV1>(
+            "test.repair_fix_plan",
+        );
+        assert!(schema.is_ok(), "schema generation must succeed");
     }
 
     #[test]
-    fn parse_fix_plan_invalid() {
-        let result = parse_fix_plan("not json at all");
-        assert!(result.is_err());
+    fn gather_diagnosis_v1_schema_is_valid() {
+        let schema =
+            react_core::schema_registry::OpenAiStrictSchema::for_type::<GatherDiagnosisV1>(
+                "test.gather_diagnosis",
+            );
+        assert!(schema.is_ok(), "schema generation must succeed");
     }
 }

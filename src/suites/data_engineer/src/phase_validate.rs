@@ -25,7 +25,7 @@ impl DataEngineerSuite {
         thread_id: &str,
         phase: Phase,
         escalation: ValidateEscalation,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         match escalation {
             ValidateEscalation::LoopbackToAuthor {
                 guard_kind,
@@ -99,7 +99,7 @@ impl DataEngineerSuite {
         reason: String,
         detail: serde_json::Value,
         reason_code: PhaseReasonCode,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let retry_outcome = Self::check_subjective_retry_budget(
             thread_store,
             thread_id,
@@ -256,7 +256,7 @@ impl DataEngineerSuite {
         _execution_state: &crate::progress_controller::ExecutionState,
         _guard: &crate::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let actx = Self::agent_tool_ctx(thread_id, sctx);
         {
             let mut es = crate::progress_controller::ExecutionState::load(
@@ -426,7 +426,7 @@ impl DataEngineerSuite {
                 "ValidatePassPlanIncomplete",
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::TransitionCommitted);
+            return Ok(PhaseOutcome::TransitionCommitted);
         }
 
         // Warehouse config failures require user action.
@@ -500,7 +500,11 @@ impl DataEngineerSuite {
                 failing_models.push(crate::progress_controller::FailedModelRef {
                     name: t.node_id.clone(),
                     file: rel,
-                    error: None,
+                    error: if t.error_code.trim().is_empty() {
+                        None
+                    } else {
+                        Some(t.error_code.clone())
+                    },
                     materialization,
                 });
             }
@@ -606,7 +610,7 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        return Ok(PhaseExecutorOutcome::TransitionCommitted);
+        return Ok(PhaseOutcome::TransitionCommitted);
     }
 }
 

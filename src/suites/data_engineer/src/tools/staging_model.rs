@@ -102,7 +102,6 @@ fn build_staging_sys_prompt(
          Provider: {provider}\n\
          Dialect: {dialect}\n\
          Requirements:\n\
-         - Output MUST be valid JSON only: {{\"sql\":\"...\", \"notes\":[...]}}.\n\
          - Your SQL MUST read from the placeholder table name: FROM __SOURCE__\n\
            - Do NOT use source() / ref() / Jinja in this step.\n\
            - The system will replace __SOURCE__ with the real raw table for validation, then with dbt source() for materialization.\n\

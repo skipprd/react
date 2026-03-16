@@ -20,7 +20,7 @@ use super::plan as de_plan;
 use super::tools::files_tool::FilesTool;
 use super::tools::json_file::JsonFileTool;
 use super::tools::sql_schema::SqlSchemaTool;
-use super::track_spec::PlanKind;
+use super::plan_kind::PlanKind;
 use crate::{facts, naming};
 
 use super::review_persistence::*;

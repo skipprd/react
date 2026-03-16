@@ -147,7 +147,6 @@ fn schema_yml_sys_prompt_staging() -> String {
         "You are an expert analytics engineer.".to_string(),
         "Task: author a dbt *silver schema* YAML for ONE silver model file under models/staging/.".to_string(),
         "Requirements:".to_string(),
-        "- Output MUST be valid JSON only.".to_string(),
         "- Return a single-file patch as `patch_text` using Cursor/Aider hunks-only format (MUST).".to_string(),
         "- Patch MUST modify ONLY expected_rel_path (no other files).".to_string(),
         "- Do NOT add or reference columns not present in allowed_columns.".to_string(),
@@ -167,7 +166,6 @@ fn schema_yml_sys_prompt_models_schema_yml() -> String {
         "You are an expert analytics engineer.".to_string(),
         "Task: update models/schema.yml to add or update dbt model documentation/tests for a small set of gold models.".to_string(),
         "Requirements:".to_string(),
-        "- Output MUST be valid JSON only.".to_string(),
         "- Return a single-file patch as `patch_text` using Cursor/Aider hunks-only format (MUST).".to_string(),
         "- Patch MUST modify ONLY expected_rel_path (no other files).".to_string(),
         "- Do NOT create additional YAML files; use models/schema.yml only.".to_string(),
@@ -441,7 +439,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                     prompt_id: "data_engineer.apply_next_schema_batch.staging_schema_patch",
                     thread_id: ctx.thread_id().clone(),
                     model: None,
-                    expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+                    expected_format: react_core::llm::LlmExpectedFormat::Text,
                     temperature: Some(0.05),
                     top_p: Some(1.0),
                     max_output_tokens: Some(
@@ -789,7 +787,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 prompt_id: "data_engineer.apply_next_schema_batch.models_schema_patch",
                 thread_id: ctx.thread_id().clone(),
                 model: None,
-                expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+                expected_format: react_core::llm::LlmExpectedFormat::Text,
                 temperature: Some(0.05),
                 top_p: Some(1.0),
                 max_output_tokens: Some(

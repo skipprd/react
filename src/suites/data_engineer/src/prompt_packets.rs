@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::control_flow::Phase;
-use crate::track_spec::PlanKind;
+use crate::plan_kind::PlanKind;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -9,7 +9,6 @@ pub enum TurnDirective {
     Reason,
     Compile,
     Verify,
-    Repair,
     Advance,
 }
 
@@ -47,17 +46,6 @@ pub struct AuthorBatchPacket {
     pub details_text: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct RepairPacket {
-    pub target_path: String,
-    #[serde(default)]
-    pub last_validate_brief: Option<String>,
-    /// Tool contract text (canonical, not generated).
-    #[serde(default)]
-    pub patch_contract: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PromptEnvelope {
@@ -68,39 +56,18 @@ pub struct PromptEnvelope {
     pub plan: Option<PlanContextPacket>,
     #[serde(default)]
     pub batch: Option<AuthorBatchPacket>,
-    #[serde(default)]
-    pub repair: Option<RepairPacket>,
 }
 
 pub fn validate_envelope(envelope: &PromptEnvelope) -> Result<(), String> {
     if envelope.goal.trim().is_empty() {
         return Err("prompt envelope goal is required".to_string());
     }
-    if envelope.plan.is_none() && envelope.batch.is_none() && envelope.repair.is_none() {
-        return Err("prompt envelope requires at least one packet (plan|batch|repair)".to_string());
+    if envelope.plan.is_none() && envelope.batch.is_none() {
+        return Err("prompt envelope requires at least one packet (plan|batch)".to_string());
     }
     if let Some(batch) = envelope.batch.as_ref() {
         if batch.batch_items.is_empty() {
             return Err("prompt envelope batch packet requires non-empty batch_items".to_string());
-        }
-    }
-    if let Some(repair) = envelope.repair.as_ref() {
-        if envelope.plan.is_some() || envelope.batch.is_some() {
-            return Err(
-                "repair prompt envelope must not include plan or batch packets in repair mode"
-                    .to_string(),
-            );
-        }
-        if repair.target_path.trim().is_empty() {
-            return Err("repair prompt envelope requires target_path".to_string());
-        }
-        let missing_contract = repair
-            .patch_contract
-            .as_deref()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true);
-        if missing_contract {
-            return Err("repair prompt envelope requires non-empty patch_contract".to_string());
         }
     }
     Ok(())
@@ -129,23 +96,6 @@ mod tests {
             directive: TurnDirective::Advance,
             plan: None,
             batch: None,
-            repair: None,
-        };
-        assert!(render_envelope(&envelope).is_err());
-    }
-
-    #[test]
-    fn render_envelope_rejects_invalid_repair_shape() {
-        let envelope = PromptEnvelope {
-            phase: Phase::CleanseAuthor,
-            goal: "repair the failing model".to_string(),
-            directive: TurnDirective::Repair,
-            plan: Some(PlanContextPacket::default()),
-            batch: None,
-            repair: Some(RepairPacket {
-                target_path: "".to_string(),
-                ..RepairPacket::default()
-            }),
         };
         assert!(render_envelope(&envelope).is_err());
     }

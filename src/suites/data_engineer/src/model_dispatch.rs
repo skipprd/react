@@ -39,18 +39,6 @@ impl ModelDispatch {
         }
     }
 
-    /// Build call options for the reasoning model.
-    /// Temperature rises with iteration to avoid deterministic loops.
-    pub fn reason_call_options(&self, prompt_id: &'static str, iteration: usize) -> LlmCallOptions {
-        let temp = (0.15 + (iteration as f32 * 0.05)).min(0.35);
-        LlmCallOptions {
-            prompt_id,
-            model: Some(self.reason_model.clone()),
-            temperature: Some(temp),
-            expected_format: LlmExpectedFormat::JsonObject,
-            ..Default::default()
-        }
-    }
 }
 
 #[cfg(test)]
@@ -80,18 +68,4 @@ mod tests {
         assert_eq!(d.reason_model, "gpt-5.4");
     }
 
-    #[test]
-    fn reason_temp_rises_with_iteration() {
-        let cfg = LlmResolved {
-            reason_model: Some("gpt-5.4".into()),
-            ..Default::default()
-        };
-        let d = ModelDispatch::from_resolved(&cfg);
-        let o0 = d.reason_call_options("test", 0);
-        let o3 = d.reason_call_options("test", 3);
-        let o10 = d.reason_call_options("test", 10);
-        assert_eq!(o0.temperature, Some(0.15));
-        assert!((o3.temperature.unwrap() - 0.30).abs() < 0.001);
-        assert_eq!(o10.temperature, Some(0.35)); // capped
-    }
 }

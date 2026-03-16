@@ -328,6 +328,10 @@ impl LlmRouter {
         let ph = ProviderHttpResponse {
             status: status as u16,
             body_text,
+            structured: matches!(
+                req.response_format,
+                Some(ChatResponseFormat::JsonSchema { .. })
+            ),
         };
         // Log response (pretty)
         debug!(
@@ -493,6 +497,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         let ph = ProviderHttpResponse {
             status: status as u16,
             body_text,
+            structured: false,
         };
         // Log response (pretty; avoid printing large vectors)
         debug!(
@@ -677,9 +682,9 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             .unwrap_or(2)
             .max(1)
             .min(30);
-        let max_wait_secs: u64 = runtime_settings::getenv("LLM_BACKGROUND_MAX_WAIT_SECS", "3600")
+        let max_wait_secs: u64 = runtime_settings::getenv("LLM_BACKGROUND_MAX_WAIT_SECS", "300")
             .parse()
-            .unwrap_or(900)
+            .unwrap_or(300)
             .max(30)
             .min(3600);
         let poll_url = format!("{}/{}", full_url.trim_end_matches('/'), response_id);

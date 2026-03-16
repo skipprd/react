@@ -17,31 +17,6 @@ pub(crate) enum AuthoringTurnResult {
     HardError { message: String },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthoringToolPolicy {
-    HardMutationSingleTarget,
-    HardMutationBatch,
-    Batch,
-    GeneralAuthoring,
-}
-
-pub(crate) fn derive_authoring_tool_policy(
-    hard_mutation_only: bool,
-    single_target_repair: bool,
-    plan_state_is_batched: bool,
-) -> AuthoringToolPolicy {
-    if hard_mutation_only {
-        if single_target_repair {
-            return AuthoringToolPolicy::HardMutationSingleTarget;
-        }
-        return AuthoringToolPolicy::HardMutationBatch;
-    }
-    if plan_state_is_batched {
-        return AuthoringToolPolicy::Batch;
-    }
-    AuthoringToolPolicy::GeneralAuthoring
-}
-
 pub(crate) trait AuthoringPlanAdapter {
     fn kind(&self) -> AuthoringKind;
 }
@@ -119,26 +94,6 @@ impl AuthoringDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tool_policy_batched_when_plan_state_is_batched() {
-        assert_eq!(
-            derive_authoring_tool_policy(false, false, true),
-            AuthoringToolPolicy::Batch,
-        );
-        assert_eq!(
-            derive_authoring_tool_policy(false, false, false),
-            AuthoringToolPolicy::GeneralAuthoring,
-        );
-        assert_eq!(
-            derive_authoring_tool_policy(true, false, true),
-            AuthoringToolPolicy::HardMutationBatch,
-        );
-        assert_eq!(
-            derive_authoring_tool_policy(true, true, true),
-            AuthoringToolPolicy::HardMutationSingleTarget,
-        );
-    }
 
     #[test]
     fn stepboundary_returns_hard_error_for_no_progress_in_hard_repair() {

@@ -275,7 +275,6 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
         true,
         &sctx,
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
-        None,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -305,7 +304,6 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
         true,
         &sctx,
         &super::PlanState::Unconstrained,
-        Some("models/marts/fct_orders.sql".to_string()),
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -374,8 +372,7 @@ async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::Unconstrained,
-        None,
+        &super::PlanState::ReadOnly,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -436,7 +433,6 @@ async fn plan_batched_staging_model_is_not_exposed_to_agent() {
         true,
         &sctx,
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
-        None,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -471,7 +467,6 @@ async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
         true,
         &sctx,
         &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
-        None,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -500,7 +495,6 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
         true,
         &sctx,
         &super::PlanState::ModelSqlItemNames(vec!["fct_orders".to_string()]),
-        None,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -534,7 +528,6 @@ async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
         true,
         &sctx,
         &super::PlanState::ModelSchemaItemNames(vec!["fct_orders".to_string()]),
-        None,
         false,
     )
     .expect("build_tools_for_phase should succeed");
@@ -641,49 +634,6 @@ fn patch_impl_intent_requires_mutation_epoch_advance() {
     ));
 }
 
-#[test]
-fn derive_primary_repair_target_prefers_execution_state_target() {
-    use crate::progress_controller::{ExecutionState, FailedModelRef};
-    let mut st = ExecutionState::new();
-    st.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-        crate::progress_controller::RepairMode {
-
-            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                crate::progress_controller::SqlModelPath::parse(
-                    "models/staging/stg_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
-            )),
-            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-            core: crate::progress_controller::RepairModeCore {
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-            },
-        },
-    );
-    let _failed = vec![FailedModelRef {
-        name: "stg_other".to_string(),
-        file: "models/staging/stg_other.sql".to_string(),
-        ..Default::default()
-    }];
-    let got = crate::phase_gate::derive_primary_repair_target(&st);
-    assert_eq!(got, Some("models/staging/stg_orders.sql".to_string()));
-}
-
-#[test]
-fn derive_primary_repair_target_does_not_fallback_to_failed_model_file() {
-    use crate::progress_controller::{ExecutionState, FailedModelRef};
-    let st = ExecutionState::new();
-    let failed = vec![FailedModelRef {
-        name: "stg_orders".to_string(),
-        file: "models/staging/stg_orders.sql".to_string(),
-        ..Default::default()
-    }];
-    let _ = failed;
-    let got = crate::phase_gate::derive_primary_repair_target(&st);
-    assert_eq!(got, None);
-}
-
 #[tokio::test]
 async fn authoring_complete_reason_detail_uses_latest_log_state() {
     let sctx = test_sctx();
@@ -776,8 +726,7 @@ async fn model_plan_can_disable_json_file_after_manifest_retry_suppression() {
         &guard,
         true,
         &sctx,
-        &super::PlanState::Unconstrained,
-        None,
+        &super::PlanState::ReadOnly,
         true,
     )
     .expect("build_tools_for_phase should succeed");

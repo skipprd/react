@@ -68,7 +68,12 @@ pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'sta
     Some((prefix, msg.to_string()))
 }
 
-pub(crate) fn extract_response_text(v: &serde_json::Value) -> Option<String> {
+/// Extract the model's text output from an OpenAI-style response.
+///
+/// When `structured` is true the caller expects a single JSON object (e.g. strict
+/// JSON-schema mode). If the `output[]` fallback path finds multiple text chunks we
+/// take only the first to avoid silently concatenating independent objects.
+pub(crate) fn extract_response_text(v: &serde_json::Value, structured: bool) -> Option<String> {
     if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
         if !s.trim().is_empty() {
             return Some(s.to_string());
@@ -100,6 +105,13 @@ pub(crate) fn extract_response_text(v: &serde_json::Value) -> Option<String> {
                 }
             }
         }
+    }
+    if structured && chunks.len() > 1 {
+        tracing::warn!(
+            "structured response contained {} output text items; taking only the first",
+            chunks.len()
+        );
+        return chunks.into_iter().next();
     }
     let joined = chunks.join("");
     if joined.trim().is_empty() {
@@ -253,4 +265,8 @@ pub struct ProviderHttpRequest {
 pub struct ProviderHttpResponse {
     pub status: u16,
     pub body_text: String,
+    /// True when the request used a structured response format (JsonSchema).
+    /// Passed through to `extract_response_text` so it can avoid joining
+    /// multiple output items that should be treated as a single object.
+    pub structured: bool,
 }

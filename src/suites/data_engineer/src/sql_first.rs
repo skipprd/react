@@ -12,20 +12,8 @@ pub fn sql_first_max_repair_attempts(default: usize) -> usize {
     super::env_util::sql_first_max_repair_attempts(default)
 }
 
-fn parse_json_object_lenient<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, String> {
-    if let Ok(v) = serde_json::from_str::<T>(text) {
-        return Ok(v);
-    }
-    let s = text.trim();
-    let st = s.find('{').ok_or_else(|| "no '{' found".to_string())?;
-    let en = s.rfind('}').ok_or_else(|| "no '}' found".to_string())?;
-    if en <= st {
-        return Err("invalid brace span".to_string());
-    }
-    serde_json::from_str::<T>(&s[st..=en]).map_err(|e| e.to_string())
-}
 
-#[derive(Deserialize)]
+#[derive(serde::Serialize, Deserialize, schemars::JsonSchema)]
 struct SqlFirstDraftPayload {
     sql: String,
     #[serde(default)]
@@ -171,22 +159,27 @@ pub async fn llm_draft_sql_json(
             content: user_json,
         },
     ];
+    let schema =
+        react_core::schema_registry::OpenAiStrictSchema::for_type::<SqlFirstDraftPayload>(
+            "data_engineer.sql_first_draft",
+        )
+        .map_err(|e| e.to_string())?;
+
     let opts = LlmCallOptions {
         prompt_id,
         thread_id: ctx.thread_id().clone(),
         model: None,
-        expected_format: LlmExpectedFormat::JsonObject,
+        expected_format: LlmExpectedFormat::JsonSchema(schema),
         temperature: Some(temperature),
         top_p: Some(1.0),
         max_output_tokens: Some(max_output_tokens),
         reasoning_effort: None,
         timeout_secs: None,
     };
-    let raw = ctx
-        .llm_chat(&messages, &opts)
+    let payload: SqlFirstDraftPayload = ctx
+        .llm_chat_json(&messages, &opts)
         .await
         .map_err(|e| e.to_string())?;
-    let payload: SqlFirstDraftPayload = parse_json_object_lenient(&raw)?;
     let sql = payload.sql.trim().to_string();
     if sql.is_empty() {
         return Err("sql_first: missing required field 'sql'".to_string());

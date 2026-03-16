@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde_json::Value;
 
 use super::review_batched::ProjectFile;
-use super::track_spec::PlanKind;
+use super::plan_kind::PlanKind;
 
 fn render_output_schema<T: JsonSchema>() -> String {
     crate::plan_schema::strict_schema_for::<T>()

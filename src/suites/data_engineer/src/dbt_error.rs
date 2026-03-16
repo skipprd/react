@@ -343,7 +343,7 @@ pub fn compact_brief(errors: &[String], max_errors: usize, max_chars_each: usize
     lines.join("\n---\n")
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub struct DbtFailureSummary {
     /// Human-readable condensed summary (may be multi-line).
     pub summary: String,
@@ -416,23 +416,20 @@ pub async fn summarize_dbt_failure_llm(
         }
     });
 
+    let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<DbtFailureSummary>(
+        "data_engineer.dbt_failure_summary",
+    )
+    .map_err(|e| e.to_string())?;
+
     let sys = concat!(
         "You summarize dbt compilation/build failures for a terminal UI.\n",
-        "Return a JSON object only (no prose, no markdown).\n",
         "Goal: accuracy + condensed actionable information.\n",
         "Rules:\n",
         "- Do NOT restate dbt startup banners (Running with dbt=, Registered adapter, Found X models).\n",
         "- Prefer quoting the most actionable dbt/Athena/Trino error line(s).\n",
         "- Include failing model names and file paths when present.\n",
         "- If the error indicates a common root cause (e.g. Athena 'Only one sql statement is allowed', ambiguous column, missing column), say so explicitly.\n",
-        "- Keep summary <= max_summary_chars (truncate if needed but preserve the root cause).\n",
-        "\n",
-        "Output JSON shape:\n",
-        "{\n",
-        "  \"summary\": \"<multi-line condensed summary>\",\n",
-        "  \"failing_nodes\": [\"...\"] ,\n",
-        "  \"suggested_next_files\": [\"models/.../x.sql\", \"models/.../y.yml\"]\n",
-        "}\n"
+        "- Keep summary <= max_summary_chars (truncate if needed but preserve the root cause).",
     );
     let msg = react_core::llm::ChatMessage {
         role: react_core::llm::ChatRole::User,
@@ -451,22 +448,13 @@ pub async fn summarize_dbt_failure_llm(
     ];
     let opts = react_core::llm::LlmCallOptions {
         prompt_id: "data_engineer.dbt_error.summarize",
-        thread_id: None,
-        model: None,
-        expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-        max_output_tokens: None,
-        temperature: None,
-        top_p: None,
-        reasoning_effort: None,
-        timeout_secs: None,
+        expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
+        ..Default::default()
     };
-    let resp = ctx
-        .llm_chat(&messages, &opts)
+    let mut parsed: DbtFailureSummary = ctx
+        .llm_chat_json(&messages, &opts)
         .await
         .map_err(|e| e.to_string())?;
-
-    let mut parsed: DbtFailureSummary =
-        serde_json::from_str(resp.trim()).map_err(|e| format!("failed to parse LLM JSON: {e}"))?;
     parsed.summary = strip_ansi(&parsed.summary).trim().to_string();
     if parsed.summary.len() > max_summary_chars {
         parsed.summary.truncate(max_summary_chars);

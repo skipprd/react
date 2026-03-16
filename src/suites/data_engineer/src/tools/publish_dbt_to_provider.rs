@@ -45,7 +45,7 @@ impl Tool for PublishDbtToProviderTool {
             .get("confirm")
             .and_then(|x| x.as_bool())
             .unwrap_or(false);
-        let dataset_ids: Option<Vec<String>> = args
+        let _dataset_ids: Option<Vec<String>> = args
             .get("dataset_ids")
             .and_then(|v| v.as_array())
             .map(|arr| {

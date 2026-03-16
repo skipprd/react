@@ -68,7 +68,6 @@ fn build_gold_sys_prompt(
          Task: write GOLD model query as PLAIN SQL (no dbt config, no Jinja).\n\
          Provider: {provider}\n\
          Dialect: {dialect}\n\
-         Output MUST be valid JSON only: {{\"sql\":\"...\", \"notes\":[...]}}.\n\
          You MUST reference inputs ONLY via the provided placeholders (e.g. __INPUT_0__).\n\
            - Do NOT use ref() / source() / Jinja in this step.\n\
            - The system will replace placeholders with real silver relations for validation, then with dbt ref() for materialization.\n\

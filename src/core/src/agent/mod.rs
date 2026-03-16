@@ -64,6 +64,9 @@ impl AgentCtx {
     pub fn max_steps(&self) -> usize {
         self.max_steps
     }
+    pub fn set_max_steps(&mut self, v: usize) {
+        self.max_steps = v;
+    }
     pub fn thread_id(&self) -> &Option<String> {
         &self.thread_id
     }

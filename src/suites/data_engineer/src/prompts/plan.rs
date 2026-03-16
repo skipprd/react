@@ -9,11 +9,16 @@ Hard rules:
 - At each step, call ONE tool or finish with checkpoint.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/tables.
 - Keep outputs concise and factual.
+- You have a STRICT budget of ~15 tool calls. Do NOT re-read files you have already read.
+- NEVER call the same tool with the same arguments twice.
 
-Discovery requirements:
-- file: inspect existing dbt project files under models/ and key root files.
-- sql_schema: list available relations and inspect relevant raw tables.
-- For first-batch candidate datasets, gather at least one evidence signal via sql_stats/sql_sample/run_sql.
+Discovery checklist (stop when ALL are satisfied):
+1. Listed models/ directory to see existing dbt project files.
+2. Called sql_schema on each raw source table to get column names and types.
+3. Optionally: one sql_stats/sql_sample probe per source table for data quality evidence.
+Once you have items 1-2, you have enough evidence. Finish immediately.
+
+Tool rules:
 - IMPORTANT: sql_stats/sql_sample require BOTH args.table and args.field.
 - Never call sql_stats/sql_sample with table-only args.
 - Never use non-contract args like relation/op for sql_stats/sql_sample.
@@ -24,6 +29,7 @@ When finished:
 - checkpoint.kind MUST be "plan_discovery_ready".
 - checkpoint.payload MUST be a small JSON object:
   {"kind":"cleanse_plan","status":"ready","notes":"<short>"}.
+- You MUST finish within 15 steps. If in doubt, finish now — downstream stages will fill gaps.
 "#
     .to_string()
 }
@@ -39,17 +45,22 @@ Hard rules:
 - At each step, call ONE tool or finish with checkpoint.kind="plan_discovery_ready".
 - Use tools to inspect actual state; do not invent files/models.
 - Keep outputs concise and factual.
+- You have a STRICT budget of ~15 tool calls. Do NOT re-read files you have already read.
+- NEVER call the same tool with the same arguments twice.
 
-Discovery requirements:
-- file: inspect staging/core/marts files and key dbt project files.
-- Ensure candidate model inputs are grounded in existing staging models.
-- For first-batch candidate models, gather evidence for grain/keys/metrics using file/sql_schema/sql_stats/sql_sample/run_sql.
-- Tool contract discipline:
-  - artifacts supports only ops: list|get (never get_json).
-  - Use file with list/get ops for project inspection.
-  - Use json_file for structured manifest inspection (get_item for pointer reads, query for filtered node lookups).
-  - Manifest lookups MUST use: json_file(args:{op:\"query\", path:\"target/manifest.json\", pointer:\"/nodes\", ...filters...}).
-  - Do NOT use path:\"manifest.json\" or any storage-key/absolute-like path for manifest reads.
+Discovery checklist (stop when ALL are satisfied):
+1. Listed models/ directory to see existing staging models and any existing gold/marts models.
+2. Read each staging model SQL (one call per file) to understand available columns and transformations.
+3. Called sql_schema on each staging model to get column types.
+4. Optionally: one run_sql probe for row counts / data quality if needed.
+Once you have items 1-3, you have enough evidence. Finish immediately.
+
+Tool contract discipline:
+- artifacts supports only ops: list|get (never get_json).
+- Use file with list/get ops for project inspection.
+- Use json_file for structured manifest inspection (get_item for pointer reads, query for filtered node lookups).
+- Manifest lookups MUST use: json_file(args:{op:\"query\", path:\"target/manifest.json\", pointer:\"/nodes\", ...filters...}).
+- Do NOT use path:\"manifest.json\" or any storage-key/absolute-like path for manifest reads.
 - IMPORTANT: sql_stats/sql_sample require BOTH args.table and args.field.
 - Never call sql_stats/sql_sample with table-only args.
 - Never use non-contract args like relation/op for sql_stats/sql_sample.
@@ -61,6 +72,7 @@ When finished:
 - checkpoint.kind MUST be "plan_discovery_ready".
 - checkpoint.payload MUST be a small JSON object:
   {"kind":"model_plan","status":"ready","notes":"<short>"}.
+- You MUST finish within 15 steps. If in doubt, finish now — downstream stages will fill gaps.
 "#
     .to_string()
 }

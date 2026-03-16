@@ -40,7 +40,7 @@ async fn finalize_plan_and_approve(
     sem: &crate::plan::PlanSemanticValidation,
     snapshot: &mut crate::plan_types::PlanSnapshot,
     retry_kinds: Vec<crate::progress_controller::SubjectiveRetryKind>,
-) -> Result<PhaseExecutorOutcome, PhaseError> {
+) -> Result<PhaseOutcome, PhaseError> {
     if !sem.ok {
         return handle_plan_semantic_failure(sem, thread_store, thread_id, phase).await;
     }
@@ -64,9 +64,9 @@ async fn finalize_plan_and_approve(
     )
     .await?;
     if advanced {
-        Ok(PhaseExecutorOutcome::TransitionCommitted)
+        Ok(PhaseOutcome::TransitionCommitted)
     } else {
-        Ok(PhaseExecutorOutcome::stayed_waiting(
+        Ok(PhaseOutcome::stayed_waiting(
             "plan draft approval did not commit a phase transition",
         ))
     }
@@ -85,7 +85,7 @@ async fn handle_plan_semantic_failure(
     thread_store: &ThreadStore,
     thread_id: &str,
     phase: control_flow::Phase,
-) -> Result<PhaseExecutorOutcome, PhaseError> {
+) -> Result<PhaseOutcome, PhaseError> {
     let sem_errors = sem.messages();
     let reason = format!(
         "Plan failed semantic validation (design-first). Errors:\n- {}",
@@ -113,7 +113,7 @@ async fn handle_plan_semantic_failure(
             sem.messages().join(" | ")
         )
         .into()),
-        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseExecutorOutcome::stayed_waiting(
+        SubjectiveRetryOutcome::WithinBudget(_) => Ok(PhaseOutcome::stayed_waiting(
             "plan semantic validation failed but remains within retry budget",
         )),
     }
@@ -389,7 +389,7 @@ async fn consume_plan_revision(
 /// (or the existing plan doesn't warrant an early return).
 async fn check_existing_plan(
     pctx: &PlanPhaseCtx<'_>,
-) -> Result<Option<PhaseExecutorOutcome>, PhaseError> {
+) -> Result<Option<PhaseOutcome>, PhaseError> {
     let Some(mut existing_plan) = load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
     else {
         return Ok(None);
@@ -421,7 +421,7 @@ async fn check_existing_plan(
                 ),
             )
             .await?;
-            return Ok(Some(PhaseExecutorOutcome::stayed_with_progress(
+            return Ok(Some(PhaseOutcome::stayed_with_progress(
                 "cancelled an empty approved plan and annotated the invalid state",
             )));
         }
@@ -443,7 +443,7 @@ async fn check_existing_plan(
             ),
         )
         .await?;
-        return Ok(Some(PhaseExecutorOutcome::TransitionCommitted));
+        return Ok(Some(PhaseOutcome::TransitionCommitted));
     }
 
     if existing_plan.status() == crate::plan::PlanStatus::Draft {
@@ -490,7 +490,7 @@ async fn check_existing_plan(
                 ),
             )
             .await?;
-            return Ok(Some(PhaseExecutorOutcome::stayed_with_progress(
+            return Ok(Some(PhaseOutcome::stayed_with_progress(
                 "cancelled an empty draft plan and annotated the invalid state",
             )));
         }
@@ -508,9 +508,9 @@ async fn check_existing_plan(
         )
         .await?;
         if advanced {
-            return Ok(Some(PhaseExecutorOutcome::TransitionCommitted));
+            return Ok(Some(PhaseOutcome::TransitionCommitted));
         }
-        return Ok(Some(PhaseExecutorOutcome::stayed_waiting(
+        return Ok(Some(PhaseOutcome::stayed_waiting(
             "existing draft plan approval did not commit a phase transition",
         )));
     }
@@ -652,7 +652,7 @@ async fn compile_and_ground_cleanse_plan(
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
     critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
-) -> Result<PhaseExecutorOutcome, PhaseError> {
+) -> Result<PhaseOutcome, PhaseError> {
     let discovered_raw = &discovery.raw_dataset_ids;
 
     tracing::info!("data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets");
@@ -858,7 +858,7 @@ async fn compile_and_ground_model_plan(
     design_critique: &crate::plan_schema::PlanDesignCritiqueV1,
     critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
-) -> Result<PhaseExecutorOutcome, PhaseError> {
+) -> Result<PhaseOutcome, PhaseError> {
     let staged = discovery.staging.as_ref().expect(
         "compile_and_ground_model_plan requires discovery.staging to be populated",
     );
@@ -879,7 +879,7 @@ async fn compile_and_ground_model_plan(
                 ).into());
             }
             SubjectiveRetryOutcome::WithinBudget(_) => {
-                return Ok(PhaseExecutorOutcome::stayed_waiting(
+                return Ok(PhaseOutcome::stayed_waiting(
                     "model planning is waiting for staging model discovery to yield grounded inputs",
                 ));
             }
@@ -999,7 +999,7 @@ async fn compile_and_ground_model_plan(
                 ).into());
             }
             SubjectiveRetryOutcome::WithinBudget(_) => {
-                return Ok(PhaseExecutorOutcome::stayed_waiting(
+                return Ok(PhaseOutcome::stayed_waiting(
                     "model planning pruned to empty and is retrying within grounding budget",
                 ));
             }
@@ -1089,10 +1089,10 @@ impl DataEngineerSuite {
         guard: &crate::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
         repair_ctx: &crate::progress_controller::RepairPromptContext,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let track = TrackKind::try_from_plan_phase(phase)?;
         let actx = Self::plan_agent_ctx(thread_id, sctx);
-        let pctx = PlanPhaseCtx {
+        let mut pctx = PlanPhaseCtx {
             thread_store,
             thread_id,
             phase,
@@ -1194,8 +1194,7 @@ impl DataEngineerSuite {
             guard,
             false,
             sctx,
-            &PlanState::Unconstrained,
-            None,
+            &PlanState::ReadOnly,
             manifest_retry_signal.retry_suppressed,
         )?;
         let llm_options = if track.is_cleanse() {
@@ -1212,7 +1211,22 @@ impl DataEngineerSuite {
             )?
         };
 
-        // 7. Run the planning agent (full ReAct discovery).
+        // 7. Set step budget proportional to source count.
+        let source_count = if track.is_cleanse() {
+            discovery.raw_dataset_ids.len()
+        } else {
+            discovery.dataset_fqns.len()
+        };
+        pctx.actx.set_max_steps(
+            crate::env_util::plan_discovery_steps_for_sources(source_count),
+        );
+        tracing::info!(
+            "data_engineer: plan discovery step budget = {} (source_count={})",
+            pctx.actx.max_steps(),
+            source_count,
+        );
+
+        // 8. Run the planning agent (full ReAct discovery).
         match Agent::run_until_block_non_interactive(
             &registry, &pctx.actx, &sys, &tools_card, &q, llm_options,
         )
@@ -1263,9 +1277,45 @@ impl DataEngineerSuite {
                 }
             }
             Ok(RunOutcomeNonInteractive::StepBoundary { .. }) => {
-                Ok(PhaseExecutorOutcome::stayed_with_progress(
-                    "plan discovery agent exhausted its inner step budget; resetting outer budget for next attempt",
-                ))
+                tracing::warn!(
+                    "data_engineer: plan discovery hit step limit for {}; proceeding with evidence gathered so far",
+                    track.as_str()
+                );
+
+                let q_memo = if !track.is_cleanse() {
+                    let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
+                    let enriched = crate::dataset_truth::enrich_query_with_staging_models(&q, &staged, &discovery.source_schemas);
+                    discovery.staging = Some(staged);
+                    enriched
+                } else {
+                    q.clone()
+                };
+
+                let critiqued =
+                    Self::produce_critiqued_design_memo(&pctx.actx, track, &q_memo).await?;
+
+                if track.is_cleanse() {
+                    compile_and_ground_cleanse_plan(
+                        &pctx,
+                        sctx,
+                        &q,
+                        &critiqued.memo,
+                        &critiqued.critique,
+                        critiqued.disposition,
+                        &discovery,
+                    )
+                    .await
+                } else {
+                    compile_and_ground_model_plan(
+                        &pctx,
+                        &q_memo,
+                        &critiqued.memo,
+                        &critiqued.critique,
+                        critiqued.disposition,
+                        &discovery,
+                    )
+                    .await
+                }
             }
             Err(e) => Err(e.to_string().into()),
         }

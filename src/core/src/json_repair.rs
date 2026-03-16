@@ -180,6 +180,17 @@ pub fn extract_all_json_values(s: &str, max: usize) -> Vec<String> {
     out
 }
 
+/// Find the byte offset just past the end of the first complete JSON object in `s`.
+/// Returns `None` if `s` does not start with `{`.
+pub fn find_first_json_object_end(s: &str) -> Option<usize> {
+    let mut stream = serde_json::Deserializer::from_str(s).into_iter::<Value>();
+    if stream.next()?.is_ok() {
+        Some(stream.byte_offset())
+    } else {
+        None
+    }
+}
+
 /// Resilient JSON parse: tries raw parse, then each repair strategy.
 ///
 /// Chains: raw → first-object extraction → control-char repair →

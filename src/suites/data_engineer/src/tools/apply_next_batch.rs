@@ -48,8 +48,9 @@ async fn emit_batch_failure(
     resolve_path: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
     let mut failed_targets: Vec<FailedModelRef> = Vec::new();
+    let error_str = if err.trim().is_empty() { None } else { Some(err.to_string()) };
     for id in batch.iter() {
-        failed_targets.push(build_failed_model_ref(ctx, id.clone(), resolve_path(id)).await);
+        failed_targets.push(build_failed_model_ref(ctx, id.clone(), resolve_path(id), error_str.clone()).await);
     }
     let brief = if err.trim().is_empty() {
         format!("batch authoring failed (tier={tier:?})")
@@ -72,6 +73,7 @@ async fn build_failed_model_ref(
     ctx: &AgentCtx,
     name: String,
     path: Option<String>,
+    error: Option<String>,
 ) -> FailedModelRef {
     let materialization = match path.as_deref() {
         Some(rel) if !rel.trim().is_empty() => {
@@ -86,7 +88,7 @@ async fn build_failed_model_ref(
     FailedModelRef {
         name,
         file: path.unwrap_or_default(),
-        error: None,
+        error,
         materialization,
     }
 }
@@ -329,13 +331,14 @@ impl Tool for ApplyNextCleanseBatchTool {
                 }
             }
             let mut failed_targets: Vec<FailedModelRef> = Vec::new();
+            let batch_err = if err.trim().is_empty() { None } else { Some(err.clone()) };
             for ds in failed.iter() {
                 let expected_path = plan
                     .tasks
                     .iter()
                     .find(|t| t.dataset_id == *ds)
                     .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(build_failed_model_ref(ctx, ds.clone(), expected_path).await);
+                failed_targets.push(build_failed_model_ref(ctx, ds.clone(), expected_path, batch_err.clone()).await);
             }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_cleanse_batch_contract_error: {e}"))?;
@@ -638,13 +641,14 @@ impl Tool for ApplyNextModelBatchTool {
                 }
             }
             let mut failed_targets: Vec<FailedModelRef> = Vec::new();
+            let batch_err = if err.trim().is_empty() { None } else { Some(err.clone()) };
             for n in failed.iter() {
                 let expected_path = plan
                     .tasks
                     .iter()
                     .find(|t| t.name == *n)
                     .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(build_failed_model_ref(ctx, n.clone(), expected_path).await);
+                failed_targets.push(build_failed_model_ref(ctx, n.clone(), expected_path, batch_err.clone()).await);
             }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_model_batch_contract_error: {e}"))?;

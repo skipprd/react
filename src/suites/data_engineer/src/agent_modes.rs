@@ -52,9 +52,328 @@ pub(super) enum AgentToolCapability {
     Artifacts,
 }
 
+struct DataEngineerExecutor<'a> {
+    thread_store: ThreadStore,
+    sctx: &'a SuiteCtx,
+    thread_id: &'a str,
+    question: &'a str,
+    max_replan_backtracks: usize,
+}
+
+#[async_trait::async_trait]
+impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
+    async fn execute_turn(&self, out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
+        use control_flow::DerivedGuardState;
+
+        let execution_state = match crate::progress_controller::ExecutionState::load_strict(
+            &self.thread_store.control_store(),
+            self.thread_id,
+        )
+        .await
+        {
+            Ok(Some(es)) => es,
+            Ok(None) => crate::progress_controller::ExecutionState::new(),
+            Err(e) => return PhaseOutcome::Failed { reason: e },
+        };
+
+        let phase = execution_state
+            .phase
+            .current_phase
+            .unwrap_or(control_flow::Phase::Preflight);
+        let thread_log = self.thread_store.get(self.thread_id).await.ok();
+        let thread_state_step_count =
+            thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
+
+        let guard: DerivedGuardState =
+            control_flow::derive_guard_state_from_execution_state(&execution_state);
+        match crate::phase_gate::evaluate_pre_turn_directive(
+            &execution_state,
+            phase,
+            self.max_replan_backtracks,
+        ) {
+            crate::phase_gate::PreTurnDirective::Proceed => {}
+            crate::phase_gate::PreTurnDirective::FailFast { kind, reason } => {
+                let _ = crate::transition_dispatcher::apply_phase_directive(
+                    &self.thread_store,
+                    self.thread_id,
+                    Some(env_util::DEFAULT_AGENT_NAME.to_string()),
+                    Some(phase),
+                    crate::transition_dispatcher::PhaseDirective::Block {
+                        phase,
+                        kind,
+                        reason: reason.clone(),
+                    },
+                )
+                .await;
+                let mut es = execution_state.clone();
+                es.mark_failed(reason.clone());
+                let _ = es
+                    .save(&self.thread_store.control_store(), self.thread_id)
+                    .await;
+                return PhaseOutcome::Failed { reason };
+            }
+        }
+
+        let mut repair_ctx = execution_state.repair_prompt_context();
+        if let Some(log) = thread_log.as_ref() {
+            if let Some(track) = TrackKind::from_any_phase(phase) {
+                repair_ctx.recent_failed_file_ops =
+                    DataEngineerSuite::collect_recent_failed_file_ops(log, track);
+            }
+        }
+        Self::preload_repair_context(&mut repair_ctx, &execution_state, phase, self.sctx, self.thread_id).await;
+
+        let outcome = DataEngineerSuite::execute_phase(
+            &self.thread_store,
+            self.thread_id,
+            phase,
+            self.question,
+            self.sctx,
+            &execution_state,
+            &guard,
+            thread_state_step_count,
+            &repair_ctx,
+            out_frames,
+        )
+        .await;
+
+        match outcome {
+            PhaseOutcome::TransitionCommitted => {
+                PhaseOutcome::stayed_with_progress("phase transition committed")
+            }
+            other => other,
+        }
+    }
+
+    async fn on_budget_exhausted(&self, _out_frames: &mut Vec<FlowFrame>, total_steps: usize) {
+        let budget_msg = format!(
+            "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n- total_steps={}",
+            total_steps,
+        );
+        if let Some(mut es) = crate::progress_controller::ExecutionState::load(
+            &self.thread_store.control_store(),
+            self.thread_id,
+        )
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("failed to load execution state at budget exhaustion: {e}");
+            None
+        }) {
+            let detail = format!(
+                "{}\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
+                budget_msg,
+                es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
+                format!("{:?}", es.phase.mode),
+                es.phase.phase_reason_code.map(|c| c.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
+                es.phase.replan_backtracks,
+                es.repair.stall_count,
+                crate::progress_controller::DEFAULT_MAX_STALL_COUNT,
+                es.hard_mutation_repair_mode(),
+            );
+            es.mark_failed(&detail);
+            if let Err(e) = es.save(&self.thread_store.control_store(), self.thread_id).await {
+                tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
+            }
+        }
+    }
+
+    async fn step_count(&self) -> usize {
+        self.thread_store
+            .get(self.thread_id)
+            .await
+            .ok()
+            .map(|log| log.steps.len())
+            .unwrap_or(0)
+    }
+}
+
+impl DataEngineerExecutor<'_> {
+    async fn preload_repair_context(
+        repair_ctx: &mut crate::progress_controller::RepairPromptContext,
+        execution_state: &crate::progress_controller::ExecutionState,
+        phase: control_flow::Phase,
+        sctx: &SuiteCtx,
+        thread_id: &str,
+    ) {
+        let mut verified_files: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for fm in &repair_ctx.failed_models {
+            if fm.file.trim().is_empty() {
+                continue;
+            }
+            let base = sctx
+                .keyspace()
+                .scoped_prefix(sctx.scope(), &["dbt"])
+                .trim_end_matches('/')
+                .to_string();
+            let key = format!("{}/{}", base, fm.file);
+            if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                    verified_files.insert(fm.file.clone());
+                    repair_ctx.target_contents.push((fm.file.clone(), text));
+                }
+            }
+        }
+        repair_ctx
+            .failed_models
+            .retain(|fm| fm.file.trim().is_empty() || verified_files.contains(&fm.file));
+
+        {
+            let schema_path = "models/schema.yml";
+            let already_loaded = repair_ctx
+                .target_contents
+                .iter()
+                .any(|(p, _)| p == schema_path);
+            if !already_loaded {
+                let base = sctx
+                    .keyspace()
+                    .scoped_prefix(sctx.scope(), &["dbt"])
+                    .trim_end_matches('/')
+                    .to_string();
+                let key = format!("{}/{}", base, schema_path);
+                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                        repair_ctx
+                            .target_contents
+                            .push((schema_path.to_string(), text));
+                    }
+                }
+            }
+        }
+
+        if let Some(target_path) = execution_state.single_target_repair_path() {
+            let already_loaded = repair_ctx
+                .target_contents
+                .iter()
+                .any(|(p, _)| p.as_str() == target_path);
+            if !already_loaded {
+                let base = sctx
+                    .keyspace()
+                    .scoped_prefix(sctx.scope(), &["dbt"])
+                    .trim_end_matches('/')
+                    .to_string();
+                let key = format!("{}/{}", base, target_path);
+                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                        repair_ctx
+                            .target_contents
+                            .push((target_path.to_string(), text));
+                    }
+                }
+            }
+        }
+
+        if let Some(track) = crate::track_spec::TrackKind::from_any_phase(phase) {
+            let actx = DataEngineerSuite::plan_agent_ctx(thread_id, sctx);
+            let failing_names: std::collections::HashSet<String> = repair_ctx
+                .failed_models
+                .iter()
+                .map(|fm| fm.name.trim().to_string())
+                .filter(|n| !n.is_empty())
+                .collect();
+            if !failing_names.is_empty() {
+                let mut matched_model_paths: Vec<String> = Vec::new();
+                if track.is_cleanse() {
+                    if let Some(plan) =
+                        crate::plan::load_cleanse_plan(&actx).await.ok().flatten()
+                    {
+                        for t in &plan.tasks {
+                            let task_name = t.dataset_id.as_str();
+                            let matched = failing_names.contains(task_name)
+                                || failing_names.iter().any(|n| n.contains(task_name))
+                                || failing_names.iter().any(|n| {
+                                    t.expected_model_path
+                                        .as_deref()
+                                        .map(|p| p.contains(n.as_str()))
+                                        .unwrap_or(false)
+                                });
+                            if matched {
+                                repair_ctx.task_specs.push(
+                                    crate::progress_controller::TaskRepairSpec {
+                                        task_id: t.dataset_id.clone(),
+                                        source_schema: t.source_schema.clone(),
+                                        implementation_spec_json: t
+                                            .implementation_spec
+                                            .as_ref()
+                                            .map(|s| {
+                                                serde_json::to_string_pretty(s)
+                                                    .unwrap_or_default()
+                                            })
+                                            .unwrap_or_default(),
+                                    },
+                                );
+                                if let Some(mp) = t.expected_model_path.as_deref() {
+                                    matched_model_paths.push(mp.to_string());
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(plan) =
+                    crate::plan::load_model_plan(&actx).await.ok().flatten()
+                {
+                    for t in &plan.tasks {
+                        let task_name = t.name.as_str();
+                        let matched = failing_names.contains(task_name)
+                            || failing_names.iter().any(|n| n.contains(task_name))
+                            || failing_names.iter().any(|n| {
+                                t.expected_model_path
+                                    .as_deref()
+                                    .map(|p| p.contains(n.as_str()))
+                                    .unwrap_or(false)
+                            });
+                        if matched {
+                            repair_ctx.task_specs.push(
+                                crate::progress_controller::TaskRepairSpec {
+                                    task_id: t.name.clone(),
+                                    source_schema: t.source_schema.clone(),
+                                    implementation_spec_json: t
+                                        .implementation_spec
+                                        .as_ref()
+                                        .map(|s| {
+                                            serde_json::to_string_pretty(s).unwrap_or_default()
+                                        })
+                                        .unwrap_or_default(),
+                                },
+                            );
+                            if let Some(mp) = t.expected_model_path.as_deref() {
+                                matched_model_paths.push(mp.to_string());
+                            }
+                        }
+                    }
+                }
+
+                let base = sctx
+                    .keyspace()
+                    .scoped_prefix(sctx.scope(), &["dbt"])
+                    .trim_end_matches('/')
+                    .to_string();
+                for mp in matched_model_paths {
+                    let already_loaded = repair_ctx
+                        .target_contents
+                        .iter()
+                        .any(|(p, _)| p.as_str() == mp.as_str());
+                    if already_loaded {
+                        continue;
+                    }
+                    let key = format!("{}/{}", base, mp);
+                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
+                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                            repair_ctx.target_contents.push((mp, text));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl DataEngineerSuite {
+    /// Collect recent failed file mutations from the thread log, scoped to a
+    /// specific track. Requiring `track` at the call site is a compile-time
+    /// guarantee that the caller cannot accidentally leak cross-phase context.
     fn collect_recent_failed_file_ops(
         log: &react_core::session::ThreadLog,
+        track: TrackKind,
     ) -> Vec<crate::progress_controller::RecentFailedFileOp> {
         use react_core::session::{ThreadStep, ToolStepStatus};
 
@@ -62,7 +381,16 @@ impl DataEngineerSuite {
             std::collections::BTreeMap::new();
         let mut insertion_order: Vec<(String, String)> = Vec::new();
 
-        for step in log.steps.iter().rev() {
+        let mut current_track: Option<TrackKind> = None;
+        for step in log.steps.iter() {
+            if let ThreadStep::Phase { phase, .. } = step {
+                current_track = control_flow::Phase::from_str(phase.trim())
+                    .and_then(TrackKind::from_any_phase);
+                continue;
+            }
+            if current_track != Some(track) {
+                continue;
+            }
             let ThreadStep::ToolEnd {
                 name,
                 args,
@@ -119,9 +447,10 @@ impl DataEngineerSuite {
             entry.1 += 1;
         }
 
+        let skip = insertion_order.len().saturating_sub(8);
         insertion_order
             .into_iter()
-            .take(8)
+            .skip(skip)
             .filter_map(|(op, path)| {
                 let (error_brief, count) = counts.remove(&(op.clone(), path.clone()))?;
                 Some(crate::progress_controller::RecentFailedFileOp {
@@ -428,7 +757,7 @@ impl DataEngineerSuite {
             thread_id,
             env_util::DEFAULT_AGENT_NAME,
             std::sync::Arc::new(InterruptOnlyPolicy),
-            env_util::PLAN_MAX_STEPS,
+            env_util::PLAN_DISCOVERY_MAX_STEPS,
             20,
         )
     }
@@ -438,7 +767,7 @@ impl DataEngineerSuite {
         question: &str,
         sctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
-        use control_flow::{DerivedGuardState, Phase};
+        use control_flow::Phase;
         if let Err(e) = Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await {
             let thread_store = ThreadStore::new(
                 sctx.storage().clone(),
@@ -465,9 +794,6 @@ impl DataEngineerSuite {
             return Err(format!("agent_mode_await_user_forbidden: {}", reason));
         }
 
-        // Phase-step budget is reset when we make clear forward progress (phase advances).
-        // This prevents aborting a healthy thread that is steadily moving through phases,
-        // while still bounding degenerate loops.
         let model_name = sctx
             .resolved_config()
             .as_ref()
@@ -482,325 +808,28 @@ impl DataEngineerSuite {
             sctx.keyspace().clone(),
         );
 
-        let mut out_frames: Vec<FlowFrame> = Vec::new();
-
-        let mut remaining_steps = max_phase_steps;
-        let mut total_steps: usize = 0;
-        let mut last_phase: Option<control_flow::Phase> = None;
-        let mut consecutive_waiting: usize = 0;
-        const MAX_CONSECUTIVE_WAITING_IDLE: usize = 5;
-        const MAX_CONSECUTIVE_WAITING_ACTIVE: usize = 12;
-
-        while remaining_steps > 0 {
-            total_steps += 1;
-            remaining_steps = remaining_steps.saturating_sub(1);
-
-            let execution_state = crate::progress_controller::ExecutionState::load_strict(
-                &thread_store.control_store(),
-                thread_id,
-            )
-            .await?
-            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            let phase = execution_state
-                .phase
-                .current_phase
-                .unwrap_or(control_flow::Phase::Preflight);
-            let thread_log = thread_store.get(thread_id).await.ok();
-            let thread_state_step_count = thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
-            if last_phase != Some(phase) {
-                last_phase = Some(phase);
-                remaining_steps = max_phase_steps;
-            }
-            let guard: DerivedGuardState =
-                control_flow::derive_guard_state_from_execution_state(&execution_state);
-            match crate::phase_gate::evaluate_pre_turn_directive(
-                &execution_state,
-                phase,
-                max_replan_backtracks,
-            ) {
-                crate::phase_gate::PreTurnDirective::Proceed => {}
-                crate::phase_gate::PreTurnDirective::FailFast { kind, reason } => {
-                    crate::transition_dispatcher::apply_phase_directive(
-                        &thread_store,
-                        thread_id,
-                        Some(env_util::DEFAULT_AGENT_NAME.to_string()),
-                        Some(phase),
-                        crate::transition_dispatcher::PhaseDirective::Block {
-                            phase,
-                            kind,
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                    let mut es = execution_state.clone();
-                    es.mark_failed(reason.clone());
-                    es.save(&thread_store.control_store(), thread_id)
-                        .await
-                        .map_err(|e| format!("failed to persist fail-fast mark_failed: {e}"))?;
-                    return Err(reason);
-                }
-            }
-
-            let mut repair_ctx = execution_state.repair_prompt_context();
-            if let Some(log) = thread_log.as_ref() {
-                repair_ctx.recent_failed_file_ops = Self::collect_recent_failed_file_ops(log);
-            }
-            // Pre-fetch file contents for failing models so the repair LLM
-            // sees exact file content instead of hallucinating patch context.
-            // Track which files actually exist so we can filter phantoms.
-            let mut verified_files: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            for fm in &repair_ctx.failed_models {
-                if fm.file.trim().is_empty() {
-                    continue;
-                }
-                let base = sctx
-                    .keyspace()
-                    .scoped_prefix(sctx.scope(), &["dbt"])
-                    .trim_end_matches('/')
-                    .to_string();
-                let key = format!("{}/{}", base, fm.file);
-                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                        verified_files.insert(fm.file.clone());
-                        repair_ctx.target_contents.push((fm.file.clone(), text));
-                    }
-                }
-            }
-            // Remove phantom targets (files that don't exist in storage)
-            // so they don't mislead the LLM.
-            repair_ctx.failed_models.retain(|fm| {
-                fm.file.trim().is_empty() || verified_files.contains(&fm.file)
-            });
-            // Always pre-load models/schema.yml if it exists — it's commonly
-            // involved in failures and the LLM needs it for diagnosis.
-            {
-                let schema_path = "models/schema.yml";
-                let already_loaded = repair_ctx
-                    .target_contents
-                    .iter()
-                    .any(|(p, _)| p == schema_path);
-                if !already_loaded {
-                    let base = sctx
-                        .keyspace()
-                        .scoped_prefix(sctx.scope(), &["dbt"])
-                        .trim_end_matches('/')
-                        .to_string();
-                    let key = format!("{}/{}", base, schema_path);
-                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                            repair_ctx
-                                .target_contents
-                                .push((schema_path.to_string(), text));
-                        }
-                    }
-                }
-            }
-            // Pre-load the primary repair target file if it wasn't already
-            // loaded from the failed_models or schema.yml paths.
-            if let Some(target_path) = execution_state.single_target_repair_path() {
-                let already_loaded = repair_ctx
-                    .target_contents
-                    .iter()
-                    .any(|(p, _)| p.as_str() == target_path);
-                if !already_loaded {
-                    let base = sctx
-                        .keyspace()
-                        .scoped_prefix(sctx.scope(), &["dbt"])
-                        .trim_end_matches('/')
-                        .to_string();
-                    let key = format!("{}/{}", base, target_path);
-                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                            repair_ctx
-                                .target_contents
-                                .push((target_path.to_string(), text));
-                        }
-                    }
-                }
-            }
-            // Populate typed task specs from the plan so the repair LLM
-            // sees the authoritative contract (source_schema + implementation_spec).
-            // Also pre-load SQL model files for matched tasks so the LLM doesn't
-            // only see the YAML test definition when a test failure occurs.
-            if let Some(track) = crate::track_spec::TrackKind::from_any_phase(phase) {
-                let actx = Self::plan_agent_ctx(thread_id, sctx);
-                let failing_names: std::collections::HashSet<String> = repair_ctx
-                    .failed_models
-                    .iter()
-                    .map(|fm| fm.name.trim().to_string())
-                    .filter(|n| !n.is_empty())
-                    .collect();
-                if !failing_names.is_empty() {
-                    let mut matched_model_paths: Vec<String> = Vec::new();
-                    if track.is_cleanse() {
-                        if let Some(plan) = crate::plan::load_cleanse_plan(&actx).await.ok().flatten() {
-                            for t in &plan.tasks {
-                                let task_name = t.dataset_id.as_str();
-                                let matched = failing_names.contains(task_name)
-                                    || failing_names.iter().any(|n| n.contains(task_name))
-                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false));
-                                if matched {
-                                    repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
-                                        task_id: t.dataset_id.clone(),
-                                        source_schema: t.source_schema.clone(),
-                                        implementation_spec_json: t.implementation_spec.as_ref()
-                                            .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
-                                            .unwrap_or_default(),
-                                    });
-                                    if let Some(mp) = t.expected_model_path.as_deref() {
-                                        matched_model_paths.push(mp.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        if let Some(plan) = crate::plan::load_model_plan(&actx).await.ok().flatten() {
-                            for t in &plan.tasks {
-                                let task_name = t.name.as_str();
-                                let matched = failing_names.contains(task_name)
-                                    || failing_names.iter().any(|n| n.contains(task_name))
-                                    || failing_names.iter().any(|n| t.expected_model_path.as_deref().map(|p| p.contains(n.as_str())).unwrap_or(false));
-                                if matched {
-                                    repair_ctx.task_specs.push(crate::progress_controller::TaskRepairSpec {
-                                        task_id: t.name.clone(),
-                                        source_schema: t.source_schema.clone(),
-                                        implementation_spec_json: t.implementation_spec.as_ref()
-                                            .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
-                                            .unwrap_or_default(),
-                                    });
-                                    if let Some(mp) = t.expected_model_path.as_deref() {
-                                        matched_model_paths.push(mp.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    let base = sctx
-                        .keyspace()
-                        .scoped_prefix(sctx.scope(), &["dbt"])
-                        .trim_end_matches('/')
-                        .to_string();
-                    for mp in matched_model_paths {
-                        let already_loaded = repair_ctx
-                            .target_contents
-                            .iter()
-                            .any(|(p, _)| p.as_str() == mp.as_str());
-                        if already_loaded {
-                            continue;
-                        }
-                        let key = format!("{}/{}", base, mp);
-                        if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                                repair_ctx.target_contents.push((mp, text));
-                            }
-                        }
-                    }
-                }
-            }
-            match Self::execute_phase(
-                &thread_store,
-                thread_id,
-                phase,
-                question,
-                sctx,
-                &execution_state,
-                &guard,
-                thread_state_step_count,
-                &repair_ctx,
-                &mut out_frames,
-            )
-            .await
-            {
-                PhaseExecutorOutcome::StayedWithProgress { detail } => {
-                    tracing::debug!(thread_id = %thread_id, phase_progress = %detail);
-                    remaining_steps = max_phase_steps;
-                    consecutive_waiting = 0;
-                    continue;
-                }
-                PhaseExecutorOutcome::StayedWaiting { reason } => {
-                    remaining_steps += 1;
-                    let new_step_count = thread_store
-                        .get(thread_id)
-                        .await
-                        .ok()
-                        .map(|log| log.steps.len())
-                        .unwrap_or(0);
-                    let was_active = new_step_count > thread_state_step_count + 2;
-                    if was_active {
-                        consecutive_waiting += 1;
-                    } else {
-                        consecutive_waiting += 2;
-                    }
-                    let limit = if was_active {
-                        MAX_CONSECUTIVE_WAITING_ACTIVE
-                    } else {
-                        MAX_CONSECUTIVE_WAITING_IDLE
-                    };
-                    tracing::debug!(
-                        thread_id = %thread_id,
-                        phase_waiting = %reason,
-                        consecutive_waiting,
-                        was_active,
-                        limit,
-                    );
-                    if consecutive_waiting >= limit {
-                        tracing::error!(
-                            thread_id = %thread_id,
-                            consecutive_waiting,
-                            phase = ?phase,
-                            "phase returned StayedWaiting {consecutive_waiting} times consecutively without progress",
-                        );
-                        return Err(format!(
-                            "phase {phase:?} stuck: returned StayedWaiting {consecutive_waiting} times consecutively without progress (last reason: {reason})",
-                        ));
-                    }
-                    continue;
-                }
-                PhaseExecutorOutcome::TransitionCommitted => {
-                    consecutive_waiting = 0;
-                    continue;
-                }
-                PhaseExecutorOutcome::Return(frames) => return Ok(frames),
-                PhaseExecutorOutcome::Failed { reason } => return Err(reason),
-            }
-        }
-
-        let mut budget_msg = format!(
-            "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n\nBudget:\n- max_steps_per_progress={max_phase_steps}\n- total_steps={total_steps}\n\nThis indicates a loop (re-entering phases without durable progress)."
-        );
-        if let Some(mut es) = crate::progress_controller::ExecutionState::load(
-            &thread_store.control_store(),
+        let executor = DataEngineerExecutor {
+            thread_store,
+            sctx,
             thread_id,
-        )
-        .await
-        .unwrap_or_else(|e| {
-            tracing::error!("failed to load execution state at budget exhaustion: {e}");
-            None
-        }) {
-            budget_msg.push_str(&format!(
-                "\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
-                es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
-                format!("{:?}", es.phase.mode),
-                es.phase.phase_reason_code.map(|c| c.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
-                es.phase.replan_backtracks,
-                es.repair.stall_count,
-                crate::progress_controller::DEFAULT_MAX_STALL_COUNT,
-                es.hard_mutation_repair_mode(),
-            ));
-            es.mark_failed(budget_msg.clone());
-            if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
-                tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
-            }
-        }
-        Err(budget_msg)
+            question,
+            max_replan_backtracks,
+        };
+
+        let config = react_core::workflow::WorkflowConfig {
+            max_phase_steps,
+            max_consecutive_waiting_idle: 5,
+            max_consecutive_waiting_active: 12,
+            ..Default::default()
+        };
+
+        react_core::workflow::runner::run(&executor, &config).await
     }
 
     /// Infallible phase dispatcher. Individual phase executors may return
     /// `Err(String)` internally; this boundary catches every such error,
     /// records a `PhaseExecutionError` guard block + `mark_failed` in
-    /// ControlState, and converts the error into `PhaseExecutorOutcome::Failed`.
+    /// ControlState, and converts the error into `PhaseOutcome::Failed`.
     ///
     /// Because the return type carries no `Result`, the caller (`run_agent`)
     /// cannot use `?` to silently discard errors — the compiler forces an
@@ -816,7 +845,7 @@ impl DataEngineerSuite {
         thread_state_step_count: usize,
         repair_ctx: &crate::progress_controller::RepairPromptContext,
         out_frames: &mut Vec<FlowFrame>,
-    ) -> PhaseExecutorOutcome {
+    ) -> PhaseOutcome {
         match Self::execute_phase_inner(
             thread_store,
             thread_id,
@@ -865,7 +894,7 @@ impl DataEngineerSuite {
                         tracing::error!("failed to load execution state after phase error: {e}");
                     }
                 }
-                PhaseExecutorOutcome::Failed { reason }
+                PhaseOutcome::Failed { reason }
             }
         }
     }
@@ -881,7 +910,7 @@ impl DataEngineerSuite {
         thread_state_step_count: usize,
         repair_ctx: &crate::progress_controller::RepairPromptContext,
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         use crate::control_flow::Phase;
         match phase {
             Phase::Preflight => Self::execute_preflight_phase(thread_store, thread_id, sctx).await,
@@ -964,7 +993,7 @@ impl DataEngineerSuite {
         sctx: &SuiteCtx,
         _execution_state: &crate::progress_controller::ExecutionState,
         repair_ctx: &crate::progress_controller::RepairPromptContext,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let actx = Self::agent_tool_ctx(thread_id, sctx);
         let cfg = crate::resolved_config_from_ctx(&actx);
         let dispatch = cfg
@@ -976,18 +1005,31 @@ impl DataEngineerSuite {
 
         let error_context = crate::repair_session::RepairErrorContext {
             validate_brief: repair_ctx
+                .brief
+                .clone()
+                .unwrap_or_else(|| {
+                    repair_ctx
+                        .failed_models
+                        .iter()
+                        .map(|m| {
+                            format!(
+                                "{}: {}",
+                                m.name,
+                                m.error.as_deref().unwrap_or("unknown error")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }),
+            failing_tests: repair_ctx
                 .failed_models
                 .iter()
-                .map(|m| {
-                    format!(
-                        "{}: {}",
-                        m.name,
-                        m.error.as_deref().unwrap_or("unknown error")
-                    )
+                .filter(|m| m.error.is_some())
+                .map(|m| crate::repair_session::FailingTest {
+                    name: m.name.clone(),
+                    error_snippet: m.error.clone().unwrap_or_default(),
                 })
-                .collect::<Vec<_>>()
-                .join("\n"),
-            failing_tests: Vec::new(),
+                .collect(),
             failed_models: repair_ctx
                 .failed_models
                 .iter()
@@ -1009,23 +1051,10 @@ impl DataEngineerSuite {
         )
         .await
         {
-            Ok(session_log) => {
-                let passed = session_log
-                    .last()
-                    .and_then(|it| it.validate_outcome.as_ref())
-                    .map(|v| v.passed)
-                    .unwrap_or(false);
-                if passed {
-                    Ok(PhaseExecutorOutcome::TransitionCommitted)
-                } else {
-                    Ok(PhaseExecutorOutcome::StayedWithProgress {
-                        detail: "repair subroutine completed but validation still failing".into(),
-                    })
-                }
-            }
-            Err(e) => Ok(PhaseExecutorOutcome::StayedWithProgress {
-                detail: format!("repair subroutine failed: {e}"),
-            }),
+            Ok(_) => Ok(PhaseOutcome::TransitionCommitted),
+            Err(e) => Ok(PhaseOutcome::stayed_waiting(format!(
+                "repair subroutine failed: {e}"
+            ))),
         }
     }
 

@@ -83,10 +83,6 @@ mod tests {
                 "patch_contract.llm_patch_response_contract",
                 super::patch_contract::llm_patch_response_contract().to_string(),
             ),
-            (
-                "patch_contract.file_patch_contract",
-                super::patch_contract::file_patch_contract().to_string(),
-            ),
         ];
         for (label, s) in prompts.iter() {
             assert_no_banned_phrases(label, s);

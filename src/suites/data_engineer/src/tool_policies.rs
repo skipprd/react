@@ -1,6 +1,4 @@
 use super::*;
-use crate::tools::sql_run::SqlRunTool;
-
 pub(super) fn register_batch_tool_for_plan_state(
     reg: &mut ToolRegistry,
     phase: control_flow::Phase,
@@ -34,7 +32,9 @@ pub(super) fn register_batch_tool_for_plan_state(
             );
             Some("apply_next_model_schema_batch")
         }
-        _ => None,
+        (_, PlanState::Unconstrained | PlanState::Repair | PlanState::ReadOnly) => None,
+        (_, PlanState::ModelSqlItemNames(_) | PlanState::ModelSchemaItemNames(_)) => None,
+        (_, PlanState::CleanseSqlDatasetIds(_) | PlanState::CleanseSchemaDatasetIds(_)) => None,
     }
 }
 
@@ -107,66 +107,6 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
                     crate::controller_kernel::GuardReason::ProbeRequiredAfterRuntimeFailure,
                 ));
             }
-        }
-        self.inner.call(args, ctx).await
-    }
-}
-
-pub(super) struct ProbeAwareRunSqlTool {
-    pub(super) inner: SqlRunTool,
-}
-#[async_trait::async_trait]
-impl react_core::tools::Tool for ProbeAwareRunSqlTool {
-    fn name(&self) -> &'static str {
-        "run_sql"
-    }
-    async fn call(
-        &self,
-        args: serde_json::Value,
-        ctx: &react_core::agent::AgentCtx,
-    ) -> Result<serde_json::Value, String> {
-        let sql = args
-            .get("sql")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if let (Some(store), Some(thread_id)) =
-            (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
-        {
-            let mut es =
-                crate::progress_controller::ExecutionState::load(&store.control_store(), thread_id)
-                    .await
-                    .map_err(|e| {
-                        format!("failed to load execution state for probe-aware run_sql: {e}")
-                    })?
-                    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            if matches!(
-                es.probe_requirement_status(),
-                crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation
-            ) {
-                return Err("run_sql probe loop exhausted for this validate-failure cycle; apply a mutating file fix before probing again.".to_string());
-            }
-            let res = self.inner.call(args, ctx).await;
-            if es.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false)
-                && es.hard_mutation_repair_mode()
-            {
-                match &res {
-                    Ok(v) => {
-                        let ok = v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
-                        let sig = crate::progress_controller::ProbeSignature::from_run_sql(&sql, v);
-                        let _ = es.note_probe_attempt(&sql, ok, sig);
-                    }
-                    Err(_) => {
-                        let sig = crate::progress_controller::ProbeSignature::from_run_sql(
-                            &sql,
-                            &serde_json::json!({}),
-                        );
-                        let _ = es.note_probe_attempt(&sql, false, sig);
-                    }
-                }
-                es.save(&store.control_store(), thread_id).await?;
-            }
-            return res;
         }
         self.inner.call(args, ctx).await
     }

@@ -96,7 +96,6 @@ pub mod env_keys {
     pub const DBT_DOCKER_PLATFORM: &str = "DBT_DOCKER_PLATFORM";
     pub const DBT_DOCKER_NETWORK: &str = "DBT_DOCKER_NETWORK";
     pub const DBT_DOCKER_MOUNT_AWS_DIR: &str = "DBT_DOCKER_MOUNT_AWS_DIR";
-    pub const DBT_REPAIR_MAX_ITERS: &str = "DBT_REPAIR_MAX_ITERS";
 }
 
 // ---------------------------------------------------------------------------
@@ -206,10 +205,31 @@ pub const DEFAULT_TOP_K: usize = 30;
 
 pub const ASK_MAX_STEPS: usize = 50;
 pub const REVIEW_MAX_STEPS: usize = 40;
-pub const PLAN_MAX_STEPS: usize = 60;
+/// Fallback when source count is unknown at AgentCtx construction time.
+pub const PLAN_DISCOVERY_MAX_STEPS: usize = 20;
+const PLAN_DISCOVERY_STEPS_PER_SOURCE: usize = 3;
+const PLAN_DISCOVERY_BASE_BUFFER: usize = 15;
+const PLAN_DISCOVERY_MIN_STEPS: usize = 15;
+const PLAN_DISCOVERY_MAX_STEPS_CAP: usize = 80;
+
+/// Compute a proportional step budget for plan discovery.
+///
+/// Formula: `source_count * 3 + 15`, clamped to `[15, 80]`.
+///
+/// The base buffer (15) accounts for project-level reads that are
+/// independent of source count: dbt_project.yml, manifest queries,
+/// catalog files, schema.yml, vector search, models/ listing, etc.
+/// The per-source factor (3) covers list + read SQL + sql_schema per
+/// source.  The cap (80) prevents runaway loops while allowing large
+/// projects enough room.
+pub fn plan_discovery_steps_for_sources(source_count: usize) -> usize {
+    let raw = source_count
+        .saturating_mul(PLAN_DISCOVERY_STEPS_PER_SOURCE)
+        .saturating_add(PLAN_DISCOVERY_BASE_BUFFER);
+    raw.clamp(PLAN_DISCOVERY_MIN_STEPS, PLAN_DISCOVERY_MAX_STEPS_CAP)
+}
 pub const APPROVAL_PARSE_MAX_STEPS: usize = 6;
-pub const AUTHOR_MAX_STEPS: usize = 4;
-pub const REPAIR_MAX_STEPS: usize = 20;
+pub const AUTHOR_MAX_STEPS: usize = 10;
 
 pub const DEFAULT_MAX_PHASE_STEPS: usize = 80;
 pub const MIN_PHASE_STEPS: usize = 8;

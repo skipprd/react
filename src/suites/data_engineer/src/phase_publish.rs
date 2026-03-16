@@ -1,6 +1,6 @@
 use crate::domain_types::PhaseReasonCode;
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
-use crate::{control_flow, tools, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
+use crate::{control_flow, tools, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
@@ -10,7 +10,7 @@ fn check_publish_retry_limit(
     _thread_id: &str,
     kind: crate::progress_controller::PublishRetryKind,
     error_prefix: &str,
-) -> (usize, Option<Result<PhaseExecutorOutcome, PhaseError>>) {
+) -> (usize, Option<Result<PhaseOutcome, PhaseError>>) {
     let retry_limit = crate::controller_kernel::publish_retry_limit();
     let retry_count = es.bump_publish_retry(kind, retry_limit);
     let err = if retry_count > retry_limit {
@@ -26,7 +26,7 @@ impl DataEngineerSuite {
         thread_store: &ThreadStore,
         thread_id: &str,
         _sctx: &SuiteCtx,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let mut es = crate::progress_controller::ExecutionState::load_strict(
             &thread_store.control_store(),
             thread_id,
@@ -57,7 +57,7 @@ impl DataEngineerSuite {
                 .map_err(|e| {
                     format!("failed to persist publish await-approval retry state: {e}")
                 })?;
-            return Ok(PhaseExecutorOutcome::stayed_waiting(format!(
+            return Ok(PhaseOutcome::stayed_waiting(format!(
                 "publish await-approval gate remains unsatisfied: {reason}"
             )));
         }
@@ -84,14 +84,14 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::TransitionCommitted)
+        Ok(PhaseOutcome::TransitionCommitted)
     }
 
     pub(super) async fn execute_publish_phase(
         thread_store: &ThreadStore,
         thread_id: &str,
         sctx: &SuiteCtx,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let mut es = crate::progress_controller::ExecutionState::load_strict(
             &thread_store.control_store(),
             thread_id,
@@ -137,7 +137,7 @@ impl DataEngineerSuite {
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::TransitionCommitted);
+            return Ok(PhaseOutcome::TransitionCommitted);
         }
         if ok && stage == "await_approval" {
             let (retry_count, err) = check_publish_retry_limit(
@@ -174,7 +174,7 @@ impl DataEngineerSuite {
                 ),
             )
             .await?;
-            return Ok(PhaseExecutorOutcome::TransitionCommitted);
+            return Ok(PhaseOutcome::TransitionCommitted);
         }
         let (retry_count, err) = check_publish_retry_limit(
             &mut es,
@@ -208,12 +208,12 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::TransitionCommitted)
+        Ok(PhaseOutcome::TransitionCommitted)
     }
 
     pub(super) fn execute_done_phase(
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let mut answer = "Agent flow completed (deterministic phases): cleanse → validate → review → model → validate → review → publish → review.\n".to_string();
         if let Some(last) = out_frames.iter().rev().find_map(|f| match f {
             FlowFrame::Review { text, .. } => Some(text.clone()),
@@ -227,6 +227,6 @@ impl DataEngineerSuite {
             payload: serde_json::json!({ "text": answer.clone() }),
             display: Some(answer),
         });
-        Ok(PhaseExecutorOutcome::Return(out_frames.clone()))
+        Ok(PhaseOutcome::Return(out_frames.clone()))
     }
 }

@@ -391,7 +391,11 @@ impl LargeLanguageModel for OpenAICompatModel {
 
             let v: serde_json::Value =
                 serde_json::from_str(&body_text).map_err(|e| e.to_string())?;
-            if let Some(t) = extract_response_text(&v) {
+            let structured = matches!(
+                options.expected_format,
+                react_core::llm::LlmExpectedFormat::JsonSchema(_)
+            );
+            if let Some(t) = extract_response_text(&v, structured) {
                 tracing::debug!("LLM(responses) extracted text:\n{}", t);
                 return Ok(t);
             }

@@ -163,11 +163,10 @@ impl DataEngineerSuite {
 
     pub(super) fn build_tools_for_phase(
         phase: control_flow::Phase,
-        guard: &control_flow::DerivedGuardState,
+        _guard: &control_flow::DerivedGuardState,
         _allow_ask_approval: bool,
         sctx: &SuiteCtx,
         plan_state: &PlanState,
-        _primary_repair_target: Option<String>,
         suppress_manifest_json_in_plan: bool,
     ) -> Result<(ToolRegistry, String), String> {
         use crate::tools::{
@@ -245,14 +244,24 @@ impl DataEngineerSuite {
                 );
             }
             control_flow::Phase::CleanseAuthor | control_flow::Phase::ModelAuthor => {
-                {
-                    let batch_tool_name = register_batch_tool_for_plan_state(
-                        &mut reg,
-                        phase,
-                        plan_state,
-                        &datasets_opt,
-                    );
-                    if matches!(plan_state, PlanState::Unconstrained) {
+                let batch_tool_name = register_batch_tool_for_plan_state(
+                    &mut reg,
+                    phase,
+                    plan_state,
+                    &datasets_opt,
+                );
+
+                reg.register(SqlRunTool {
+                    query: query.clone(),
+                });
+                reg.register(tools::dbt_examples::SearchDbtExamplesTool);
+                reg.register(JsonFileTool);
+
+                match plan_state {
+                    PlanState::Unconstrained => {
+                        reg.register(FilesTool {
+                            datasets: crate::ctx_ext::sctx_datasets(sctx),
+                        });
                         if phase == control_flow::Phase::CleanseAuthor {
                             reg.register(tools::staging_model::StagingModelTool {
                                 datasets: crate::ctx_ext::sctx_datasets(sctx),
@@ -270,33 +279,6 @@ impl DataEngineerSuite {
                                 },
                             );
                         }
-                    }
-                    reg.register(SqlRunTool {
-                        query: query.clone(),
-                    });
-                    reg.register(tools::dbt_examples::SearchDbtExamplesTool);
-                    reg.register(FilesTool {
-                        datasets: crate::ctx_ext::sctx_datasets(sctx),
-                    });
-                    reg.register(JsonFileTool);
-
-                    if let Some(batch_name) = batch_tool_name {
-                        let lines = vec![
-                            format!("- {batch_name}(args:{{instructions?:string}})"),
-                            "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
-                            "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
-                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
-                                .to_string(),
-                            "- run_sql (targeted probes)".to_string(),
-                            "- artifacts".to_string(),
-                        ];
-                        tools_card = Self::build_tools_card(
-                            "Allowed tools (authoring phase; plan-batched, deterministic):",
-                            lines,
-                            Vec::new(),
-                            Some("Not available in this phase: dbt_validate, publish_dbt_to_provider.".to_string()),
-                        );
-                    } else {
                         let mut lines = vec![
                             "- sql_schema(args:{table?:string})".to_string(),
                             "- vect_query(args:{scope:\"dataset\"|\"field\"|\"doc\"|\"artifact\"|\"metric\"|\"model\", query_text:string, k:int})".to_string(),
@@ -329,6 +311,70 @@ impl DataEngineerSuite {
                             lines,
                             Vec::new(),
                             Some("Not available in this phase: dbt_validate, publish_dbt_to_provider (suite handles these deterministically).".to_string()),
+                        );
+                    }
+                    PlanState::Repair => {
+                        reg.register(FilesTool {
+                            datasets: crate::ctx_ext::sctx_datasets(sctx),
+                        });
+                        let lines = vec![
+                            "- file(args:{op:\"list\"|\"get\"|\"patch\"|\"write\"|\"rm\"|\"mv\", ...})".to_string(),
+                            "- json_file(args:{op:\"get_item\"|\"query\", ...})".to_string(),
+                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery)".to_string(),
+                            "- run_sql (targeted probes)".to_string(),
+                            "- artifacts".to_string(),
+                        ];
+                        tools_card = Self::build_tools_card(
+                            "Allowed tools (repair; targeted fixes only):",
+                            lines,
+                            Vec::new(),
+                            Some("Not available: gold_model, staging_model, apply_next_*_batch, dbt_validate, publish_dbt_to_provider. Use file(op:\"patch\") for targeted SQL/YAML fixes.".to_string()),
+                        );
+                    }
+                    PlanState::ReadOnly => {
+                        reg.register(PolicyFilesTool {
+                            inner: FilesTool {
+                                datasets: crate::ctx_ext::sctx_datasets(sctx),
+                            },
+                            policy: FileAccessPolicy::ReadOnly {
+                                error_message: "file is read-only in this context; use op='get' or op='list'",
+                            },
+                        });
+                        tools_card = Self::build_tools_card(
+                            "Allowed tools (read-only):",
+                            vec![
+                                "- file (list/get)".to_string(),
+                                "- json_file (get_item/query)".to_string(),
+                                "- sql_schema / sql_stats / sql_sample / vect_query (discovery)".to_string(),
+                                "- run_sql (targeted probes)".to_string(),
+                                "- artifacts".to_string(),
+                            ],
+                            Vec::new(),
+                            Some("Not available: staging_model, gold_model, apply_next_*_batch, file patch/rm/mv, dbt_validate, publish_dbt_to_provider.".to_string()),
+                        );
+                    }
+                    PlanState::CleanseSqlDatasetIds(_)
+                    | PlanState::CleanseSchemaDatasetIds(_)
+                    | PlanState::ModelSqlItemNames(_)
+                    | PlanState::ModelSchemaItemNames(_) => {
+                        reg.register(FilesTool {
+                            datasets: crate::ctx_ext::sctx_datasets(sctx),
+                        });
+                        let batch_name = batch_tool_name.unwrap_or("apply_next_batch");
+                        let lines = vec![
+                            format!("- {batch_name}(args:{{instructions?:string}})"),
+                            "- file(args:{op:\"list\"|\"get\", prefix?:string, path?:string, limit?:int, max_chars?:int} | {op:\"patch\", path:string, patch_text:string} | {op:\"rm\", path:string, expected_sha256?:string} | {op:\"mv\", from:string, to:string, expected_sha256?:string})".to_string(),
+                            "- json_file(args:{op:\"get_item\", path:string, pointer?:string} | {op:\"query\", path:string, pointer?:string, unique_id?:string, name?:string, resource_type?:string, limit?:int})".to_string(),
+                            "- sql_schema / sql_stats / sql_sample / vect_query (discovery context)"
+                                .to_string(),
+                            "- run_sql (targeted probes)".to_string(),
+                            "- artifacts".to_string(),
+                        ];
+                        tools_card = Self::build_tools_card(
+                            "Allowed tools (authoring phase; plan-batched, deterministic):",
+                            lines,
+                            Vec::new(),
+                            Some("Not available in this phase: dbt_validate, publish_dbt_to_provider.".to_string()),
                         );
                     }
                 }

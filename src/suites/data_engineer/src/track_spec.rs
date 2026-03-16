@@ -8,9 +8,6 @@ pub enum TrackKind {
     Model,
 }
 
-/// Backward-compatible alias — prefer `TrackKind` in new code.
-pub type PlanKind = TrackKind;
-
 impl TrackKind {
     pub fn try_from_plan_phase(phase: Phase) -> Result<Self, String> {
         match phase {

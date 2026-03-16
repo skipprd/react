@@ -163,10 +163,19 @@ impl AthenaProvider {
             .ok_or_else(|| "missing query_execution_id".to_string())
     }
 
+    const QUERY_POLL_TIMEOUT: Duration = Duration::from_secs(600);
+
     async fn wait_query_succeeded(&self, qid: &str) -> Result<(Duration, Option<i64>), String> {
         let start = Instant::now();
         let mut sleep_ms: u64 = 200;
         loop {
+            if start.elapsed() > Self::QUERY_POLL_TIMEOUT {
+                return Err(format!(
+                    "query {} timed out after {:?} while polling for completion",
+                    qid,
+                    start.elapsed()
+                ));
+            }
             let out = self
                 .inner
                 .athena

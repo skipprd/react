@@ -40,14 +40,14 @@ pub struct RepairIteration {
     pub validate_outcome: Option<ValidateOutcome>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlannedFix {
     pub path: String,
     pub op: FileOp,
     pub content: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FileOp {
     Patch,
@@ -80,10 +80,10 @@ impl RepairSessionLog {
         &mut self,
         index: usize,
         gathered_files: Vec<(String, String)>,
+        diagnosis: String,
         planned_fixes: Vec<PlannedFix>,
         apply_results: Vec<ApplyResult>,
     ) {
-        let diagnosis = String::new();
         self.iterations.push(RepairIteration {
             index,
             gathered_files,
@@ -92,12 +92,6 @@ impl RepairSessionLog {
             apply_results,
             validate_outcome: None,
         });
-    }
-
-    pub fn record_diagnosis(&mut self, diagnosis: String) {
-        if let Some(last) = self.iterations.last_mut() {
-            last.diagnosis = diagnosis;
-        }
     }
 
     pub fn record_validate(&mut self, outcome: ValidateOutcome) {
@@ -197,13 +191,6 @@ impl RepairIteration {
         self.apply_results.iter().any(|r| r.success)
     }
 
-    pub fn outcome_label(&self) -> &'static str {
-        match &self.validate_outcome {
-            Some(v) if v.passed => "success",
-            _ => "failure",
-        }
-    }
-
     pub fn error_brief(&self) -> String {
         self.validate_outcome
             .as_ref()
@@ -238,6 +225,7 @@ mod tests {
         log.record(
             0,
             vec![("models/orders.sql".into(), "SELECT ...".into())],
+            "null ids in orders table".into(),
             vec![PlannedFix {
                 path: "models/orders.sql".into(),
                 op: FileOp::Patch,

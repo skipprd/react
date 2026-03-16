@@ -18,10 +18,6 @@ pub fn resolved_config() -> Option<&'static ReactResolvedConfig> {
 }
 
 /// Build a [`RuntimeContext`] from the current global config.
-///
-/// Prefer passing `RuntimeContext` through call-sites rather than reaching for
-/// the global `resolved_config()`.  This function bridges the two worlds during
-/// the progressive migration away from process-global singletons.
 pub fn build_runtime_context() -> Option<RuntimeContext> {
     resolved_config().map(|cfg| RuntimeContext {
         config: Arc::new(cfg.clone()),

@@ -126,7 +126,7 @@ pub(crate) async fn guard_block_loopback_to_author(
     reason: String,
     reason_code: crate::domain_types::PhaseReasonCode,
     detail: Option<serde_json::Value>,
-) -> Result<super::PhaseExecutorOutcome, String> {
+) -> Result<super::PhaseOutcome, String> {
     crate::phase_contract::commit_guard_block(thread_store, thread_id, phase, guard_kind, reason)
         .await?;
     let to_phase = if phase == Phase::CleanseValidate {
@@ -141,7 +141,7 @@ pub(crate) async fn guard_block_loopback_to_author(
         crate::phase_contract::PhaseDecision::loopback(to_phase, Some(reason_code), detail),
     )
     .await?;
-    Ok(super::PhaseExecutorOutcome::stayed_waiting(format!(
+    Ok(super::PhaseOutcome::stayed_waiting(format!(
         "looped back to author after guard block {:?}",
         guard_kind
     )))

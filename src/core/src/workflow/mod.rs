@@ -1,3 +1,9 @@
+pub mod outcome;
+pub mod runner;
+
+pub use outcome::PhaseOutcome;
+pub use runner::{Config as WorkflowConfig, PhaseExecutor};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

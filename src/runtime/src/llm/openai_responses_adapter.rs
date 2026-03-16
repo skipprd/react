@@ -154,7 +154,7 @@ impl Adapter for OpenAIResponsesAdapter {
         let v: serde_json::Value =
             serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
         let raw = Some(v.clone());
-        if let Some(t) = extract_response_text(&v) {
+        if let Some(t) = extract_response_text(&v, resp.structured) {
             return Ok(ChatResponse { text: t, raw });
         }
         let snippet = if resp.body_text.len() > 1200 {

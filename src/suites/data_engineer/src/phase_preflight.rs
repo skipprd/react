@@ -1,5 +1,5 @@
 use crate::domain_types::PhaseReasonCode;
-use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
+use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
 use react_core::suite::SuiteCtx;
 
@@ -8,7 +8,7 @@ impl DataEngineerSuite {
         thread_store: &ThreadStore,
         thread_id: &str,
         sctx: &SuiteCtx,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         if crate::ctx_ext::sctx_query(sctx).is_none() {
             return Err("data engineer agent requires a warehouse provider configured. configure providers.warehouse and restart.".to_string().into());
         }
@@ -62,6 +62,6 @@ impl DataEngineerSuite {
             ),
         )
         .await?;
-        Ok(PhaseExecutorOutcome::TransitionCommitted)
+        Ok(PhaseOutcome::TransitionCommitted)
     }
 }

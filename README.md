@@ -1,6 +1,6 @@
 ## ReAct (`react` crate)
 
-A **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server routes each request to a **suite**, and the suite drives a **phase-based workflow** where each phase runs a **ReAct loop** (LLM → tool calls → observations → complete/interrupt), using injected providers (query/catalog/vector/dbt/storage).
+A **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server routes each request to a **suite**, and the suite implements a **`PhaseExecutor`** driven by a generic **workflow runner** in core. Each workflow turn runs a **ReAct loop** (LLM → tool calls → observations → complete/interrupt), using injected providers (query/catalog/vector/dbt/storage). Sub-workflows (e.g. repair) nest inside outer turns using the same runner pattern.
 
 ### Getting started
 
@@ -102,7 +102,8 @@ The **effective output token limit** is controlled by the environment variable *
 ```
 react (workspace root)
 │
-├── src/core            (react-core)      Generic loop, traits, session — no infra or domain deps
+├── src/core            (react-core)      Generic loop, traits, session, workflow — no infra or domain deps
+│   └── src/workflow/                     Workflow runner: PhaseOutcome, PhaseExecutor trait, run()
 ├── src/transport       (react-transport) WS protocol/server + headless transport
 ├── src/runtime         (react)           CLI/bootstrap + concrete provider wiring
 ├── src/suites          (react-suites)    Suite implementations
@@ -122,7 +123,7 @@ react (workspace root)
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. `react-runtime` wires concrete providers and hands execution to `react-transport`. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
+**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. `react-core` provides the generic workflow runner (`PhaseOutcome`, `PhaseExecutor`, `WorkflowConfig`, `workflow::runner::run()`), the agent ReAct loop, tools, session, and provider traits. `react-runtime` wires concrete providers and hands execution to `react-transport`. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
 
 **Two-tier module architecture**: modules that are specific to a single suite (e.g. warehouse adapters, dbt CLI wrapper) live under that suite's directory and depend on suite-local traits. Modules that are truly suite-agnostic (e.g. S3 storage, vector store) live at the top-level `src/modules/` and depend only on `react-core`.
 
@@ -258,11 +259,50 @@ The `data_engineer` suite supports:
 
 Agent types determine which `AgentPolicy` is used (e.g. `NonInteractivePolicyAdapter` for `agent` mode, `InterruptOnlyPolicy` + `SqlValidatedPolicy` for `ask` mode), which tools appear in the tool card, and which phases execute.
 
-#### 5. Agent loop — ReAct runtime
+#### 5. Workflow runner — generic phase orchestration
+
+**Crate**: `react-core` · **Files**: `src/core/src/workflow/`
+
+The workflow runner is a generic orchestration loop that drives any phase-based workflow. It manages step budgets, idle detection, and outcome routing — without knowledge of any specific suite or domain.
+
+Suites implement the `PhaseExecutor` trait:
+
+```rust
+#[async_trait]
+pub trait PhaseExecutor: Send + Sync {
+    async fn execute_turn(&self) -> PhaseOutcome;
+    async fn on_budget_exhausted(&self) -> Vec<FlowFrame>;
+    fn step_count(&self) -> usize;
+}
+```
+
+Each turn returns a `PhaseOutcome`:
+
+| Variant | Meaning |
+|---------|---------|
+| `StayedWithProgress` | Forward progress — resets budget counter |
+| `StayedWaiting` | No progress — increments idle counter |
+| `TransitionCommitted` | Phase transition committed — clears idle counter |
+| `Return(frames)` | Terminal — returns `FlowFrame`s to caller |
+| `Failed(reason)` | Fatal — stops execution |
+
+The runner is configured via `WorkflowConfig`:
+
+```rust
+pub struct WorkflowConfig {
+    pub max_phase_steps: usize,
+    pub max_consecutive_waiting_idle: usize,
+    pub max_consecutive_waiting_active: usize,
+}
+```
+
+`workflow::runner::run(&executor, &config)` is the single entry point. The `data_engineer`, `kb`, and repair subroutine all use this same runner.
+
+#### 6. Agent loop — ReAct runtime
 
 **Crate**: `react-core` · **Files**: `src/core/src/agent/`
 
-The agent loop is a generic ReAct executor. It has no knowledge of suites, phases, or domain logic — it only knows about tools, an LLM, and a policy.
+The agent loop is a generic ReAct executor. It has no knowledge of suites, phases, or domain logic — it only knows about tools, an LLM, and a policy. It runs *inside* a single workflow turn — the workflow runner calls the suite's `execute_turn`, which builds an `AgentCtx` and invokes the agent loop.
 
 Each invocation receives an `AgentCtx` and runs:
 
@@ -299,9 +339,9 @@ The LLM returns a **schema-validated JSON action** on every turn:
 
 Parsing is strict (validated against `AgentStepV1` JSON schema). Invalid JSON triggers up to 2 retries with a reduced prompt before the loop gives up.
 
-#### 6. LLM gateway
+#### 7. LLM gateway and model dispatch
 
-**File**: `src/core/src/agent/llm_gateway.rs`
+**Files**: `src/core/src/agent/llm_gateway.rs`, `src/core/src/llm/`
 
 All LLM calls — whether from the agent loop or from suite planning code — go through gateway methods on `AgentCtx` and `SuiteCtx`:
 
@@ -311,9 +351,19 @@ All LLM calls — whether from the agent loop or from suite planning code — go
 | `llm_chat_json<T>(messages, options)` | `AgentCtx` | Calls `llm_chat`, deserialises the response as JSON, auto-repairs malformed JSON (escape control chars), and retries once with a "return only JSON" nudge on failure. |
 | `llm_embed(text)` | `AgentCtx`, `SuiteCtx` | Embedding gateway. Suite code uses `SuiteCtx::llm_embed()` outside the agent loop; within the loop, tools use `AgentCtx::llm_embed()`. Both route through the same underlying LLM handle. |
 
+**Model dispatch**: LLM configuration supports per-role model selection via `ModelDispatch`:
+
+| Role | Config key | Purpose |
+|------|-----------|---------|
+| `reason_model` | `llm.reason_model` | Deep reasoning, planning, critique, review — creative and analytical tasks requiring high-quality output |
+| `task_model` | `llm.task_model` | Mechanical tool-calling, gather/investigate stages, compile passes — cheaper, faster tasks requiring reliable JSON |
+| `embed_model` | `llm.embed_model` | Embedding for vector store indexing and retrieval |
+
+`ModelDispatch` provides `reason_call_options(prompt_id, iteration)` and `task_call_options(prompt_id)` to construct `LlmCallOptions` with the appropriate model and parameters for each role. This separates expensive reasoning from cheap task execution without per-call configuration.
+
 This eliminates scattered observability code, ensures every LLM interaction appears in the thread timeline, and gives suites a single embed entry point regardless of context.
 
-#### 7. Tools
+#### 8. Tools
 
 **Files**: `src/core/src/tools/mod.rs` (trait + registry), suite-specific tools under each suite directory
 
@@ -329,7 +379,7 @@ trait Tool: Send + Sync {
 
 `ToolRegistry` is a `HashMap<&str, Box<dyn Tool>>`. The agent loop calls `tools.call(name, args, ctx)`, applies a per-tool timeout (from the policy), persists `ToolStart`/`ToolEnd` thread steps, and appends the result as an observation to the transcript.
 
-#### 8. Policies
+#### 9. Policies
 
 **Trait**: `AgentPolicy` in `src/core/src/agent/mod.rs`
 
@@ -349,7 +399,7 @@ Key policy patterns:
 - **`NonInteractivePolicyAdapter`** — wraps any policy and suppresses all interrupts; the agent never pauses in non-interactive mode (but the user can still inject context into a running thread).
 - **`SqlValidatedPolicy`** — gates completion on successful SQL execution / dbt validation.
 
-#### 9. Providers — capabilities injection
+#### 10. Providers — capabilities injection
 
 Providers are trait objects injected via `SuiteCtx`. The core and suites never import concrete implementations. Provider traits are split into two tiers:
 
@@ -379,7 +429,7 @@ Suite-specific providers are stored in the **capabilities registry** (`HashMap<T
 
 The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it via `set_capability()`. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
 
-#### 10. Session, state, and persistence
+#### 11. Session, state, and persistence
 
 **Files**: `src/core/src/session/`
 
@@ -427,7 +477,10 @@ Read/write are separated by type and API surface:
 
 Suites orchestrate multi-phase workflows. Each phase is a node in a state machine; the suite's own modules define valid transitions and domain-specific types.
 
-Core provides the generic `WorkflowSuiteContract` trait with associated types `Phase`, `ReasonCode`, `GuardKind`, `State`, and `Event`. `PhaseDirective<P, R, G>` is generic over phase, reason, and guard kind. Domain-specific types like `PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, and `ReviewTier` live entirely in the suite (e.g. `data_engineer/domain_types.rs`), not in core.
+Core provides two levels of orchestration:
+
+1. **Workflow runner** (`core::workflow`) — generic `PhaseExecutor` trait + `workflow::runner::run()` loop. Handles step budgets (with progress-based reset), idle detection, and outcome routing. All suites use this single runner.
+2. **Suite contract** — `WorkflowSuiteContract` trait with associated types `Phase`, `ReasonCode`, `GuardKind`, `State`, `Event`. `PhaseDirective<P, R, G>` is generic over phase, reason, and guard kind. Domain-specific types like `PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, and `ReviewTier` live entirely in the suite (e.g. `data_engineer/domain_types.rs`), not in core.
 
 #### `data_engineer` phases (example)
 
@@ -458,6 +511,8 @@ Core provides the generic `WorkflowSuiteContract` trait with associated types `P
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+When validation fails and the suite enters repair mode, the author phase dispatches to a **repair subroutine** (see below) instead of the normal authoring flow. The subroutine runs its own `PhaseExecutor` loop inside the outer workflow.
+
 Not all agent types traverse the full graph. `ask` mode runs a single phase (no state machine). `review` mode runs only a review phase. The `agent` type drives the full plan → author → validate → review → publish pipeline.
 
 #### How a phase executes
@@ -466,32 +521,73 @@ Not all agent types traverse the full graph. `ask` mode runs a single phase (no 
 Suite.handle_user(thread_id, text, agent_type, ctx)
   │
   ▼
-run_agent (phase loop)
+run_agent
   │
-  ├── Load ExecutionState → current phase
+  ├── Initial setup (catalog bootstrap, model config, thread store)
+  ├── Construct DataEngineerExecutor (implements PhaseExecutor)
+  ├── Build WorkflowConfig { max_phase_steps, idle limits }
   │
-  ├── [suite] evaluate_pre_turn_directive(snapshot)
-  │     ├── Proceed → continue
-  │     └── FailFast → Block (stall / replan cap / repair ladder)
-  │     (suite-owned; core has no pre-turn evaluation logic)
-  │
-  ├── execute_phase(phase)
-  │     ├── Build system prompt + tool card for this phase
-  │     ├── Register phase-appropriate tools
-  │     ├── Construct AgentCtx with policy (SuiteCtx → AgentCtx)
-  │     ├── Run Agent::run_until_block (the ReAct loop)
-  │     └── Map RunOutcome to PhaseDirective<P, R, G>
-  │           ├── Transition { to, intent, reason }
-  │           └── Block { kind, reason }
-  │
-  ├── dispatch_phase_transition(directive)
-  │     ├── Validate transition is allowed
-  │     ├── Update replan_backtracks on loopbacks
-  │     ├── Persist ExecutionState + ThreadStep::Phase
-  │     └── Return new phase
-  │
-  └── Loop until a phase returns FlowFrame(s)
+  └── workflow::runner::run(&executor, &config)
+        │
+        ├── executor.execute_turn()
+        │     ├── Load ExecutionState → current phase
+        │     ├── evaluate_pre_turn_directive(snapshot)
+        │     │     ├── Proceed → continue
+        │     │     └── FailFast → block (stall / replan cap)
+        │     ├── Preload repair context (if validation failed)
+        │     ├── Dispatch to execute_phase(phase)
+        │     │     ├── Author: build prompt, tools, AgentCtx → agent loop
+        │     │     ├── Plan: discovery + enrichment LLM calls
+        │     │     ├── Validate: dbt compile/build
+        │     │     ├── Review: batched LLM review
+        │     │     └── Repair: dispatch to repair subroutine
+        │     └── Return PhaseOutcome
+        │
+        ├── Runner handles outcome:
+        │     ├── StayedWithProgress → reset budget, continue
+        │     ├── StayedWaiting → increment idle counter
+        │     ├── TransitionCommitted → clear idle counter
+        │     ├── Return(frames) → stop, return frames
+        │     └── Failed(reason) → stop, return error
+        │
+        ├── Budget exhaustion → executor.on_budget_exhausted()
+        │
+        └── Return Vec<FlowFrame>
 ```
+
+#### Repair subroutine
+
+When validation fails, the `data_engineer` suite enters repair mode. Instead of authoring new artifacts, it dispatches to a dedicated repair subroutine that uses its own `RepairExecutor` (also implementing `PhaseExecutor`) driven by the same `workflow::runner::run()`.
+
+Each repair iteration runs four stages:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Repair Iteration                             │
+│                                                                  │
+│  Gather (task_model)  ──►  Reason (reason_model)                │
+│  Read SQL/YAML files       Produce JSON fix plan                │
+│  Query vector store        (path, op, content)                  │
+│  Diagnose root cause       No tools — pure reasoning            │
+│                                                                  │
+│  Apply (mechanical)   ──►  Validate (dbt build)                 │
+│  Execute patch/write       Check if fixes resolved errors       │
+│  Per-file escalation       Index results to vector store        │
+│  (patch fail → write)                                           │
+│                                                                  │
+│  If validation passes → PhaseOutcome::Return (success)          │
+│  If validation fails  → PhaseOutcome::TransitionCommitted       │
+│                          (next iteration with accumulated        │
+│                           history in RepairSessionLog)           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Key design principles:
+- **Diagnosis-first**: The gather stage reads files and queries the vector store until confident of the root cause, before entering the fix stage.
+- **History accumulation**: `RepairSessionLog` tracks all iterations (diagnosis, planned fixes, apply results, validation outcomes). The full history is passed to every subsequent LLM call, making it impossible for the LLM to repeat failed approaches.
+- **Per-file escalation**: A failed `op=patch` on one file escalates to `op=write` for that file. Subsequent files still attempt `op=patch` first.
+- **Vector store learning**: Repair outcomes (successes and failures) are indexed into the vector store, building institutional knowledge across runs.
+- **Agnostic repair prompts**: No hardcoded error classification or fix nudges in prompts. The LLM diagnoses the issue independently based on file content and error context.
 
 #### Transition intents
 
@@ -506,45 +602,50 @@ run_agent (phase loop)
 Guards are suite-owned. Core defines `PreTurnDirective<G>` generic over a guard kind type; the suite supplies its own `GuardBlockKind` enum via `WorkflowSuiteContract::GuardKind` and implements `guard_kind_as_str()` for serialization. `evaluate_pre_turn_directive` and `PreTurnStateSnapshot` live entirely in the suite (e.g. `data_engineer/phase_gate.rs`), not in core.
 
 The `data_engineer` suite's `PreTurnDirective::FailFast` guards prevent runaway execution:
-- **Stall in mutate mode** — author phase not making progress
+- **Stall in mutate mode** — author phase not making progress after mutations
 - **Replan backtrack cap** — too many plan revisions (batch locked)
-- **Repair ladder stop** — dbt repair attempts exhausted
 
 ---
 
 ### Request lifecycle (end to end)
 
 ```
- Client                WS Server              Suite                Agent Loop
-   │                      │                      │                      │
-   │── user message ─────►│                      │                      │
-   │                      │── build SuiteCtx     │                      │
-   │                      │── resolve suite ─────►│                      │
-   │                      │   + agent_type       │                      │
-   │                      │                      │── load phase state   │
-   │                      │                      │── build AgentCtx     │
-   │                      │                      │── execute_phase ────►│
-   │                      │                      │                      │── LLM call
-   │                      │                      │                      │── parse action
-   │                      │                      │                      │── tool exec
-   │                      │                      │                      │── observation
-   │                      │                      │                      │── (repeat)
-   │                      │                      │                      │── Complete/Interrupt
-   │                      │                      │◄─ RunOutcome ────────│
-   │                      │                      │── transition phase   │
-   │                      │                      │── (next phase or     │
-   │                      │                      │    return frames)    │
-   │                      │◄─ Vec<FlowFrame> ────│                      │
-   │                      │── map to ServerMsg   │                      │
-   │◄─ WS response ──────│                      │                      │
-   │                      │── persist thread     │                      │
+ Client          WS Server           Suite               Workflow Runner      Agent Loop
+   │                │                   │                      │                  │
+   │── user msg ───►│                   │                      │                  │
+   │                │── build SuiteCtx  │                      │                  │
+   │                │── resolve suite ─►│                      │                  │
+   │                │   + agent_type    │                      │                  │
+   │                │                   │── build executor     │                  │
+   │                │                   │── workflow::run() ──►│                  │
+   │                │                   │                      │── execute_turn() │
+   │                │                   │                      │   ├─ load state  │
+   │                │                   │                      │   ├─ pre-turn    │
+   │                │                   │                      │   │  guard eval  │
+   │                │                   │                      │   └─ phase ─────►│
+   │                │                   │                      │                  │── LLM call
+   │                │                   │                      │                  │── parse action
+   │                │                   │                      │                  │── tool exec
+   │                │                   │                      │                  │── observation
+   │                │                   │                      │                  │── (repeat)
+   │                │                   │                      │◄─ PhaseOutcome ──│
+   │                │                   │                      │── budget/idle    │
+   │                │                   │                      │   accounting     │
+   │                │                   │                      │── (next turn     │
+   │                │                   │                      │    or terminate) │
+   │                │                   │◄─ Vec<FlowFrame> ───│                  │
+   │                │◄─ Vec<FlowFrame> ─│                      │                  │
+   │                │── map to ServerMsg│                      │                  │
+   │◄─ WS response ─│                  │                      │                  │
+   │                │── persist thread  │                      │                  │
 ```
 
 ---
 
 ### Extending the system
 
-- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, `domain_types` module (reason codes, guard kinds), control flow, prompts, and tools. Implement `WorkflowSuiteContract` with your associated types and register it in `src/suites/react-suites/src/lib.rs` (`default_registry`). Define suite-specific provider traits in a `providers/` submodule, config types in a `<suite>_config.rs`, and capability accessors in a `ctx_ext.rs`.
+- **Add a new suite**: create `src/suites/react-suites/src/<your_suite>/` with a `Phase` enum, `domain_types` module (reason codes, guard kinds), control flow, prompts, and tools. Implement `PhaseExecutor` from `react-core::workflow` to define per-turn logic, and `WorkflowSuiteContract` for associated types. Register in `src/suites/react-suites/src/lib.rs` (`default_registry`). Define suite-specific provider traits in a `providers/` submodule, config types in a `<suite>_config.rs`, and capability accessors in a `ctx_ext.rs`. Use `workflow::runner::run()` as the main orchestration loop.
+- **Add a sub-workflow** (e.g. a repair loop): implement `PhaseExecutor` for a new executor struct and call `workflow::runner::run()` from within an outer turn. The repair subroutine in `data_engineer` is a working example of this nested pattern.
 - **Add a tool**: implement `Tool` and register it in the relevant phase's tool registry
 - **Add a generic provider**: define a trait in `react-core` (`src/core/src/providers/`), implement it in a new module crate under `src/modules/`, wire it in the runtime
 - **Add a suite-specific provider**: define the trait in the suite's `providers/` module, implement it in a module crate under the suite's `modules/` directory (e.g. `src/suites/react-suites/src/data_engineer/modules/`), register it as a capability via `set_capability()` in the runtime, and add an accessor function in the suite's `ctx_ext.rs`

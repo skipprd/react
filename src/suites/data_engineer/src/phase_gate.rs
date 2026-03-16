@@ -1,7 +1,7 @@
 use crate::domain_types::GuardBlockKind;
 
 use crate::control_flow::Phase;
-use crate::progress_controller::{ExecutionMode, ExecutionState, DEFAULT_MAX_STALL_COUNT};
+use crate::progress_controller::{ExecutionState, DEFAULT_MAX_STALL_COUNT};
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
@@ -22,8 +22,11 @@ pub fn evaluate_pre_turn_directive(
     let phase_state = execution_state.phase_state();
     let repair_state = execution_state.repair_state();
 
-    if matches!(phase_state.mode, ExecutionMode::Mutate)
-        && repair_state.stall_count >= DEFAULT_MAX_STALL_COUNT
+    if repair_state.stall_count >= DEFAULT_MAX_STALL_COUNT
+        && matches!(
+            phase,
+            Phase::CleanseAuthor | Phase::ModelAuthor
+        )
     {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
@@ -32,7 +35,7 @@ pub fn evaluate_pre_turn_directive(
                 &[
                     ("stall_count", &repair_state.stall_count.to_string()),
                     ("max_stall_count", &DEFAULT_MAX_STALL_COUNT.to_string()),
-                    ("mode", "mutate"),
+                    ("phase", phase.as_str()),
                 ],
             ),
         };
@@ -70,17 +73,10 @@ pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Ph
     intent.phase == phase && repair.mutation_epoch <= intent.entry_mutation_epoch
 }
 
-pub fn derive_primary_repair_target(execution_state: &ExecutionState) -> Option<String> {
-    let repair = execution_state.repair_state();
-    repair
-        .single_target_repair_path()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::progress_controller::ExecutionMode;
 
     #[test]
     fn preturn_gate_prioritizes_mutate_stall_failfast() {
@@ -125,6 +121,7 @@ mod tests {
     fn preturn_gate_table_driven_precedence() {
         struct Case {
             name: &'static str,
+            phase: Phase,
             setup: fn(&mut ExecutionState),
             expect_fail: bool,
             expect_kind: Option<GuardBlockKind>,
@@ -132,12 +129,14 @@ mod tests {
         let cases = vec![
             Case {
                 name: "default_proceed",
+                phase: Phase::ModelPlan,
                 setup: |_| {},
                 expect_fail: false,
                 expect_kind: None,
             },
             Case {
                 name: "stall_has_priority_over_replan",
+                phase: Phase::ModelAuthor,
                 setup: |st| {
                     st.phase.mode = ExecutionMode::Mutate;
                     st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
@@ -148,18 +147,28 @@ mod tests {
             },
             Case {
                 name: "replan_failfast_when_no_stall",
+                phase: Phase::ModelPlan,
                 setup: |st| {
                     st.phase.replan_backtracks = 5;
                 },
                 expect_fail: true,
                 expect_kind: Some(GuardBlockKind::BatchLocked),
             },
+            Case {
+                name: "stall_ignored_on_non_author_phase",
+                phase: Phase::ModelPlan,
+                setup: |st| {
+                    st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
+                },
+                expect_fail: false,
+                expect_kind: None,
+            },
         ];
 
         for c in cases {
             let mut st = ExecutionState::new();
             (c.setup)(&mut st);
-            let d = evaluate_pre_turn_directive(&st, Phase::ModelPlan, 3);
+            let d = evaluate_pre_turn_directive(&st, c.phase, 3);
             match (c.expect_fail, d) {
                 (false, PreTurnDirective::Proceed) => {}
                 (true, PreTurnDirective::FailFast { kind, .. }) => {

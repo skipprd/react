@@ -36,12 +36,10 @@ mod inner {
     }
 
     fn load_tuning_map() -> serde_json::Value {
-        // TODO: S3-based tuning cache removed; using empty map as fallback
         serde_json::json!({})
     }
 
     fn save_tuning_map(_obj: &serde_json::Value) {
-        // TODO: S3-based tuning cache removed; save is a no-op
     }
 
     fn load_with_autotune(

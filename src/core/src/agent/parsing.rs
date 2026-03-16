@@ -30,6 +30,20 @@ impl Agent {
                 serde_json::from_str::<Value>(trimmed).unwrap_err()
             )))?;
 
+        if let Some(first_end) = json_repair::find_first_json_object_end(trimmed) {
+            let tail = trimmed[first_end..].trim();
+            if !tail.is_empty() {
+                let extra_count = json_repair::extract_all_json_values(tail, 20).len();
+                if extra_count > 0 {
+                    tracing::warn!(
+                        "agent step response contained {} extra JSON object(s) after the first; \
+                         structured output enforcement may have failed for this call",
+                        extra_count
+                    );
+                }
+            }
+        }
+
         crate::schema_registry::validate(SchemaId::AgentStepV1, &v)?;
         let step: AgentStepV1 = serde_json::from_value::<AgentStepV1>(v).map_err(|e| {
             CoreError::Agent(format!(
@@ -65,10 +79,11 @@ impl Agent {
             }
             AgentStepTypeV1::Complete => {
                 if step.name.is_some() || step.args.is_some() {
-                    return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: complete step must not include name/args"
-                            .to_string(),
-                    ));
+                    tracing::warn!(
+                        "agent.step.v1: complete step included name={:?} args={:?}; stripping",
+                        step.name,
+                        step.args.as_deref().map(|s| &s[..s.len().min(60)]),
+                    );
                 }
                 let Some(comp) = step.complete else {
                     return Err(CoreError::Agent(
@@ -76,9 +91,13 @@ impl Agent {
                     ));
                 };
                 let payload: Value = json_repair::resilient_parse_string_field(&comp.payload)
-                    .map_err(|e| CoreError::Agent(format!(
-                        "agent.step.v1 validation error: complete.payload {e}"
-                    )))?;
+                    .unwrap_or_else(|_| {
+                        tracing::debug!(
+                            "complete.payload is not valid JSON; treating as plain text ({} bytes)",
+                            comp.payload.len(),
+                        );
+                        Value::String(comp.payload.clone())
+                    });
                 Ok(ParsedStep::Complete {
                     complete_env: CompleteEnvelope {
                         kind: comp.kind,

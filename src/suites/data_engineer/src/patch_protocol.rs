@@ -299,7 +299,7 @@ pub async fn llm_patch_loop_single_file(
         "existing_content_with_line_numbers": existing_content_with_line_numbers,
         "existing_content_with_line_numbers_truncated": existing_content_with_line_numbers_truncated,
         "input": user_payload_value,
-        "instruction": "Return a single JSON object with path + patch_text. path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@' and omitting ---/+++ headers. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. If prior attempts produced no-op patches, rewrite the entire file using a single large hunk."
+        "instruction": "path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@' and omitting ---/+++ headers. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. If prior attempts produced no-op patches, rewrite the entire file using a single large hunk."
     })
     .to_string();
 
@@ -314,6 +314,11 @@ pub async fn llm_patch_loop_single_file(
         },
     ];
 
+    let patch_schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<
+        crate::patch_contract::LlmSingleFilePatchResponse,
+    >("data_engineer.patch_response")
+    .map_err(|e| format!("schema build error: {e}"))?;
+
     let mut call_opts = llm_options.unwrap_or_else(|| react_core::llm::LlmCallOptions {
         prompt_id: "data_engineer.patch_protocol.llm_patch_loop",
         thread_id: None,
@@ -325,7 +330,8 @@ pub async fn llm_patch_loop_single_file(
         reasoning_effort: None,
         timeout_secs: None,
     });
-    call_opts.expected_format = react_core::llm::LlmExpectedFormat::JsonObject;
+    call_opts.expected_format =
+        react_core::llm::LlmExpectedFormat::JsonSchema(patch_schema);
     if call_opts.max_output_tokens.is_none() {
         call_opts.max_output_tokens = Some(default_patch_loop_max_output_tokens());
     }
@@ -391,7 +397,7 @@ pub async fn llm_patch_loop_single_file(
                 "existing_content_with_line_numbers": existing_content_with_line_numbers,
                 "existing_content_with_line_numbers_truncated": existing_content_with_line_numbers_truncated,
                 "previous_response": parsed,
-                "instruction": "Return ONLY corrected JSON with path + patch_text. path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@'. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. Rewrite the entire file using one large hunk if needed."
+                "instruction": "path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@'. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. Rewrite the entire file using one large hunk if needed."
             })
             .to_string();
             messages.push(ChatMessage {
@@ -422,7 +428,7 @@ pub async fn llm_patch_loop_single_file(
                 "existing_content_with_line_numbers": existing_content_with_line_numbers,
                 "existing_content_with_line_numbers_truncated": existing_content_with_line_numbers_truncated,
                 "previous_response": parsed,
-                "instruction": "Return ONLY corrected JSON with notes + patch_text."
+                "instruction": "Correct the patch_text. Rewrite the entire file in one hunk if needed."
             })
             .to_string();
             messages.push(ChatMessage {
@@ -487,7 +493,7 @@ pub async fn llm_patch_loop_single_file(
             "existing_content_with_line_numbers": existing_content_with_line_numbers,
             "existing_content_with_line_numbers_truncated": existing_content_with_line_numbers_truncated,
             "previous_response": parsed,
-            "instruction": "Return ONLY corrected JSON with path + patch_text. path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@'. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. If repeated no-ops occur, rewrite the entire file using one large hunk."
+            "instruction": "path MUST equal expected_rel_path. patch_text MUST be Cursor/Aider-style hunks-only unified diff starting with '@@ ... @@'. Do NOT use line-number hunk headers like '@@ -a,b +c,d @@'. The patch MUST modify ONLY expected_rel_path. If repeated no-ops occur, rewrite the entire file using one large hunk."
         })
         .to_string();
         messages.push(ChatMessage {

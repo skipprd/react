@@ -84,6 +84,13 @@ impl RepairPromptContext {
     /// Escalates framing when stall_count indicates repeated failure.
     pub fn format_error_context(&self) -> String {
         let mut out = String::new();
+        if self.failed_models.is_empty() && self.brief.is_some() {
+            out.push_str(
+                "No specific model targets were extracted from the validation error.\n\
+                 Read the error summary below carefully, then use your tools (file list, file read) \
+                 to identify which model(s) or test(s) need fixing.\n\n",
+            );
+        }
         if !self.failed_models.is_empty() {
             out.push_str("Failing model targets:\n");
             for fm in self.failed_models.iter().take(6) {
@@ -171,12 +178,17 @@ impl RepairPromptContext {
                 ));
             }
         }
-        out.push_str(
-            "\nCRITICAL REPAIR RULES:\n\
-             - You MUST change the SQL logic or test definition to fix the actual error described above.\n\
-             - Read the error message carefully: identify the failing column/expression, then edit \
-             the SQL model to produce correct values (filter NULLs, fix joins, cast types, etc.).\n",
-        );
+        let has_repair_data = self.brief.is_some()
+            || !self.failed_models.is_empty()
+            || !self.recent_failed_file_ops.is_empty();
+        if has_repair_data {
+            out.push_str(
+                "\nCRITICAL REPAIR RULES:\n\
+                 - You MUST change the SQL logic or test definition to fix the actual error described above.\n\
+                 - Read the error message carefully: identify the failing column/expression, then edit \
+                 the SQL model to produce correct values (filter NULLs, fix joins, cast types, etc.).\n",
+            );
+        }
         if self.stall_count >= 2 {
             out.push_str(&format!(
                 "\nWARNING: This repair has stalled for {} consecutive iterations \

@@ -1,7 +1,7 @@
 use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
 use crate::review_batched;
-use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseExecutorOutcome};
+use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
 use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
@@ -35,7 +35,7 @@ impl DataEngineerSuite {
         execution_state: &crate::progress_controller::ExecutionState,
         thread_state_step_count: usize,
         out_frames: &mut Vec<FlowFrame>,
-    ) -> Result<PhaseExecutorOutcome, PhaseError> {
+    ) -> Result<PhaseOutcome, PhaseError> {
         let review_q = Self::build_review_question_with_context(question, phase, execution_state);
         let frames = match review_batched::run_batched_review(thread_id, &review_q, phase, sctx)
             .await
@@ -83,7 +83,7 @@ impl DataEngineerSuite {
                         ),
                     )
                     .await?;
-                    return Ok(PhaseExecutorOutcome::TransitionCommitted);
+                    return Ok(PhaseOutcome::TransitionCommitted);
                 }
                 return Err(PhaseError::from(e));
             }
@@ -108,7 +108,7 @@ impl DataEngineerSuite {
                 let mv = payload.get("meta").cloned();
                 (ans, mv)
             }
-            other => return Ok(PhaseExecutorOutcome::Return(vec![other])),
+            other => return Ok(PhaseOutcome::Return(vec![other])),
         };
 
         let trigger_step_idx = thread_state_step_count.saturating_sub(1);
@@ -252,7 +252,7 @@ impl DataEngineerSuite {
                     ),
                 )
                 .await?;
-                Ok(PhaseExecutorOutcome::TransitionCommitted)
+                Ok(PhaseOutcome::TransitionCommitted)
             }
             ReviewDecision::PatchImpl => {
                 let back = patch_impl_target_phase(phase, meta.tier);
@@ -274,7 +274,7 @@ impl DataEngineerSuite {
                     ),
                 )
                 .await?;
-                Ok(PhaseExecutorOutcome::TransitionCommitted)
+                Ok(PhaseOutcome::TransitionCommitted)
             }
             ReviewDecision::PlanChange => {
                 crate::state_manager::mutate_execution_state(
@@ -307,7 +307,7 @@ impl DataEngineerSuite {
                     crate::progress_controller::PlanRevisionStrategy::Rewrite,
                 )
                 .await?;
-                Ok(PhaseExecutorOutcome::TransitionCommitted)
+                Ok(PhaseOutcome::TransitionCommitted)
             }
         }
     }

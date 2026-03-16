@@ -7,10 +7,8 @@ use crate::naming;
 use crate::providers::DatasetCatalogProvider;
 use react_core::agent::AgentCtx;
 
-pub const DBT_PROJECT_YML: &str = "dbt_project.yml";
 pub const PACKAGES_YML: &str = "packages.yml";
 pub const MODELS_SCHEMA_YML: &str = "models/schema.yml";
-pub const CORE_PROJECT_CONTEXT_FILES: &[&str] = &[DBT_PROJECT_YML, PACKAGES_YML, MODELS_SCHEMA_YML];
 
 pub(crate) async fn postprocess_content(
     ctx: &AgentCtx,

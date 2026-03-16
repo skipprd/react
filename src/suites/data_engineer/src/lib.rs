@@ -165,23 +165,7 @@ pub use ctx_ext::copy_capabilities_to_actx;
 use llm_profiles::PlanningLlmProfile;
 pub(crate) use track_spec::TrackKind;
 
-pub(crate) enum PhaseExecutorOutcome {
-    /// Phase is still active and this turn made durable forward progress.
-    StayedWithProgress { detail: String },
-    /// Phase is still active but is explicitly waiting on more work/signal.
-    StayedWaiting { reason: String },
-    /// Transition was committed; reload state and continue.
-    TransitionCommitted,
-    /// Phase complete; return these frames to the caller.
-    Return(Vec<FlowFrame>),
-    /// Phase execution failed; error has been recorded in ControlState + ThreadLog.
-    ///
-    /// This variant can only be constructed by `execute_phase` after persisting
-    /// a `PhaseExecutionError` guard block and calling `mark_failed`. Individual
-    /// phase executors return `Result<PhaseExecutorOutcome, PhaseError>` — the `Err`
-    /// is caught at the `execute_phase` boundary and converted to this variant.
-    Failed { reason: String },
-}
+pub(crate) use react_core::workflow::PhaseOutcome;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PhaseError {
@@ -200,20 +184,6 @@ pub(crate) enum PhaseError {
 impl From<String> for PhaseError {
     fn from(s: String) -> Self {
         PhaseError::Fatal(s)
-    }
-}
-
-impl PhaseExecutorOutcome {
-    pub(crate) fn stayed_with_progress(detail: impl Into<String>) -> Self {
-        Self::StayedWithProgress {
-            detail: detail.into(),
-        }
-    }
-
-    pub(crate) fn stayed_waiting(reason: impl Into<String>) -> Self {
-        Self::StayedWaiting {
-            reason: reason.into(),
-        }
     }
 }
 
@@ -325,6 +295,11 @@ enum PlanState {
     ModelSqlItemNames(Vec<String>),
     ModelSchemaItemNames(Vec<String>),
     Unconstrained,
+    /// Post-validation-failure or review-patch: only surgical file/SQL tools,
+    /// no bulk authoring or batch tools.
+    Repair,
+    /// Read-only planning phases: discovery tools only, no mutations.
+    ReadOnly,
 }
 
 #[derive(Clone, Debug)]

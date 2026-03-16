@@ -207,7 +207,7 @@ impl Tool for DbtValidateTool {
         let mut target: Option<String> = explicit_target.clone();
         let run = args.get("run").and_then(|x| x.as_bool()).unwrap_or(false);
         let build = args.get("build").and_then(|x| x.as_bool()).unwrap_or(false);
-        let dataset_ids: Option<Vec<String>> = args
+        let _dataset_ids: Option<Vec<String>> = args
             .get("dataset_ids")
             .and_then(|v| v.as_array())
             .map(|arr| {
