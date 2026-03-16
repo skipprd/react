@@ -29,8 +29,7 @@ impl TrackKind {
             Phase::ModelPlan
             | Phase::ModelAuthor
             | Phase::ModelValidate
-            | Phase::ModelReview
-            | Phase::PostPublishReview => Some(Self::Model),
+            | Phase::ModelReview => Some(Self::Model),
             _ => None,
         }
     }

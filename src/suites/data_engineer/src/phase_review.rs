@@ -12,9 +12,7 @@ fn effective_review_tier(phase: control_flow::Phase, tier: ReviewTier) -> Review
     }
     match phase {
         control_flow::Phase::CleanseReview => ReviewTier::Silver,
-        control_flow::Phase::ModelReview | control_flow::Phase::PostPublishReview => {
-            ReviewTier::Gold
-        }
+        control_flow::Phase::ModelReview => ReviewTier::Gold,
         _ => ReviewTier::Unknown,
     }
 }
@@ -55,7 +53,6 @@ impl DataEngineerSuite {
                         control_flow::Phase::ModelReview => {
                             control_flow::Phase::PublishAwaitApproval
                         }
-                        control_flow::Phase::PostPublishReview => control_flow::Phase::Done,
                         _ => control_flow::Phase::Done,
                     };
                     out_frames.push(FlowFrame::Review {
@@ -209,7 +206,6 @@ impl DataEngineerSuite {
                 let next = match phase {
                     control_flow::Phase::CleanseReview => control_flow::Phase::ModelPlan,
                     control_flow::Phase::ModelReview => control_flow::Phase::PublishAwaitApproval,
-                    control_flow::Phase::PostPublishReview => control_flow::Phase::Done,
                     _ => control_flow::Phase::Done,
                 };
                 if next == control_flow::Phase::PublishAwaitApproval {

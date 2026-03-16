@@ -378,8 +378,7 @@ impl DataEngineerSuite {
                 }
             }
             control_flow::Phase::CleanseReview
-            | control_flow::Phase::ModelReview
-            | control_flow::Phase::PostPublishReview => {
+            | control_flow::Phase::ModelReview => {
                 // Review phases: keep read-only; do not allow arbitrary SQL execution.
                 reg.register(PolicyFilesTool {
                     inner: FilesTool {

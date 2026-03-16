@@ -120,7 +120,7 @@ impl DataEngineerSuite {
                 thread_id,
                 Some(control_flow::Phase::Publish),
                 PhaseDecision::forward(
-                    control_flow::Phase::PostPublishReview,
+                    control_flow::Phase::Done,
                     Some(PhaseTransition::PublishConfirmedSuccess),
                 ),
             )
@@ -204,7 +204,7 @@ impl DataEngineerSuite {
     pub(super) fn execute_done_phase(
         out_frames: &mut Vec<FlowFrame>,
     ) -> Result<PhaseOutcome, PhaseError> {
-        let mut answer = "Agent flow completed (deterministic phases): cleanse → validate → review → model → validate → review → publish → review.\n".to_string();
+        let mut answer = "Agent flow completed (deterministic phases): cleanse → validate → review → model → validate → review → publish.\n".to_string();
         if let Some(last) = out_frames.iter().rev().find_map(|f| match f {
             FlowFrame::Review { text, .. } => Some(text.clone()),
             _ => None,

@@ -683,7 +683,6 @@ impl Suite for DataEngineerSuite {
             Phase::ModelReview.as_str(),
             Phase::PublishAwaitApproval.as_str(),
             Phase::Publish.as_str(),
-            Phase::PostPublishReview.as_str(),
             Phase::Done.as_str(),
         ]
         .into_iter()

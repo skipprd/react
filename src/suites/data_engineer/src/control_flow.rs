@@ -29,7 +29,6 @@ pub enum Phase {
     ModelReview,
     PublishAwaitApproval,
     Publish,
-    PostPublishReview,
     Done,
 }
 
@@ -111,7 +110,7 @@ mod state_first_tests {
     }
 }
 
-pub const ALL_PHASES: [Phase; 13] = [
+pub const ALL_PHASES: [Phase; 12] = [
     Phase::Preflight,
     Phase::CleansePlan,
     Phase::CleanseAuthor,
@@ -123,7 +122,6 @@ pub const ALL_PHASES: [Phase; 13] = [
     Phase::ModelReview,
     Phase::PublishAwaitApproval,
     Phase::Publish,
-    Phase::PostPublishReview,
     Phase::Done,
 ];
 
@@ -141,7 +139,6 @@ impl Phase {
             Phase::ModelReview => "model_review",
             Phase::PublishAwaitApproval => "publish_await_approval",
             Phase::Publish => "publish",
-            Phase::PostPublishReview => "post_publish_review",
             Phase::Done => "done",
         }
     }
@@ -180,7 +177,6 @@ impl std::str::FromStr for Phase {
             "model_review" => Ok(Phase::ModelReview),
             "publish_await_approval" => Ok(Phase::PublishAwaitApproval),
             "publish" => Ok(Phase::Publish),
-            "post_publish_review" => Ok(Phase::PostPublishReview),
             "done" => Ok(Phase::Done),
             _ => Err(format!("unknown phase: '{}'", s)),
         }
@@ -227,14 +223,7 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
             Phase::Publish,
             Phase::ModelReview,
         ],
-        Phase::Publish => &[Phase::Publish, Phase::PostPublishReview, Phase::ModelReview],
-        Phase::PostPublishReview => &[
-            Phase::PostPublishReview,
-            Phase::ModelPlan,
-            Phase::ModelAuthor,
-            Phase::PublishAwaitApproval,
-            Phase::Done,
-        ],
+        Phase::Publish => &[Phase::Publish, Phase::Done, Phase::ModelReview],
         Phase::Done => &[Phase::Done],
     }
 }
@@ -246,12 +235,7 @@ pub(crate) fn replan_backtrack_counter_cap() -> usize {
 
 pub(crate) fn is_replan_backtrack(from: Phase, to: Phase) -> bool {
     use crate::track_spec::TrackKind;
-    // PostPublishReview can backtrack into the model track
-    let from_track = TrackKind::from_any_phase(from).or(if from == Phase::PostPublishReview {
-        Some(TrackKind::Model)
-    } else {
-        None
-    });
+    let from_track = TrackKind::from_any_phase(from);
     let Some(from_track) = from_track else {
         return false;
     };

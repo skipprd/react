@@ -244,18 +244,6 @@ impl ReviewLlmConfig {
                     default_non_unify
                 })
             }
-            Phase::PostPublishReview => {
-                let k = if is_unify {
-                    env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH_UNIFY
-                } else {
-                    env_keys::LLM_REVIEW_MAX_TOKENS_POSTPUBLISH
-                };
-                parse_u32_env(k).unwrap_or(if is_unify {
-                    default_unify
-                } else {
-                    default_non_unify
-                })
-            }
             _ => {
                 if is_unify {
                     default_unify
@@ -274,12 +262,8 @@ impl ReviewLlmConfig {
             (Phase::ModelReview, "summary") => "data_engineer.model_review.summary",
             (Phase::ModelReview, "batch") => "data_engineer.model_review.batch",
             (Phase::ModelReview, "unify") => "data_engineer.model_review.unify",
-            (Phase::PostPublishReview, "summary") => "data_engineer.post_publish_review.summary",
-            (Phase::PostPublishReview, "batch") => "data_engineer.post_publish_review.batch",
-            (Phase::PostPublishReview, "unify") => "data_engineer.post_publish_review.unify",
             (Phase::CleanseReview, _) => "data_engineer.cleanse_review.other",
             (Phase::ModelReview, _) => "data_engineer.model_review.other",
-            (Phase::PostPublishReview, _) => "data_engineer.post_publish_review.other",
             _ => "data_engineer.review.other_phase",
         };
 
@@ -292,7 +276,6 @@ impl ReviewLlmConfig {
         let temperature = match phase {
             Phase::CleanseReview => Some(0.15),
             Phase::ModelReview => Some(0.25),
-            Phase::PostPublishReview => Some(0.20),
             _ => None,
         };
 
@@ -413,9 +396,9 @@ async fn load_global_semantic_context_json(actx: &AgentCtx, sctx: &SuiteCtx) -> 
 }
 
 fn include_global_semantic_context(phase: Phase) -> bool {
-    // Global semantic context is intended for GOLD model planning/review and post-publish review only.
+    // Global semantic context is intended for GOLD model planning/review only.
     // It must not be injected into cleanse (silver) prompts.
-    matches!(phase, Phase::ModelReview | Phase::PostPublishReview)
+    matches!(phase, Phase::ModelReview)
 }
 
 fn deterministic_unify_defaults(
@@ -424,7 +407,7 @@ fn deterministic_unify_defaults(
 ) -> (ReviewTier, Vec<String>) {
     let tier = match phase {
         Phase::CleanseReview => ReviewTier::Silver,
-        Phase::ModelReview | Phase::PostPublishReview => ReviewTier::Gold,
+        Phase::ModelReview => ReviewTier::Gold,
         _ => ReviewTier::Unknown,
     };
 
@@ -1084,23 +1067,6 @@ pub async fn run_batched_review(
                 (None, None, vec![], None)
             }
         }
-        Phase::PostPublishReview => {
-            // For post-publish, try both tracks; prefer whichever has an active plan.
-            let cp = de_plan::load_cleanse_plan(&actx).await.ok().flatten();
-            let mp = de_plan::load_model_plan(&actx).await.ok().flatten();
-            match (cp, mp) {
-                (Some(c), Some(m)) => {
-                    if c.plan_key >= m.plan_key {
-                        load_cleanse_plan_and_batches_from(c)
-                    } else {
-                        load_model_plan_and_batches_from(m)
-                    }
-                }
-                (Some(c), None) => load_cleanse_plan_and_batches_from(c),
-                (None, Some(m)) => load_model_plan_and_batches_from(m),
-                (None, None) => (None, None, vec![], None),
-            }
-        }
         _ => (None, None, vec![], None),
     };
 
@@ -1110,7 +1076,7 @@ pub async fn run_batched_review(
     } else {
         let files = match phase {
             Phase::CleanseReview => list_model_files(&actx, "models/staging/", 500).await,
-            Phase::ModelReview | Phase::PostPublishReview => {
+            Phase::ModelReview => {
                 let mut f = list_model_files(&actx, "models/marts/", 500).await;
                 f.extend(list_model_files(&actx, "models/core/", 500).await);
                 f.sort();

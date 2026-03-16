@@ -773,7 +773,7 @@ impl DataEngineerSuite {
                 )
                 .await
             }
-            Phase::CleanseReview | Phase::ModelReview | Phase::PostPublishReview => {
+            Phase::CleanseReview | Phase::ModelReview => {
                 Self::execute_review_phase(
                     thread_store,
                     thread_id,
