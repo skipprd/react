@@ -158,8 +158,6 @@ pub struct AuthoringCompleteInvariantsDetail {
 pub struct AuthoringCompleteGuardStateDetail {
     pub last_validate_failed: bool,
     pub mutated_since_fail: bool,
-    pub patched_since_fail: bool,
-    pub mutation_failures_since_validate: usize,
     pub probe_required: bool,
     pub probe_satisfied: bool,
 }

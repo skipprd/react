@@ -211,8 +211,6 @@ impl DataEngineerSuite {
                 guard_state: crate::phase_reason_detail::AuthoringCompleteGuardStateDetail {
                     last_validate_failed: guard.last_validate_failed,
                     mutated_since_fail: guard.mutated_since_fail,
-                    patched_since_fail: guard.patched_since_fail,
-                    mutation_failures_since_validate: guard.mutation_failures_since_validate,
                     probe_required: guard.probe_required,
                     probe_satisfied: guard.probe_satisfied,
                 },

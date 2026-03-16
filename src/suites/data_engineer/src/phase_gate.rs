@@ -1,7 +1,7 @@
 use crate::domain_types::GuardBlockKind;
 
 use crate::control_flow::Phase;
-use crate::progress_controller::{ExecutionState, DEFAULT_MAX_STALL_COUNT};
+use crate::progress_controller::{ExecutionState, MAX_REPAIR_CYCLES};
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
@@ -22,7 +22,7 @@ pub fn evaluate_pre_turn_directive(
     let phase_state = execution_state.phase_state();
     let repair_state = execution_state.repair_state();
 
-    if repair_state.stall_count >= DEFAULT_MAX_STALL_COUNT
+    if repair_state.repair_cycles >= MAX_REPAIR_CYCLES
         && matches!(
             phase,
             Phase::CleanseAuthor | Phase::ModelAuthor
@@ -31,10 +31,10 @@ pub fn evaluate_pre_turn_directive(
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
             reason: guard_reason(
-                "stall_count_exceeded",
+                "repair_cycles_exhausted",
                 &[
-                    ("stall_count", &repair_state.stall_count.to_string()),
-                    ("max_stall_count", &DEFAULT_MAX_STALL_COUNT.to_string()),
+                    ("repair_cycles", &repair_state.repair_cycles.to_string()),
+                    ("max_repair_cycles", &MAX_REPAIR_CYCLES.to_string()),
                     ("phase", phase.as_str()),
                 ],
             ),
@@ -79,10 +79,10 @@ mod tests {
     use crate::progress_controller::ExecutionMode;
 
     #[test]
-    fn preturn_gate_prioritizes_mutate_stall_failfast() {
+    fn preturn_gate_repair_cycles_exhausted() {
         let mut st = ExecutionState::new();
         st.phase.mode = ExecutionMode::Mutate;
-        st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
+        st.repair.repair_cycles = MAX_REPAIR_CYCLES;
         let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
         match d {
             PreTurnDirective::FailFast { kind, .. } => {
@@ -93,12 +93,10 @@ mod tests {
     }
 
     #[test]
-    fn set_patch_impl_intent_resets_stall_count() {
+    fn set_patch_impl_intent_sets_intent() {
         let mut st = ExecutionState::new();
-        st.repair.stall_count = 5;
         st.repair.mutation_epoch = 3;
         st.set_pending_patch_impl_intent(Phase::CleanseAuthor);
-        assert_eq!(st.repair.stall_count, 0, "stall_count must reset on new patch_impl intent");
         assert!(st.repair.pending_patch_impl.is_some());
         assert_eq!(st.repair.pending_patch_impl.as_ref().unwrap().entry_mutation_epoch, 3);
     }
@@ -135,11 +133,11 @@ mod tests {
                 expect_kind: None,
             },
             Case {
-                name: "stall_has_priority_over_replan",
+                name: "repair_cycles_has_priority_over_replan",
                 phase: Phase::ModelAuthor,
                 setup: |st| {
                     st.phase.mode = ExecutionMode::Mutate;
-                    st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
+                    st.repair.repair_cycles = MAX_REPAIR_CYCLES;
                     st.phase.replan_backtracks = 10;
                 },
                 expect_fail: true,
@@ -155,10 +153,10 @@ mod tests {
                 expect_kind: Some(GuardBlockKind::BatchLocked),
             },
             Case {
-                name: "stall_ignored_on_non_author_phase",
+                name: "repair_cycles_ignored_on_non_author_phase",
                 phase: Phase::ModelPlan,
                 setup: |st| {
-                    st.repair.stall_count = DEFAULT_MAX_STALL_COUNT;
+                    st.repair.repair_cycles = MAX_REPAIR_CYCLES;
                 },
                 expect_fail: false,
                 expect_kind: None,

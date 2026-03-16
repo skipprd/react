@@ -3,12 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
-    NoFailure,
     InfraTransient,
-    WarehouseConfig,
-    MissingSource,
-    Schema,
-    SqlRuntime,
+    #[serde(other)]
     Unknown,
 }
 
@@ -24,25 +20,6 @@ impl FailureKind {
     }
 
     pub fn is_repairable(self) -> bool {
-        !matches!(self, Self::InfraTransient | Self::MissingSource | Self::NoFailure)
-    }
-
-    fn severity(self) -> u8 {
-        match self {
-            Self::InfraTransient => 5,
-            Self::WarehouseConfig => 4,
-            Self::SqlRuntime => 3,
-            Self::Schema => 2,
-            Self::Unknown => 1,
-            Self::MissingSource | Self::NoFailure => 0,
-        }
-    }
-
-    pub fn merge(self, other: Self) -> Self {
-        if other.severity() > self.severity() {
-            other
-        } else {
-            self
-        }
+        !self.is_transient()
     }
 }

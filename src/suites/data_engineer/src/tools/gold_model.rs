@@ -535,9 +535,13 @@ impl Tool for GoldModelTool {
             errors
                 .iter()
                 .fold(crate::failure_kind::FailureKind::Unknown, |acc, e| {
-                    acc.merge(
-                        crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e),
-                    )
+                    let rhs =
+                        crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e);
+                    if acc.is_transient() || rhs.is_transient() {
+                        crate::failure_kind::FailureKind::InfraTransient
+                    } else {
+                        acc
+                    }
                 });
         let mut result = serde_json::json!({
             "ok": errors.is_empty(),

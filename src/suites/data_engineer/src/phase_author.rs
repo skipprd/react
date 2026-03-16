@@ -22,7 +22,6 @@ struct AuthorPrompt {
 }
 
 enum AuthorEscalation {
-    StayLocal(String),
     PlanDefect {
         violations: Vec<crate::progress_controller::PlanViolation>,
         strategy: crate::progress_controller::PlanRevisionStrategy,
@@ -37,7 +36,6 @@ async fn apply_author_escalation(
     escalation: AuthorEscalation,
 ) -> Result<PhaseOutcome, PhaseError> {
     match escalation {
-        AuthorEscalation::StayLocal(reason) => Ok(PhaseOutcome::stayed_waiting(reason)),
         AuthorEscalation::PlanDefect {
             violations,
             strategy,
@@ -148,6 +146,31 @@ fn resolve_review_patch_target_paths<T>(
         }
     }
     paths.into_iter().collect()
+}
+
+fn build_post_validate_fail_repair_context(
+    track: TrackKind,
+    plan_key: &str,
+    repair_ctx: &crate::progress_controller::RepairPromptContext,
+) -> String {
+    let mut ctx = format!(
+        "Approved {} plan (stored at: {}).\n\
+         All plan tasks were previously completed, but the last validation FAILED.\n\
+         You MUST diagnose and fix the failing model(s) before validation can pass.\n",
+        track.as_str(),
+        plan_key,
+    );
+    if let Some(brief) = &repair_ctx.brief {
+        ctx.push_str(&format!("\n## Validation Error Summary\n{brief}\n"));
+    }
+    if let Some(excerpts) = &repair_ctx.log_excerpts {
+        ctx.push_str(&format!("\n## Relevant Log Lines\n{excerpts}\n"));
+    }
+    ctx.push_str(
+        "\nNext action: read the failing file(s), identify the root cause from the errors above, \
+         and apply a targeted fix using file ops. Focus on column mismatches, missing refs, and SQL errors.\n",
+    );
+    ctx
 }
 
 fn build_review_patch_plan_context(
@@ -488,22 +511,6 @@ fn author_plan_defect(
     }
 }
 
-fn author_local_failure(phase: Phase, message: impl Into<String>) -> AuthorEscalation {
-    let message = message.into();
-    AuthorEscalation::FatalLocal(format!(
-        "Authoring failed in phase '{}': {}",
-        phase.as_str(),
-        message
-    ))
-}
-
-fn author_patch_impl_recovery(phase: Phase) -> AuthorEscalation {
-    AuthorEscalation::StayLocal(format!(
-        "patch_impl stall cleared at step-boundary; reverting to normal author flow (phase={})",
-        phase.as_str()
-    ))
-}
-
 async fn apply_author_plan_defect(
     thread_store: &ThreadStore,
     thread_id: &str,
@@ -537,7 +544,7 @@ async fn load_cleanse_author_context(
     params: &AuthorPhaseCtx<'_>,
     actx: &mut AgentCtx,
 ) -> Result<AuthorPlanLoadResult, PhaseError> {
-    let plan = match crate::plan::load_cleanse_plan_any(actx).await? {
+    let plan = match crate::plan::load_cleanse_plan(actx).await? {
         Some(p) => p,
         None => {
             transition_plan_missing(
@@ -685,7 +692,11 @@ async fn load_cleanse_author_context(
 
             if params.phase_guard.last_validate_failed {
                 Ok(AuthorPlanLoadResult::Ready {
-                    plan_context: String::new(),
+                    plan_context: build_post_validate_fail_repair_context(
+                        params.track,
+                        &plan.plan_key,
+                        params.repair_ctx,
+                    ),
                     plan_state: PlanState::Repair,
                 })
             } else {
@@ -721,7 +732,7 @@ async fn load_model_author_context(
     params: &AuthorPhaseCtx<'_>,
     actx: &mut AgentCtx,
 ) -> Result<AuthorPlanLoadResult, PhaseError> {
-    let mut plan = match crate::plan::load_model_plan_any(actx).await? {
+    let mut plan = match crate::plan::load_model_plan(actx).await? {
         Some(p) => p,
         None => {
             transition_plan_missing(
@@ -930,7 +941,11 @@ async fn load_model_author_context(
 
             if params.phase_guard.last_validate_failed {
                 Ok(AuthorPlanLoadResult::Ready {
-                    plan_context: String::new(),
+                    plan_context: build_post_validate_fail_repair_context(
+                        params.track,
+                        &plan.plan_key,
+                        params.repair_ctx,
+                    ),
                     plan_state: PlanState::Repair,
                 })
             } else {
@@ -1080,7 +1095,6 @@ async fn build_author_prompt(
                 actx,
                 crate::facts::FactsScope::AuthorBatch,
                 dialect.clone(),
-                crate::facts::TargetFacts::default(),
                 &batch_relations,
                 limits,
             )
@@ -1099,9 +1113,6 @@ async fn build_author_prompt(
     if params.repair_ctx.has_context() {
         q.push_str("\n\n");
         q.push_str(&params.repair_ctx.format_error_context());
-        if !params.repair_ctx.failed_models.is_empty() {
-            q.push_str("Fix these first (prefer patching the listed file paths).\n");
-        }
     }
     if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::PrecheckFailed) {
         if let Some(detail) = params.execution_state.phase.phase_reason_detail.as_ref() {
@@ -1226,7 +1237,6 @@ async fn handle_author_run_outcome(
     params: &AuthorPhaseCtx<'_>,
     actx: &AgentCtx,
     sctx: &SuiteCtx,
-    authoring_ctx: &crate::authoring_driver::AuthoringCtx,
     pre_mutation_epoch: u64,
     outcome: RunOutcomeNonInteractive,
 ) -> Result<PhaseOutcome, PhaseError> {
@@ -1251,16 +1261,7 @@ async fn handle_author_run_outcome(
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
             let patch_impl_mutation_satisfied =
                 gate_state.repair.mutation_epoch > pre_mutation_epoch;
-            if let Err(reason) =
-                crate::progress_controller::gate_authoring_progress(&gate_state, params.phase)
-            {
-                crate::state_manager::mutate_execution_state(
-                    &params.thread_store.control_store(),
-                    params.thread_id,
-                    |es| es.record_stepboundary_progress(false),
-                )
-                .await
-                .map_err(|e| format!("failed to increment stall count on gate block: {e}"))?;
+            if let Err(reason) = crate::progress_controller::gate_authoring_probe(&gate_state) {
                 apply_guard_block(
                     params.thread_store,
                     params.thread_id,
@@ -1272,13 +1273,6 @@ async fn handle_author_run_outcome(
                 return Ok(PhaseOutcome::stayed_waiting(reason));
             }
             if crate::phase_gate::patch_impl_intent_unsatisfied(&gate_state, params.phase) {
-                crate::state_manager::mutate_execution_state(
-                    &params.thread_store.control_store(),
-                    params.thread_id,
-                    |es| es.record_stepboundary_progress(false),
-                )
-                .await
-                .map_err(|e| format!("failed to increment stall count on patch-impl gate: {e}"))?;
                 let reason = format!(
                     "progress_gate_blocked: review requested implementation patch for phase '{}' and no successful mutation has been recorded since loopback. Apply a mutating file op (patch/rm/mv) before re-validating.",
                     params.phase.as_str()
@@ -1329,14 +1323,6 @@ async fn handle_author_run_outcome(
                 ));
             }
 
-            crate::state_manager::mutate_execution_state(
-                &params.thread_store.control_store(),
-                params.thread_id,
-                |es| es.record_stepboundary_progress(true),
-            )
-            .await
-            .map_err(|e| format!("failed to reset stall count on authoring complete: {e}"))?;
-
             let to_phase = if params.track.is_cleanse() {
                 Phase::CleanseValidate
             } else {
@@ -1383,56 +1369,6 @@ async fn handle_author_run_outcome(
             }
 
             let mutation_advanced = post_state.repair.mutation_epoch > pre_mutation_epoch;
-            post_state.record_stepboundary_progress(mutation_advanced);
-            post_state
-                .save(&params.thread_store.control_store(), params.thread_id)
-                .await
-                .map_err(|e| format!("failed to persist step-boundary progress: {e}"))?;
-
-            let snapshot = crate::progress_controller::snapshot_authoring_stepboundary_progress(
-                pre_mutation_epoch,
-                post_state.repair.mutation_epoch,
-                post_state.repair.stall_count,
-            );
-            match crate::authoring_driver::AuthoringDriver::run_turn(authoring_ctx, &snapshot) {
-                crate::authoring_driver::AuthoringTurnResult::HardError { message } => {
-                    if crate::phase_gate::patch_impl_intent_unsatisfied(
-                        &post_state,
-                        params.phase,
-                    ) {
-                        tracing::warn!(
-                            "data_engineer: patch_impl stall at step-boundary (phase={}): {message}. Clearing intent and staying local.",
-                            params.phase.as_str()
-                        );
-                        post_state.clear_pending_patch_impl();
-                        post_state.repair.stall_count = 0;
-                        post_state
-                            .save(&params.thread_store.control_store(), params.thread_id)
-                            .await
-                            .map_err(|e| {
-                                format!("failed to persist patch_impl stall recovery: {e}")
-                            })?;
-                        return apply_author_escalation(
-                            params.thread_store,
-                            params.thread_id,
-                            params.phase,
-                            author_patch_impl_recovery(params.phase),
-                        )
-                        .await;
-                    }
-                    return apply_author_escalation(
-                        params.thread_store,
-                        params.thread_id,
-                        params.phase,
-                        author_local_failure(
-                            params.phase,
-                            format!("authoring stall after repeated local repair attempts: {message}"),
-                        ),
-                    )
-                    .await;
-                }
-                crate::authoring_driver::AuthoringTurnResult::Continue => {}
-            }
             if mutation_advanced {
                 Ok(PhaseOutcome::stayed_with_progress(
                     "authoring turn made mutations at the step boundary; resetting budget",
@@ -1486,7 +1422,6 @@ impl DataEngineerSuite {
         } else {
             prompts::model_system_prompt()
         });
-        let authoring_ctx = crate::authoring_driver::AuthoringCtx { phase };
         let mut actx = react_core::agent::AgentCtxBuilder::new(
             sctx.llm().clone(),
             sctx.storage().clone(),
@@ -1568,7 +1503,6 @@ impl DataEngineerSuite {
                     &params,
                     &actx,
                     sctx,
-                    &authoring_ctx,
                     pre_mutation_epoch,
                     outcome,
                 )

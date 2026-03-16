@@ -1054,22 +1054,7 @@ mod tests {
         );
         let tid = "tid-hard-mutation-files-get-blocked".to_string();
         let mut es = ExecutionState::new();
-        es.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/m.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                },
-            },
-        );
+        es.repair.repair_active = true;
         es.set_last_mutation_summary(
             crate::progress_controller::MutationOp::Remove,
             vec!["models/staging/m.sql".to_string()],
@@ -1106,22 +1091,7 @@ mod tests {
         );
         let tid = "tid-hard-mutation-files-list-allowed".to_string();
         let mut es = ExecutionState::new();
-        es.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/staging/m.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                },
-            },
-        );
+        es.repair.repair_active = true;
         es.set_last_mutation_summary(
             crate::progress_controller::MutationOp::Remove,
             vec!["models/staging/m.sql".to_string()],

@@ -417,12 +417,6 @@ impl Tool for DbtValidateTool {
                 "validation_ladder".to_string(),
                 serde_json::to_value(ladder).unwrap_or(Value::Null),
             );
-            // Structured runtime/test failures extracted from build/run stdout (if present).
-            // This avoids relying on giant error blobs or tiny brief summaries.
-            let rf = crate::dbt_error::extract_runtime_failures_from_logs(
-                &obj.get("logs").cloned().unwrap_or(Value::Null),
-            );
-            obj.insert("runtime_failures".to_string(), serde_json::json!(rf));
 
             // Always produce an LLM-backed condensed error summary on failure.
             // This is used by terminal mode to show the real root cause (not startup banners).
@@ -438,7 +432,7 @@ impl Tool for DbtValidateTool {
                     })
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-                match crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, &rf, 2000)
+                match crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000)
                     .await
                 {
                     Ok(sum) => {

@@ -820,7 +820,12 @@ impl Tool for StagingModelTool {
 
         let out_notes = dedup_notes(notes, 50);
         let classified_kind = errors.iter().fold(FailureKind::Unknown, |acc, e| {
-            acc.merge(crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e))
+            let rhs = crate::tools::batch_sql_runner::classify_authoring_batch_failure_kind(e);
+            if acc.is_transient() || rhs.is_transient() {
+                crate::failure_kind::FailureKind::InfraTransient
+            } else {
+                acc
+            }
         });
 
         let mut result = serde_json::json!({

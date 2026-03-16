@@ -263,8 +263,6 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
     let guard = crate::control_flow::DerivedGuardState {
         last_validate_failed: true,
         mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
         probe_required: false,
         probe_satisfied: false,
     };
@@ -292,8 +290,6 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
     let guard = crate::control_flow::DerivedGuardState {
         last_validate_failed: true,
         mutated_since_fail: false,
-        patched_since_fail: false,
-        mutation_failures_since_validate: 0,
         probe_required: false,
         probe_satisfied: false,
     };
@@ -315,22 +311,7 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        seeded.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-            crate::progress_controller::RepairMode {
-    
-                target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                    crate::progress_controller::SqlModelPath::parse(
-                        "models/marts/fct_orders.sql".to_string(),
-                    )
-                    .expect("valid sql model path"),
-                )),
-                materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-                core: crate::progress_controller::RepairModeCore {
-                    attempt_count: 0,
-                    repair_started_mutation_epoch: None,
-                },
-            },
-        );
+        seeded.repair.repair_active = true;
         seeded
             .save(&store.control_store(), "t")
             .await
@@ -659,28 +640,12 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     assert_eq!(
         before
             .get("guard_state")
-            .and_then(|v| v.get("patched_since_fail"))
+            .and_then(|v| v.get("mutated_since_fail"))
             .and_then(|v| v.as_bool()),
         Some(false)
     );
 
-    // A recorded patch mutation flips patched_since_fail via typed mutation receipt.
-    state.repair.repair_mode = crate::progress_controller::RepairModeState::Active(
-        crate::progress_controller::RepairMode {
-
-            target_path: Some(crate::progress_controller::RepairTargetPath::SqlModel(
-                crate::progress_controller::SqlModelPath::parse(
-                    "models/staging/stg_orders.sql".to_string(),
-                )
-                .expect("valid sql model path"),
-            )),
-            materialization: crate::progress_controller::RepairTargetMaterialization::Existing,
-            core: crate::progress_controller::RepairModeCore {
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-            },
-        },
-    );
+    state.repair.repair_active = true;
     state.set_last_mutation_summary(
         crate::progress_controller::MutationOp::Patch,
         vec!["models/staging/stg_orders.sql".to_string()],
@@ -695,7 +660,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     assert_eq!(
         after
             .get("guard_state")
-            .and_then(|v| v.get("patched_since_fail"))
+            .and_then(|v| v.get("mutated_since_fail"))
             .and_then(|v| v.as_bool()),
         Some(true)
     );

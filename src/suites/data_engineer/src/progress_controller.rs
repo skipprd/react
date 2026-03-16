@@ -10,64 +10,15 @@ use react_core::session::ControlStateStore;
 use crate::control_flow::Phase;
 
 pub const EXECUTION_STATE_SCHEMA_VERSION: u32 = 2;
-pub const DEFAULT_MAX_STALL_COUNT: usize = 5;
+pub const MAX_REPAIR_CYCLES: usize = 8;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct FailedModelRef {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub file: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(default)]
-    pub materialization: RepairTargetMaterialization,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RepairTargetMaterialization {
-    Existing,
-    Missing,
-    #[default]
-    Unknown,
-}
-
-/// Single source of truth for error/failure context injected into LLM prompts.
-///
-/// Built from `ExecutionState`; every phase executor receives this instead of
-/// ad-hoc `(Option<String>, Vec<FailedModelRef>)` tuples. The `format_error_context`
-/// method guarantees that error text is NEVER dropped regardless of whether
-/// specific failing models are identified.
-/// Typed plan data for a single failing task, carried into repair prompts so
-/// the repair LLM sees the exact contract it must satisfy.
 #[derive(Clone, Debug)]
-pub struct TaskRepairSpec {
-    pub task_id: String,
-    pub source_schema: Vec<crate::plan_types::SourceColumnDef>,
-    pub implementation_spec_json: String,
-}
-
-#[derive(Clone, Debug, Default)]
 pub struct RepairPromptContext {
     pub brief: Option<String>,
-    pub failed_models: Vec<FailedModelRef>,
-    pub stall_count: usize,
-    pub attempt_count: usize,
-    pub failure_signature: Option<String>,
-    /// Suite-level guard note (e.g. from authoring budget exhaustion).
-    /// Separate from `brief` which is the dbt validation output.
+    pub log_excerpts: Option<String>,
+    pub repair_cycles: usize,
     pub guard_note: Option<String>,
-    /// Pre-fetched file contents for failing models (path → content).
-    /// Populated asynchronously before prompt rendering; never serialized.
-    pub target_contents: Vec<(String, String)>,
-    /// Recent failed mutating file operations from this thread so the repair
-    /// prompt can explicitly steer away from repeating the same broken patch.
     pub recent_failed_file_ops: Vec<RecentFailedFileOp>,
-    /// Typed plan data for failing tasks so the repair LLM sees the
-    /// authoritative contract (schema + implementation spec) from the plan.
-    pub task_specs: Vec<TaskRepairSpec>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,54 +30,12 @@ pub struct RecentFailedFileOp {
 }
 
 impl RepairPromptContext {
-    /// Format all available error context for injection into an LLM prompt.
-    /// Always includes the brief (error text) AND per-model targets independently.
-    /// Escalates framing when stall_count indicates repeated failure.
     pub fn format_error_context(&self) -> String {
         let mut out = String::new();
-        if self.failed_models.is_empty() && self.brief.is_some() {
-            out.push_str(
-                "No specific model targets were extracted from the validation error.\n\
-                 Read the error summary below carefully, then use your tools (file list, file read) \
-                 to identify which model(s) or test(s) need fixing.\n\n",
-            );
-        }
-        if !self.failed_models.is_empty() {
-            out.push_str("Failing model targets:\n");
-            for fm in self.failed_models.iter().take(6) {
-                let name = if fm.name.trim().is_empty() {
-                    "unknown_model"
-                } else {
-                    fm.name.as_str()
-                };
-                let file = if fm.file.trim().is_empty() {
-                    "(unknown file)"
-                } else {
-                    fm.file.as_str()
-                };
-                out.push_str(&format!("- {name} ({file})"));
-                match fm.materialization {
-                    RepairTargetMaterialization::Existing => {
-                        out.push_str(" [target_exists]");
-                    }
-                    RepairTargetMaterialization::Missing => {
-                        out.push_str(" [target_missing]");
-                    }
-                    RepairTargetMaterialization::Unknown => {}
-                }
-                if let Some(ref err) = fm.error {
-                    let trimmed = err.trim();
-                    if !trimmed.is_empty() {
-                        out.push_str(&format!(" — {trimmed}"));
-                    }
-                }
-                out.push('\n');
-            }
-        }
         if let Some(ref brief) = self.brief {
             let trimmed = brief.trim();
             if !trimmed.is_empty() {
-                out.push_str("\nLast dbt_validate summary:\n");
+                out.push_str("Last dbt_validate summary:\n");
                 out.push_str(trimmed);
                 out.push('\n');
             }
@@ -178,79 +87,35 @@ impl RepairPromptContext {
                 ));
             }
         }
-        let has_repair_data = self.brief.is_some()
-            || !self.failed_models.is_empty()
-            || !self.recent_failed_file_ops.is_empty();
+        let has_repair_data = self.brief.is_some() || !self.recent_failed_file_ops.is_empty();
         if has_repair_data {
             out.push_str(
                 "\nCRITICAL REPAIR RULES:\n\
                  - You MUST change the SQL logic or test definition to fix the actual error described above.\n\
                  - Read the error message carefully: identify the failing column/expression, then edit \
-                 the SQL model to produce correct values (filter NULLs, fix joins, cast types, etc.).\n",
+                 the SQL model to produce correct values (filter NULLs, fix joins, cast types, etc.).\n\
+                 - Use your tools (file list, file read) to identify which model(s) or test(s) need fixing.\n",
             );
         }
-        if self.stall_count >= 2 {
+        if self.repair_cycles >= 2 {
             out.push_str(&format!(
-                "\nWARNING: This repair has stalled for {} consecutive iterations \
-                 with the same error. Previous patches did NOT resolve the issue. \
-                 You MUST make a DIFFERENT, substantive change to the SQL logic.\n",
-                self.stall_count,
+                "\nWARNING: Repair cycle {} of {}. Previous attempts did NOT fully resolve the issue. \
+                 You MUST take a materially different approach.\n",
+                self.repair_cycles, MAX_REPAIR_CYCLES,
             ));
-        }
-        if !self.task_specs.is_empty() {
-            out.push_str("\n--- Plan contract for failing tasks (AUTHORITATIVE) ---\n");
-            for spec in &self.task_specs {
-                out.push_str(&format!("\n### Task: {}\n", spec.task_id));
-                if !spec.source_schema.is_empty() {
-                    out.push_str("Source columns:\n");
-                    for c in &spec.source_schema {
-                        out.push_str(&format!("  - {} ({})\n", c.name, c.data_type));
-                    }
-                }
-                if !spec.implementation_spec_json.is_empty() {
-                    out.push_str("Implementation spec:\n```json\n");
-                    out.push_str(&spec.implementation_spec_json);
-                    if !spec.implementation_spec_json.ends_with('\n') {
-                        out.push('\n');
-                    }
-                    out.push_str("```\n");
-                }
-            }
-        }
-        if !self.target_contents.is_empty() {
-            out.push_str("\n--- Current file contents (use these as exact patch context) ---\n");
-            for (path, content) in &self.target_contents {
-                let fence = if path.ends_with(".yml") || path.ends_with(".yaml") {
-                    "yaml"
-                } else {
-                    "sql"
-                };
-                out.push_str(&format!("\n### {path}\n```{fence}\n"));
-                out.push_str(content);
-                if !content.ends_with('\n') {
-                    out.push('\n');
-                }
-                out.push_str("```\n");
-            }
         }
         out
     }
 
     pub fn has_context(&self) -> bool {
         self.brief.is_some()
-            || !self.failed_models.is_empty()
             || self.guard_note.is_some()
             || !self.recent_failed_file_ops.is_empty()
     }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct LastValidateState {
-    #[serde(default)]
-    pub step_idx: Option<usize>,
-    #[serde(default)]
-    pub ts: Option<String>,
     #[serde(default)]
     pub ok: Option<bool>,
     #[serde(default)]
@@ -260,9 +125,7 @@ pub struct LastValidateState {
     #[serde(default)]
     pub brief: Option<String>,
     #[serde(default)]
-    pub failed_models: Vec<FailedModelRef>,
-    #[serde(default)]
-    pub failure_class: Option<FailureKind>,
+    pub log_excerpts: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -479,55 +342,6 @@ impl From<RepairTargetPath> for String {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-pub struct RepairModeCore {
-    #[serde(default)]
-    pub attempt_count: usize,
-    #[serde(default)]
-    pub repair_started_mutation_epoch: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct RepairMode {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target_path: Option<RepairTargetPath>,
-    #[serde(default)]
-    pub materialization: RepairTargetMaterialization,
-    #[serde(flatten)]
-    pub core: RepairModeCore,
-}
-
-impl RepairMode {
-    pub fn new(
-        target_path: Option<RepairTargetPath>,
-        materialization: RepairTargetMaterialization,
-    ) -> Self {
-        Self {
-            target_path,
-            materialization,
-            core: RepairModeCore::default(),
-        }
-    }
-    pub fn attempt_count(&self) -> usize {
-        self.core.attempt_count
-    }
-    pub fn note_materialized(&mut self) {
-        self.materialization = RepairTargetMaterialization::Existing;
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum RepairModeState {
-    Inactive,
-    Active(RepairMode),
-}
-
-impl Default for RepairModeState {
-    fn default() -> Self {
-        Self::Inactive
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -644,94 +458,6 @@ impl ProbeSignature {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct RepairTarget {
-    #[serde(default)]
-    pub model_name: Option<String>,
-    #[serde(default)]
-    pub path: Option<RepairTargetPath>,
-    #[serde(default)]
-    pub error_class: Option<FailureKind>,
-    #[serde(default)]
-    pub materialization: RepairTargetMaterialization,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct FailureSignature {
-    pub class: FailureKind,
-    #[serde(default)]
-    pub node_id: Option<String>,
-    #[serde(default)]
-    pub canonical_path: Option<RepairTargetPath>,
-    #[serde(default)]
-    pub error_code: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum RepairIntent {
-    SqlPatch {
-        target: SqlModelPath,
-        backlog: Vec<RepairTarget>,
-    },
-    SqlRewrite {
-        target: SqlModelPath,
-        backlog: Vec<RepairTarget>,
-    },
-    Schema {
-        backlog: Vec<RepairTarget>,
-    },
-    NoRepair {
-        reason: NoRepairReason,
-        backlog: Vec<RepairTarget>,
-    },
-}
-
-impl RepairIntent {
-    pub fn backlog(&self) -> &[RepairTarget] {
-        match self {
-            Self::SqlPatch { backlog, .. } => backlog.as_slice(),
-            Self::SqlRewrite { backlog, .. } => backlog.as_slice(),
-            Self::Schema { backlog } => backlog.as_slice(),
-            Self::NoRepair { backlog, .. } => backlog.as_slice(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NoRepairReason {
-    FailureClassNotRepairable,
-    NoRepairableTarget,
-    MissingTargetMaterialization,
-    MultiTargetSqlFailure,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ProgressDelta {
-    #[serde(default)]
-    pub target_hash_changed: bool,
-    #[serde(default)]
-    pub failed_target_count_delta: i64,
-    #[serde(default)]
-    pub failure_signature_changed: bool,
-    #[serde(default)]
-    pub checklist_completed_delta: i64,
-    #[serde(default)]
-    pub progress_made: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthoringNoProgressReason {
-    NoMutationProgress,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuthoringProgressSnapshot {
-    pub progress_made: bool,
-    pub reason: Option<AuthoringNoProgressReason>,
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -932,74 +658,36 @@ pub struct PhaseState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct RepairState {
     #[serde(default)]
-    pub last_failure_signature: Option<FailureSignature>,
-    #[serde(default)]
-    pub repair_backlog: Vec<RepairTarget>,
-    #[serde(default)]
-    pub repair_mode: RepairModeState,
-    #[serde(default)]
     pub mutation_epoch: u64,
+    /// Epoch at which the last validate failure occurred; `mutation_epoch > fail_mutation_epoch`
+    /// means the agent has mutated since the last failure.
     #[serde(default)]
-    pub stall_count: usize,
+    pub fail_mutation_epoch: u64,
     #[serde(default)]
-    pub last_progress_delta: Option<ProgressDelta>,
+    pub repair_cycles: usize,
     #[serde(default)]
     pub last_error_brief: Option<String>,
     #[serde(default)]
     pub pending_patch_impl: Option<PatchImplIntent>,
+    #[serde(default)]
+    pub repair_active: bool,
     #[serde(default)]
     pub last_batch_infra_transient: bool,
 }
 
 impl RepairState {
     pub fn hard_mutation_repair_mode(&self) -> bool {
-        !matches!(self.repair_mode, RepairModeState::Inactive)
+        self.repair_active
     }
 
-    pub fn single_target_repair_path(&self) -> Option<&str> {
-        match &self.repair_mode {
-            RepairModeState::Inactive => None,
-            RepairModeState::Active(mode) => mode.target_path.as_ref().map(|p| p.as_str()),
-        }
+    pub fn mutated_since_fail(&self) -> bool {
+        self.mutation_epoch > self.fail_mutation_epoch
     }
 
     pub fn take_batch_infra_transient(&mut self) -> bool {
         std::mem::take(&mut self.last_batch_infra_transient)
-    }
-
-    fn active(&self) -> Option<&RepairMode> {
-        match &self.repair_mode {
-            RepairModeState::Inactive => None,
-            RepairModeState::Active(mode) => Some(mode),
-        }
-    }
-
-    fn active_mut(&mut self) -> Option<&mut RepairMode> {
-        match &mut self.repair_mode {
-            RepairModeState::Inactive => None,
-            RepairModeState::Active(mode) => Some(mode),
-        }
-    }
-
-    fn core(&self) -> Option<&RepairModeCore> {
-        self.active().map(|m| &m.core)
-    }
-
-    fn core_mut(&mut self) -> Option<&mut RepairModeCore> {
-        self.active_mut().map(|m| &mut m.core)
-    }
-
-    pub fn attempt_count(&self) -> usize {
-        self.core().map(|c| c.attempt_count).unwrap_or(0)
-    }
-
-    pub fn ensure_target_path(&mut self, path: SqlModelPath) {
-        if let RepairModeState::Active(mode) = &mut self.repair_mode {
-            mode.target_path = Some(RepairTargetPath::SqlModel(path));
-        }
     }
 }
 
@@ -1046,16 +734,11 @@ impl WorkflowControlState {
         self.phase.mode = ExecutionMode::Done;
         self.phase.pending_plan_revision = None;
 
-        self.repair.last_failure_signature = None;
-        self.repair.repair_backlog.clear();
-        self.repair.repair_mode = RepairModeState::Inactive;
-        self.repair.stall_count = 0;
-        self.repair.last_progress_delta = Some(ProgressDelta {
-            progress_made: true,
-            ..ProgressDelta::default()
-        });
+        self.repair.repair_cycles = 0;
+        self.repair.fail_mutation_epoch = 0;
         self.repair.last_error_brief = None;
         self.repair.pending_patch_impl = None;
+        self.repair.repair_active = false;
 
         self.publish.publish_approval = None;
         self.publish.publish_retries.clear();
@@ -1072,17 +755,15 @@ pub enum DataEngineerEvent {
     },
     ValidateFailed {
         tier: ExecutionTier,
-        failure_class: FailureKind,
-        failure_signature: FailureSignature,
-        repair_intent: RepairIntent,
-        brief: Option<String>,
-        compile_ok: Option<bool>,
-        run_ok: Option<bool>,
+        brief: String,
+        failure_hash: String,
+        compile_ok: bool,
+        run_ok: bool,
+        log_excerpts: Option<String>,
     },
     BatchAuthoringFailed {
         tier: ExecutionTier,
         kind: FailureKind,
-        failed_targets: Vec<FailedModelRef>,
         brief: String,
     },
     BatchAuthoringRecovered,
@@ -1090,16 +771,15 @@ pub enum DataEngineerEvent {
 
 impl ExecutionState {
     pub fn repair_prompt_context(&self) -> RepairPromptContext {
-        let (brief, failed_models) = if let Some(ref lv) = self.telemetry.last_validate {
-            let b = lv
-                .brief
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            (b, lv.failed_models.clone())
-        } else {
-            (None, Vec::new())
-        };
+        let lv = self.telemetry.last_validate.as_ref();
+        let brief = lv
+            .and_then(|lv| lv.brief.as_ref())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let log_excerpts = lv
+            .and_then(|lv| lv.log_excerpts.as_ref())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         let guard_note = self
             .repair
             .last_error_brief
@@ -1108,18 +788,10 @@ impl ExecutionState {
             .filter(|s| !s.is_empty());
         RepairPromptContext {
             brief,
-            failed_models,
-            stall_count: self.repair.stall_count,
-            attempt_count: self.attempt_count(),
-            failure_signature: self
-                .repair
-                .last_failure_signature
-                .as_ref()
-                .map(|s| format!("{:?}", s)),
+            log_excerpts,
+            repair_cycles: self.repair.repair_cycles,
             guard_note,
-            target_contents: Vec::new(),
             recent_failed_file_ops: Vec::new(),
-            task_specs: Vec::new(),
         }
     }
 
@@ -1127,56 +799,8 @@ impl ExecutionState {
         self.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false)
     }
 
-    /// Convenience delegation to `self.repair_state()`. These exist so callers
-    /// can query repair properties without knowing about the `RepairState` layer.
     pub fn hard_mutation_repair_mode(&self) -> bool {
         self.repair_state().hard_mutation_repair_mode()
-    }
-    pub fn attempt_count(&self) -> usize {
-        self.repair_state().attempt_count()
-    }
-    pub fn single_target_repair_path(&self) -> Option<String> {
-        self.repair_state()
-            .single_target_repair_path()
-            .map(ToString::to_string)
-    }
-
-    pub fn ensure_repair_target_path(&mut self, path: SqlModelPath) {
-        self.with_repair_state_mut(|repair| {
-            repair.ensure_target_path(path);
-        });
-    }
-
-    fn disable_repair_mode(repair: &mut RepairState) {
-        repair.repair_mode = RepairModeState::Inactive;
-    }
-
-    fn enable_repair_mode(repair: &mut RepairState, repair_intent: &RepairIntent) {
-        repair.repair_mode = match repair_intent {
-            RepairIntent::Schema { backlog, .. } => {
-                let target_path = backlog.iter().find_map(|t| t.path.clone());
-                let mut mode = RepairMode::new(target_path, RepairTargetMaterialization::default());
-                mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
-                RepairModeState::Active(mode)
-            }
-            RepairIntent::SqlPatch { target, .. } => {
-                let mut mode = RepairMode::new(
-                    Some(RepairTargetPath::SqlModel(target.clone())),
-                    RepairTargetMaterialization::Existing,
-                );
-                mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
-                RepairModeState::Active(mode)
-            }
-            RepairIntent::SqlRewrite { target, .. } => {
-                let mut mode = RepairMode::new(
-                    Some(RepairTargetPath::SqlModel(target.clone())),
-                    RepairTargetMaterialization::Missing,
-                );
-                mode.core.repair_started_mutation_epoch = Some(repair.mutation_epoch);
-                RepairModeState::Active(mode)
-            }
-            RepairIntent::NoRepair { .. } => RepairModeState::Inactive,
-        };
     }
 
     pub fn new() -> Self {
@@ -1188,7 +812,6 @@ impl ExecutionState {
 
     pub fn apply_validate_success(&mut self, tier: ExecutionTier) {
         self.telemetry.last_validate = Some(LastValidateState {
-            ts: Some(chrono::Utc::now().to_rfc3339()),
             ok: Some(true),
             compile_ok: Some(true),
             run_ok: Some(true),
@@ -1364,108 +987,31 @@ impl ExecutionState {
     pub fn apply_validate_failure(
         &mut self,
         tier: ExecutionTier,
-        failure_class: FailureKind,
-        failure_signature: FailureSignature,
-        repair_intent: RepairIntent,
-        brief: Option<String>,
+        brief: String,
+        _failure_hash: String,
+        compile_ok: bool,
+        run_ok: bool,
+        log_excerpts: Option<String>,
     ) {
-        let backlog = repair_intent.backlog().to_vec();
-        let (prev_count, prev_signature) = {
-            let repair = self.repair_state();
-            (
-                repair.repair_backlog.len() as i64,
-                repair.last_failure_signature.clone(),
-            )
-        };
         self.telemetry.last_validate = Some(LastValidateState {
-            ts: Some(chrono::Utc::now().to_rfc3339()),
             ok: Some(false),
-            compile_ok: Some(
-                obs_like_bool(&self.telemetry.last_validate, |lv| lv.compile_ok).unwrap_or(false),
-            ),
-            run_ok: Some(
-                obs_like_bool(&self.telemetry.last_validate, |lv| lv.run_ok).unwrap_or(false),
-            ),
-            brief: brief.clone(),
-            failed_models: backlog
-                .iter()
-                .map(|t| FailedModelRef {
-                    name: t.model_name.clone().unwrap_or_default(),
-                    file: t
-                        .path
-                        .as_ref()
-                        .map(|p| p.as_str().to_string())
-                        .unwrap_or_default(),
-                    ..Default::default()
-                })
-                .collect(),
-            failure_class: Some(failure_class),
-            ..LastValidateState::default()
+            compile_ok: Some(compile_ok),
+            run_ok: Some(run_ok),
+            brief: Some(brief.clone()),
+            log_excerpts,
         });
-        let compile_ok = self
-            .telemetry
-            .last_validate
-            .as_ref()
-            .and_then(|v| v.compile_ok)
-            .unwrap_or(false);
-        let failed_target_count_delta = backlog.len() as i64 - prev_count;
-        let failure_signature_changed = prev_signature != Some(failure_signature.clone());
-        let progress_made = failure_signature_changed || failed_target_count_delta < 0;
         self.with_workflow_control_state_mut(|state| {
             state.phase.current_tier = tier;
             state.phase.mode = ExecutionMode::Mutate;
 
-            state.repair.last_failure_signature = Some(failure_signature.clone());
-            state.repair.repair_backlog = backlog;
-            Self::enable_repair_mode(&mut state.repair, &repair_intent);
-            state.repair.last_error_brief = brief;
-            if progress_made {
-                state.repair.stall_count = 0;
-            } else {
-                state.repair.stall_count = state.repair.stall_count.saturating_add(1);
-            }
-            state.repair.last_progress_delta = Some(ProgressDelta {
-                target_hash_changed: false,
-                failed_target_count_delta,
-                failure_signature_changed,
-                checklist_completed_delta: 0,
-                progress_made,
-            });
+            state.repair.last_error_brief = Some(brief);
+            state.repair.repair_active = true;
+            state.repair.repair_cycles = state.repair.repair_cycles.saturating_add(1);
+            state.repair.fail_mutation_epoch = state.repair.mutation_epoch;
 
             state.publish.publish_approval = None;
             state.probe = ProbeState::default();
-            state.probe.required = matches!(
-                repair_intent,
-                RepairIntent::SqlPatch { .. } | RepairIntent::SqlRewrite { .. }
-            ) && compile_ok;
-        });
-    }
-
-    pub fn note_patch_attempt(&mut self, ok: bool, mutated: bool) {
-        self.with_workflow_control_state_mut(|state| {
-            if let Some(core) = state.repair.core_mut() {
-                core.attempt_count = core.attempt_count.saturating_add(1);
-            }
-            if ok && mutated {
-                if let RepairModeState::Active(mode) = &mut state.repair.repair_mode {
-                    mode.note_materialized();
-                }
-                state.repair.stall_count = 0;
-                state.repair.last_progress_delta = Some(ProgressDelta {
-                    target_hash_changed: true,
-                    progress_made: true,
-                    ..ProgressDelta::default()
-                });
-                state.probe.required = false;
-                state.probe.repeated_signature_streak = 0;
-                return;
-            }
-            state.repair.stall_count = state.repair.stall_count.saturating_add(1);
-            state.repair.last_progress_delta = Some(ProgressDelta {
-                target_hash_changed: false,
-                progress_made: false,
-                ..ProgressDelta::default()
-            });
+            state.probe.required = compile_ok;
         });
     }
 
@@ -1546,7 +1092,6 @@ impl ExecutionState {
                 phase,
                 entry_mutation_epoch: epoch,
             });
-            repair.stall_count = 0;
         });
     }
 
@@ -1721,74 +1266,31 @@ impl ExecutionState {
         self.debug_assert_invariants();
     }
 
-    /// Track authoring step-boundary progress for stall detection.
-    /// Resets stall_count and ladder on mutation progress; advances the repair
-    pub fn record_stepboundary_progress(&mut self, mutation_advanced: bool) {
-        if mutation_advanced {
-            self.repair.stall_count = 0;
-        } else {
-            self.repair.stall_count = self.repair.stall_count.saturating_add(1);
-        }
-    }
-
     pub fn apply_event(&mut self, event: DataEngineerEvent) {
         match event {
             DataEngineerEvent::ValidatePassed { tier } => self.apply_validate_success(tier),
             DataEngineerEvent::ValidateFailed {
                 tier,
-                failure_class,
-                failure_signature,
-                repair_intent,
                 brief,
+                failure_hash,
                 compile_ok,
                 run_ok,
+                log_excerpts,
             } => {
-                self.apply_validate_failure(
-                    tier,
-                    failure_class,
-                    failure_signature,
-                    repair_intent,
-                    brief,
-                );
-                if let Some(last) = self.telemetry.last_validate.as_mut() {
-                    if let Some(v) = compile_ok {
-                        last.compile_ok = Some(v);
-                    }
-                    if let Some(v) = run_ok {
-                        last.run_ok = Some(v);
-                    }
-                }
+                self.apply_validate_failure(tier, brief, failure_hash, compile_ok, run_ok, log_excerpts);
             }
-            DataEngineerEvent::BatchAuthoringFailed {
-                tier,
-                kind,
-                failed_targets,
-                brief,
-            } => {
+            DataEngineerEvent::BatchAuthoringFailed { tier, kind, brief } => {
                 if kind == FailureKind::InfraTransient {
                     self.repair.last_batch_infra_transient = true;
                     self.repair.last_error_brief = Some(brief);
                     self.debug_assert_invariants();
                     return;
                 }
-                let failure_class = kind;
-                let backlog = repair_backlog_from_failed_models(failure_class, &failed_targets);
-                let repair_intent = repair_intent_from_backlog(failure_class, backlog.clone());
-                let sig = FailureSignature {
-                    class: failure_class,
-                    node_id: failed_targets
-                        .first()
-                        .map(|f| f.name.trim().to_string())
-                        .filter(|s| !s.is_empty()),
-                    canonical_path: failed_targets
-                        .first()
-                        .and_then(|f| RepairTargetPath::parse(f.file.trim().to_string()).ok()),
-                    error_code: Some(format!("batch_{:?}", kind).to_ascii_lowercase()),
-                };
-                self.apply_validate_failure(tier, failure_class, sig, repair_intent, Some(brief));
+                let hash = sha256_hex(brief.trim());
+                self.apply_validate_failure(tier, brief, hash, false, false, None);
             }
             DataEngineerEvent::BatchAuthoringRecovered => {
-                Self::disable_repair_mode(&mut self.repair);
+                self.repair.repair_active = false;
                 self.repair.last_error_brief = None;
                 self.repair.pending_patch_impl = None;
                 self.debug_assert_invariants();
@@ -1905,77 +1407,11 @@ pub fn classify_manifest_lookup_failure(errors: &[String]) -> Option<ManifestLoo
     None
 }
 
-fn obs_like_bool(
-    from: &Option<LastValidateState>,
-    pick: impl FnOnce(&LastValidateState) -> Option<bool>,
-) -> Option<bool> {
-    from.as_ref().and_then(pick)
-}
-
-fn sibling_sql_path(schema_path: &str) -> Option<String> {
-    let s = schema_path.trim();
-    if let Some(base) = s.strip_suffix(".yml") {
-        Some(format!("{}.sql", base))
-    } else if let Some(base) = s.strip_suffix(".yaml") {
-        Some(format!("{}.sql", base))
-    } else {
-        None
-    }
-}
-
-pub fn repair_backlog_from_failed_models(
-    failure_class: FailureKind,
-    failing_models: &[FailedModelRef],
-) -> Vec<RepairTarget> {
-    let mut out: Vec<RepairTarget> = failing_models
-        .iter()
-        .map(|fm| RepairTarget {
-            model_name: Some(fm.name.trim().to_string()).filter(|s| !s.is_empty()),
-            path: if fm.file.trim().is_empty() || fm.file.trim() == "(unknown file)" {
-                None
-            } else {
-                RepairTargetPath::parse(fm.file.trim().to_string()).ok()
-            },
-            error_class: None,
-            materialization: fm.materialization,
-        })
-        .filter(|target| match failure_class {
-            FailureKind::InfraTransient
-            | FailureKind::MissingSource
-            | FailureKind::NoFailure => false,
-            _ => target.path.is_some(),
-        })
-        .collect();
-
-    {
-        let siblings: Vec<RepairTarget> = out
-            .iter()
-            .filter_map(|t| match &t.path {
-                Some(RepairTargetPath::SchemaDoc(doc)) => {
-                    let sql = sibling_sql_path(doc.as_str())?;
-                    let sql_path = SqlModelPath::parse(sql).ok()?;
-                    Some(RepairTarget {
-                        model_name: t.model_name.clone(),
-                        path: Some(RepairTargetPath::SqlModel(sql_path)),
-                        error_class: None,
-                        materialization: RepairTargetMaterialization::Unknown,
-                    })
-                }
-                _ => None,
-            })
-            .collect();
-        out.extend(siblings);
-    }
-
-    out.sort_by(|a, b| {
-        a.path
-            .as_ref()
-            .map(|p| p.as_str())
-            .cmp(&b.path.as_ref().map(|p| p.as_str()))
-            .then(a.model_name.cmp(&b.model_name))
-    });
-    out.dedup_by(|a, b| a.path == b.path && a.model_name == b.model_name);
-    out
+pub fn sha256_hex(input: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    input.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn is_sql_model_path(path: &str) -> bool {
@@ -1992,148 +1428,17 @@ fn is_schema_doc_path(path: &str) -> bool {
         && (normalized.ends_with(".yml") || normalized.ends_with(".yaml"))
 }
 
-pub fn repair_intent_from_backlog(
-    failure_class: FailureKind,
-    backlog: Vec<RepairTarget>,
-) -> RepairIntent {
-    match failure_class {
-        FailureKind::InfraTransient
-        | FailureKind::MissingSource
-        | FailureKind::NoFailure => RepairIntent::NoRepair {
-            reason: NoRepairReason::FailureClassNotRepairable,
-            backlog,
-        },
-        _ => {
-            let sql_targets: Vec<(SqlModelPath, RepairTargetMaterialization)> = backlog
-                .iter()
-                .filter_map(|item| match &item.path {
-                    Some(RepairTargetPath::SqlModel(path)) => {
-                        Some((path.clone(), item.materialization))
-                    }
-                    _ => None,
-                })
-                .collect();
-            if sql_targets.len() > 1 {
-                RepairIntent::NoRepair {
-                    reason: NoRepairReason::MultiTargetSqlFailure,
-                    backlog,
-                }
-            } else if let Some((target, materialization)) = sql_targets.into_iter().next() {
-                match materialization {
-                    RepairTargetMaterialization::Existing => {
-                        RepairIntent::SqlPatch { target, backlog }
-                    }
-                    RepairTargetMaterialization::Missing => {
-                        RepairIntent::SqlRewrite { target, backlog }
-                    }
-                    RepairTargetMaterialization::Unknown => RepairIntent::NoRepair {
-                        reason: NoRepairReason::MissingTargetMaterialization,
-                        backlog,
-                    },
-                }
-            } else if backlog
-                .iter()
-                .any(|item| matches!(item.path, Some(RepairTargetPath::SchemaDoc(_))))
-            {
-                RepairIntent::Schema { backlog }
-            } else {
-                RepairIntent::NoRepair {
-                    reason: NoRepairReason::NoRepairableTarget,
-                    backlog,
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-pub fn failed_model_refs_from_values(values: &[Value]) -> Vec<FailedModelRef> {
-    values
-        .iter()
-        .map(|v| FailedModelRef {
-            name: v
-                .get("name")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_string(),
-            file: v
-                .get("file")
-                .and_then(|x| x.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_string(),
-            materialization: serde_json::from_value(
-                v.get("materialization")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String("unknown".to_string())),
-            )
-            .unwrap_or(RepairTargetMaterialization::Unknown),
-            ..Default::default()
-        })
-        .collect()
-}
-
-pub fn gate_authoring_progress(state: &ExecutionState, phase: Phase) -> Result<(), String> {
-    let last_validate_failed =
-        state.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false);
-    let mutation_progress = state
-        .repair
-        .last_progress_delta
-        .as_ref()
-        .map(|d| d.progress_made || d.target_hash_changed)
-        .unwrap_or(false);
-    let mutation_epoch_advanced = state
-        .repair
-        .core()
-        .and_then(|core| core.repair_started_mutation_epoch)
-        .map(|start| state.repair.mutation_epoch > start)
-        .unwrap_or(false);
-    if last_validate_failed && !(mutation_progress || mutation_epoch_advanced) {
-        return Err(
-            "progress_gate_blocked: validation previously failed and no successful mutation has been recorded since that failure"
-                .to_string(),
-        );
-    }
+pub fn gate_authoring_probe(state: &ExecutionState) -> Result<(), String> {
     match state.probe_requirement_status() {
-        ProbeRequirementStatus::Required => {
-            return Err(
-                "progress_gate_blocked: runtime validation previously failed after compile and a meaningful data probe is still required"
-                    .to_string(),
-            );
-        }
-        ProbeRequirementStatus::ExhaustedRequireMutation => {
-            return Err(
-                "progress_gate_blocked: probe loop exhausted (repeated/no-new-signal probes); apply a mutating fix before validating"
-                    .to_string(),
-            );
-        }
-        ProbeRequirementStatus::NotRequired | ProbeRequirementStatus::Allowed => {}
-    }
-    // Keep existing unresolved mutation-failure behavior, but as a deterministic progress gate.
-    match phase {
-        Phase::CleanseAuthor | Phase::ModelAuthor => {}
-        _ => return Ok(()),
-    }
-    Ok(())
-}
-
-pub fn snapshot_authoring_stepboundary_progress(
-    pre_mutation_epoch: u64,
-    post_mutation_epoch: u64,
-    post_stall_count: usize,
-) -> AuthoringProgressSnapshot {
-    if post_mutation_epoch <= pre_mutation_epoch
-        && post_stall_count >= DEFAULT_MAX_STALL_COUNT.max(1)
-    {
-        return AuthoringProgressSnapshot {
-            progress_made: false,
-            reason: Some(AuthoringNoProgressReason::NoMutationProgress),
-        };
-    }
-    AuthoringProgressSnapshot {
-        progress_made: true,
-        reason: None,
+        ProbeRequirementStatus::Required => Err(
+            "progress_gate_blocked: runtime validation previously failed after compile and a meaningful data probe is still required"
+                .to_string(),
+        ),
+        ProbeRequirementStatus::ExhaustedRequireMutation => Err(
+            "progress_gate_blocked: probe loop exhausted (repeated/no-new-signal probes); apply a mutating fix before validating"
+                .to_string(),
+        ),
+        ProbeRequirementStatus::NotRequired | ProbeRequirementStatus::Allowed => Ok(()),
     }
 }
 
@@ -2166,13 +1471,6 @@ pub fn gate_publish_progress(state: &ExecutionState, phase: Phase) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn sql_model_path(path: &str) -> SqlModelPath {
-        SqlModelPath::parse(path.to_string()).expect("valid sql model path")
-    }
-
-    fn repair_target_path(path: &str) -> RepairTargetPath {
-        RepairTargetPath::parse(path.to_string()).expect("valid repair target path")
-    }
 
     use react_core::keyspace::DefaultKeyspace;
     use react_core::scope::RequestScope;
@@ -2188,39 +1486,18 @@ mod tests {
     }
 
     #[test]
-    fn authoring_stepboundary_snapshot_flags_no_mutation_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(4, 4, DEFAULT_MAX_STALL_COUNT);
-        assert!(!snapshot.progress_made);
-        assert_eq!(
-            snapshot.reason,
-            Some(AuthoringNoProgressReason::NoMutationProgress)
-        );
-    }
-
-    #[test]
-    fn authoring_stepboundary_snapshot_accepts_mutation_progress() {
-        let snapshot = snapshot_authoring_stepboundary_progress(4, 5, 0);
-        assert!(snapshot.progress_made);
-        assert_eq!(snapshot.reason, None);
-    }
-
-    #[test]
-    fn authoring_stepboundary_snapshot_allows_single_non_mutating_turn_before_budget() {
-        let snapshot = snapshot_authoring_stepboundary_progress(5, 5, 1);
-        assert!(snapshot.progress_made);
-        assert_eq!(snapshot.reason, None);
-    }
-
-    #[test]
     fn repair_prompt_context_includes_recent_failed_file_ops() {
         let ctx = RepairPromptContext {
+            brief: None,
+            log_excerpts: None,
+            repair_cycles: 0,
+            guard_note: None,
             recent_failed_file_ops: vec![RecentFailedFileOp {
                 op: "patch".to_string(),
                 path: "models/staging/stg_orders.yml".to_string(),
                 error_brief: "invalid YAML: duplicate entry with key \"version\"".to_string(),
                 count: 1,
             }],
-            ..Default::default()
         };
         let rendered = ctx.format_error_context();
         assert!(ctx.has_context());
@@ -2232,15 +1509,8 @@ mod tests {
     #[test]
     fn validate_success_resets_repair_and_retry_state() {
         let mut st = ExecutionState::new();
-        st.repair.repair_mode = RepairModeState::Active(RepairMode {
-
-            target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore {
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-            },
-        });
+        st.repair.repair_active = true;
+        st.repair.last_error_brief = Some("some error".to_string());
         st.subjective_retries
             .insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
         st.subjective_retries
@@ -2262,75 +1532,20 @@ mod tests {
     }
 
     #[test]
-    fn validate_failure_activates_repair_mode() {
+    fn validate_failure_activates_repair() {
         let mut st = ExecutionState::new();
-        let sig = FailureSignature {
-            class: FailureKind::Schema,
-            ..FailureSignature::default()
-        };
         st.apply_validate_failure(
             ExecutionTier::Cleanse,
-            FailureKind::Schema,
-            sig,
-            RepairIntent::Schema {
-                backlog: Vec::new(),
-            },
-            Some("schema fail".to_string()),
+            "schema fail".to_string(),
+            sha256_hex("schema fail"),
+            true,
+            false,
+            None,
         );
         assert!(st.hard_mutation_repair_mode());
-
-        let sig2 = FailureSignature {
-            class: FailureKind::SqlRuntime,
-            ..FailureSignature::default()
-        };
-        st.apply_validate_failure(
-            ExecutionTier::Cleanse,
-            FailureKind::SqlRuntime,
-            sig2,
-            RepairIntent::SqlPatch {
-                target: sql_model_path("models/staging/stg_orders.sql"),
-                backlog: vec![RepairTarget {
-                    model_name: Some("model.pkg.stg_orders".to_string()),
-                    path: Some(repair_target_path("models/staging/stg_orders.sql")),
-                    error_class: Some(FailureKind::SqlRuntime),
-                    materialization: RepairTargetMaterialization::Existing,
-                }],
-            },
-            Some("sql fail".to_string()),
-        );
-        assert!(st.hard_mutation_repair_mode());
-        assert_eq!(
-            st.single_target_repair_path().as_deref(),
-            Some("models/staging/stg_orders.sql")
-        );
-    }
-
-    #[test]
-    fn validate_failure_sql_runtime_with_schema_target_routes_to_schema_repair() {
-        let mut st = ExecutionState::new();
-        let sig = FailureSignature {
-            class: FailureKind::SqlRuntime,
-            ..FailureSignature::default()
-        };
-        st.apply_validate_failure(
-            ExecutionTier::Cleanse,
-            FailureKind::SqlRuntime,
-            sig,
-            RepairIntent::Schema {
-                backlog: vec![RepairTarget {
-                    model_name: Some("test.not_null_stg_orders_order_id".to_string()),
-                    path: Some(repair_target_path("models/staging/stg_orders.yml")),
-                    error_class: Some(FailureKind::SqlRuntime),
-                    materialization: RepairTargetMaterialization::Existing,
-                }],
-            },
-            Some("dbt test fail".to_string()),
-        );
-        assert!(st.hard_mutation_repair_mode());
-        assert_eq!(
-            st.single_target_repair_path().as_deref(),
-            Some("models/staging/stg_orders.yml"),
-        );
+        assert!(st.repair.repair_active);
+        assert_eq!(st.repair.last_error_brief.as_deref(), Some("schema fail"));
+        assert_eq!(st.repair.repair_cycles, 1);
     }
 
     #[test]
@@ -2351,120 +1566,6 @@ mod tests {
             target.is_err(),
             "dbt compiled test path must not parse as RepairTargetPath"
         );
-    }
-
-    #[test]
-    fn repair_backlog_includes_all_model_targets_for_unknown() {
-        let failing = vec![
-            FailedModelRef {
-                name: "model.pkg.stg_orders".to_string(),
-                file: "models/staging/stg_orders.sql".to_string(),
-                materialization: RepairTargetMaterialization::Existing,
-                ..Default::default()
-            },
-            FailedModelRef {
-                name: "model.pkg.stg_orders".to_string(),
-                file: "models/staging/stg_orders.yml".to_string(),
-                materialization: RepairTargetMaterialization::Existing,
-                ..Default::default()
-            },
-            FailedModelRef {
-                name: "model.pkg.readme".to_string(),
-                file: "README.md".to_string(),
-                ..Default::default()
-            },
-        ];
-
-        let backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
-        assert!(backlog
-            .iter()
-            .any(|entry| entry.path.as_ref().map(|p| p.as_str())
-                == Some("models/staging/stg_orders.sql")));
-        assert!(backlog
-            .iter()
-            .any(|entry| entry.path.as_ref().map(|p| p.as_str())
-                == Some("models/staging/stg_orders.yml")));
-        assert!(
-            !backlog.iter().any(|entry| entry
-                .model_name
-                .as_deref()
-                .map(|n| n.contains("readme"))
-                .unwrap_or(false)),
-            "README.md should not parse as a repair target"
-        );
-
-        let infra_backlog =
-            repair_backlog_from_failed_models(FailureKind::InfraTransient, &failing);
-        assert!(infra_backlog.is_empty());
-    }
-
-    #[test]
-    fn repair_backlog_derives_sibling_sql_for_schema_only_target() {
-        let failing = vec![FailedModelRef {
-            name: "not_null_stg_orders_line_id".to_string(),
-            file: "models/staging/stg_orders.yml".to_string(),
-            materialization: RepairTargetMaterialization::Existing,
-            ..Default::default()
-        }];
-        let backlog = repair_backlog_from_failed_models(FailureKind::Unknown, &failing);
-        assert!(
-            backlog
-                .iter()
-                .any(|t| t.path.as_ref().map(|p| p.as_str())
-                    == Some("models/staging/stg_orders.sql")),
-            "should derive sibling .sql from .yml target: {backlog:?}"
-        );
-        assert!(
-            backlog
-                .iter()
-                .any(|t| t.path.as_ref().map(|p| p.as_str())
-                    == Some("models/staging/stg_orders.yml")),
-            "original .yml target should be preserved"
-        );
-    }
-
-    #[test]
-    fn repair_intent_uses_batch_mode_for_multi_target() {
-        let backlog = vec![
-            RepairTarget {
-                model_name: Some("stg_orders".to_string()),
-                path: Some(repair_target_path("models/staging/stg_orders.sql")),
-                error_class: None,
-                materialization: RepairTargetMaterialization::Existing,
-            },
-            RepairTarget {
-                model_name: Some("stg_order_items".to_string()),
-                path: Some(repair_target_path("models/staging/stg_order_items.sql")),
-                error_class: None,
-                materialization: RepairTargetMaterialization::Existing,
-            },
-        ];
-        let intent = repair_intent_from_backlog(FailureKind::Unknown, backlog);
-        assert!(matches!(
-            intent,
-            RepairIntent::NoRepair {
-                reason: NoRepairReason::MultiTargetSqlFailure,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn repair_intent_requires_materialization_evidence_for_sql_targets() {
-        let backlog = vec![RepairTarget {
-            model_name: Some("model.pkg.stg_orders".to_string()),
-            path: Some(repair_target_path("models/staging/stg_orders.sql")),
-            error_class: None,
-            materialization: RepairTargetMaterialization::Unknown,
-        }];
-        let intent = repair_intent_from_backlog(FailureKind::Unknown, backlog);
-        assert!(matches!(
-            intent,
-            RepairIntent::NoRepair {
-                reason: NoRepairReason::MissingTargetMaterialization,
-                ..
-            }
-        ));
     }
 
     #[test]
@@ -2516,7 +1617,7 @@ mod tests {
     }
 
     #[test]
-    fn gate_authoring_progress_uses_execution_state() {
+    fn gate_authoring_probe_rejects_when_probe_required() {
         let mut st = ExecutionState::new();
         st.telemetry.last_validate = Some(LastValidateState {
             ok: Some(false),
@@ -2525,85 +1626,20 @@ mod tests {
             ..LastValidateState::default()
         });
         st.telemetry.probe.required = true;
-        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_err());
+        assert!(gate_authoring_probe(&st).is_err());
+    }
 
-        st.repair.repair_mode = RepairModeState::Active(RepairMode {
-
-            target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore {
-                attempt_count: 1,
-                repair_started_mutation_epoch: None,
-            },
-        });
-        st.repair.last_progress_delta = Some(ProgressDelta {
-            target_hash_changed: true,
-            progress_made: true,
-            ..ProgressDelta::default()
-        });
+    #[test]
+    fn gate_authoring_probe_accepts_when_no_probe_required() {
+        let mut st = ExecutionState::new();
+        st.repair.repair_active = true;
         st.telemetry.last_validate = Some(LastValidateState {
             compile_ok: Some(true),
             run_ok: Some(true),
             ..LastValidateState::default()
         });
         st.telemetry.probe.required = false;
-        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_ok());
-    }
-
-    #[test]
-    fn gate_authoring_progress_rejects_stale_mutation_receipts() {
-        let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            compile_ok: Some(true),
-            run_ok: Some(false),
-            ..LastValidateState::default()
-        });
-        st.repair.repair_mode = RepairModeState::Active(RepairMode {
-
-            target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore {
-                attempt_count: 1,
-                repair_started_mutation_epoch: Some(4),
-            },
-        });
-        st.repair.mutation_epoch = 4;
-        st.telemetry.last_mutation_summary = Some(LastMutationSummary {
-            op: MutationOp::Patch,
-            affected_paths: vec!["models/marts/fct_orders.sql".to_string()],
-            select_terms: vec![],
-            ts: Some(chrono::Utc::now().to_rfc3339()),
-        });
-        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_err());
-    }
-
-    #[test]
-    fn gate_authoring_progress_accepts_mutation_epoch_advance_after_failure() {
-        let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            compile_ok: Some(true),
-            run_ok: Some(false),
-            ..LastValidateState::default()
-        });
-        st.repair.repair_mode = RepairModeState::Active(RepairMode {
-
-            target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/marts/fct_orders.sql"))),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore {
-                attempt_count: 1,
-                repair_started_mutation_epoch: Some(4),
-            },
-        });
-        st.repair.mutation_epoch = 5;
-        st.telemetry.last_mutation_summary = Some(LastMutationSummary {
-            op: MutationOp::Patch,
-            affected_paths: vec!["models/marts/fct_orders.sql".to_string()],
-            select_terms: vec![],
-            ts: Some(chrono::Utc::now().to_rfc3339()),
-        });
-        assert!(gate_authoring_progress(&st, Phase::ModelAuthor).is_ok());
+        assert!(gate_authoring_probe(&st).is_ok());
     }
 
     #[test]
@@ -2662,7 +1698,8 @@ mod tests {
             ..LastValidateState::default()
         });
         st.telemetry.probe.required = true;
-        st.note_patch_attempt(true, true);
+        st.telemetry.probe.required = false;
+        st.telemetry.probe.repeated_signature_streak = 0;
         assert_eq!(
             st.probe_requirement_status(),
             ProbeRequirementStatus::NotRequired
@@ -2718,150 +1755,52 @@ mod tests {
     }
 
     #[test]
-    fn repeated_equivalent_validate_failures_do_not_count_as_progress() {
+    fn validate_failures_increment_repair_cycles() {
         let mut st = ExecutionState::new();
-        let sig = FailureSignature {
-            class: FailureKind::SqlRuntime,
-            node_id: Some("model.pkg.fct_orders".to_string()),
-            canonical_path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_code: Some("E_SQL".to_string()),
-        };
-        let backlog = vec![RepairTarget {
-            model_name: Some("model.pkg.fct_orders".to_string()),
-            path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_class: Some(FailureKind::SqlRuntime),
-            materialization: RepairTargetMaterialization::Existing,
-        }];
 
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureKind::SqlRuntime,
-            sig.clone(),
-            RepairIntent::SqlPatch {
-                target: sql_model_path("models/marts/fct_orders.sql"),
-                backlog: backlog.clone(),
-            },
-            Some("first".to_string()),
+            "error A".to_string(),
+            sha256_hex("error A"),
+            true,
+            false,
+            None,
         );
-        let stall_after_first = st.repair.stall_count;
+        assert_eq!(st.repair.repair_cycles, 1);
 
         st.apply_validate_failure(
             ExecutionTier::Model,
-            FailureKind::SqlRuntime,
-            sig,
-            RepairIntent::SqlPatch {
-                target: sql_model_path("models/marts/fct_orders.sql"),
-                backlog,
-            },
-            Some("second".to_string()),
+            "error A".to_string(),
+            sha256_hex("error A"),
+            true,
+            false,
+            None,
         );
+        assert_eq!(st.repair.repair_cycles, 2);
 
-        let delta = st.repair.last_progress_delta.expect("delta");
-        assert!(!delta.progress_made);
-        assert_eq!(delta.failed_target_count_delta, 0);
-        assert!(!delta.failure_signature_changed);
-        assert_eq!(st.repair.stall_count, stall_after_first.saturating_add(1));
+        st.apply_validate_failure(
+            ExecutionTier::Model,
+            "error B".to_string(),
+            sha256_hex("error B"),
+            true,
+            false,
+            None,
+        );
+        assert_eq!(st.repair.repair_cycles, 3, "different errors still increment");
     }
 
     #[test]
-    fn shrinking_repair_backlog_counts_as_structural_progress() {
-        let mut st = ExecutionState::new();
-        let sig = FailureSignature {
-            class: FailureKind::SqlRuntime,
-            node_id: Some("model.pkg.fct_orders".to_string()),
-            canonical_path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_code: Some("E_SQL".to_string()),
-        };
-        let two = vec![
-            RepairTarget {
-                model_name: Some("model.pkg.fct_orders".to_string()),
-                path: Some(repair_target_path("models/marts/fct_orders.sql")),
-                error_class: Some(FailureKind::SqlRuntime),
-                materialization: RepairTargetMaterialization::Existing,
-            },
-            RepairTarget {
-                model_name: Some("model.pkg.dim_users".to_string()),
-                path: Some(repair_target_path("models/marts/dim_users.sql")),
-                error_class: Some(FailureKind::SqlRuntime),
-                materialization: RepairTargetMaterialization::Existing,
-            },
-        ];
-        st.apply_validate_failure(
-            ExecutionTier::Model,
-            FailureKind::SqlRuntime,
-            sig.clone(),
-            RepairIntent::SqlPatch {
-                target: sql_model_path("models/marts/fct_orders.sql"),
-                backlog: two,
-            },
-            Some("first".to_string()),
-        );
-
-        let one = vec![RepairTarget {
-            model_name: Some("model.pkg.fct_orders".to_string()),
-            path: Some(repair_target_path("models/marts/fct_orders.sql")),
-            error_class: Some(FailureKind::SqlRuntime),
-            materialization: RepairTargetMaterialization::Existing,
-        }];
-        st.apply_validate_failure(
-            ExecutionTier::Model,
-            FailureKind::SqlRuntime,
-            sig,
-            RepairIntent::SqlPatch {
-                target: sql_model_path("models/marts/fct_orders.sql"),
-                backlog: one,
-            },
-            Some("second".to_string()),
-        );
-
-        let delta = st.repair.last_progress_delta.expect("delta");
-        assert!(delta.progress_made);
-        assert_eq!(delta.failed_target_count_delta, -1);
-    }
-
-    #[test]
-    fn apply_event_batch_authoring_failed_enters_hard_repair_mode() {
+    fn apply_event_batch_authoring_failed_activates_repair() {
         let mut st = ExecutionState::new();
         st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
             tier: ExecutionTier::Cleanse,
-            kind: FailureKind::SqlRuntime,
-            failed_targets: vec![FailedModelRef {
-                name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
-                file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
-                materialization: RepairTargetMaterialization::Existing,
-                ..Default::default()
-            }],
+            kind: FailureKind::Unknown,
             brief: "sql validation failed".to_string(),
         });
         assert!(st.hard_mutation_repair_mode());
         assert_eq!(
-            st.single_target_repair_path().as_deref(),
-            Some("models/staging/stg_test_raw_raw_customers.sql")
-        );
-        assert_eq!(
             st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok),
             Some(false)
-        );
-    }
-
-    #[test]
-    fn apply_event_batch_authoring_failed_missing_target_starts_with_replace_contents() {
-        let mut st = ExecutionState::new();
-        st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
-            tier: ExecutionTier::Cleanse,
-            kind: FailureKind::SqlRuntime,
-            failed_targets: vec![FailedModelRef {
-                name: "AwsDataCatalog.test_raw.raw_orders".to_string(),
-                file: "models/staging/stg_test_raw_raw_orders.sql".to_string(),
-                materialization: RepairTargetMaterialization::Missing,
-                ..Default::default()
-            }],
-            brief: "sql authoring never materialized target".to_string(),
-        });
-        assert!(st.hard_mutation_repair_mode());
-        assert_eq!(
-            st.single_target_repair_path().as_deref(),
-            Some("models/staging/stg_test_raw_raw_orders.sql")
         );
     }
 
@@ -2871,12 +1810,6 @@ mod tests {
         st.apply_event(DataEngineerEvent::BatchAuthoringFailed {
             tier: ExecutionTier::Cleanse,
             kind: FailureKind::InfraTransient,
-            failed_targets: vec![FailedModelRef {
-                name: "AwsDataCatalog.test_raw.raw_customers".to_string(),
-                file: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
-                materialization: RepairTargetMaterialization::Missing,
-                ..Default::default()
-            }],
             brief: "service error".to_string(),
         });
         assert!(
@@ -2887,7 +1820,7 @@ mod tests {
             st.repair.last_batch_infra_transient,
             "flag must be set for step-boundary short-circuit"
         );
-        assert_eq!(st.repair.stall_count, 0, "stall_count must not increment");
+        assert_eq!(st.repair.repair_cycles, 0, "repair_cycles must not increment");
         assert_eq!(
             st.repair.last_error_brief.as_deref(),
             Some("service error")
@@ -2904,20 +1837,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_event_batch_authoring_recovered_clears_repair_mode() {
+    fn apply_event_batch_authoring_recovered_clears_repair() {
         let mut st = ExecutionState::new();
-        st.repair.repair_mode = RepairModeState::Active(RepairMode {
-
-            target_path: Some(RepairTargetPath::SqlModel(sql_model_path("models/staging/x.sql"))),
-            materialization: RepairTargetMaterialization::Existing,
-            core: RepairModeCore {
-                attempt_count: 0,
-                repair_started_mutation_epoch: None,
-            },
-        });
+        st.repair.repair_active = true;
+        st.repair.last_error_brief = Some("some error".to_string());
         st.apply_event(DataEngineerEvent::BatchAuthoringRecovered);
         assert!(!st.hard_mutation_repair_mode());
-        assert!(st.single_target_repair_path().is_none());
+        assert!(st.repair.last_error_brief.is_none());
     }
 
     #[test]

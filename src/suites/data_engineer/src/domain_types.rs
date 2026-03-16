@@ -183,17 +183,12 @@ impl GuardBlockKind {
     }
 }
 
-/// Project-relative path to a dbt model file that was the target of a validate failure.
-pub type ValidateTargetPath = crate::progress_controller::RepairTargetPath;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControllerEvent {
     ValidatePassed,
     ValidateFailed {
-        class: crate::failure_kind::FailureKind,
-        signature: FailureSignature,
         brief: String,
-        failing_targets: Vec<ValidateFailingTarget>,
+        failure_hash: String,
         compile_ok: bool,
         run_ok: bool,
     },
@@ -204,31 +199,10 @@ pub enum ControllerEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ValidateFailingTarget {
-    pub node_id: String,
-    #[serde(rename = "canonical_path")]
-    pub target_path: ValidateTargetPath,
-    pub error_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FailureSignature {
-    pub class: crate::failure_kind::FailureKind,
-    pub node_id: String,
-    #[serde(rename = "canonical_path")]
-    pub target_path: ValidateTargetPath,
-    pub error_code: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidateOutcomeV2 {
     pub ok: bool,
     pub compile_ok: bool,
     pub run_ok: bool,
-    #[serde(default)]
-    pub failing_targets: Vec<ValidateFailingTarget>,
-    #[serde(default)]
-    pub failure_signature: Option<FailureSignature>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -86,13 +86,8 @@ mod state_first_tests {
             ok: Some(false),
             ..crate::progress_controller::LastValidateState::default()
         });
-        st.repair.last_progress_delta = Some(crate::progress_controller::ProgressDelta {
-            target_hash_changed: true,
-            failed_target_count_delta: 0,
-            failure_signature_changed: false,
-            checklist_completed_delta: 0,
-            progress_made: true,
-        });
+        st.repair.fail_mutation_epoch = 0;
+        st.repair.mutation_epoch = 1;
         let guard = derive_guard_state_from_execution_state(&st);
         assert!(guard.last_validate_failed);
         assert!(guard.mutated_since_fail);
@@ -268,13 +263,6 @@ pub(crate) fn replan_backtrack_counter_cap() -> usize {
 pub struct DerivedGuardState {
     pub last_validate_failed: bool,
     pub mutated_since_fail: bool,
-    /// True if at least one successful file op=patch occurred since the failing validate,
-    /// even if it ended up being a no-op write (mutated=false).
-    ///
-    /// This is used as a conservative "we did try to apply a fix" signal to avoid deadlocking
-    /// the suite purely due to mutation detection brittleness.
-    pub patched_since_fail: bool,
-    pub mutation_failures_since_validate: usize,
     pub probe_required: bool,
     pub probe_satisfied: bool,
 }
@@ -284,18 +272,7 @@ pub fn derive_guard_state_from_execution_state(
 ) -> DerivedGuardState {
     let last_validate_failed =
         st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false);
-    let mutated_since_fail = st
-        .repair
-        .last_progress_delta
-        .as_ref()
-        .map(|d| d.target_hash_changed || d.progress_made)
-        .unwrap_or(false);
-    let patched_since_fail = st
-        .telemetry
-        .last_mutation_summary
-        .as_ref()
-        .map(|m| matches!(m.op, crate::progress_controller::MutationOp::Patch))
-        .unwrap_or(false);
+    let mutated_since_fail = st.repair.mutated_since_fail();
     let probe_status = st.probe_requirement_status();
     let (probe_required, probe_satisfied) = match probe_status {
         crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
@@ -308,8 +285,6 @@ pub fn derive_guard_state_from_execution_state(
     DerivedGuardState {
         last_validate_failed,
         mutated_since_fail,
-        patched_since_fail,
-        mutation_failures_since_validate: st.repair_state().stall_count,
         probe_required,
         probe_satisfied,
     }
@@ -421,10 +396,6 @@ impl DeterministicDbtValidateOnce {
                 "dialect".to_string(),
                 serde_json::json!(crate::dialect::active_provider_dialect(cfg)),
             );
-            let rf = crate::dbt_error::extract_runtime_failures_from_logs(
-                &obj.get("logs").cloned().unwrap_or(Value::Null),
-            );
-            obj.insert("runtime_failures".to_string(), serde_json::json!(rf));
             if let Some(sel) = select {
                 obj.insert("select".to_string(), serde_json::json!(sel));
             }
@@ -441,7 +412,7 @@ impl DeterministicDbtValidateOnce {
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
                 if let Ok(sum) =
-                    crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, &rf, 2000)
+                    crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000)
                         .await
                 {
                     obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
@@ -477,102 +448,48 @@ fn extract_string_vec_from_extra(extra: &BTreeMap<String, Value>, key: &str) -> 
 }
 
 pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
-    match name {
-        "file" => {
-            let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
-            match op {
-                "get" => {
-                    let p = args
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("Read {p}");
-                    }
-                    "Read file".to_string()
-                }
-                "list" => {
-                    let p = args
-                        .get("prefix")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("List {p}");
-                    }
-                    "List files".to_string()
-                }
-                "patch" => {
-                    let p = args
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .trim();
-                    if !p.is_empty() {
-                        return format!("Patch {p}");
-                    }
-                    "Patch file".to_string()
-                }
-                _ => {
-                    if !op.is_empty() {
-                        return format!("file {op}");
-                    }
-                    "file".to_string()
-                }
-            }
-        }
-        "json_file" => {
-            let p = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !p.is_empty() {
-                format!("JSON {p}")
-            } else {
-                "JSON file".to_string()
-            }
-        }
-        "sql_schema" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Describe {t}")
-            } else {
-                "List tables".to_string()
-            }
-        }
-        "sql_stats" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Stats {t}")
-            } else {
-                "Stats".to_string()
-            }
-        }
-        "sql_sample" => {
-            let t = args
-                .get("table")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if !t.is_empty() {
-                format!("Sample {t}")
-            } else {
-                "Sample".to_string()
-            }
-        }
-        "run_sql" => "Run SQL".to_string(),
-        other => other.replace('_', " "),
+    fn arg_str<'a>(args: &'a Value, key: &str) -> &'a str {
+        args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim()
     }
+
+    struct ToolLabel {
+        verb: &'static str,
+        arg_key: &'static str,
+        fallback: &'static str,
+    }
+
+    const SIMPLE_TOOLS: &[(&str, ToolLabel)] = &[
+        ("json_file",  ToolLabel { verb: "JSON",     arg_key: "path",  fallback: "JSON file" }),
+        ("sql_schema", ToolLabel { verb: "Describe",  arg_key: "table", fallback: "List tables" }),
+        ("sql_stats",  ToolLabel { verb: "Stats",     arg_key: "table", fallback: "Stats" }),
+        ("sql_sample", ToolLabel { verb: "Sample",    arg_key: "table", fallback: "Sample" }),
+    ];
+
+    if name == "file" {
+        let op = arg_str(args, "op");
+        let key = if op == "list" { "prefix" } else { "path" };
+        let verb = match op {
+            "get" => "Read", "list" => "List", "patch" => "Patch",
+            "write" => "Write", "rm" => "Remove", "mv" => "Move",
+            other if !other.is_empty() => return format!("file {other}"),
+            _ => return "file".to_string(),
+        };
+        let p = arg_str(args, key);
+        return if p.is_empty() { format!("{verb} file") } else { format!("{verb} {p}") };
+    }
+
+    if name == "run_sql" {
+        return "Run SQL".to_string();
+    }
+
+    for (tool, label) in SIMPLE_TOOLS {
+        if name == *tool {
+            let v = arg_str(args, label.arg_key);
+            return if v.is_empty() { label.fallback.to_string() } else { format!("{} {v}", label.verb) };
+        }
+    }
+
+    name.replace('_', " ")
 }
 
 pub async fn call_and_record_tool(

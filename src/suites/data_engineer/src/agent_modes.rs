@@ -121,8 +121,6 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
                     DataEngineerSuite::collect_recent_failed_file_ops(log, track);
             }
         }
-        Self::preload_repair_context(&mut repair_ctx, &execution_state, phase, self.sctx, self.thread_id).await;
-
         let outcome = DataEngineerSuite::execute_phase(
             &self.thread_store,
             self.thread_id,
@@ -160,14 +158,14 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
             None
         }) {
             let detail = format!(
-                "{}\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- stall_count={}/{}\n- hard_mutation_repair_mode={}",
+                "{}\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- repair_cycles={}/{}\n- hard_mutation_repair_mode={}",
                 budget_msg,
                 es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
                 format!("{:?}", es.phase.mode),
                 es.phase.phase_reason_code.map(|c| c.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
                 es.phase.replan_backtracks,
-                es.repair.stall_count,
-                crate::progress_controller::DEFAULT_MAX_STALL_COUNT,
+                es.repair.repair_cycles,
+                crate::progress_controller::MAX_REPAIR_CYCLES,
                 es.hard_mutation_repair_mode(),
             );
             es.mark_failed(&detail);
@@ -187,185 +185,6 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
     }
 }
 
-impl DataEngineerExecutor<'_> {
-    async fn preload_repair_context(
-        repair_ctx: &mut crate::progress_controller::RepairPromptContext,
-        execution_state: &crate::progress_controller::ExecutionState,
-        phase: control_flow::Phase,
-        sctx: &SuiteCtx,
-        thread_id: &str,
-    ) {
-        let mut verified_files: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
-        for fm in &repair_ctx.failed_models {
-            if fm.file.trim().is_empty() {
-                continue;
-            }
-            let base = sctx
-                .keyspace()
-                .scoped_prefix(sctx.scope(), &["dbt"])
-                .trim_end_matches('/')
-                .to_string();
-            let key = format!("{}/{}", base, fm.file);
-            if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                    verified_files.insert(fm.file.clone());
-                    repair_ctx.target_contents.push((fm.file.clone(), text));
-                }
-            }
-        }
-        repair_ctx
-            .failed_models
-            .retain(|fm| fm.file.trim().is_empty() || verified_files.contains(&fm.file));
-
-        {
-            let schema_path = "models/schema.yml";
-            let already_loaded = repair_ctx
-                .target_contents
-                .iter()
-                .any(|(p, _)| p == schema_path);
-            if !already_loaded {
-                let base = sctx
-                    .keyspace()
-                    .scoped_prefix(sctx.scope(), &["dbt"])
-                    .trim_end_matches('/')
-                    .to_string();
-                let key = format!("{}/{}", base, schema_path);
-                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                        repair_ctx
-                            .target_contents
-                            .push((schema_path.to_string(), text));
-                    }
-                }
-            }
-        }
-
-        if let Some(target_path) = execution_state.single_target_repair_path() {
-            let already_loaded = repair_ctx
-                .target_contents
-                .iter()
-                .any(|(p, _)| p.as_str() == target_path);
-            if !already_loaded {
-                let base = sctx
-                    .keyspace()
-                    .scoped_prefix(sctx.scope(), &["dbt"])
-                    .trim_end_matches('/')
-                    .to_string();
-                let key = format!("{}/{}", base, target_path);
-                if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                        repair_ctx
-                            .target_contents
-                            .push((target_path.to_string(), text));
-                    }
-                }
-            }
-        }
-
-        if let Some(track) = crate::track_spec::TrackKind::from_any_phase(phase) {
-            let actx = DataEngineerSuite::plan_agent_ctx(thread_id, sctx);
-            let failing_names: std::collections::HashSet<String> = repair_ctx
-                .failed_models
-                .iter()
-                .map(|fm| fm.name.trim().to_string())
-                .filter(|n| !n.is_empty())
-                .collect();
-            if !failing_names.is_empty() {
-                let mut matched_model_paths: Vec<String> = Vec::new();
-                if track.is_cleanse() {
-                    if let Some(plan) =
-                        crate::plan::load_cleanse_plan(&actx).await.ok().flatten()
-                    {
-                        for t in &plan.tasks {
-                            let task_name = t.dataset_id.as_str();
-                            let matched = failing_names.contains(task_name)
-                                || failing_names.iter().any(|n| n.contains(task_name))
-                                || failing_names.iter().any(|n| {
-                                    t.expected_model_path
-                                        .as_deref()
-                                        .map(|p| p.contains(n.as_str()))
-                                        .unwrap_or(false)
-                                });
-                            if matched {
-                                repair_ctx.task_specs.push(
-                                    crate::progress_controller::TaskRepairSpec {
-                                        task_id: t.dataset_id.clone(),
-                                        source_schema: t.source_schema.clone(),
-                                        implementation_spec_json: t
-                                            .implementation_spec
-                                            .as_ref()
-                                            .map(|s| {
-                                                serde_json::to_string_pretty(s)
-                                                    .unwrap_or_default()
-                                            })
-                                            .unwrap_or_default(),
-                                    },
-                                );
-                                if let Some(mp) = t.expected_model_path.as_deref() {
-                                    matched_model_paths.push(mp.to_string());
-                                }
-                            }
-                        }
-                    }
-                } else if let Some(plan) =
-                    crate::plan::load_model_plan(&actx).await.ok().flatten()
-                {
-                    for t in &plan.tasks {
-                        let task_name = t.name.as_str();
-                        let matched = failing_names.contains(task_name)
-                            || failing_names.iter().any(|n| n.contains(task_name))
-                            || failing_names.iter().any(|n| {
-                                t.expected_model_path
-                                    .as_deref()
-                                    .map(|p| p.contains(n.as_str()))
-                                    .unwrap_or(false)
-                            });
-                        if matched {
-                            repair_ctx.task_specs.push(
-                                crate::progress_controller::TaskRepairSpec {
-                                    task_id: t.name.clone(),
-                                    source_schema: t.source_schema.clone(),
-                                    implementation_spec_json: t
-                                        .implementation_spec
-                                        .as_ref()
-                                        .map(|s| {
-                                            serde_json::to_string_pretty(s).unwrap_or_default()
-                                        })
-                                        .unwrap_or_default(),
-                                },
-                            );
-                            if let Some(mp) = t.expected_model_path.as_deref() {
-                                matched_model_paths.push(mp.to_string());
-                            }
-                        }
-                    }
-                }
-
-                let base = sctx
-                    .keyspace()
-                    .scoped_prefix(sctx.scope(), &["dbt"])
-                    .trim_end_matches('/')
-                    .to_string();
-                for mp in matched_model_paths {
-                    let already_loaded = repair_ctx
-                        .target_contents
-                        .iter()
-                        .any(|(p, _)| p.as_str() == mp.as_str());
-                    if already_loaded {
-                        continue;
-                    }
-                    let key = format!("{}/{}", base, mp);
-                    if let Ok(bytes) = sctx.storage().get_bytes(&key).await {
-                        if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                            repair_ctx.target_contents.push((mp, text));
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 impl DataEngineerSuite {
     /// Collect recent failed file mutations from the thread log, scoped to a
@@ -1007,41 +826,11 @@ impl DataEngineerSuite {
             validate_brief: repair_ctx
                 .brief
                 .clone()
-                .unwrap_or_else(|| {
-                    repair_ctx
-                        .failed_models
-                        .iter()
-                        .map(|m| {
-                            format!(
-                                "{}: {}",
-                                m.name,
-                                m.error.as_deref().unwrap_or("unknown error")
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }),
-            failing_tests: repair_ctx
-                .failed_models
-                .iter()
-                .filter(|m| m.error.is_some())
-                .map(|m| crate::repair_session::FailingTest {
-                    name: m.name.clone(),
-                    error_snippet: m.error.clone().unwrap_or_default(),
-                })
-                .collect(),
-            failed_models: repair_ctx
-                .failed_models
-                .iter()
-                .map(|m| crate::repair_session::FailedModelBrief {
-                    name: m.name.clone(),
-                    file: m.file.clone(),
-                    error: m.error.clone(),
-                })
-                .collect(),
+                .unwrap_or_default(),
+            log_excerpts: repair_ctx.log_excerpts.clone(),
         };
 
-        match crate::repair_subroutine::run_repair(
+        let result = crate::repair_subroutine::run_repair(
             sctx,
             thread_store,
             thread_id,
@@ -1049,12 +838,37 @@ impl DataEngineerSuite {
             error_context,
             None,
         )
-        .await
-        {
-            Ok(_) => Ok(PhaseOutcome::TransitionCommitted),
-            Err(e) => Ok(PhaseOutcome::stayed_waiting(format!(
-                "repair subroutine failed: {e}"
-            ))),
+        .await;
+
+        match result {
+            Ok(_) => {
+                crate::state_manager::mutate_execution_state(
+                    &thread_store.control_store(),
+                    thread_id,
+                    |es| {
+                        es.repair.repair_active = false;
+                        let tier = es.phase.current_tier.clone();
+                        es.apply_validate_success(tier);
+                    },
+                )
+                .await
+                .map_err(|e| format!("failed to clear repair_active after success: {e}"))?;
+                Ok(PhaseOutcome::TransitionCommitted)
+            }
+            Err(e) => {
+                crate::state_manager::mutate_execution_state(
+                    &thread_store.control_store(),
+                    thread_id,
+                    |es| {
+                        es.repair.repair_active = false;
+                    },
+                )
+                .await
+                .map_err(|e2| format!("failed to clear repair_active after exhaustion: {e2}"))?;
+                Ok(PhaseOutcome::stayed_waiting(format!(
+                    "repair subroutine exhausted: {e}"
+                )))
+            }
         }
     }
 

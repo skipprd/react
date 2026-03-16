@@ -50,23 +50,16 @@ pub fn is_infra_transient(s: &str) -> bool {
     )
 }
 
-pub fn is_missing_source(s: &str) -> bool {
-    (s.contains("depends on a source named") && s.contains("which was not found"))
-        || (s.contains("source named") && s.contains("was not found"))
-}
-
 pub fn classify_dbt_failure(errors: &[String]) -> FailureKind {
     if errors.is_empty() {
-        return FailureKind::NoFailure;
+        return FailureKind::Unknown;
     }
     let s = normalize_errors(errors);
     if is_infra_transient(&s) {
-        return FailureKind::InfraTransient;
+        FailureKind::InfraTransient
+    } else {
+        FailureKind::Unknown
     }
-    if is_missing_source(&s) {
-        return FailureKind::MissingSource;
-    }
-    FailureKind::Unknown
 }
 
 #[cfg(test)]
@@ -74,16 +67,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_dbt_failure_missing_source() {
-        let errors = vec![
-            "Compilation Error: depends on a source named 'x.y' which was not found".to_string(),
-        ];
-        assert_eq!(classify_dbt_failure(&errors), FailureKind::MissingSource);
+    fn classify_dbt_failure_non_infra_is_unknown() {
+        let errors = vec!["Runtime Error: syntax error at or near FROM".to_string()];
+        assert_eq!(classify_dbt_failure(&errors), FailureKind::Unknown);
     }
 
     #[test]
-    fn classify_dbt_failure_non_infra_is_unknown() {
-        let errors = vec!["Runtime Error: syntax error at or near FROM".to_string()];
+    fn classify_dbt_failure_missing_source_is_unknown() {
+        let errors = vec![
+            "Compilation Error: depends on a source named 'x.y' which was not found".to_string(),
+        ];
         assert_eq!(classify_dbt_failure(&errors), FailureKind::Unknown);
     }
 
@@ -139,4 +132,19 @@ mod tests {
         assert!(!is_infra_transient("compilation error in model"));
     }
 
+    #[test]
+    fn classify_dbt_failure_empty_is_unknown() {
+        assert_eq!(classify_dbt_failure(&[]), FailureKind::Unknown);
+    }
+
+    #[test]
+    fn old_variants_deserialize_as_unknown() {
+        let old = r#""missing_source""#;
+        let kind: FailureKind = serde_json::from_str(old).unwrap();
+        assert_eq!(kind, FailureKind::Unknown);
+
+        let old = r#""no_failure""#;
+        let kind: FailureKind = serde_json::from_str(old).unwrap();
+        assert_eq!(kind, FailureKind::Unknown);
+    }
 }

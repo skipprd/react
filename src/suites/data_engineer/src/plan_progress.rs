@@ -1532,49 +1532,10 @@ pub fn update_cleanse_progress_from_log(plan: &mut CleansePlan, log: &ThreadLog)
                     .get("logs")
                     .cloned()
                     .unwrap_or(Value::Null);
-                let failed = crate::dbt_error::extract_failed_models_from_logs(&logs);
-                let runtime = crate::dbt_error::extract_runtime_failures_from_logs(&logs);
                 let contract_data_type_missing =
                     crate::dbt_error::logs_indicate_contract_data_type_missing(&logs);
 
-                let mut names: Vec<String> = Vec::new();
-                for f in failed.iter() {
-                    if let Some(file) = f.get("file").and_then(|v| v.as_str()) {
-                        if let Some(st) = file_stem(file) {
-                            names.push(st);
-                        }
-                    }
-                    if let Some(nm) = f.get("name").and_then(|v| v.as_str()) {
-                        if !nm.trim().is_empty() {
-                            names.push(nm.trim().to_string());
-                        }
-                    }
-                }
-                for r in runtime.iter() {
-                    if let Some(mh) = r.get("model_hint").and_then(|v| v.as_str()) {
-                        if !mh.trim().is_empty() {
-                            names.push(mh.trim().to_string());
-                        }
-                    }
-                }
-                names.sort();
-                names.dedup();
-
                 for t in plan.tasks.iter_mut() {
-                    let implicated = if names.is_empty() {
-                        true
-                    } else if let Some(p) = t.expected_model_path.as_deref() {
-                        if let Some(st) = file_stem(p) {
-                            names.iter().any(|n| n == &st)
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-                    if !implicated {
-                        continue;
-                    }
                     let v = ensure_checklist_item(&mut t.checklist, CHECKLIST_VALIDATE, "Validate");
                     set_checklist_status(
                         v,
@@ -1933,57 +1894,24 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
                     recompute_task_status(t);
                 }
             } else {
-                let logs = observation
-                    .extra
-                    .get("logs")
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let failed = crate::dbt_error::extract_failed_models_from_logs(&logs);
-                let runtime = crate::dbt_error::extract_runtime_failures_from_logs(&logs);
-
-                let mut names: Vec<String> = Vec::new();
-                for f in failed.iter() {
-                    if let Some(file) = f.get("file").and_then(|v| v.as_str()) {
-                        if let Some(st) = file_stem(file) {
-                            names.push(st);
-                        }
-                    }
-                    if let Some(nm) = f.get("name").and_then(|v| v.as_str()) {
-                        if !nm.trim().is_empty() {
-                            names.push(nm.trim().to_string());
-                        }
-                    }
-                }
-                for r in runtime.iter() {
-                    if let Some(mh) = r.get("model_hint").and_then(|v| v.as_str()) {
-                        if !mh.trim().is_empty() {
-                            names.push(mh.trim().to_string());
-                        }
-                    }
-                }
-                names.sort();
-                names.dedup();
-
                 for t in plan.tasks.iter_mut() {
-                    if names.iter().any(|n| n == &t.name) {
-                        let it = ensure_checklist_item(
-                            &mut t.checklist,
-                            CHECKLIST_VALIDATE,
-                            "Validate DBT",
-                        );
-                        set_checklist_status(
-                            it,
-                            ChecklistItemStatus::NeedsUpdate,
-                            Some(evidence_from_tool_end(
-                                idx,
-                                "tool_end_failed",
-                                name,
-                                tool_id,
-                                ts,
-                            )),
-                        );
-                        recompute_task_status(t);
-                    }
+                    let it = ensure_checklist_item(
+                        &mut t.checklist,
+                        CHECKLIST_VALIDATE,
+                        "Validate DBT",
+                    );
+                    set_checklist_status(
+                        it,
+                        ChecklistItemStatus::NeedsUpdate,
+                        Some(evidence_from_tool_end(
+                            idx,
+                            "tool_end_failed",
+                            name,
+                            tool_id,
+                            ts,
+                        )),
+                    );
+                    recompute_task_status(t);
                 }
             }
             plan.progress.last_applied_step_idx = idx + 1;
@@ -3428,7 +3356,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanse_validate_failure_marks_needs_update_for_implicated_tasks_only() {
+    fn cleanse_validate_failure_marks_needs_update_for_all_authored_tasks() {
         let mut plan = CleansePlan {
             plan_key: "k".to_string(),
             status: PlanStatus::Approved,
@@ -3466,7 +3394,6 @@ mod tests {
             progress: PlanProgress::default(),
         };
 
-        // Mark both as SQL-done so validate failures are meaningful.
         for t in plan.tasks.iter_mut() {
             let it =
                 ensure_checklist_item(&mut t.checklist, CHECKLIST_SQL_MODEL, "Author staging SQL");
@@ -3495,7 +3422,8 @@ mod tests {
         );
         assert_eq!(
             status_of(&plan.tasks[1].checklist, CHECKLIST_VALIDATE),
-            ChecklistItemStatus::Pending
+            ChecklistItemStatus::NeedsUpdate,
+            "all tasks are marked NeedsUpdate on validate failure (no per-model implication)"
         );
     }
 

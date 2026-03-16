@@ -12,9 +12,7 @@ use crate::dataset_truth;
 use crate::failure_kind::FailureKind;
 use crate::plan;
 use crate::plan::{CleansePlan, ModelPlan};
-use crate::progress_controller::{
-    DataEngineerEvent, ExecutionTier, FailedModelRef, RepairTargetMaterialization,
-};
+use crate::progress_controller::{DataEngineerEvent, ExecutionTier};
 use crate::tools;
 
 use super::model_authoring_engine::extract_string_arg;
@@ -43,15 +41,8 @@ fn mark_in_progress_cleanse_checklist(
 async fn emit_batch_failure(
     ctx: &AgentCtx,
     tier: ExecutionTier,
-    batch: &[String],
     err: &str,
-    resolve_path: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
-    let mut failed_targets: Vec<FailedModelRef> = Vec::new();
-    let error_str = if err.trim().is_empty() { None } else { Some(err.to_string()) };
-    for id in batch.iter() {
-        failed_targets.push(build_failed_model_ref(ctx, id.clone(), resolve_path(id), error_str.clone()).await);
-    }
     let brief = if err.trim().is_empty() {
         format!("batch authoring failed (tier={tier:?})")
     } else {
@@ -62,35 +53,10 @@ async fn emit_batch_failure(
         DataEngineerEvent::BatchAuthoringFailed {
             tier,
             kind: FailureKind::Unknown,
-            failed_targets,
             brief,
         },
     )
     .await
-}
-
-async fn build_failed_model_ref(
-    ctx: &AgentCtx,
-    name: String,
-    path: Option<String>,
-    error: Option<String>,
-) -> FailedModelRef {
-    let materialization = match path.as_deref() {
-        Some(rel) if !rel.trim().is_empty() => {
-            let key = crate::project_fs::join_storage_key(ctx, rel);
-            match ctx.storage().get_bytes(&key).await {
-                Ok(_) => RepairTargetMaterialization::Existing,
-                Err(_) => RepairTargetMaterialization::Missing,
-            }
-        }
-        _ => RepairTargetMaterialization::Unknown,
-    };
-    FailedModelRef {
-        name,
-        file: path.unwrap_or_default(),
-        error,
-        materialization,
-    }
 }
 
 fn mark_in_progress_model(plan: &mut ModelPlan, names: &[String]) {
@@ -134,7 +100,7 @@ impl Tool for ApplyNextCleanseBatchTool {
     }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
-        let mut plan = plan::load_cleanse_plan_any(ctx)
+        let mut plan = plan::load_cleanse_plan(ctx)
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active cleanse plan found".to_string())?;
@@ -272,12 +238,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                     false,
                     Some(FailureKind::Unknown),
                 );
-                emit_batch_failure(ctx, ExecutionTier::Cleanse, &batch, &err_brief, |ds| {
-                    plan.tasks
-                        .iter()
-                        .find(|t| t.dataset_id == *ds)
-                        .and_then(|t| t.expected_model_path.clone())
-                })
+                emit_batch_failure(ctx, ExecutionTier::Cleanse, &err_brief)
                 .await?;
                 plan::save_cleanse_plan(ctx, &plan).await.map_err(|e| {
                     format!("failed to save cleanse plan after batch tool failure: {e}")
@@ -330,16 +291,6 @@ impl Tool for ApplyNextCleanseBatchTool {
                     );
                 }
             }
-            let mut failed_targets: Vec<FailedModelRef> = Vec::new();
-            let batch_err = if err.trim().is_empty() { None } else { Some(err.clone()) };
-            for ds in failed.iter() {
-                let expected_path = plan
-                    .tasks
-                    .iter()
-                    .find(|t| t.dataset_id == *ds)
-                    .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(build_failed_model_ref(ctx, ds.clone(), expected_path, batch_err.clone()).await);
-            }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_cleanse_batch_contract_error: {e}"))?;
             failure_kind_for_budget = Some(kind);
@@ -353,7 +304,6 @@ impl Tool for ApplyNextCleanseBatchTool {
                 DataEngineerEvent::BatchAuthoringFailed {
                     tier: ExecutionTier::Cleanse,
                     kind,
-                    failed_targets,
                     brief,
                 },
             )
@@ -412,7 +362,7 @@ impl Tool for ApplyNextModelBatchTool {
     }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
-        let mut plan = plan::load_model_plan_any(ctx)
+        let mut plan = plan::load_model_plan(ctx)
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active model plan found".to_string())?;
@@ -515,12 +465,7 @@ impl Tool for ApplyNextModelBatchTool {
                 "gold inputs are not grounded in known staging models or plan tasks";
             mark_needs_update_model(&mut plan, &batch_names, err_brief);
             controller_kernel::note_batch_result(&mut plan.progress, false);
-            emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, err_brief, |n| {
-                plan.tasks
-                    .iter()
-                    .find(|t| t.name == *n)
-                    .and_then(|t| t.expected_model_path.clone())
-            })
+            emit_batch_failure(ctx, ExecutionTier::Model, err_brief)
             .await?;
             plan::save_model_plan(ctx, &plan).await.map_err(|e| {
                 format!("failed to save model plan after input gating failure: {e}")
@@ -588,12 +533,7 @@ impl Tool for ApplyNextModelBatchTool {
                     false,
                     Some(FailureKind::Unknown),
                 );
-                emit_batch_failure(ctx, ExecutionTier::Model, &batch_names, &err_brief, |n| {
-                    plan.tasks
-                        .iter()
-                        .find(|t| t.name == *n)
-                        .and_then(|t| t.expected_model_path.clone())
-                })
+                emit_batch_failure(ctx, ExecutionTier::Model, &err_brief)
                 .await?;
                 plan::save_model_plan(ctx, &plan).await.map_err(|e| {
                     format!("failed to save model plan after batch tool failure: {e}")
@@ -640,16 +580,6 @@ impl Tool for ApplyNextModelBatchTool {
                     );
                 }
             }
-            let mut failed_targets: Vec<FailedModelRef> = Vec::new();
-            let batch_err = if err.trim().is_empty() { None } else { Some(err.clone()) };
-            for n in failed.iter() {
-                let expected_path = plan
-                    .tasks
-                    .iter()
-                    .find(|t| t.name == *n)
-                    .and_then(|t| t.expected_model_path.clone());
-                failed_targets.push(build_failed_model_ref(ctx, n.clone(), expected_path, batch_err.clone()).await);
-            }
             let kind = crate::tools::batch_sql_runner::extract_batch_failure_kind(&res)
                 .map_err(|e| format!("apply_next_model_batch_contract_error: {e}"))?;
             failure_kind_for_budget = Some(kind);
@@ -663,7 +593,6 @@ impl Tool for ApplyNextModelBatchTool {
                 DataEngineerEvent::BatchAuthoringFailed {
                     tier: ExecutionTier::Model,
                     kind,
-                    failed_targets,
                     brief,
                 },
             )

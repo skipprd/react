@@ -41,49 +41,6 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-pub fn extract_unresolved_columns(errors: &[String]) -> Vec<String> {
-    // Capture patterns like:
-    // - Column 'context.session.id' cannot be resolved
-    // - Column \"x\" cannot be resolved
-    let joined = strip_ansi(&errors.join("\n"));
-    let mut out: Vec<String> = Vec::new();
-    for line in joined.lines() {
-        let l = line.trim();
-        if l.is_empty() {
-            continue;
-        }
-        let ll = l.to_lowercase();
-        if !ll.contains("cannot be resolved") {
-            continue;
-        }
-        // Single-quoted
-        if let Some(start) = l.find("Column '") {
-            let rest = &l[start + "Column '".len()..];
-            if let Some(end) = rest.find('\'') {
-                let col = rest[..end].trim();
-                if !col.is_empty() {
-                    out.push(col.to_string());
-                    continue;
-                }
-            }
-        }
-        // Double-quoted
-        if let Some(start) = l.find("Column \"") {
-            let rest = &l[start + "Column \"".len()..];
-            if let Some(end) = rest.find('\"') {
-                let col = rest[..end].trim();
-                if !col.is_empty() {
-                    out.push(col.to_string());
-                    continue;
-                }
-            }
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
 /// Detect the common dbt contract error where `data_type` is missing from YAML column definitions.
 ///
 /// This class of failure is remediated by patching YAML schema contracts, not by editing SQL.
@@ -122,176 +79,6 @@ pub fn logs_indicate_contract_data_type_missing(logs: &serde_json::Value) -> boo
     false
 }
 
-/// Extract structured runtime/test failures from dbt `build`/`run` stdout.
-///
-/// This is intentionally heuristic (no regex deps) but captures the common dbt log pattern:
-/// `... FAIL <n> <test_name> ...`.
-pub fn extract_runtime_failures_from_logs(logs: &serde_json::Value) -> Vec<serde_json::Value> {
-    let stdout = logs
-        .get("run_or_build")
-        .and_then(|v| v.get("stdout"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    extract_runtime_failures_from_stdout(stdout)
-}
-
-fn extract_runtime_failures_from_stdout(stdout: &str) -> Vec<serde_json::Value> {
-    let s = strip_ansi(stdout);
-    let mut out: Vec<serde_json::Value> = Vec::new();
-    for line in s.lines() {
-        let l = line.trim();
-        if l.is_empty() {
-            continue;
-        }
-        // Typical pattern:
-        // `7 of 18 FAIL 2 not_null_stg_customers_customer_created_at ...`
-        let Some(idx) = l.find(" FAIL ") else {
-            continue;
-        };
-        let rest = l[idx + " FAIL ".len()..].trim();
-        let mut it = rest.split_whitespace();
-        let failures_s = it.next().unwrap_or("");
-        let name = it.next().unwrap_or("").trim();
-        if name.is_empty() {
-            continue;
-        }
-        let failures = failures_s.parse::<u64>().ok();
-        out.push(serde_json::json!({
-            "kind": "test",
-            "name": name,
-            "failures": failures,
-            "line": l
-        }));
-        if out.len() >= 10 {
-            break;
-        }
-    }
-    out
-}
-
-/// Extract failing DBT models from dbt `build`/`run` stdout.
-///
-/// This complements `extract_runtime_failures_from_logs`, which is test-focused (FAIL lines).
-/// For runtime SQL errors in models, dbt typically emits lines like:
-/// - `Failure in model stg_x (models/staging/stg_x.sql)`
-/// - `Runtime Error in model stg_x (models/staging/stg_x.sql)`
-/// - `... ERROR creating sql view model schema.stg_x ...`
-///
-/// Output items have shape:
-/// `{ "name": "<model_name>", "file": "models/..../<model>.sql"?, "line": "<raw line>" }`
-pub fn extract_failed_models_from_logs(logs: &serde_json::Value) -> Vec<serde_json::Value> {
-    let stdout = logs
-        .get("run_or_build")
-        .and_then(|v| v.get("stdout"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    extract_failed_models_from_stdout(stdout)
-}
-
-fn extract_failed_models_from_stdout(stdout: &str) -> Vec<serde_json::Value> {
-    use std::collections::HashMap;
-
-    let s = strip_ansi(stdout);
-    // Prefer entries that include a file path when multiple signals exist.
-    let mut by_name: HashMap<String, serde_json::Value> = HashMap::new();
-
-    fn strip_schema_prefix(model_token: &str) -> String {
-        // dbt often prints `<schema>.<model>`; we want the model name.
-        model_token
-            .rsplit_once('.')
-            .map(|(_s, m)| m.to_string())
-            .unwrap_or_else(|| model_token.to_string())
-    }
-
-    for line in s.lines() {
-        let l = line.trim();
-        if l.is_empty() {
-            continue;
-        }
-
-        // Most reliable patterns: "Failure in model ..." and "Runtime Error in model ..."
-        for prefix in ["Failure in model ", "Runtime Error in model "] {
-            if let Some(idx) = l.find(prefix) {
-                let rest = l[idx + prefix.len()..].trim();
-                // rest is typically: "<model_name> (models/.../file.sql)"
-                let (name_part, file_part) = match rest.split_once('(') {
-                    Some((a, b)) => (a.trim(), Some(b.trim())),
-                    None => (rest, None),
-                };
-                let name = strip_schema_prefix(name_part.split_whitespace().next().unwrap_or(""));
-                if name.is_empty() {
-                    continue;
-                }
-                let file = file_part
-                    .and_then(|b| b.strip_suffix(')'))
-                    .map(|p| p.trim().to_string())
-                    .filter(|p| p.ends_with(".sql") && p.starts_with("models/"));
-
-                let v = serde_json::json!({
-                    "name": name,
-                    "file": file,
-                    "line": l,
-                });
-
-                // Prefer keeping the version that includes a file path.
-                match by_name.get(v.get("name").and_then(|x| x.as_str()).unwrap_or("")) {
-                    None => {
-                        by_name.insert(
-                            v.get("name")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            v,
-                        );
-                    }
-                    Some(existing) => {
-                        let existing_has_file =
-                            existing.get("file").and_then(|x| x.as_str()).is_some();
-                        let new_has_file = v.get("file").and_then(|x| x.as_str()).is_some();
-                        if new_has_file && !existing_has_file {
-                            by_name.insert(
-                                v.get("name")
-                                    .and_then(|x| x.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                v,
-                            );
-                        }
-                    }
-                }
-                continue;
-            }
-        }
-
-        // Fallback: "ERROR creating ... model <schema>.<model> ..."
-        if l.contains(" ERROR creating ") && l.contains(" model ") {
-            // Find token immediately after " model ".
-            if let Some((_before, after)) = l.split_once(" model ") {
-                let token = after.split_whitespace().next().unwrap_or("").trim();
-                let name = strip_schema_prefix(token);
-                if !name.is_empty() {
-                    let v = serde_json::json!({
-                        "name": name,
-                        "file": serde_json::Value::Null,
-                        "line": l,
-                    });
-                    by_name.entry(name.clone()).or_insert(v);
-                }
-            }
-        }
-    }
-
-    let mut out: Vec<serde_json::Value> = by_name.into_values().collect();
-    out.sort_by(|a, b| {
-        a.get("name")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .cmp(b.get("name").and_then(|x| x.as_str()).unwrap_or(""))
-    });
-    out
-}
-
-
 #[cfg(test)]
 pub fn classify(errors: &[String]) -> DbtErrorClass {
     let joined = errors.join("\n");
@@ -314,7 +101,7 @@ pub fn classify(errors: &[String]) -> DbtErrorClass {
     if s.contains("could not find profile named") {
         return DbtErrorClass::ProfilesYaml;
     }
-    if crate::failure_text::is_missing_source(&s) {
+    if s.contains("depends on a source named") && s.contains("was not found") {
         return DbtErrorClass::MissingSource;
     }
     DbtErrorClass::Unknown
@@ -355,6 +142,82 @@ pub struct DbtFailureSummary {
     pub suggested_next_files: Vec<String>,
 }
 
+/// Grep dbt log output for error-relevant lines and return them with surrounding context.
+///
+/// Matches are case-insensitive. Overlapping context windows are merged so no line
+/// appears twice.  Output is capped at `max_chars` to keep prompts bounded.
+pub fn extract_error_context_lines(log_text: &str, context: usize, max_chars: usize) -> String {
+    const PATTERNS: &[&str] = &[
+        "error", "fail", "fatal", "exception", "traceback",
+        "cannot", "invalid", "not found", "no such", "unknown",
+        "unresolved", "ambiguous", "mismatch",
+    ];
+
+    let lines: Vec<&str> = log_text.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+
+    let mut hit = vec![false; lines.len()];
+    for (i, line) in lines.iter().enumerate() {
+        let lower = line.to_ascii_lowercase();
+        if PATTERNS.iter().any(|p| lower.contains(p)) {
+            let start = i.saturating_sub(context);
+            let end = (i + context + 1).min(lines.len());
+            for slot in &mut hit[start..end] {
+                *slot = true;
+            }
+        }
+    }
+
+    let mut out = String::new();
+    let mut in_chunk = false;
+    for (i, line) in lines.iter().enumerate() {
+        if hit[i] {
+            if !in_chunk && !out.is_empty() {
+                out.push_str("\n  ...\n\n");
+            }
+            in_chunk = true;
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            in_chunk = false;
+        }
+        if out.len() >= max_chars {
+            out.truncate(max_chars);
+            out.push('…');
+            break;
+        }
+    }
+    out
+}
+
+/// Build log excerpts from the dbt validate observation's log streams.
+pub fn extract_log_excerpts(obs: &serde_json::Value, context: usize, max_chars: usize) -> String {
+    let mut combined = String::new();
+    for phase in ["compile", "run_or_build"] {
+        for stream in ["stdout", "stderr"] {
+            if let Some(text) = obs
+                .get("logs")
+                .and_then(|v| v.get(phase))
+                .and_then(|v| v.get(stream))
+                .and_then(|v| v.as_str())
+            {
+                let cleaned = strip_ansi(text);
+                let excerpt = extract_error_context_lines(&cleaned, context, max_chars);
+                if !excerpt.trim().is_empty() {
+                    if !combined.is_empty() {
+                        combined.push_str("\n---\n");
+                    }
+                    combined.push_str(&format!("[{phase}/{stream}]\n"));
+                    combined.push_str(&excerpt);
+                }
+            }
+        }
+    }
+    combined
+}
+
 fn tail_lines(s: &str, max_lines: usize, max_chars: usize) -> String {
     if s.trim().is_empty() {
         return String::new();
@@ -378,11 +241,9 @@ pub async fn summarize_dbt_failure_llm(
     ctx: &react_core::agent::AgentCtx,
     errors: &[String],
     logs: &serde_json::Value,
-    runtime_failures: &[serde_json::Value],
     max_summary_chars: usize,
 ) -> Result<DbtFailureSummary, String> {
     let error_brief = compact_brief(errors, 8, 2400);
-    let failed_models = extract_failed_models_from_logs(logs);
     let compile_stdout = logs
         .get("compile")
         .and_then(|v| v.get("stdout"))
@@ -406,8 +267,6 @@ pub async fn summarize_dbt_failure_llm(
 
     let user_payload = serde_json::json!({
         "error_brief": error_brief,
-        "failed_models": failed_models,
-        "runtime_failures": runtime_failures,
         "logs_tail": {
             "compile_stderr_tail": tail_lines(&strip_ansi(compile_stderr), 120, 8000),
             "compile_stdout_tail": tail_lines(&strip_ansi(compile_stdout), 120, 8000),
@@ -509,50 +368,6 @@ mod tests {
         assert_eq!(classify(&errs), DbtErrorClass::MissingSource);
     }
 
-    #[test]
-    fn extract_runtime_failures_finds_fail_lines() {
-        let stdout = "\
-11:19:11  7 of 18 FAIL 2 not_null_stg_customers_customer_created_at .............. [FAIL 2 in 5.89s]\n\
-11:19:12  8 of 18 PASS not_null_stg_customers_customer_id ........................ [PASS in 0.10s]\n";
-        let logs = serde_json::json!({ "run_or_build": { "stdout": stdout } });
-        let rf = extract_runtime_failures_from_logs(&logs);
-        assert_eq!(rf.len(), 1);
-        assert_eq!(
-            rf[0].get("name").and_then(|v| v.as_str()).unwrap(),
-            "not_null_stg_customers_customer_created_at"
-        );
-        assert_eq!(rf[0].get("failures").and_then(|v| v.as_u64()).unwrap(), 2);
-    }
-
-    #[test]
-    fn extract_failed_models_finds_failure_in_model_lines() {
-        let stdout = "\
-03:16:21  Failure in model stg_raw_orders (models/staging/stg_raw_orders.sql)\n\
-03:16:21    Runtime Error in model stg_raw_customers (models/staging/stg_raw_customers.sql)\n\
-03:15:21  3 of 3 ERROR creating sql view model test_silver.stg_raw_order_items ........... [ERROR in 109.77s]\n";
-        let logs = serde_json::json!({ "run_or_build": { "stdout": stdout } });
-        let failed = extract_failed_models_from_logs(&logs);
-        let names: Vec<String> = failed
-            .iter()
-            .filter_map(|v| {
-                v.get("name")
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
-        assert!(names.contains(&"stg_raw_orders".to_string()));
-        assert!(names.contains(&"stg_raw_customers".to_string()));
-        assert!(names.contains(&"stg_raw_order_items".to_string()));
-        let stg_raw_orders = failed
-            .iter()
-            .find(|v| v.get("name").and_then(|x| x.as_str()) == Some("stg_raw_orders"))
-            .unwrap();
-        assert_eq!(
-            stg_raw_orders.get("file").and_then(|x| x.as_str()),
-            Some("models/staging/stg_raw_orders.sql")
-        );
-    }
-
     #[tokio::test]
     async fn summarize_dbt_failure_llm_parses_and_truncates() {
         use std::sync::Arc;
@@ -584,8 +399,7 @@ mod tests {
         .build();
         let errors = vec!["Compilation Error: nope".to_string()];
         let logs = serde_json::json!({"compile": {"stdout": "x", "stderr": ""}});
-        let rf: Vec<serde_json::Value> = vec![];
-        let out = summarize_dbt_failure_llm(&ctx, &errors, &logs, &rf, 10)
+        let out = summarize_dbt_failure_llm(&ctx, &errors, &logs, 10)
             .await
             .unwrap();
         // `.len()` is bytes; ellipsis is multi-byte. Bound by chars.
@@ -593,4 +407,44 @@ mod tests {
         assert_eq!(out.failing_nodes, vec!["stg_x".to_string()]);
     }
 
+    #[test]
+    fn extract_error_context_lines_merges_overlapping_chunks() {
+        let log = "line 0 ok\nline 1 ok\nline 2 ERROR here\nline 3 ok\nline 4 ok\n\
+                   line 5 ok\nline 6 ok\nline 7 FAIL here\nline 8 ok\nline 9 ok\nline 10 ok";
+        let result = extract_error_context_lines(log, 2, 10000);
+        assert!(result.contains("line 0 ok"), "context before first error");
+        assert!(result.contains("ERROR"), "first error");
+        assert!(result.contains("FAIL"), "second error");
+        let line_count = result.lines().count();
+        let unique_lines: std::collections::HashSet<&str> = result.lines().collect();
+        assert_eq!(line_count, unique_lines.len(), "no duplicate lines");
+    }
+
+    #[test]
+    fn extract_error_context_lines_separates_non_adjacent_chunks() {
+        let log = "a\nb\nc ERROR\nd\ne\nf\ng\nh\ni\nj\nk\nl FAIL\nm\nn";
+        let result = extract_error_context_lines(log, 1, 10000);
+        assert!(result.contains("..."), "gap between non-adjacent chunks");
+    }
+
+    #[test]
+    fn extract_error_context_lines_respects_max_chars() {
+        let log = (0..200).map(|i| format!("line {i} ERROR")).collect::<Vec<_>>().join("\n");
+        let result = extract_error_context_lines(&log, 0, 500);
+        assert!(result.len() <= 510, "within max_chars + ellipsis");
+    }
+
+    #[test]
+    fn extract_log_excerpts_combines_streams() {
+        let obs = serde_json::json!({
+            "logs": {
+                "compile": { "stdout": "all good\nno issues", "stderr": "" },
+                "run_or_build": { "stdout": "line 1\nRuntime Error in model\nline 3", "stderr": "" }
+            }
+        });
+        let result = extract_log_excerpts(&obs, 1, 10000);
+        assert!(!result.contains("[compile/stdout]"), "no error keywords in compile stdout");
+        assert!(result.contains("[run_or_build/stdout]"));
+        assert!(result.contains("Runtime Error"));
+    }
 }

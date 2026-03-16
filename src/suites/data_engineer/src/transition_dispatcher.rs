@@ -709,31 +709,31 @@ mod tests {
     }
 
     #[test]
-    fn repair_state_hard_cutover_uses_typed_mode_only() {
+    fn repair_state_uses_simplified_bool_flag() {
         let src = include_str!("progress_controller.rs");
         assert!(
-            src.contains("enum RepairModeState"),
-            "progress_controller should model repair mode as a typed enum"
+            src.contains("pub repair_active: bool"),
+            "RepairState should use a simple repair_active bool"
         );
         assert!(
-            src.contains("pub repair_mode: RepairModeState"),
-            "execution/repair state should store typed repair_mode"
+            !src.contains("enum RepairModeState"),
+            "legacy RepairModeState enum must not exist after simplification"
         );
         assert!(
-            !src.contains("pub hard_mutation_repair_mode: bool"),
-            "legacy hard_mutation_repair_mode bool field must not exist"
+            !src.contains("pub repair_mode: RepairModeState"),
+            "legacy typed repair_mode field must not exist after simplification"
         );
         assert!(
             !src.contains("fn set_active_repair_mode("),
-            "temporary set_active_repair_mode helper must not exist after hard cutover"
+            "temporary set_active_repair_mode helper must not exist"
         );
         assert!(
             !src.contains("fn set_active_repair_mode_snapshot("),
-            "temporary set_active_repair_mode_snapshot helper must not exist after hard cutover"
+            "temporary set_active_repair_mode_snapshot helper must not exist"
         );
         assert!(
             !src.contains("fn reset_repair_attempts("),
-            "temporary reset_repair_attempts helper must not exist after hard cutover"
+            "temporary reset_repair_attempts helper must not exist"
         );
     }
 }

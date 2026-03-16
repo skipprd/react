@@ -449,3 +449,101 @@ pub(crate) fn extract_final_select_output_columns(sql: &str) -> Result<BTreeSet<
 
     inner(sql, 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_columns_with_case_end_as() {
+        let sql = r#"{{ config(alias="stg_test_raw_raw_orders") }}
+
+with source_data as (
+    select
+        customer_id,
+        placed_at,
+        total_amount,
+        order_id,
+        order_status
+    from {{ source("test_raw", "raw_orders") }}
+),
+normalized as (
+    select
+        customer_id as customer_id_raw,
+        placed_at as placed_at_raw,
+        total_amount as total_amount_raw,
+        order_id as order_id_raw,
+        order_status as order_status_raw,
+        nullif(trim(customer_id), '') as customer_id,
+        nullif(trim(placed_at), '') as placed_at_text,
+        nullif(trim(total_amount), '') as total_amount_text,
+        nullif(trim(order_id), '') as order_id,
+        lower(nullif(trim(order_status), '')) as order_status,
+        nullif(trim(order_status), '') as order_status_trimmed,
+        case
+            when customer_id is not null and trim(customer_id) <> customer_id then true
+            when placed_at is not null and trim(placed_at) <> placed_at then true
+            when total_amount is not null and trim(total_amount) <> total_amount then true
+            when order_id is not null and trim(order_id) <> order_id then true
+            when order_status is not null and trim(order_status) <> order_status then true
+            else false
+        end as had_whitespace_issue
+    from source_data
+),
+typed as (
+    select
+        customer_id_raw,
+        placed_at_raw,
+        total_amount_raw,
+        order_id_raw,
+        order_status_raw,
+        customer_id,
+        try_cast(placed_at_text as timestamp) as placed_at,
+        try_cast(total_amount_text as decimal(18,2)) as total_amount,
+        order_id,
+        order_status,
+        placed_at_text,
+        total_amount_text,
+        order_status_trimmed,
+        had_whitespace_issue
+    from normalized
+)
+select
+    customer_id_raw,
+    placed_at_raw,
+    total_amount_raw,
+    order_id_raw,
+    order_status_raw,
+    customer_id,
+    placed_at,
+    total_amount,
+    order_id,
+    order_status,
+    case
+        when order_status_trimmed is not null and lower(order_status_trimmed) <> order_status_trimmed then true
+        else false
+    end as order_status_case_normalized,
+    case
+        when placed_at_text is not null and placed_at is null then true
+        else false
+    end as placed_at_parse_failed,
+    case
+        when total_amount_text is not null and total_amount is null then true
+        else false
+    end as total_amount_cast_failed,
+    case
+        when total_amount is not null and total_amount < 0 then true
+        else false
+    end as total_amount_negative,
+    had_whitespace_issue
+from typed"#;
+        let cols = extract_final_select_output_columns(sql).unwrap();
+        assert!(cols.contains("order_status_case_normalized"),
+            "should find order_status_case_normalized; got: {:?}", cols);
+        assert!(cols.contains("placed_at_parse_failed"));
+        assert!(cols.contains("total_amount_cast_failed"));
+        assert!(cols.contains("total_amount_negative"));
+        assert!(cols.contains("had_whitespace_issue"));
+        assert!(cols.contains("customer_id_raw"));
+    }
+}

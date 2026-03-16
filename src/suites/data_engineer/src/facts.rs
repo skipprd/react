@@ -1,7 +1,7 @@
 use react_core::agent::AgentCtx;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,20 +80,10 @@ pub struct RelationFacts {
     pub source: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct TargetFacts {
-    #[serde(default)]
-    pub failing_models: Vec<Value>,
-    #[serde(default)]
-    pub missing_columns: Vec<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FactsBundle {
     pub scope: FactsScope,
     pub dialect: SqlDialect,
-    #[serde(default)]
-    pub targets: TargetFacts,
     #[serde(default)]
     pub relations: Vec<RelationFacts>,
     /// Canonical tool contracts.
@@ -168,38 +158,6 @@ fn file_patch_contract_value() -> Value {
         }
     })
 }
-
-pub fn extract_missing_columns_from_dbt_errors(errors: &[String]) -> Vec<String> {
-    // Best-effort parse of lines like:
-    //   Column 'session_id_from_event' cannot be resolved
-    let mut out: BTreeSet<String> = BTreeSet::new();
-    for e in errors.iter() {
-        let s = e.as_str();
-        let needle = "Column '";
-        let mut idx = 0usize;
-        while let Some(pos) = s[idx..].find(needle) {
-            let start = idx + pos + needle.len();
-            if let Some(end_rel) = s[start..].find("' cannot be resolved") {
-                let col = s[start..start + end_rel].trim();
-                if !col.is_empty() {
-                    out.insert(col.to_string());
-                }
-                idx = start + end_rel + 1;
-            } else {
-                break;
-            }
-        }
-    }
-    out.into_iter().collect()
-}
-
-fn dbt_storage_key(ctx: &AgentCtx, rel_path: &str) -> String {
-    let base = ctx.keyspace().scoped_prefix(ctx.scope(), &["dbt"]);
-    let base = base.trim_end_matches('/').to_string() + "/";
-    format!("{}{}", base, rel_path.trim_start_matches('/'))
-}
-
-pub use crate::naming::extract_source_calls;
 
 async fn schema_columns_for_fqn(ctx: &AgentCtx, fqn: &str) -> Option<RelationFacts> {
     let q = crate::ctx_ext::actx_query(ctx)?;
@@ -343,85 +301,21 @@ pub async fn load_manifest_source_index(ctx: &AgentCtx) -> BTreeMap<(String, Str
     out
 }
 
-async fn read_dbt_file_text(ctx: &AgentCtx, rel_path: &str, max_bytes: usize) -> Option<String> {
-    let key = dbt_storage_key(ctx, rel_path);
-    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
-        return None;
-    };
-    let s = String::from_utf8_lossy(&bytes).to_string();
-    if max_bytes > 0 && s.len() > max_bytes {
-        Some(s[..max_bytes].to_string())
-    } else {
-        Some(s)
-    }
-}
-
 /// Build facts for a deterministic dbt_validate failure observation.
 ///
-/// This is intended to be attached to `validate_fail` reason_detail and injected into the next
-/// authoring prompt so the LLM cannot guess relation schemas or columns.
-pub async fn build_validate_fail_facts(
-    ctx: &AgentCtx,
+/// Returns dialect + tool_contracts only (no model/column extraction).
+pub fn build_validate_fail_facts(
+    _ctx: &AgentCtx,
     dialect: SqlDialect,
-    validate_contract: &crate::controller_event::ValidateObservationContract,
+    _validate_contract: &crate::controller_event::ValidateObservationContract,
     scope: FactsScope,
-    limits: FactsLimits,
 ) -> FactsBundle {
-    let validate_obs = &validate_contract.observation;
-    // Extract errors (array-of-strings shape).
-    let errs: Vec<String> = validate_obs
-        .get("errors")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-
-    let logs_v = validate_obs.get("logs").cloned().unwrap_or(Value::Null);
-    let failing_models = crate::dbt_error::extract_failed_models_from_logs(&logs_v);
-    let missing_columns = crate::dbt_error::extract_unresolved_columns(&errs);
-
-    // Collect dependency relations from failing model SQL: ref() and source().
-    let mut want_ref_names: BTreeSet<String> = BTreeSet::new();
-    let mut want_sources: BTreeSet<(String, String)> = BTreeSet::new();
-    for fm in failing_models.iter() {
-        let Some(file) = fm.get("file").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let Some(sql) = read_dbt_file_text(ctx, file, 200_000).await else {
-            continue;
-        };
-        for r in crate::naming::extract_ref_calls(&sql) {
-            want_ref_names.insert(r);
-        }
-        for (sname, tname) in extract_source_calls(&sql) {
-            want_sources.insert((sname, tname));
-        }
+    FactsBundle {
+        scope,
+        dialect,
+        relations: Vec::new(),
+        tool_contracts: file_patch_contract_value(),
     }
-
-    // Resolve deps to concrete relation FQNs using manifest indexes when possible.
-    let model_idx = load_manifest_index(ctx).await;
-    let source_idx = load_manifest_source_index(ctx).await;
-    let mut relation_fqns: Vec<String> = Vec::new();
-    for r in want_ref_names.into_iter() {
-        if let Some((fqn, _file)) = model_idx.get(&r) {
-            relation_fqns.push(fqn.clone());
-        }
-    }
-    for (sname, tname) in want_sources.into_iter() {
-        if let Some(fqn) = source_idx.get(&(sname, tname)) {
-            relation_fqns.push(fqn.clone());
-        }
-    }
-    relation_fqns.sort();
-    relation_fqns.dedup();
-
-    let targets = TargetFacts {
-        failing_models,
-        missing_columns: if !missing_columns.is_empty() {
-            missing_columns
-        } else {
-            extract_missing_columns_from_dbt_errors(&errs)
-        },
-    };
-    build_facts_bundle_from_relations(ctx, scope, dialect, targets, &relation_fqns, limits).await
 }
 
 /// Build an auto-attached FactsBundle given a set of relation FQNs to include.
@@ -429,7 +323,6 @@ pub async fn build_facts_bundle_from_relations(
     ctx: &AgentCtx,
     scope: FactsScope,
     dialect: SqlDialect,
-    targets: TargetFacts,
     relation_fqns: &[String],
     limits: FactsLimits,
 ) -> FactsBundle {
@@ -447,7 +340,6 @@ pub async fn build_facts_bundle_from_relations(
     FactsBundle {
         scope,
         dialect,
-        targets,
         relations: rels,
         tool_contracts: file_patch_contract_value(),
     }
@@ -635,7 +527,7 @@ mod tests {
     #[test]
     fn extract_source_calls_finds_pairs() {
         let sql = "select 1 from {{ source('raw','events') }} join {{source(\"raw\",\"users\")}} u on 1=1";
-        let got = extract_source_calls(sql);
+        let got = crate::naming::extract_source_calls(sql);
         assert_eq!(
             got,
             vec![
@@ -645,60 +537,15 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn build_validate_fail_facts_includes_missing_columns_and_relation_schema() {
+    #[test]
+    fn build_validate_fail_facts_returns_dialect_and_tool_contracts() {
         let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
         let query: Arc<dyn QueryProvider> = Arc::new(MockQueryProvider);
         let ctx = make_ctx(storage.clone(), query);
 
-        // Seed manifest.json that maps ref('stg_dep') to a concrete relation.
-        let base = ctx
-            .keyspace()
-            .scoped_prefix(ctx.scope(), &["dbt"])
-            .trim_end_matches('/')
-            .to_string()
-            + "/";
-        let manifest_key = format!("{}target/manifest.json", base);
-        let manifest = serde_json::json!({
-            "nodes": {
-                "model.data_engineer.stg_dep": {
-                    "resource_type": "model",
-                    "name": "stg_dep",
-                    "database": "AwsDataCatalog",
-                    "schema": "test_silver",
-                    "alias": "stg_dep",
-                    "original_file_path": "models/staging/stg_dep.sql"
-                }
-            }
-        });
-        storage
-            .put_bytes(
-                &manifest_key,
-                manifest.to_string().as_bytes(),
-                "application/json",
-            )
-            .await
-            .unwrap();
-
-        // Seed failing model file.
-        let failing_rel = "models/marts/fct_x.sql";
-        let failing_key = format!("{}{}", base, failing_rel);
-        storage
-            .put_bytes(
-                &failing_key,
-                b"select 1 from {{ ref('stg_dep') }}\n",
-                "text/sql",
-            )
-            .await
-            .unwrap();
-
         let validate_obs = serde_json::json!({
-            "errors": ["Runtime Error in model fct_x (models/marts/fct_x.sql)\n  line 1:1: Column 'session_id_from_event' cannot be resolved"],
-            "logs": {
-                "run_or_build": {
-                    "stdout": "Failure in model fct_x (models/marts/fct_x.sql)\nRuntime Error in model fct_x (models/marts/fct_x.sql)\n"
-                }
-            }
+            "errors": [],
+            "logs": {}
         });
         let contract = crate::controller_event::validate_contract_from_observation(validate_obs)
             .expect("validate contract");
@@ -707,30 +554,11 @@ mod tests {
             SqlDialect("Amazon Athena (engine v3 / Trino SQL)".to_string()),
             &contract,
             FactsScope::ValidateFail,
-            FactsLimits::for_scope(FactsScope::ValidateFail),
-        )
-        .await;
+        );
 
-        assert!(facts
-            .targets
-            .missing_columns
-            .iter()
-            .any(|c| c == "session_id_from_event"));
-        assert!(facts
-            .relations
-            .iter()
-            .any(|r| r.fqn == "AwsDataCatalog.test_silver.stg_dep"));
-        let cols = facts
-            .relations
-            .iter()
-            .find(|r| r.fqn == "AwsDataCatalog.test_silver.stg_dep")
-            .map(|r| {
-                r.columns
-                    .iter()
-                    .map(|c| c.name.as_str())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        assert!(cols.contains(&"session_id"));
+        assert_eq!(facts.scope, FactsScope::ValidateFail);
+        assert_eq!(facts.dialect.0, "Amazon Athena (engine v3 / Trino SQL)");
+        assert!(facts.relations.is_empty());
+        assert!(facts.tool_contracts.get("file").is_some());
     }
 }

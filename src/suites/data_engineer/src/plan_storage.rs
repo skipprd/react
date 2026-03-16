@@ -65,23 +65,14 @@ async fn list_plan_keys(ctx: &AgentCtx, suffix: &str) -> Result<Vec<String>, Pla
     Ok(keys)
 }
 
-/// Return the newest (lexicographically largest) plan key for this thread, regardless of terminal status.
+/// Load the cleanse plan for this thread.
 ///
-/// Plan keys are timestamp-prefixed, so lexicographic ordering matches recency.
-/// This is intentionally different from `load_cleanse_plan`/`load_model_plan`, which prefer the
-/// oldest non-terminal plan to match the deterministic pipeline behavior.
-pub async fn newest_plan_key_any(
-    ctx: &AgentCtx,
-    suffix: &str,
-) -> Result<Option<String>, PlanError> {
-    let keys = list_plan_keys(ctx, suffix).await?;
-    Ok(keys.last().cloned())
-}
-
-async fn oldest_active_cleanse_plan_key(ctx: &AgentCtx) -> Result<Option<String>, PlanError> {
+/// Prefers the oldest non-terminal plan. If none exists (e.g. plan was marked Completed),
+/// falls back to the newest plan key so progress and context are always available.
+pub async fn load_cleanse_plan(ctx: &AgentCtx) -> Result<Option<CleansePlan>, PlanError> {
     let keys = list_plan_keys(ctx, "_cleanse.json").await?;
-    for k in keys {
-        let bytes = match ctx.storage().get_bytes(&k).await {
+    for k in &keys {
+        let bytes = match ctx.storage().get_bytes(k).await {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("skipping plan key {k}: storage read failed: {e}");
@@ -89,56 +80,17 @@ async fn oldest_active_cleanse_plan_key(ctx: &AgentCtx) -> Result<Option<String>
             }
         };
         match serde_json::from_slice::<CleansePlan>(&bytes) {
-            Ok(p) if !p.status.is_terminal() => return Ok(Some(k)),
+            Ok(p) if !p.status.is_terminal() => return load_cleanse_plan_by_key(ctx, k).await,
             Ok(_) => {}
             Err(e) => {
                 tracing::warn!("skipping plan key {k}: deserialization failed: {e}");
             }
         }
     }
-    Ok(None)
-}
-
-async fn oldest_active_model_plan_key(ctx: &AgentCtx) -> Result<Option<String>, PlanError> {
-    let keys = list_plan_keys(ctx, "_model.json").await?;
-    for k in keys {
-        let bytes = match ctx.storage().get_bytes(&k).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!("skipping plan key {k}: storage read failed: {e}");
-                continue;
-            }
-        };
-        match serde_json::from_slice::<ModelPlan>(&bytes) {
-            Ok(p) if !p.status.is_terminal() => return Ok(Some(k)),
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!("skipping plan key {k}: deserialization failed: {e}");
-            }
-        }
-    }
-    Ok(None)
-}
-
-pub async fn load_cleanse_plan(ctx: &AgentCtx) -> Result<Option<CleansePlan>, PlanError> {
-    let Some(key) = oldest_active_cleanse_plan_key(ctx).await? else {
+    let Some(key) = keys.last() else {
         return Ok(None);
     };
-    load_cleanse_plan_by_key(ctx, &key).await
-}
-
-/// Load the cleanse plan for this thread, preferring the oldest non-terminal plan.
-///
-/// If there is no active plan (e.g. a restart after we marked it Completed), fall back to the
-/// newest plan key so "continue" can rehydrate context and progress deterministically.
-pub async fn load_cleanse_plan_any(ctx: &AgentCtx) -> Result<Option<CleansePlan>, PlanError> {
-    if let Some(p) = load_cleanse_plan(ctx).await? {
-        return Ok(Some(p));
-    }
-    let Some(key) = newest_plan_key_any(ctx, "_cleanse.json").await? else {
-        return Ok(None);
-    };
-    load_cleanse_plan_by_key(ctx, &key).await
+    load_cleanse_plan_by_key(ctx, key).await
 }
 
 pub async fn load_cleanse_plan_by_key(
@@ -200,24 +152,31 @@ pub async fn save_cleanse_plan_grounded(
     Ok(grounded)
 }
 
-pub async fn load_model_plan(ctx: &AgentCtx) -> Result<Option<ModelPlan>, PlanError> {
-    let Some(key) = oldest_active_model_plan_key(ctx).await? else {
-        return Ok(None);
-    };
-    load_model_plan_by_key(ctx, &key).await
-}
-
-/// Load the model plan for this thread, preferring the oldest non-terminal plan.
+/// Load the model plan for this thread.
 ///
-/// If there is no active plan, fall back to the newest plan key so "continue" can rehydrate.
-pub async fn load_model_plan_any(ctx: &AgentCtx) -> Result<Option<ModelPlan>, PlanError> {
-    if let Some(p) = load_model_plan(ctx).await? {
-        return Ok(Some(p));
+/// Prefers the oldest non-terminal plan. If none exists, falls back to the newest plan key.
+pub async fn load_model_plan(ctx: &AgentCtx) -> Result<Option<ModelPlan>, PlanError> {
+    let keys = list_plan_keys(ctx, "_model.json").await?;
+    for k in &keys {
+        let bytes = match ctx.storage().get_bytes(k).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("skipping plan key {k}: storage read failed: {e}");
+                continue;
+            }
+        };
+        match serde_json::from_slice::<ModelPlan>(&bytes) {
+            Ok(p) if !p.status.is_terminal() => return load_model_plan_by_key(ctx, k).await,
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("skipping plan key {k}: deserialization failed: {e}");
+            }
+        }
     }
-    let Some(key) = newest_plan_key_any(ctx, "_model.json").await? else {
+    let Some(key) = keys.last() else {
         return Ok(None);
     };
-    load_model_plan_by_key(ctx, &key).await
+    load_model_plan_by_key(ctx, key).await
 }
 
 pub async fn load_model_plan_by_key(

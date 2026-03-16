@@ -1,181 +1,6 @@
 use serde_json::Value;
 
-pub use crate::domain_types::{
-    ControllerEvent, FailureSignature, ValidateFailingTarget, ValidateObservationContract,
-    ValidateOutcomeV2, ValidateTargetPath,
-};
-use crate::failure_kind::FailureKind;
-
-fn failure_class_from_validate_result(obj: &serde_json::Map<String, Value>) -> FailureKind {
-    obj.get("failure_class")
-        .cloned()
-        .and_then(|v| serde_json::from_value::<FailureKind>(v).ok())
-        .unwrap_or(FailureKind::Unknown)
-}
-
-fn failure_class_key(class: FailureKind) -> &'static str {
-    match class {
-        FailureKind::NoFailure => "no_failure",
-        FailureKind::InfraTransient => "infra_transient",
-        FailureKind::WarehouseConfig => "warehouse_config",
-        FailureKind::MissingSource => "missing_source",
-        FailureKind::Schema => "schema",
-        FailureKind::SqlRuntime => "sql_runtime",
-        FailureKind::Unknown => "unknown",
-    }
-}
-
-fn extract_models_path_hint(raw_line: &str) -> Option<String> {
-    let idx = raw_line.find("models/")?;
-    let tail = &raw_line[idx..];
-    let candidate = tail
-        .chars()
-        .take_while(|c| !c.is_whitespace() && *c != ')' && *c != ',' && *c != ';')
-        .collect::<String>()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_string();
-    if candidate.ends_with(".sql") || candidate.ends_with(".yml") || candidate.ends_with(".yaml") {
-        return Some(candidate);
-    }
-    None
-}
-
-fn node_hint_from_line(raw_line: &str) -> Option<String> {
-    for marker in ["Failure in model ", "Runtime Error in model ", " model "] {
-        if let Some((_, rhs)) = raw_line.split_once(marker) {
-            let token = rhs.split_whitespace().next().unwrap_or("").trim();
-            if !token.is_empty() {
-                let node = token
-                    .trim_end_matches(')')
-                    .rsplit_once('.')
-                    .map(|(_, tail)| tail)
-                    .unwrap_or(token)
-                    .to_string();
-                if !node.is_empty() {
-                    return Some(node);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn fallback_targets_from_text_blobs(
-    texts: &[String],
-    error_code: &str,
-) -> Vec<ValidateFailingTarget> {
-    let mut out: Vec<ValidateFailingTarget> = Vec::new();
-    for txt in texts {
-        for raw_line in txt.lines() {
-            let line = raw_line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            let Some(canonical_path) = extract_models_path_hint(line) else {
-                continue;
-            };
-            let Some(target_path) = ValidateTargetPath::parse(canonical_path.clone()).ok() else {
-                continue;
-            };
-            let node_id = node_hint_from_line(line).unwrap_or_else(|| {
-                std::path::Path::new(&canonical_path)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| canonical_path.clone())
-            });
-            out.push(ValidateFailingTarget {
-                node_id,
-                target_path,
-                error_code: error_code.to_string(),
-            });
-        }
-    }
-    out
-}
-
-fn build_failing_targets_from_logs(
-    logs: &Value,
-    errors: &[String],
-    failure_class: FailureKind,
-) -> Vec<ValidateFailingTarget> {
-    let error_code = failure_class_key(failure_class).to_string();
-    let mut out: Vec<ValidateFailingTarget> =
-        crate::dbt_error::extract_failed_models_from_logs(logs)
-            .into_iter()
-            .filter_map(|fm| {
-                let node_id = fm
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())?;
-                let canonical_path = fm
-                    .get("file")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())?;
-                let target_path = ValidateTargetPath::parse(canonical_path).ok()?;
-                Some(ValidateFailingTarget {
-                    node_id,
-                    target_path,
-                    error_code: error_code.clone(),
-                })
-            })
-            .collect();
-    if out.is_empty() {
-        // dbt test failures can report only FAIL lines; derive deterministic targets from those lines.
-        let runtime_failures = crate::dbt_error::extract_runtime_failures_from_logs(logs);
-        for rf in runtime_failures {
-            let node_id = rf
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    rf.get("model_hint")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                });
-            let canonical_path = rf
-                .get("line")
-                .and_then(|v| v.as_str())
-                .and_then(extract_models_path_hint);
-            if let (Some(node_id), Some(canonical_path)) = (node_id, canonical_path) {
-                let Some(target_path) = ValidateTargetPath::parse(canonical_path).ok() else {
-                    continue;
-                };
-                out.push(ValidateFailingTarget {
-                    node_id,
-                    target_path,
-                    error_code: error_code.clone(),
-                });
-            }
-        }
-    }
-    if out.is_empty() {
-        // Compile/dbt parser errors often carry model paths in `errors` or compile stderr only.
-        let mut blobs: Vec<String> = errors.to_vec();
-        for phase in ["compile", "run_or_build"] {
-            for stream in ["stdout", "stderr"] {
-                if let Some(s) = logs
-                    .get(phase)
-                    .and_then(|v| v.get(stream))
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    blobs.push(s.to_string());
-                }
-            }
-        }
-        out.extend(fallback_targets_from_text_blobs(&blobs, &error_code));
-    }
-    out.sort_by(|a, b| a.target_path.as_str().cmp(b.target_path.as_str()));
-    out.dedup_by(|a, b| a.target_path == b.target_path);
-    out
-}
+pub use crate::domain_types::{ControllerEvent, ValidateObservationContract, ValidateOutcomeV2};
 
 pub fn attach_validate_outcome_v2(obs: &mut Value) -> Result<ValidateOutcomeV2, String> {
     let obj = obs
@@ -187,40 +12,10 @@ pub fn attach_validate_outcome_v2(obs: &mut Value) -> Result<ValidateOutcomeV2, 
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let run_ok = obj.get("run_ok").and_then(|v| v.as_bool()).unwrap_or(false);
-    let errors: Vec<String> = obj
-        .get("errors")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-    let class = failure_class_from_validate_result(obj);
-    let failing_targets = if ok {
-        Vec::new()
-    } else {
-        build_failing_targets_from_logs(&logs, &errors, class)
-    };
-    if !ok && failing_targets.is_empty() {
-        return Err(
-            "validate_outcome_v2_contract_error: missing failing_targets for failed validate"
-                .to_string(),
-        );
-    }
-    let failure_signature = failing_targets.first().map(|t| FailureSignature {
-        class,
-        node_id: t.node_id.clone(),
-        target_path: t.target_path.clone(),
-        error_code: t.error_code.clone(),
-    });
     let outcome = ValidateOutcomeV2 {
         ok,
         compile_ok,
         run_ok,
-        failing_targets,
-        failure_signature,
     };
     obj.insert(
         "validate_outcome_v2".to_string(),
@@ -250,23 +45,16 @@ pub fn validate_event_from_contract(contract: &ValidateObservationContract) -> C
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
     let brief = crate::dbt_error::compact_brief(&errs, 6, 1200);
-    if v2.failing_targets.is_empty() {
+    if brief.trim().is_empty() {
         return ControllerEvent::ValidateContractError {
-            reason: "validate_outcome_v2_missing_failing_targets".to_string(),
-            brief,
+            reason: "validate_outcome_v2_empty_brief".to_string(),
+            brief: "dbt_validate failed with no error text.".to_string(),
         };
     }
-    let Some(signature) = v2.failure_signature.clone() else {
-        return ControllerEvent::ValidateContractError {
-            reason: "validate_outcome_v2_missing_failure_signature".to_string(),
-            brief,
-        };
-    };
+    let failure_hash = crate::progress_controller::sha256_hex(brief.trim());
     ControllerEvent::ValidateFailed {
-        class: signature.class,
-        signature,
         brief,
-        failing_targets: v2.failing_targets.clone(),
+        failure_hash,
         compile_ok: v2.compile_ok,
         run_ok: v2.run_ok,
     }
@@ -299,79 +87,55 @@ mod tests {
     }
 
     #[test]
-    fn validate_contract_fails_closed_for_failed_validate_without_targets() {
+    fn validate_contract_produces_failed_event_for_compile_errors() {
         let obs = serde_json::json!({
             "ok": false,
             "compile_ok": false,
             "run_ok": false,
-            "errors": ["Compilation Error"],
+            "errors": [
+                "Compilation Error in model stg_orders (models/staging/stg_orders.sql)"
+            ],
             "logs": {}
         });
-        let err = validate_contract_from_observation(obs).unwrap_err();
-        assert!(
-            err.contains("missing failing_targets"),
-            "unexpected contract error: {err}"
-        );
+        let contract = validate_contract_from_observation(obs).expect("contract");
+        let event = validate_event_from_contract(&contract);
+        match event {
+            ControllerEvent::ValidateFailed {
+                brief,
+                failure_hash,
+                compile_ok,
+                run_ok,
+            } => {
+                assert!(brief.contains("Compilation Error"));
+                assert!(!failure_hash.is_empty());
+                assert!(!compile_ok);
+                assert!(!run_ok);
+            }
+            other => panic!("expected ValidateFailed, got {:?}", other),
+        }
     }
 
     #[test]
-    fn validate_contract_extracts_targets_from_runtime_fail_lines() {
+    fn validate_contract_produces_failed_event_for_runtime_errors() {
         let obs = serde_json::json!({
             "ok": false,
             "compile_ok": true,
             "run_ok": false,
             "errors": ["Data test failure"],
-            "logs": {
-                "run_or_build": {
-                    "stdout": "11:19:11  7 of 18 FAIL 2 not_null_stg_orders_order_id (models/staging/stg_orders.yml) [FAIL 2 in 5.89s]\n"
-                }
+            "logs": {}
+        });
+        let contract = validate_contract_from_observation(obs).expect("contract");
+        let event = validate_event_from_contract(&contract);
+        match event {
+            ControllerEvent::ValidateFailed {
+                compile_ok,
+                run_ok,
+                ..
+            } => {
+                assert!(compile_ok);
+                assert!(!run_ok);
             }
-        });
-        let contract = validate_contract_from_observation(obs).expect("contract");
-        assert_eq!(contract.outcome_v2.failing_targets.len(), 1);
-        assert_eq!(
-            contract.outcome_v2.failing_targets[0].target_path.as_str(),
-            "models/staging/stg_orders.yml"
-        );
-    }
-
-    #[test]
-    fn validate_contract_extracts_targets_from_compile_errors() {
-        let obs = serde_json::json!({
-            "ok": false,
-            "compile_ok": false,
-            "run_ok": false,
-            "failure_class": "warehouse_config",
-            "errors": [
-                "Compilation Error in model stg_orders (models/staging/stg_orders.sql)"
-            ],
-            "logs": {}
-        });
-        let contract = validate_contract_from_observation(obs).expect("contract");
-        assert_eq!(contract.outcome_v2.failing_targets.len(), 1);
-        assert_eq!(
-            contract.outcome_v2.failing_targets[0].target_path.as_str(),
-            "models/staging/stg_orders.sql"
-        );
-    }
-
-    #[test]
-    fn validate_contract_uses_typed_failure_class_field() {
-        let obs = serde_json::json!({
-            "ok": false,
-            "compile_ok": false,
-            "run_ok": false,
-            "failure_class": "warehouse_config",
-            "errors": [
-                "Compilation Error in model stg_orders (models/staging/stg_orders.sql)"
-            ],
-            "logs": {}
-        });
-        let contract = validate_contract_from_observation(obs).expect("contract");
-        let sig = contract
-            .outcome_v2
-            .failure_signature
-            .expect("expected failure signature");
-        assert_eq!(sig.class, FailureKind::WarehouseConfig);
+            other => panic!("expected ValidateFailed, got {:?}", other),
+        }
     }
 }

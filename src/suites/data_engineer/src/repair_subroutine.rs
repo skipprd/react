@@ -37,11 +37,11 @@ struct GatherDiagnosisV1 {
 use crate::control_flow::DeterministicDbtValidateOnce;
 use crate::model_dispatch::ModelDispatch;
 use crate::repair_session::{
-    ApplyResult, FileOp, PlannedFix, RepairErrorContext, RepairIteration, RepairSessionLog,
-    ValidateOutcome,
+    ApplyResult, FileOp, GatheredFile, PlannedFix, RepairErrorContext, RepairIteration,
+    RepairSessionLog, ValidateOutcome,
 };
 
-const GATHER_MAX_STEPS: usize = 8;
+const GATHER_MAX_STEPS: usize = 14;
 const DEFAULT_MAX_ITERATIONS: usize = 5;
 
 struct RepairExecutor<'a> {
@@ -73,9 +73,10 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
 
         let apply_results = apply_fixes(self.sctx, self.thread_id, &fix_plan).await;
 
+        let diagnosis = gathered.diagnosis.clone();
         {
             let mut log = self.session_log.lock().unwrap();
-            log.record(i, gathered.files, gathered.diagnosis, fix_plan, apply_results);
+            log.record(i, gathered.files, diagnosis, fix_plan, apply_results);
         }
 
         let has_mutations = self
@@ -224,15 +225,15 @@ async fn run_gather(
     .resolved_config(sctx.resolved_config().clone())
     .build();
 
-    let system_prompt = "\
+    let system_prompt = format!("\
 You are a dbt repair investigator. Read the relevant SQL models, YAML schema files, \
 and query the vector store for similar past errors.\n\n\
 STRICT RULES:\n\
 - NEVER call the same tool with the same arguments twice.\n\
 - Read each file ONCE. Do not re-read files you have already read.\n\
 - If vect_query returns empty results, do NOT retry the same query.\n\
-- You have a strict budget of 8 tool calls. Be efficient.\n\
-- When you have read the failing model and its upstream refs, STOP.";
+- You have a strict budget of {GATHER_MAX_STEPS} tool calls. Be efficient.\n\
+- When you have read the failing model and its upstream refs, STOP.");
 
     let history = session_log.format_for_prompt();
     let question = format!(
@@ -255,7 +256,7 @@ STRICT RULES:\n\
     let _ = Agent::run_until_block_non_interactive(
         &registry,
         &actx,
-        system_prompt,
+        &system_prompt,
         &tools_card,
         &question,
         options,
@@ -263,30 +264,38 @@ STRICT RULES:\n\
     .await;
 
     // ── Phase B: structured diagnosis extraction ─────────────────────────
-    let investigation_context = collect_investigation_context(sctx, &gather_tid).await;
+    let investigation = collect_investigation_results(sctx, &gather_tid).await;
     let error_brief = session_log.format_for_prompt();
 
     let diag = extract_diagnosis_structured(
         sctx,
         dispatch,
         &error_brief,
-        &investigation_context,
+        &investigation.context_prompt,
         iteration,
     )
     .await?;
 
     Ok(GatheredContext {
-        files: Vec::new(),
+        files: investigation.files,
         diagnosis: diag.diagnosis,
         upstream_schemas: diag.upstream_schemas,
     })
 }
 
-/// Collect tool observations from the gather agent's thread to build
-/// a prompt-ready investigation context string.
+/// Structured output from parsing the gather agent's thread.
+struct InvestigationResults {
+    /// Prompt-ready string of all tool observations (for diagnosis LLM).
+    context_prompt: String,
+    /// Structured file reads extracted from `file(op:"get")` observations.
+    files: Vec<GatheredFile>,
+}
+
+/// Parse the gather agent's thread into both a prompt string (for the diagnosis
+/// LLM) and structured file contents (piped through to reason & history).
 ///
 /// Deduplicates by (tool_name, args) so repeated calls don't bloat context.
-async fn collect_investigation_context(sctx: &SuiteCtx, thread_id: &str) -> String {
+async fn collect_investigation_results(sctx: &SuiteCtx, thread_id: &str) -> InvestigationResults {
     let store = ThreadStore::new(
         sctx.storage().clone(),
         sctx.scope().clone(),
@@ -294,11 +303,19 @@ async fn collect_investigation_context(sctx: &SuiteCtx, thread_id: &str) -> Stri
     );
     let log = match store.get(thread_id).await {
         Ok(log) => log,
-        Err(_) => return String::new(),
+        Err(_) => {
+            return InvestigationResults {
+                context_prompt: String::new(),
+                files: Vec::new(),
+            };
+        }
     };
 
     let mut sections: Vec<String> = Vec::new();
+    let mut files: Vec<GatheredFile> = Vec::new();
+    let mut seen_files: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     for step in &log.steps {
         if let react_core::session::ThreadStep::ToolEnd {
             name,
@@ -323,12 +340,31 @@ async fn collect_investigation_context(sctx: &SuiteCtx, thread_id: &str) -> Stri
             let obs_capped = if obs_text.len() > 3000 {
                 format!("{}…(truncated)", &obs_text[..3000])
             } else {
-                obs_text
+                obs_text.clone()
             };
             sections.push(format!("### Tool: {name}\nArgs: {args_brief}\n{obs_capped}"));
+
+            if name == "file" && observation.ok {
+                let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
+                let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                if op == "get" && !path.is_empty() && seen_files.insert(path.to_string()) {
+                    let content = observation
+                        .extra
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&obs_text);
+                    files.push(GatheredFile {
+                        path: path.to_string(),
+                        content: content.to_string(),
+                    });
+                }
+            }
         }
     }
-    sections.join("\n\n")
+    InvestigationResults {
+        context_prompt: sections.join("\n\n"),
+        files,
+    }
 }
 
 /// Single structured LLM call that produces a [`GatherDiagnosisV1`].
@@ -432,17 +468,35 @@ async fn run_reason(
         String::new()
     };
 
+    let files_block = if !gathered.files.is_empty() {
+        let mut lines = vec![
+            "## Current File Contents".to_string(),
+            "These are the EXACT current contents of the files you may need to fix. \
+             When using op \"write\", base your output on this content — do NOT guess the file structure."
+                .to_string(),
+        ];
+        for gf in &gathered.files {
+            lines.push(format!("\n### `{}`\n```sql\n{}\n```", gf.path, gf.content));
+        }
+        lines.join("\n")
+    } else {
+        String::new()
+    };
+
     let prompt = format!(
-        "You are a senior dbt engineer. Based on the diagnosis and full repair history below, \
-         produce fixes for the failing models.\n\n\
+        "You are a senior dbt engineer. Based on the diagnosis, current file contents, and \
+         full repair history below, produce fixes for the failing models.\n\n\
          SQL dialect: {dialect}\n\n\
          ## Diagnosis\n{diagnosis}\n\n\
          {upstream_block}\n\n\
+         {files_block}\n\n\
          ## Full Repair History\n{history}\n\n\
          Rules:\n\
          - If a prior patch attempt failed, use op \"write\" instead of \"patch\".\n\
          - Fix the actual SQL model files when tests fail, not just the schema YAML.\n\
          - Produce at least one fix.\n\
+         - When using op \"write\", output the COMPLETE file content based on the Current File \
+           Contents above. Do NOT invent SQL structure — modify the existing content.\n\
          - CRITICAL: Only SELECT columns that appear in the Upstream Model Contracts above. \
            If you need a different output name, use a SQL alias \
            (e.g. `created_at_ts as customer_created_at_ts`). \
@@ -632,9 +686,14 @@ fn build_tool_ctx(sctx: &SuiteCtx, thread_id: &str) -> AgentCtx {
     actx
 }
 
+/// All context gathered in Stage 1.  Every field is mandatory — there is no
+/// `Default` impl so the compiler forces you to populate every field.
 struct GatheredContext {
-    files: Vec<(String, String)>,
+    /// SQL/YAML files read by the gather agent, with their full content.
+    files: Vec<GatheredFile>,
+    /// Root-cause analysis from the diagnosis LLM call.
     diagnosis: String,
+    /// Column schemas extracted from upstream models.
     upstream_schemas: Vec<UpstreamModelSchema>,
 }
 

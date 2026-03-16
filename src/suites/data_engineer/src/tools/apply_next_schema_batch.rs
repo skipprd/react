@@ -201,7 +201,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let checklist_item_id = plan::schema_contract_checklist_item_id().to_string();
 
-        let mut plan = plan::load_cleanse_plan_any(ctx)
+        let mut plan = plan::load_cleanse_plan(ctx)
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active cleanse plan found".to_string())?;
@@ -590,7 +590,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let checklist_item_id = plan::schema_contract_checklist_item_id().to_string();
 
-        let mut plan = plan::load_model_plan_any(ctx)
+        let mut plan = plan::load_model_plan(ctx)
             .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "no active model plan found".to_string())?;

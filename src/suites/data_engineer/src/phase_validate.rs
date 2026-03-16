@@ -129,7 +129,7 @@ impl DataEngineerSuite {
         let mut completion_snapshot: Option<crate::plan::PlanCompletionSnapshot> = None;
         let mut active_plan_key: Option<String> = None;
         if phase == Phase::CleanseValidate {
-            if let Some(mut p) = crate::plan::load_cleanse_plan_any(actx)
+            if let Some(mut p) = crate::plan::load_cleanse_plan(actx)
                 .await
                 .map_err(|e| e.to_string())?
             {
@@ -151,7 +151,7 @@ impl DataEngineerSuite {
                         format!("failed to persist cleanse plan validate-pass state: {e}")
                     })?;
             }
-        } else if let Some(mut p) = crate::plan::load_model_plan_any(actx)
+        } else if let Some(mut p) = crate::plan::load_model_plan(actx)
             .await
             .map_err(|e| e.to_string())?
         {
@@ -429,110 +429,74 @@ impl DataEngineerSuite {
             return Ok(PhaseOutcome::TransitionCommitted);
         }
 
-        // Warehouse config failures require user action.
-        let (failure_class, failure_signature, brief, failing_targets, compile_ok, run_ok) =
-            match validate_event {
-                crate::controller_event::ControllerEvent::ValidateFailed {
-                    class,
-                    signature,
-                    brief,
-                    failing_targets,
-                    compile_ok,
-                    run_ok,
-                } => (class, signature, brief, failing_targets, compile_ok, run_ok),
-                crate::controller_event::ControllerEvent::ValidateContractError {
+        let (brief, failure_hash, compile_ok, run_ok) = match validate_event {
+            crate::controller_event::ControllerEvent::ValidateFailed {
+                brief,
+                failure_hash,
+                compile_ok,
+                run_ok,
+            } => (brief, failure_hash, compile_ok, run_ok),
+            crate::controller_event::ControllerEvent::ValidateContractError {
+                reason,
+                brief,
+            } => {
+                tracing::warn!(
+                    "data_engineer: validate contract error: {} ({}) (thread_id={} phase={})",
                     reason,
                     brief,
-                } => {
-                    tracing::warn!(
-                        "data_engineer: validate contract error: {} ({}) (thread_id={} phase={})",
-                        reason,
-                        brief,
-                        thread_id,
-                        phase.as_str()
-                    );
-                    return Self::handle_validate_execution_failure(
-                        thread_store,
-                        thread_id,
-                        phase,
-                        format!("validate_outcome_v2_contract_error: {} ({})", reason, brief),
-                        serde_json::json!({"reason": reason, "brief": brief}),
-                        PhaseReasonCode::ValidateContractError,
-                    )
-                    .await;
-                }
-                crate::controller_event::ControllerEvent::ValidatePassed => {
-                    // Covered by the success branch above.
-                    unreachable!("validate pass should have continued above")
-                }
-            };
-        if matches!(
-            failure_class,
-            crate::failure_kind::FailureKind::InfraTransient
-        ) {
+                    thread_id,
+                    phase.as_str()
+                );
+                return Self::handle_validate_execution_failure(
+                    thread_store,
+                    thread_id,
+                    phase,
+                    format!("validate_outcome_v2_contract_error: {} ({})", reason, brief),
+                    serde_json::json!({"reason": reason, "brief": brief}),
+                    PhaseReasonCode::ValidateContractError,
+                )
+                .await;
+            }
+            crate::controller_event::ControllerEvent::ValidatePassed => {
+                unreachable!("validate pass should have continued above")
+            }
+        };
+        // Infra-transient failures are not code defects.
+        let errs: Vec<String> = obs
+            .observation
+            .get("errors")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let failure_class = crate::failure_text::classify_dbt_failure(&errs);
+        if failure_class.is_transient() {
             return Err(PhaseError::Fatal(format!(
         "dbt_validate failed due to a transient infrastructure error (service outage, throttling, or network issue). \
          This is not a code defect — retry after the upstream service recovers.\n\n{}",
         brief
     )));
         }
-        let errs: Vec<String> = obs
-            .observation
-            .get("errors")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
 
-        // Update canonical execution state from this validate failure (hard-cutover: primary decision source).
+        // Update canonical execution state (hard-cutover: primary decision source).
         {
             let tier = if phase == Phase::CleanseValidate {
                 crate::progress_controller::ExecutionTier::Cleanse
             } else {
                 crate::progress_controller::ExecutionTier::Model
             };
-            let mut failing_models: Vec<crate::progress_controller::FailedModelRef> = Vec::new();
-            for t in failing_targets.iter() {
-                let rel = t.target_path.as_str().to_string();
-                let key = crate::project_fs::join_storage_key(&actx, &rel);
-                let materialization = match actx.storage().get_bytes(&key).await {
-                    Ok(_) => crate::progress_controller::RepairTargetMaterialization::Existing,
-                    Err(_) => crate::progress_controller::RepairTargetMaterialization::Missing,
-                };
-                failing_models.push(crate::progress_controller::FailedModelRef {
-                    name: t.node_id.clone(),
-                    file: rel,
-                    error: if t.error_code.trim().is_empty() {
-                        None
-                    } else {
-                        Some(t.error_code.clone())
-                    },
-                    materialization,
-                });
-            }
-            let failure_class_state = failure_class;
-            let backlog = crate::progress_controller::repair_backlog_from_failed_models(
-                failure_class_state,
-                &failing_models,
-            );
-            let repair_intent = crate::progress_controller::repair_intent_from_backlog(
-                failure_class_state,
-                backlog,
-            );
+            let log_excerpts = {
+                let raw = crate::dbt_error::extract_log_excerpts(&obs.observation, 3, 6000);
+                if raw.trim().is_empty() { None } else { Some(raw) }
+            };
             crate::state_manager::apply_execution_event(
                 &thread_store.control_store(),
                 thread_id,
                 crate::progress_controller::DataEngineerEvent::ValidateFailed {
                     tier,
-                    failure_class: failure_class_state,
-                    failure_signature: crate::progress_controller::FailureSignature {
-                        class: failure_class_state,
-                        node_id: Some(failure_signature.node_id.clone()),
-                        canonical_path: Some(failure_signature.target_path.clone()),
-                        error_code: Some(failure_signature.error_code.clone()),
-                    },
-                    repair_intent,
-                    brief: Some(brief.clone()),
-                    compile_ok: Some(compile_ok),
-                    run_ok: Some(run_ok),
+                    brief: brief.clone(),
+                    failure_hash: failure_hash.clone(),
+                    compile_ok,
+                    run_ok,
+                    log_excerpts,
                 },
             )
             .await
@@ -562,9 +526,7 @@ impl DataEngineerSuite {
             dialect,
             &obs,
             crate::facts::FactsScope::ValidateFail,
-            crate::facts::FactsLimits::for_scope(crate::facts::FactsScope::ValidateFail),
-        )
-        .await;
+        );
         // Best-effort persist into the active plan snapshot for reuse in subsequent authoring turns.
         // Keep bounded to avoid unbounded plan growth.
         if phase == Phase::CleanseValidate {
