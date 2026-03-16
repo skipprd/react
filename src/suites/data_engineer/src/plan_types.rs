@@ -57,15 +57,6 @@ impl Default for PlanStatus {
 }
 
 impl PlanStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            PlanStatus::Draft => "draft",
-            PlanStatus::Approved => "approved",
-            PlanStatus::Completed => "completed",
-            PlanStatus::Cancelled => "cancelled",
-        }
-    }
-
     pub fn is_terminal(&self) -> bool {
         matches!(self, PlanStatus::Completed | PlanStatus::Cancelled)
     }

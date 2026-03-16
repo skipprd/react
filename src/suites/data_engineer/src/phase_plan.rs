@@ -22,12 +22,6 @@ struct PlanPhaseCtx<'a> {
 // Small, pre-existing helpers (unchanged)
 // ---------------------------------------------------------------------------
 
-fn auto_approved_plan_detail(
-    source: crate::phase_reason_detail::AutoApprovalSource,
-) -> serde_json::Value {
-    crate::phase_reason_detail::plan_auto_approved(source)
-}
-
 async fn finalize_plan_and_approve(
     thread_store: &ThreadStore,
     thread_id: &str,
@@ -47,10 +41,7 @@ async fn finalize_plan_and_approve(
 
     stamp_design_review(snapshot, track, design_critique, critique_disposition);
 
-    DataEngineerSuite::clear_subjective_retries_matching(thread_store, thread_id, move |k| {
-        retry_kinds.contains(k)
-    })
-    .await?;
+    DataEngineerSuite::clear_subjective_retries(thread_store, thread_id, retry_kinds).await?;
 
     let advanced = DataEngineerSuite::approve_plan_draft_and_advance(
         thread_store,
@@ -59,8 +50,9 @@ async fn finalize_plan_and_approve(
         track,
         actx,
         thread_state_step_count,
-        PhaseReasonCode::PlanAutoApproved,
-        auto_approved_plan_detail(crate::phase_reason_detail::AutoApprovalSource::NewDraftPlan),
+        crate::progress_controller::PhaseTransition::PlanAutoApproved {
+            source: crate::progress_controller::AutoApprovalSource::SystemDefault,
+        },
     )
     .await?;
     if advanced {
@@ -309,11 +301,13 @@ async fn run_plan_bootstrap(
         bootstrap_sufficient
     );
     if bootstrap_sufficient {
-        let mut st = execution_state.clone();
-        st.mark_plan_bootstrap_done(phase);
-        st.save(&thread_store.control_store(), thread_id)
-            .await
-            .map_err(|e| format!("failed to persist plan bootstrap state: {e}"))?;
+        crate::state_manager::apply_execution_event(
+            &thread_store.control_store(),
+            thread_id,
+            crate::progress_controller::DataEngineerEvent::PlanBootstrapDone { phase },
+        )
+        .await
+        .map_err(|e| format!("failed to persist plan bootstrap state: {e}"))?;
     }
     let discovery_sufficient = bootstrap_sufficient && model_count == 0;
     Ok(PlanBootstrapOutcome {
@@ -333,19 +327,23 @@ async fn consume_plan_revision(
     pctx: &PlanPhaseCtx<'_>,
 ) -> Result<(Vec<crate::progress_controller::PlanViolation>, bool), PhaseError> {
     let plan_revision: Option<crate::progress_controller::PlanRevisionIntent> = {
-        let mut es = crate::state_manager::load_execution_state_strict(
+        let es = crate::state_manager::load_execution_state_strict(
             &pctx.thread_store.control_store(),
             pctx.thread_id,
         )
         .await?
         .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-        let rev = es.take_pending_plan_revision();
+        let rev = es.phase.pending_plan_revision.clone();
         if rev.is_some() {
-            es.save(&pctx.thread_store.control_store(), pctx.thread_id)
-                .await
-                .map_err(|e| {
-                    format!("failed to persist execution state after consuming plan revision: {e}")
-                })?;
+            crate::state_manager::apply_execution_event(
+                &pctx.thread_store.control_store(),
+                pctx.thread_id,
+                crate::progress_controller::DataEngineerEvent::PlanRevisionConsumed,
+            )
+            .await
+            .map_err(|e| {
+                format!("failed to persist execution state after consuming plan revision: {e}")
+            })?;
         }
         rev
     };
@@ -409,15 +407,11 @@ async fn check_existing_plan(
                 Some(pctx.phase),
                 PhaseDecision::annotation(
                     pctx.phase,
-                    Some(PhaseReasonCode::PlanInvalidEmpty),
-                    Some(crate::phase_reason_detail::to_value(
-                        &crate::phase_reason_detail::PlanInvalidEmptyDetail {
-                            plan_key,
-                            status: existing_plan.status(),
-                            tasks_len: existing_plan.tasks_len(),
-                            batches_len: existing_plan.batches_len(),
-                        },
-                    )),
+                    Some(crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
+                        plan_key,
+                        tasks_len: existing_plan.tasks_len(),
+                        batches_len: existing_plan.batches_len(),
+                    }),
                 ),
             )
             .await?;
@@ -425,10 +419,10 @@ async fn check_existing_plan(
                 "cancelled an empty approved plan and annotated the invalid state",
             )));
         }
-        crate::state_manager::mutate_execution_state(
+        crate::state_manager::apply_execution_event(
             &pctx.thread_store.control_store(),
             pctx.thread_id,
-            |es| es.clear_pending_patch_impl(),
+            crate::progress_controller::DataEngineerEvent::PatchImplIntentCleared,
         )
         .await
         .map(|_| ())?;
@@ -438,8 +432,7 @@ async fn check_existing_plan(
             Some(pctx.phase),
             PhaseDecision::forward(
                 pctx.track.author_phase(),
-                Some(PhaseReasonCode::PlanAlreadyApproved),
-                Some(plan_status_reason_detail(existing_plan.status())),
+                Some(crate::progress_controller::PhaseTransition::PlanAlreadyApproved),
             ),
         )
         .await?;
@@ -462,17 +455,17 @@ async fn check_existing_plan(
             let plan_key = existing_plan.plan_key().to_string();
             existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
             crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan).await?;
-            let detail = match existing_plan {
+            let _detail = match &existing_plan {
                 TrackPlanDoc::Cleanse(_) => crate::phase_reason_detail::to_value(
                     &crate::phase_reason_detail::CleanseDraftUngroundedDetail {
-                        plan_key,
+                        plan_key: plan_key.clone(),
                         reason: "draft_cleanse_plan_not_raw_grounded".to_string(),
                         removed_non_raw,
                     },
                 ),
                 TrackPlanDoc::Model(_) => crate::phase_reason_detail::to_value(
                     &crate::phase_reason_detail::PlanInvalidEmptyDetail {
-                        plan_key,
+                        plan_key: plan_key.clone(),
                         status: existing_plan.status(),
                         tasks_len: existing_plan.tasks_len(),
                         batches_len: existing_plan.batches_len(),
@@ -485,8 +478,11 @@ async fn check_existing_plan(
                 Some(pctx.phase),
                 PhaseDecision::annotation(
                     pctx.phase,
-                    Some(PhaseReasonCode::PlanInvalidEmpty),
-                    Some(detail),
+                    Some(crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
+                        plan_key,
+                        tasks_len: existing_plan.tasks_len(),
+                        batches_len: existing_plan.batches_len(),
+                    }),
                 ),
             )
             .await?;
@@ -501,10 +497,9 @@ async fn check_existing_plan(
             pctx.track,
             &pctx.actx,
             pctx.thread_state_step_count,
-            PhaseReasonCode::PlanAutoApproved,
-            auto_approved_plan_detail(
-                crate::phase_reason_detail::AutoApprovalSource::ExistingDraftPlan,
-            ),
+            crate::progress_controller::PhaseTransition::PlanAutoApproved {
+                source: crate::progress_controller::AutoApprovalSource::SystemDefault,
+            },
         )
         .await?;
         if advanced {
@@ -533,7 +528,7 @@ async fn build_plan_query(
     sctx: &SuiteCtx,
     question: &str,
     execution_state: &crate::progress_controller::ExecutionState,
-    repair_ctx: &crate::progress_controller::RepairPromptContext,
+    repair_ctx: &crate::progress_controller::RepairContext,
     plan_violations: &[crate::progress_controller::PlanViolation],
     bootstrap_summary: Option<&str>,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
@@ -1086,9 +1081,8 @@ impl DataEngineerSuite {
         question: &str,
         sctx: &SuiteCtx,
         execution_state: &crate::progress_controller::ExecutionState,
-        guard: &crate::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        repair_ctx: &crate::progress_controller::RepairContext,
     ) -> Result<PhaseOutcome, PhaseError> {
         let track = TrackKind::try_from_plan_phase(phase)?;
         let actx = Self::plan_agent_ctx(thread_id, sctx);
@@ -1191,7 +1185,6 @@ impl DataEngineerSuite {
         });
         let (registry, tools_card) = Self::build_tools_for_phase(
             phase,
-            guard,
             false,
             sctx,
             &PlanState::ReadOnly,

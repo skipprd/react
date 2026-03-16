@@ -71,84 +71,6 @@ pub struct ReviewUnifyOutput {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PhaseReasonCode {
-    PhaseSet,
-    PreflightStart,
-    PreflightOk,
-    PlanApproved,
-    PlanAutoApproved,
-    PlanAlreadyApproved,
-    PlanMissing,
-    PlanNotApproved,
-    PlanInvalidEmpty,
-    PlanPrunedEmpty,
-    PlanSemanticInvalid,
-    WorkGroupValidate,
-    PlanTasksDone,
-    NoWorkAllDone,
-    AuthoringComplete,
-    PrecheckFailed,
-    ValidateExecutionFailed,
-    ValidateContractError,
-    ValidatePassToReview,
-    ValidatePassToAuthoring,
-    ValidateFail,
-    ReviewProceed,
-    ReviewPatchImpl,
-    ReviewProjectSummary,
-    ReviewBatch,
-    ReviewFinalUnify,
-    UserApprovedPublish,
-    PublishSuccess,
-    PublishFail,
-    PublishConfirmedSuccess,
-    PublishConfirmedFail,
-    PlanRevisionRequested,
-    PhaseBlocked,
-}
-
-impl PhaseReasonCode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            PhaseReasonCode::PhaseSet => "phase_set",
-            PhaseReasonCode::PreflightStart => "preflight_start",
-            PhaseReasonCode::PreflightOk => "preflight_ok",
-            PhaseReasonCode::PlanApproved => "plan_approved",
-            PhaseReasonCode::PlanAutoApproved => "plan_auto_approved",
-            PhaseReasonCode::PlanAlreadyApproved => "plan_already_approved",
-            PhaseReasonCode::PlanMissing => "plan_missing",
-            PhaseReasonCode::PlanNotApproved => "plan_not_approved",
-            PhaseReasonCode::PlanInvalidEmpty => "plan_invalid_empty",
-            PhaseReasonCode::PlanPrunedEmpty => "plan_pruned_empty",
-            PhaseReasonCode::PlanSemanticInvalid => "plan_semantic_invalid",
-            PhaseReasonCode::WorkGroupValidate => "work_group_validate",
-            PhaseReasonCode::PlanTasksDone => "plan_tasks_done",
-            PhaseReasonCode::NoWorkAllDone => "no_work_all_done",
-            PhaseReasonCode::AuthoringComplete => "authoring_complete",
-            PhaseReasonCode::PrecheckFailed => "precheck_failed",
-            PhaseReasonCode::ValidateExecutionFailed => "validate_execution_failed",
-            PhaseReasonCode::ValidateContractError => "validate_contract_error",
-            PhaseReasonCode::ValidatePassToReview => "validate_pass_to_review",
-            PhaseReasonCode::ValidatePassToAuthoring => "validate_pass_to_authoring",
-            PhaseReasonCode::ValidateFail => "validate_fail",
-            PhaseReasonCode::ReviewProceed => "review_proceed",
-            PhaseReasonCode::ReviewPatchImpl => "review_patch_impl",
-            PhaseReasonCode::ReviewProjectSummary => "review_project_summary",
-            PhaseReasonCode::ReviewBatch => "review_batch",
-            PhaseReasonCode::ReviewFinalUnify => "review_final_unify",
-            PhaseReasonCode::UserApprovedPublish => "user_approved_publish",
-            PhaseReasonCode::PublishSuccess => "publish_success",
-            PhaseReasonCode::PublishFail => "publish_fail",
-            PhaseReasonCode::PublishConfirmedSuccess => "publish_confirmed_success",
-            PhaseReasonCode::PublishConfirmedFail => "publish_confirmed_fail",
-            PhaseReasonCode::PlanRevisionRequested => "plan_revision_requested",
-            PhaseReasonCode::PhaseBlocked => "phase_blocked",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum GuardBlockKind {
     PlanJsonInvalid,
     PlanGrounding,
@@ -215,42 +137,6 @@ pub struct ValidateObservationContract {
 mod tests {
     use super::*;
 
-    const ALL_PHASE_REASON_CODES: [PhaseReasonCode; 33] = [
-        PhaseReasonCode::PhaseSet,
-        PhaseReasonCode::PreflightStart,
-        PhaseReasonCode::PreflightOk,
-        PhaseReasonCode::PlanApproved,
-        PhaseReasonCode::PlanAutoApproved,
-        PhaseReasonCode::PlanAlreadyApproved,
-        PhaseReasonCode::PlanMissing,
-        PhaseReasonCode::PlanNotApproved,
-        PhaseReasonCode::PlanInvalidEmpty,
-        PhaseReasonCode::PlanPrunedEmpty,
-        PhaseReasonCode::PlanSemanticInvalid,
-        PhaseReasonCode::WorkGroupValidate,
-        PhaseReasonCode::PlanTasksDone,
-        PhaseReasonCode::NoWorkAllDone,
-        PhaseReasonCode::AuthoringComplete,
-        PhaseReasonCode::PrecheckFailed,
-        PhaseReasonCode::ValidateExecutionFailed,
-        PhaseReasonCode::ValidateContractError,
-        PhaseReasonCode::ValidatePassToReview,
-        PhaseReasonCode::ValidatePassToAuthoring,
-        PhaseReasonCode::ValidateFail,
-        PhaseReasonCode::ReviewProceed,
-        PhaseReasonCode::ReviewPatchImpl,
-        PhaseReasonCode::ReviewProjectSummary,
-        PhaseReasonCode::ReviewBatch,
-        PhaseReasonCode::ReviewFinalUnify,
-        PhaseReasonCode::UserApprovedPublish,
-        PhaseReasonCode::PublishSuccess,
-        PhaseReasonCode::PublishFail,
-        PhaseReasonCode::PublishConfirmedSuccess,
-        PhaseReasonCode::PublishConfirmedFail,
-        PhaseReasonCode::PlanRevisionRequested,
-        PhaseReasonCode::PhaseBlocked,
-    ];
-
     const ALL_GUARD_BLOCK_KINDS: [GuardBlockKind; 12] = [
         GuardBlockKind::PlanJsonInvalid,
         GuardBlockKind::PlanGrounding,
@@ -265,18 +151,6 @@ mod tests {
         GuardBlockKind::MissingThreadStep,
         GuardBlockKind::PhaseExecutionError,
     ];
-
-    #[test]
-    fn phase_reason_code_as_str_matches_serde() {
-        for code in ALL_PHASE_REASON_CODES {
-            let serde_name = serde_json::to_value(code)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string();
-            assert_eq!(code.as_str(), serde_name, "as_str drift for {:?}", code);
-        }
-    }
 
     #[test]
     fn guard_block_kind_as_str_matches_serde() {

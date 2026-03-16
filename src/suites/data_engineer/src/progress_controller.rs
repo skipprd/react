@@ -1,10 +1,10 @@
 use crate::failure_kind::FailureKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::domain_types::PhaseReasonCode;
+use crate::domain_types::ReviewDecisionMeta;
 use react_core::session::ControlStateStore;
 
 use crate::control_flow::Phase;
@@ -12,38 +12,258 @@ use crate::control_flow::Phase;
 pub const EXECUTION_STATE_SCHEMA_VERSION: u32 = 2;
 pub const MAX_REPAIR_CYCLES: usize = 8;
 
-#[derive(Clone, Debug)]
-pub struct RepairPromptContext {
-    pub brief: Option<String>,
+// ── New typed enums (state machine hard cutover) ──
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum RepairStatus {
+    Idle,
+    Pending { cycle: usize },
+    Exhausted { cycles_used: usize },
+}
+
+impl Default for RepairStatus {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ValidationFailureContext {
+    pub brief: String,
     pub log_excerpts: Option<String>,
-    pub repair_cycles: usize,
-    pub guard_note: Option<String>,
+    pub compile_ok: bool,
+    pub run_ok: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum PublishStatus {
+    NotRequested,
+    PlanPending {
+        plan_sha256: String,
+    },
+    AwaitingApproval {
+        plan_sha256: Option<String>,
+        #[serde(default)]
+        approval_retries: usize,
+    },
+    Approved {
+        plan_sha256: Option<String>,
+    },
+    Succeeded {
+        plan_sha256: String,
+    },
+    Failed {
+        #[serde(default)]
+        publish_retries: usize,
+    },
+}
+
+impl Default for PublishStatus {
+    fn default() -> Self {
+        Self::NotRequested
+    }
+}
+
+impl PublishStatus {
+    pub fn is_approved(&self) -> bool {
+        matches!(self, Self::Approved { .. })
+    }
+
+    pub fn retry_count_for_kind(&self, kind: PublishRetryKind) -> usize {
+        match (self, kind) {
+            (Self::AwaitingApproval { approval_retries, .. }, PublishRetryKind::AwaitApprovalLoop) => {
+                *approval_retries
+            }
+            (Self::Failed { publish_retries }, PublishRetryKind::PublishFailureLoop) => *publish_retries,
+            _ => 0,
+        }
+    }
+
+    pub fn plan_sha256(&self) -> Option<&str> {
+        match self {
+            Self::PlanPending { plan_sha256 } => Some(plan_sha256),
+            Self::AwaitingApproval { plan_sha256, .. } => plan_sha256.as_deref(),
+            Self::Approved { plan_sha256 } => plan_sha256.as_deref(),
+            Self::Succeeded { plan_sha256 } => Some(plan_sha256),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum ProbeStatus {
+    NotRequired,
+    Required { attempts: ProbeAttempts },
+    Satisfied { attempts: ProbeAttempts },
+    ExhaustedRequireMutation { attempts: ProbeAttempts },
+}
+
+impl Default for ProbeStatus {
+    fn default() -> Self {
+        Self::NotRequired
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProbeAttempts {
+    #[serde(default)]
+    pub total: usize,
+    #[serde(default)]
+    pub meaningful: usize,
+    #[serde(default)]
+    pub non_meaningful: usize,
+    #[serde(default)]
+    pub failed: usize,
+    #[serde(default)]
+    pub repeated_signature_streak: usize,
+    #[serde(default)]
+    pub last_signature: Option<ProbeSignature>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "transition")]
+pub enum PhaseTransition {
+    PreflightOk { dbt_project_key: String, has_query_provider: bool, has_dbt_provider: bool },
+    PlanAutoApproved { source: AutoApprovalSource },
+    PlanAlreadyApproved,
+    PlanMissing { kind: TrackKind, note: String },
+    PlanNotApproved { status: PlanStatus },
+    PlanInvalidEmpty { plan_key: String, tasks_len: usize, batches_len: usize },
+    PlanPrunedEmpty { plan_key: String },
+    PlanSemanticInvalid { plan_key: String, errors: Vec<String> },
+    PlanRevisionRequested { violations: Vec<PlanViolation>, strategy: PlanRevisionStrategy },
+    ValidatePassToAuthoring { signal: String, plan_key: Option<String>, pending_count: usize },
+    ValidatePassToReview { step_idx: usize },
+    ValidateFail { errors: Vec<String> },
+    PrecheckFailed { reason: String },
+    ValidateExecutionFailed { reason: String },
+    ValidateContractError { reason: String },
+    ReviewProceed,
+    ReviewPatchImpl { meta: ReviewDecisionMeta, target_paths: Vec<String> },
+    ReviewProjectSummary,
+    ReviewBatch,
+    ReviewFinalUnify,
+    WorkGroupValidate,
+    PlanTasksDone,
+    NoWorkAllDone,
+    AuthoringComplete,
+    PublishApproved,
+    PublishSuccess,
+    PublishFail { retry_count: usize },
+    PublishConfirmedSuccess,
+    PublishConfirmedFail,
+    PhaseBlocked,
+    RepairCompleted,
+    RepairExhausted { reason: String },
+}
+
+impl PhaseTransition {
+    pub fn as_reason_str(&self) -> &'static str {
+        match self {
+            Self::PreflightOk { .. } => "preflight_ok",
+            Self::PlanAutoApproved { .. } => "plan_auto_approved",
+            Self::PlanAlreadyApproved => "plan_already_approved",
+            Self::PlanMissing { .. } => "plan_missing",
+            Self::PlanNotApproved { .. } => "plan_not_approved",
+            Self::PlanInvalidEmpty { .. } => "plan_invalid_empty",
+            Self::PlanPrunedEmpty { .. } => "plan_pruned_empty",
+            Self::PlanSemanticInvalid { .. } => "plan_semantic_invalid",
+            Self::PlanRevisionRequested { .. } => "plan_revision_requested",
+            Self::ValidatePassToAuthoring { .. } => "validate_pass_to_authoring",
+            Self::ValidatePassToReview { .. } => "validate_pass_to_review",
+            Self::ValidateFail { .. } => "validate_fail",
+            Self::PrecheckFailed { .. } => "precheck_failed",
+            Self::ValidateExecutionFailed { .. } => "validate_execution_failed",
+            Self::ValidateContractError { .. } => "validate_contract_error",
+            Self::ReviewProceed => "review_proceed",
+            Self::ReviewPatchImpl { .. } => "review_patch_impl",
+            Self::ReviewProjectSummary => "review_project_summary",
+            Self::ReviewBatch => "review_batch",
+            Self::ReviewFinalUnify => "review_final_unify",
+            Self::WorkGroupValidate => "work_group_validate",
+            Self::PlanTasksDone => "plan_tasks_done",
+            Self::NoWorkAllDone => "no_work_all_done",
+            Self::AuthoringComplete => "authoring_complete",
+            Self::PublishApproved => "user_approved_publish",
+            Self::PublishSuccess => "publish_success",
+            Self::PublishFail { .. } => "publish_fail",
+            Self::PublishConfirmedSuccess => "publish_confirmed_success",
+            Self::PublishConfirmedFail => "publish_confirmed_fail",
+            Self::PhaseBlocked => "phase_blocked",
+            Self::RepairCompleted => "repair_completed",
+            Self::RepairExhausted { .. } => "repair_exhausted",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoApprovalSource {
+    UserConfig,
+    SystemDefault,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackKind {
+    Cleanse,
+    Model,
+}
+
+impl TrackKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cleanse => "cleanse",
+            Self::Model => "model",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    Draft,
+    InProgress,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepairContext {
+    pub failure: Option<ValidationFailureContext>,
+    pub status: RepairStatus,
     pub recent_failed_file_ops: Vec<RecentFailedFileOp>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RecentFailedFileOp {
-    pub op: String,
-    pub path: String,
-    pub error_brief: String,
-    pub count: usize,
-}
+impl RepairContext {
+    pub fn brief(&self) -> Option<&str> {
+        self.failure.as_ref().map(|f| f.brief.as_str())
+    }
 
-impl RepairPromptContext {
+    pub fn log_excerpts(&self) -> Option<&str> {
+        self.failure.as_ref().and_then(|f| f.log_excerpts.as_deref())
+    }
+
+    pub fn repair_cycles(&self) -> usize {
+        match &self.status {
+            RepairStatus::Idle => 0,
+            RepairStatus::Pending { cycle } => *cycle,
+            RepairStatus::Exhausted { cycles_used } => *cycles_used,
+        }
+    }
+
+    pub fn has_context(&self) -> bool {
+        self.failure.is_some() || !self.recent_failed_file_ops.is_empty()
+    }
+
     pub fn format_error_context(&self) -> String {
         let mut out = String::new();
-        if let Some(ref brief) = self.brief {
+        if let Some(brief) = self.brief() {
             let trimmed = brief.trim();
             if !trimmed.is_empty() {
                 out.push_str("Last dbt_validate summary:\n");
-                out.push_str(trimmed);
-                out.push('\n');
-            }
-        }
-        if let Some(ref note) = self.guard_note {
-            let trimmed = note.trim();
-            if !trimmed.is_empty() {
-                out.push_str("\nSuite guard note (must resolve before validate):\n");
                 out.push_str(trimmed);
                 out.push('\n');
             }
@@ -87,7 +307,7 @@ impl RepairPromptContext {
                 ));
             }
         }
-        let has_repair_data = self.brief.is_some() || !self.recent_failed_file_ops.is_empty();
+        let has_repair_data = self.failure.is_some() || !self.recent_failed_file_ops.is_empty();
         if has_repair_data {
             out.push_str(
                 "\nCRITICAL REPAIR RULES:\n\
@@ -97,36 +317,25 @@ impl RepairPromptContext {
                  - Use your tools (file list, file read) to identify which model(s) or test(s) need fixing.\n",
             );
         }
-        if self.repair_cycles >= 2 {
+        if self.repair_cycles() >= 2 {
             out.push_str(&format!(
                 "\nWARNING: Repair cycle {} of {}. Previous attempts did NOT fully resolve the issue. \
                  You MUST take a materially different approach.\n",
-                self.repair_cycles, MAX_REPAIR_CYCLES,
+                self.repair_cycles(), MAX_REPAIR_CYCLES,
             ));
         }
         out
     }
-
-    pub fn has_context(&self) -> bool {
-        self.brief.is_some()
-            || self.guard_note.is_some()
-            || !self.recent_failed_file_ops.is_empty()
-    }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct LastValidateState {
-    #[serde(default)]
-    pub ok: Option<bool>,
-    #[serde(default)]
-    pub compile_ok: Option<bool>,
-    #[serde(default)]
-    pub run_ok: Option<bool>,
-    #[serde(default)]
-    pub brief: Option<String>,
-    #[serde(default)]
-    pub log_excerpts: Option<String>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentFailedFileOp {
+    pub op: String,
+    pub path: String,
+    pub error_brief: String,
+    pub count: usize,
 }
+
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -193,22 +402,6 @@ pub enum ExecutionTier {
 impl Default for ExecutionTier {
     fn default() -> Self {
         Self::Unknown
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionMode {
-    Discover,
-    Mutate,
-    Validate,
-    Done,
-    Failed,
-}
-
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        Self::Discover
     }
 }
 
@@ -374,25 +567,6 @@ pub struct ProbeSignature {
     pub first_row_fingerprint: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ProbeState {
-    #[serde(default)]
-    pub required: bool,
-    #[serde(default)]
-    pub attempts_total: usize,
-    #[serde(default)]
-    pub meaningful_attempts: usize,
-    #[serde(default)]
-    pub repeated_signature_streak: usize,
-    #[serde(default)]
-    pub non_meaningful_attempts: usize,
-    #[serde(default)]
-    pub failed_attempts: usize,
-    #[serde(default)]
-    pub last_signature: Option<ProbeSignature>,
-}
-
 impl ProbeSignature {
     pub fn from_run_sql(sql: &str, observation: &Value) -> Self {
         if let Some(p) = observation.get("probe") {
@@ -541,10 +715,10 @@ pub fn format_plan_violations(violations: &[PlanViolation]) -> String {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct PatchImplIntent {
     pub phase: Phase,
-    pub entry_mutation_epoch: u64,
+    #[serde(default)]
+    pub mutated_since_set: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -610,28 +784,26 @@ pub struct ManifestLookupState {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionState {
-    pub schema_version: u32,
+    pub(crate) schema_version: u32,
     #[serde(default)]
-    pub phase: PhaseState,
+    pub(crate) phase: PhaseState,
     #[serde(default)]
-    pub repair: RepairState,
+    pub(crate) repair: RepairState,
     #[serde(default)]
-    pub publish: PublishState,
+    pub(crate) publish: PublishStatus,
     #[serde(default)]
-    pub manifest: ManifestState,
+    pub(crate) manifest: ManifestState,
     #[serde(default)]
-    pub telemetry: TelemetryState,
+    pub(crate) telemetry: TelemetryState,
     #[serde(default)]
-    pub subjective_retries: BTreeMap<SubjectiveRetryKind, usize>,
+    pub(crate) subjective_retries: BTreeMap<SubjectiveRetryKind, usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TelemetryState {
     #[serde(default)]
-    pub last_validate: Option<LastValidateState>,
-    #[serde(default)]
-    pub probe: ProbeState,
+    pub probe: ProbeStatus,
     #[serde(default)]
     pub artifact_focus: Option<ArtifactFocusState>,
     #[serde(default)]
@@ -639,20 +811,13 @@ pub struct TelemetryState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct PhaseState {
     #[serde(default)]
-    pub current_phase: Option<Phase>,
+    pub current_phase: Phase,
     #[serde(default)]
-    pub phase_reason_code: Option<PhaseReasonCode>,
-    #[serde(default)]
-    pub phase_reason_detail: Option<Value>,
+    pub transition: Option<PhaseTransition>,
     #[serde(default)]
     pub replan_backtracks: usize,
-    #[serde(default)]
-    pub current_tier: ExecutionTier,
-    #[serde(default)]
-    pub mode: ExecutionMode,
     #[serde(default)]
     pub pending_plan_revision: Option<PlanRevisionIntent>,
 }
@@ -660,46 +825,30 @@ pub struct PhaseState {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct RepairState {
     #[serde(default)]
-    pub mutation_epoch: u64,
-    /// Epoch at which the last validate failure occurred; `mutation_epoch > fail_mutation_epoch`
-    /// means the agent has mutated since the last failure.
+    pub status: RepairStatus,
     #[serde(default)]
-    pub fail_mutation_epoch: u64,
+    pub failure_context: Option<ValidationFailureContext>,
     #[serde(default)]
-    pub repair_cycles: usize,
-    #[serde(default)]
-    pub last_error_brief: Option<String>,
+    pub mutated_since_fail: bool,
     #[serde(default)]
     pub pending_patch_impl: Option<PatchImplIntent>,
     #[serde(default)]
-    pub repair_active: bool,
-    #[serde(default)]
-    pub last_batch_infra_transient: bool,
+    pub infra_transient: bool,
 }
 
 impl RepairState {
     pub fn hard_mutation_repair_mode(&self) -> bool {
-        self.repair_active
+        matches!(self.status, RepairStatus::Pending { .. })
     }
 
-    pub fn mutated_since_fail(&self) -> bool {
-        self.mutation_epoch > self.fail_mutation_epoch
+    pub fn cycle_count(&self) -> usize {
+        match &self.status {
+            RepairStatus::Idle => 0,
+            RepairStatus::Pending { cycle } => *cycle,
+            RepairStatus::Exhausted { cycles_used } => *cycles_used,
+        }
     }
 
-    pub fn take_batch_infra_transient(&mut self) -> bool {
-        std::mem::take(&mut self.last_batch_infra_transient)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct PublishState {
-    #[serde(default)]
-    pub publish_approval: Option<PublishApprovalState>,
-    #[serde(default)]
-    pub publish_retries: Vec<PublishRetryState>,
-    #[serde(default)]
-    pub publish_plan: PublishPlanState,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -708,51 +857,15 @@ pub struct ManifestState {
     #[serde(default)]
     pub manifest_lookup: ManifestLookupState,
     #[serde(default)]
-    pub plan_bootstrap: PlanBootstrapState,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct PlanBootstrapState {
+    pub cleanse_plan_bootstrapped: bool,
     #[serde(default)]
-    pub cleanse_done: bool,
-    #[serde(default)]
-    pub model_done: bool,
+    pub model_plan_bootstrapped: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct WorkflowControlState {
-    phase: PhaseState,
-    repair: RepairState,
-    publish: PublishState,
-    probe: ProbeState,
-}
-
-impl WorkflowControlState {
-    fn mark_validate_success(&mut self, tier: ExecutionTier) {
-        self.phase.current_tier = tier;
-        self.phase.mode = ExecutionMode::Done;
-        self.phase.pending_plan_revision = None;
-
-        self.repair.repair_cycles = 0;
-        self.repair.fail_mutation_epoch = 0;
-        self.repair.last_error_brief = None;
-        self.repair.pending_patch_impl = None;
-        self.repair.repair_active = false;
-
-        self.publish.publish_approval = None;
-        self.publish.publish_retries.clear();
-
-        self.probe = ProbeState::default();
-        self.probe.required = false;
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DataEngineerEvent {
-    ValidatePassed {
-        tier: ExecutionTier,
-    },
+    ValidatePassed { tier: ExecutionTier },
     ValidateFailed {
         tier: ExecutionTier,
         brief: String,
@@ -767,36 +880,64 @@ pub enum DataEngineerEvent {
         brief: String,
     },
     BatchAuthoringRecovered,
+
+    RepairSucceeded,
+    RepairExhausted,
+
+    MutationRecorded {
+        op: MutationOp,
+        paths: Vec<String>,
+        select_terms: Vec<String>,
+    },
+
+    PatchImplIntentSet { phase: Phase },
+    PatchImplIntentCleared,
+
+    PlanRevisionRequested {
+        violations: Vec<PlanViolation>,
+        strategy: PlanRevisionStrategy,
+    },
+
+    PublishPlanPending { sha256: String },
+    PublishCompleted { sha256: String },
+    PublishApprovalSet { decision: PublishApprovalDecision },
+    PublishApprovalCleared,
+    PublishRetryBumped { kind: PublishRetryKind, cap: usize },
+    PublishRetriesReset,
+
+    MarkedFailed { reason: String },
+
+    PlanBootstrapDone { phase: Phase },
+    PlanBootstrapReset { phase: Phase },
+
+    SubjectiveRetryBumped { kind: SubjectiveRetryKind, cap: usize },
+    SubjectiveRetriesCleared { kinds: Vec<SubjectiveRetryKind> },
+
+    ManifestLookupRecorded {
+        path_kind: ManifestLookupPathKind,
+        success: bool,
+        failure_kind: Option<ManifestLookupFailureKind>,
+    },
+
+    PlanRevisionConsumed,
+    InfraTransientCleared,
+
+    ValidateCheckFailed {
+        failure_context: ValidationFailureContext,
+    },
 }
 
 impl ExecutionState {
-    pub fn repair_prompt_context(&self) -> RepairPromptContext {
-        let lv = self.telemetry.last_validate.as_ref();
-        let brief = lv
-            .and_then(|lv| lv.brief.as_ref())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let log_excerpts = lv
-            .and_then(|lv| lv.log_excerpts.as_ref())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let guard_note = self
-            .repair
-            .last_error_brief
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        RepairPromptContext {
-            brief,
-            log_excerpts,
-            repair_cycles: self.repair.repair_cycles,
-            guard_note,
+    pub fn repair_context(&self) -> RepairContext {
+        RepairContext {
+            failure: self.repair.failure_context.clone(),
+            status: self.repair.status.clone(),
             recent_failed_file_ops: Vec::new(),
         }
     }
 
-    fn last_validate_failed(&self) -> bool {
-        self.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false)
+    pub fn last_validate_failed(&self) -> bool {
+        self.repair.failure_context.is_some()
     }
 
     pub fn hard_mutation_repair_mode(&self) -> bool {
@@ -810,18 +951,22 @@ impl ExecutionState {
         }
     }
 
-    pub fn apply_validate_success(&mut self, tier: ExecutionTier) {
-        self.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(true),
-            compile_ok: Some(true),
-            run_ok: Some(true),
-            ..LastValidateState::default()
-        });
+    pub fn apply_validate_success(&mut self) {
+        self.phase.pending_plan_revision = None;
+
+        self.repair.status = RepairStatus::Idle;
+        self.repair.failure_context = None;
+        self.repair.mutated_since_fail = false;
+        self.repair.pending_patch_impl = None;
+        self.repair.infra_transient = false;
+
+        self.publish = PublishStatus::NotRequested;
+
+        self.telemetry.probe = ProbeStatus::NotRequired;
+
         self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidatePrecheckFailed);
         self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidateExecutionFailed);
-        self.with_workflow_control_state_mut(|state| {
-            state.mark_validate_success(tier);
-        });
+        self.debug_assert_invariants();
     }
 
     pub fn phase_state(&self) -> &PhaseState {
@@ -842,55 +987,24 @@ impl ExecutionState {
         self.debug_assert_invariants();
     }
 
-    pub fn publish_state(&self) -> &PublishState {
+    pub fn publish_status(&self) -> &PublishStatus {
         &self.publish
     }
 
-    fn with_publish_state_mut(&mut self, mutate: impl FnOnce(&mut PublishState)) {
-        mutate(&mut self.publish);
-        self.debug_assert_invariants();
-    }
-
-    pub fn probe_state_snapshot(&self) -> ProbeState {
-        self.telemetry.probe.clone()
-    }
-
-    pub fn set_probe_state_snapshot(&mut self, probe: ProbeState) {
-        self.telemetry.probe = probe;
-        self.debug_assert_invariants();
-    }
-
-    fn with_probe_state_mut(&mut self, mutate: impl FnOnce(&mut ProbeState)) {
-        let mut probe = self.probe_state_snapshot();
-        mutate(&mut probe);
-        self.set_probe_state_snapshot(probe);
-    }
-
-    fn workflow_control_state(&self) -> WorkflowControlState {
-        WorkflowControlState {
-            phase: self.phase.clone(),
-            repair: self.repair.clone(),
-            publish: self.publish.clone(),
-            probe: self.probe_state_snapshot(),
-        }
-    }
-
-    fn set_workflow_control_state(&mut self, state: WorkflowControlState) {
-        self.phase = state.phase;
-        self.repair = state.repair;
-        self.publish = state.publish;
-        self.telemetry.probe = state.probe;
-        self.debug_assert_invariants();
-    }
-
-    fn with_workflow_control_state_mut(&mut self, mutate: impl FnOnce(&mut WorkflowControlState)) {
-        let mut state = self.workflow_control_state();
-        mutate(&mut state);
-        self.set_workflow_control_state(state);
+    pub fn probe_status(&self) -> &ProbeStatus {
+        &self.telemetry.probe
     }
 
     pub fn manifest_state(&self) -> &ManifestState {
         &self.manifest
+    }
+
+    pub fn telemetry(&self) -> &TelemetryState {
+        &self.telemetry
+    }
+
+    pub fn subjective_retries(&self) -> &BTreeMap<SubjectiveRetryKind, usize> {
+        &self.subjective_retries
     }
 
     fn with_manifest_state_mut(&mut self, mutate: impl FnOnce(&mut ManifestState)) {
@@ -906,24 +1020,24 @@ impl ExecutionState {
 
     pub fn needs_plan_bootstrap(&self, phase: Phase) -> bool {
         match phase {
-            Phase::CleansePlan => !self.manifest.plan_bootstrap.cleanse_done,
-            Phase::ModelPlan => !self.manifest.plan_bootstrap.model_done,
+            Phase::CleansePlan => !self.manifest.cleanse_plan_bootstrapped,
+            Phase::ModelPlan => !self.manifest.model_plan_bootstrapped,
             _ => false,
         }
     }
 
     pub fn mark_plan_bootstrap_done(&mut self, phase: Phase) {
         self.with_manifest_state_mut(|manifest| match phase {
-            Phase::CleansePlan => manifest.plan_bootstrap.cleanse_done = true,
-            Phase::ModelPlan => manifest.plan_bootstrap.model_done = true,
+            Phase::CleansePlan => manifest.cleanse_plan_bootstrapped = true,
+            Phase::ModelPlan => manifest.model_plan_bootstrapped = true,
             _ => {}
         });
     }
 
     pub fn reset_plan_bootstrap(&mut self, phase: Phase) {
         self.with_manifest_state_mut(|manifest| match phase {
-            Phase::CleansePlan => manifest.plan_bootstrap.cleanse_done = false,
-            Phase::ModelPlan => manifest.plan_bootstrap.model_done = false,
+            Phase::CleansePlan => manifest.cleanse_plan_bootstrapped = false,
+            Phase::ModelPlan => manifest.model_plan_bootstrapped = false,
             _ => {}
         });
     }
@@ -986,40 +1100,28 @@ impl ExecutionState {
 
     pub fn apply_validate_failure(
         &mut self,
-        tier: ExecutionTier,
         brief: String,
         _failure_hash: String,
         compile_ok: bool,
         run_ok: bool,
         log_excerpts: Option<String>,
     ) {
-        self.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            compile_ok: Some(compile_ok),
-            run_ok: Some(run_ok),
-            brief: Some(brief.clone()),
+        let next_cycle = self.repair.cycle_count().saturating_add(1);
+        self.repair.failure_context = Some(ValidationFailureContext {
+            brief: brief.clone(),
             log_excerpts,
+            compile_ok,
+            run_ok,
         });
-        self.with_workflow_control_state_mut(|state| {
-            state.phase.current_tier = tier;
-            state.phase.mode = ExecutionMode::Mutate;
-
-            state.repair.last_error_brief = Some(brief);
-            state.repair.repair_active = true;
-            state.repair.repair_cycles = state.repair.repair_cycles.saturating_add(1);
-            state.repair.fail_mutation_epoch = state.repair.mutation_epoch;
-
-            state.publish.publish_approval = None;
-            state.probe = ProbeState::default();
-            state.probe.required = compile_ok;
-        });
-    }
-
-    pub fn reset_probe_state_on_validate(&mut self, is_failure: bool) {
-        self.with_probe_state_mut(|probe| {
-            *probe = ProbeState::default();
-            probe.required = is_failure;
-        });
+        self.repair.mutated_since_fail = false;
+        self.repair.status = RepairStatus::Pending { cycle: next_cycle };
+        self.publish = PublishStatus::NotRequested;
+        self.telemetry.probe = if compile_ok {
+            ProbeStatus::Required { attempts: ProbeAttempts::default() }
+        } else {
+            ProbeStatus::NotRequired
+        };
+        self.debug_assert_invariants();
     }
 
     pub fn note_probe_attempt(
@@ -1029,46 +1131,65 @@ impl ExecutionState {
         signature: ProbeSignature,
     ) -> ProbeOutcomeKind {
         let meaningful_sql = is_meaningful_probe_sql(sql);
-        let mut outcome = ProbeOutcomeKind::Failed;
-        self.with_probe_state_mut(|probe| {
-            probe.attempts_total = probe.attempts_total.saturating_add(1);
-            outcome = if !ok {
-                probe.failed_attempts = probe.failed_attempts.saturating_add(1);
-                probe.repeated_signature_streak = probe.repeated_signature_streak.saturating_add(1);
-                ProbeOutcomeKind::Failed
-            } else if !meaningful_sql {
-                probe.non_meaningful_attempts = probe.non_meaningful_attempts.saturating_add(1);
-                probe.repeated_signature_streak = probe.repeated_signature_streak.saturating_add(1);
-                ProbeOutcomeKind::NonMeaningful
-            } else if probe.last_signature.as_ref() == Some(&signature) {
-                probe.meaningful_attempts = probe.meaningful_attempts.saturating_add(1);
-                probe.repeated_signature_streak = probe.repeated_signature_streak.saturating_add(1);
-                ProbeOutcomeKind::MeaningfulSameSignal
-            } else {
-                probe.meaningful_attempts = probe.meaningful_attempts.saturating_add(1);
-                probe.repeated_signature_streak = 0;
-                ProbeOutcomeKind::MeaningfulNewSignal
-            };
-            probe.last_signature = Some(signature.clone());
-        });
+        let attempts = match &mut self.telemetry.probe {
+            ProbeStatus::Required { attempts } => attempts,
+            ProbeStatus::Satisfied { attempts } => attempts,
+            ProbeStatus::ExhaustedRequireMutation { attempts } => attempts,
+            ProbeStatus::NotRequired => {
+                return ProbeOutcomeKind::Failed;
+            }
+        };
+        attempts.total = attempts.total.saturating_add(1);
+        let outcome = if !ok {
+            attempts.failed = attempts.failed.saturating_add(1);
+            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            ProbeOutcomeKind::Failed
+        } else if !meaningful_sql {
+            attempts.non_meaningful = attempts.non_meaningful.saturating_add(1);
+            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            ProbeOutcomeKind::NonMeaningful
+        } else if attempts.last_signature.as_ref() == Some(&signature) {
+            attempts.meaningful = attempts.meaningful.saturating_add(1);
+            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            ProbeOutcomeKind::MeaningfulSameSignal
+        } else {
+            attempts.meaningful = attempts.meaningful.saturating_add(1);
+            attempts.repeated_signature_streak = 0;
+            ProbeOutcomeKind::MeaningfulNewSignal
+        };
+        attempts.last_signature = Some(signature.clone());
+
+        if attempts.repeated_signature_streak >= 3
+            || attempts.non_meaningful >= 3
+            || attempts.failed >= 3
+        {
+            let a = attempts.clone();
+            self.telemetry.probe = ProbeStatus::ExhaustedRequireMutation { attempts: a };
+        } else if attempts.meaningful > 0 {
+            let a = attempts.clone();
+            self.telemetry.probe = ProbeStatus::Satisfied { attempts: a };
+        }
+
+        self.debug_assert_invariants();
         outcome
     }
 
     pub fn probe_requirement_status(&self) -> ProbeRequirementStatus {
-        let probe = self.probe_state_snapshot();
-        if !self.last_validate_failed() || !probe.required {
+        if !self.last_validate_failed() {
             return ProbeRequirementStatus::NotRequired;
         }
-        if probe.meaningful_attempts == 0 {
-            return ProbeRequirementStatus::Required;
+        match &self.telemetry.probe {
+            ProbeStatus::NotRequired => ProbeRequirementStatus::NotRequired,
+            ProbeStatus::Required { attempts } => {
+                if attempts.meaningful == 0 {
+                    ProbeRequirementStatus::Required
+                } else {
+                    ProbeRequirementStatus::Allowed
+                }
+            }
+            ProbeStatus::Satisfied { .. } => ProbeRequirementStatus::Allowed,
+            ProbeStatus::ExhaustedRequireMutation { .. } => ProbeRequirementStatus::ExhaustedRequireMutation,
         }
-        if probe.repeated_signature_streak >= 3
-            || probe.non_meaningful_attempts >= 3
-            || probe.failed_attempts >= 3
-        {
-            return ProbeRequirementStatus::ExhaustedRequireMutation;
-        }
-        ProbeRequirementStatus::Allowed
     }
 
     pub fn bump_subjective_retry(&mut self, kind: SubjectiveRetryKind, cap: usize) -> usize {
@@ -1086,11 +1207,10 @@ impl ExecutionState {
     }
 
     pub fn set_pending_patch_impl_intent(&mut self, phase: Phase) {
-        let epoch = self.repair.mutation_epoch;
         self.with_repair_state_mut(|repair| {
             repair.pending_patch_impl = Some(PatchImplIntent {
                 phase,
-                entry_mutation_epoch: epoch,
+                mutated_since_set: false,
             });
         });
     }
@@ -1108,13 +1228,6 @@ impl ExecutionState {
         });
     }
 
-    pub fn take_pending_plan_revision(&mut self) -> Option<PlanRevisionIntent> {
-        let rev = self.phase.pending_plan_revision.take();
-        if rev.is_some() {
-            self.debug_assert_invariants();
-        }
-        rev
-    }
 
     pub fn clear_pending_patch_impl(&mut self) {
         self.with_repair_state_mut(|repair| {
@@ -1123,74 +1236,93 @@ impl ExecutionState {
     }
 
     pub fn set_publish_approval(&mut self, decision: PublishApprovalDecision) {
-        self.with_publish_state_mut(|publish| {
-            publish.publish_approval = Some(PublishApprovalState {
-                decision,
-                ts: chrono::Utc::now().to_rfc3339(),
-            });
-        });
+        match decision {
+            PublishApprovalDecision::Approved => {
+                let sha = self.publish.plan_sha256().map(|s| s.to_string());
+                self.publish = PublishStatus::Approved { plan_sha256: sha };
+            }
+            PublishApprovalDecision::AwaitingUserApproval => {
+                let sha = self.publish.plan_sha256().map(|s| s.to_string());
+                self.publish = PublishStatus::AwaitingApproval {
+                    plan_sha256: sha,
+                    approval_retries: 0,
+                };
+            }
+            PublishApprovalDecision::Rejected => {
+                self.publish = PublishStatus::NotRequested;
+            }
+        }
+        self.debug_assert_invariants();
     }
 
     pub fn clear_publish_approval(&mut self) {
-        self.with_publish_state_mut(|publish| {
-            publish.publish_approval = None;
-        });
+        self.publish = PublishStatus::NotRequested;
+        self.debug_assert_invariants();
     }
 
     pub fn is_publish_approved(&self) -> bool {
-        self.publish
-            .publish_approval
-            .as_ref()
-            .map(|s| s.decision == PublishApprovalDecision::Approved)
-            .unwrap_or(false)
+        self.publish.is_approved()
     }
 
     pub fn bump_publish_retry(&mut self, kind: PublishRetryKind, cap: usize) -> usize {
         let capped = cap.max(1);
-        if let Some(existing) = self
-            .publish
-            .publish_retries
-            .iter_mut()
-            .find(|r| r.kind == kind)
-        {
-            existing.count = existing.count.saturating_add(1).min(capped);
-            let count = existing.count;
-            self.debug_assert_invariants();
-            return count;
+        match kind {
+            PublishRetryKind::AwaitApprovalLoop => {
+                if let PublishStatus::AwaitingApproval { approval_retries, .. } = &mut self.publish {
+                    *approval_retries = (*approval_retries).saturating_add(1).min(capped);
+                    let count = *approval_retries;
+                    self.debug_assert_invariants();
+                    return count;
+                }
+                let sha = self.publish.plan_sha256().map(|s| s.to_string());
+                self.publish = PublishStatus::AwaitingApproval { plan_sha256: sha, approval_retries: 1 };
+                self.debug_assert_invariants();
+                1
+            }
+            PublishRetryKind::PublishFailureLoop => {
+                if let PublishStatus::Failed { publish_retries } = &mut self.publish {
+                    *publish_retries = (*publish_retries).saturating_add(1).min(capped);
+                    let count = *publish_retries;
+                    self.debug_assert_invariants();
+                    return count;
+                }
+                self.publish = PublishStatus::Failed { publish_retries: 1 };
+                self.debug_assert_invariants();
+                1
+            }
         }
-        self.publish
-            .publish_retries
-            .push(PublishRetryState { kind, count: 1 });
-        self.debug_assert_invariants();
-        1
     }
 
     pub fn reset_publish_retry(&mut self, kind: PublishRetryKind) {
-        self.publish.publish_retries.retain(|r| r.kind != kind);
+        match kind {
+            PublishRetryKind::AwaitApprovalLoop => {
+                if let PublishStatus::AwaitingApproval { approval_retries, .. } = &mut self.publish {
+                    *approval_retries = 0;
+                }
+            }
+            PublishRetryKind::PublishFailureLoop => {
+                if let PublishStatus::Failed { publish_retries } = &mut self.publish {
+                    *publish_retries = 0;
+                }
+            }
+        }
         self.debug_assert_invariants();
     }
 
     pub fn reset_publish_retries(&mut self) {
-        self.with_publish_state_mut(|publish| {
-            publish.publish_retries.clear();
-        });
-    }
-
-    pub fn enter_validate_mode(&mut self, tier: ExecutionTier) {
-        self.with_phase_state_mut(|phase| {
-            phase.current_tier = tier;
-            phase.mode = ExecutionMode::Validate;
-        });
+        self.publish = PublishStatus::NotRequested;
+        self.debug_assert_invariants();
     }
 
     pub fn mark_failed(&mut self, brief: impl Into<String>) {
-        let brief = brief.into();
-        self.with_phase_state_mut(|phase| {
-            phase.mode = ExecutionMode::Failed;
+        let brief_str = brief.into();
+        self.repair.failure_context = Some(ValidationFailureContext {
+            brief: brief_str,
+            log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
-        self.with_repair_state_mut(|repair| {
-            repair.last_error_brief = Some(brief);
-        });
+        self.debug_assert_invariants();
     }
 
     pub async fn load(
@@ -1219,19 +1351,13 @@ impl ExecutionState {
     }
 
     pub fn set_pending_publish_plan(&mut self, plan_sha256: String) {
-        self.with_publish_state_mut(|publish| {
-            publish.publish_plan.pending_plan_sha256 = Some(plan_sha256);
-            publish.publish_plan.pending_set_ts = Some(chrono::Utc::now().to_rfc3339());
-        });
+        self.publish = PublishStatus::PlanPending { plan_sha256 };
+        self.debug_assert_invariants();
     }
 
     pub fn mark_publish_complete(&mut self, plan_sha256: String) {
-        self.with_publish_state_mut(|publish| {
-            publish.publish_plan.last_published_plan_sha256 = Some(plan_sha256);
-            publish.publish_plan.published_ts = Some(chrono::Utc::now().to_rfc3339());
-            publish.publish_plan.pending_plan_sha256 = None;
-            publish.publish_plan.pending_set_ts = None;
-        });
+        self.publish = PublishStatus::Succeeded { plan_sha256 };
+        self.debug_assert_invariants();
     }
 
     pub fn set_artifact_focus(
@@ -1256,7 +1382,10 @@ impl ExecutionState {
         affected_paths: Vec<String>,
         select_terms: Vec<String>,
     ) {
-        self.repair.mutation_epoch = self.repair.mutation_epoch.saturating_add(1);
+        self.repair.mutated_since_fail = true;
+        if let Some(ref mut intent) = self.repair.pending_patch_impl {
+            intent.mutated_since_set = true;
+        }
         self.telemetry.last_mutation_summary = Some(LastMutationSummary {
             op,
             affected_paths,
@@ -1268,32 +1397,98 @@ impl ExecutionState {
 
     pub fn apply_event(&mut self, event: DataEngineerEvent) {
         match event {
-            DataEngineerEvent::ValidatePassed { tier } => self.apply_validate_success(tier),
+            DataEngineerEvent::ValidatePassed { tier: _ } => self.apply_validate_success(),
             DataEngineerEvent::ValidateFailed {
-                tier,
-                brief,
-                failure_hash,
-                compile_ok,
-                run_ok,
-                log_excerpts,
+                tier: _, brief, failure_hash, compile_ok, run_ok, log_excerpts,
             } => {
-                self.apply_validate_failure(tier, brief, failure_hash, compile_ok, run_ok, log_excerpts);
+                self.apply_validate_failure(brief, failure_hash, compile_ok, run_ok, log_excerpts);
             }
-            DataEngineerEvent::BatchAuthoringFailed { tier, kind, brief } => {
+            DataEngineerEvent::BatchAuthoringFailed { tier: _, kind, brief } => {
                 if kind == FailureKind::InfraTransient {
-                    self.repair.last_batch_infra_transient = true;
-                    self.repair.last_error_brief = Some(brief);
+                    self.repair.infra_transient = true;
+                    self.repair.failure_context = Some(ValidationFailureContext {
+                        brief, log_excerpts: None, compile_ok: false, run_ok: false,
+                    });
                     self.debug_assert_invariants();
                     return;
                 }
                 let hash = sha256_hex(brief.trim());
-                self.apply_validate_failure(tier, brief, hash, false, false, None);
+                self.apply_validate_failure(brief, hash, false, false, None);
             }
             DataEngineerEvent::BatchAuthoringRecovered => {
-                self.repair.repair_active = false;
-                self.repair.last_error_brief = None;
+                self.repair.status = RepairStatus::Idle;
+                self.repair.failure_context = None;
                 self.repair.pending_patch_impl = None;
-                self.debug_assert_invariants();
+            }
+            DataEngineerEvent::RepairSucceeded => {
+                self.apply_validate_success();
+            }
+            DataEngineerEvent::RepairExhausted => {
+                let cycles = self.repair.cycle_count();
+                self.repair.status = RepairStatus::Exhausted { cycles_used: cycles };
+            }
+            DataEngineerEvent::MutationRecorded { op, paths, select_terms } => {
+                self.set_last_mutation_summary(op, paths, select_terms);
+            }
+            DataEngineerEvent::PatchImplIntentSet { phase } => {
+                self.set_pending_patch_impl_intent(phase);
+            }
+            DataEngineerEvent::PatchImplIntentCleared => {
+                self.clear_pending_patch_impl();
+            }
+            DataEngineerEvent::PlanRevisionRequested { violations, strategy } => {
+                self.set_pending_plan_revision(violations, strategy);
+            }
+            DataEngineerEvent::PublishPlanPending { sha256 } => {
+                self.set_pending_publish_plan(sha256);
+            }
+            DataEngineerEvent::PublishCompleted { sha256 } => {
+                self.mark_publish_complete(sha256);
+            }
+            DataEngineerEvent::PublishApprovalSet { decision } => {
+                self.set_publish_approval(decision);
+            }
+            DataEngineerEvent::PublishApprovalCleared => {
+                self.clear_publish_approval();
+            }
+            DataEngineerEvent::PublishRetryBumped { kind, cap } => {
+                self.bump_publish_retry(kind, cap);
+                return; // bump_publish_retry already calls debug_assert_invariants
+            }
+            DataEngineerEvent::PublishRetriesReset => {
+                self.reset_publish_retries();
+            }
+            DataEngineerEvent::MarkedFailed { reason } => {
+                self.mark_failed(reason);
+            }
+            DataEngineerEvent::PlanBootstrapDone { phase } => {
+                self.mark_plan_bootstrap_done(phase);
+            }
+            DataEngineerEvent::PlanBootstrapReset { phase } => {
+                self.reset_plan_bootstrap(phase);
+            }
+            DataEngineerEvent::SubjectiveRetryBumped { kind, cap } => {
+                self.bump_subjective_retry(kind, cap);
+            }
+            DataEngineerEvent::SubjectiveRetriesCleared { kinds } => {
+                for kind in kinds {
+                    self.clear_subjective_retry_kind(kind);
+                }
+            }
+            DataEngineerEvent::ManifestLookupRecorded { path_kind, success, failure_kind } => {
+                self.note_manifest_lookup_attempt(path_kind, success, failure_kind);
+            }
+            DataEngineerEvent::PlanRevisionConsumed => {
+                self.phase.pending_plan_revision = None;
+            }
+            DataEngineerEvent::InfraTransientCleared => {
+                self.repair.infra_transient = false;
+            }
+            DataEngineerEvent::ValidateCheckFailed { failure_context } => {
+                let next_cycle = self.repair.cycle_count().saturating_add(1);
+                self.repair.failure_context = Some(failure_context);
+                self.repair.mutated_since_fail = false;
+                self.repair.status = RepairStatus::Pending { cycle: next_cycle };
             }
         }
         self.debug_assert_invariants();
@@ -1302,7 +1497,6 @@ impl ExecutionState {
     pub fn validate_invariants(&self) -> Result<(), String> {
         let mut violations = Vec::new();
         self.collect_phase_coherence_violations(&mut violations);
-        self.collect_publish_coherence_violations(&mut violations);
         self.collect_probe_lifecycle_violations(&mut violations);
         if violations.is_empty() {
             return Ok(());
@@ -1315,51 +1509,18 @@ impl ExecutionState {
 
     fn collect_phase_coherence_violations(&self, violations: &mut Vec<String>) {
         let phase = self.phase_state();
-        if phase.phase_reason_code.is_some() && phase.current_phase.is_none() {
-            violations.push("phase_reason_code set while current_phase is none".to_string());
-        }
-        if phase.phase_reason_detail.is_some() && phase.current_phase.is_none() {
-            violations.push("phase_reason_detail set while current_phase is none".to_string());
+        if phase.transition.is_some() && phase.current_phase == Phase::Preflight {
+            violations.push("transition set while current_phase is Preflight".to_string());
         }
     }
 
-    fn collect_publish_coherence_violations(&self, violations: &mut Vec<String>) {
-        let publish = self.publish_state();
-        if let Some(approval) = publish.publish_approval.as_ref() {
-            if approval.ts.trim().is_empty() {
-                violations.push("publish_approval timestamp must be non-empty".to_string());
-            }
-        }
-        let mut kinds = HashSet::new();
-        for retry in &publish.publish_retries {
-            if retry.count == 0 {
-                violations.push(format!("publish retry {:?} has zero count", retry.kind));
-            }
-            if !kinds.insert(retry.kind) {
-                violations.push(format!(
-                    "duplicate publish retry entry for {:?}",
-                    retry.kind
-                ));
-            }
-        }
-    }
 
     fn collect_probe_lifecycle_violations(&self, violations: &mut Vec<String>) {
-        let probe = self.probe_state_snapshot();
-        if probe.required && !self.last_validate_failed() {
+        let is_active_probe = !matches!(self.telemetry.probe, ProbeStatus::NotRequired);
+        if is_active_probe && !self.last_validate_failed() {
             violations.push(
-                "probe.required can only be true while last_validate.ok is false".to_string(),
+                "probe status can only be active while last_validate_failed is true".to_string(),
             );
-        }
-        let classified_attempts = probe
-            .meaningful_attempts
-            .saturating_add(probe.non_meaningful_attempts)
-            .saturating_add(probe.failed_attempts);
-        if classified_attempts > probe.attempts_total {
-            violations.push("probe attempt counters exceed attempts_total".to_string());
-        }
-        if probe.repeated_signature_streak > probe.attempts_total {
-            violations.push("probe repeated_signature_streak exceeds attempts_total".to_string());
         }
     }
 
@@ -1481,17 +1642,14 @@ mod tests {
     #[test]
     fn state_has_compile_time_defaults() {
         let st = ExecutionState::new();
-        assert_eq!(st.phase.current_tier, ExecutionTier::Unknown);
-        assert_eq!(st.phase.mode, ExecutionMode::Discover);
+        assert_eq!(st.phase.current_phase, Phase::Preflight);
     }
 
     #[test]
-    fn repair_prompt_context_includes_recent_failed_file_ops() {
-        let ctx = RepairPromptContext {
-            brief: None,
-            log_excerpts: None,
-            repair_cycles: 0,
-            guard_note: None,
+    fn repair_context_includes_recent_failed_file_ops() {
+        let ctx = RepairContext {
+            failure: None,
+            status: RepairStatus::Idle,
             recent_failed_file_ops: vec![RecentFailedFileOp {
                 op: "patch".to_string(),
                 path: "models/staging/stg_orders.yml".to_string(),
@@ -1509,15 +1667,16 @@ mod tests {
     #[test]
     fn validate_success_resets_repair_and_retry_state() {
         let mut st = ExecutionState::new();
-        st.repair.repair_active = true;
-        st.repair.last_error_brief = Some("some error".to_string());
+        st.repair.status = RepairStatus::Pending { cycle: 1 };
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "some error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+        });
         st.subjective_retries
             .insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
         st.subjective_retries
             .insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
-        st.apply_validate_success(ExecutionTier::Model);
-        assert_eq!(st.phase.current_tier, ExecutionTier::Model);
-        assert_eq!(st.phase.mode, ExecutionMode::Done);
+        st.apply_validate_success();
+        assert_eq!(st.phase.current_phase.tier(), ExecutionTier::Unknown);
         assert!(!st.hard_mutation_repair_mode());
         assert_eq!(
             st.subjective_retries
@@ -1535,7 +1694,6 @@ mod tests {
     fn validate_failure_activates_repair() {
         let mut st = ExecutionState::new();
         st.apply_validate_failure(
-            ExecutionTier::Cleanse,
             "schema fail".to_string(),
             sha256_hex("schema fail"),
             true,
@@ -1543,9 +1701,9 @@ mod tests {
             None,
         );
         assert!(st.hard_mutation_repair_mode());
-        assert!(st.repair.repair_active);
-        assert_eq!(st.repair.last_error_brief.as_deref(), Some("schema fail"));
-        assert_eq!(st.repair.repair_cycles, 1);
+        assert!(matches!(st.repair.status, RepairStatus::Pending { cycle: 1 }));
+        assert_eq!(st.repair.failure_context.as_ref().unwrap().brief, "schema fail");
+        assert_eq!(st.repair.cycle_count(), 1);
     }
 
     #[test]
@@ -1619,37 +1777,28 @@ mod tests {
     #[test]
     fn gate_authoring_probe_rejects_when_probe_required() {
         let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            compile_ok: Some(true),
-            run_ok: Some(false),
-            ..LastValidateState::default()
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
         });
-        st.telemetry.probe.required = true;
+        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
         assert!(gate_authoring_probe(&st).is_err());
     }
 
     #[test]
     fn gate_authoring_probe_accepts_when_no_probe_required() {
         let mut st = ExecutionState::new();
-        st.repair.repair_active = true;
-        st.telemetry.last_validate = Some(LastValidateState {
-            compile_ok: Some(true),
-            run_ok: Some(true),
-            ..LastValidateState::default()
-        });
-        st.telemetry.probe.required = false;
+        st.repair.status = RepairStatus::Pending { cycle: 1 };
+        st.telemetry.probe = ProbeStatus::NotRequired;
         assert!(gate_authoring_probe(&st).is_ok());
     }
 
     #[test]
     fn probe_status_allows_multiple_meaningful_probes_and_exhausts_on_repeats() {
         let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            ..LastValidateState::default()
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
         });
-        st.telemetry.probe.required = true;
+        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
 
         let sig1 = ProbeSignature::from_run_sql(
             "select * from x limit 10",
@@ -1693,13 +1842,10 @@ mod tests {
     #[test]
     fn successful_mutation_resets_probe_requirement_cycle() {
         let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(false),
-            ..LastValidateState::default()
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
         });
-        st.telemetry.probe.required = true;
-        st.telemetry.probe.required = false;
-        st.telemetry.probe.repeated_signature_streak = 0;
+        st.telemetry.probe = ProbeStatus::NotRequired;
         assert_eq!(
             st.probe_requirement_status(),
             ProbeRequirementStatus::NotRequired
@@ -1707,14 +1853,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_and_failed_modes_are_set_via_controller_helpers() {
+    fn mark_failed_sets_failure_context() {
         let mut st = ExecutionState::new();
-        st.enter_validate_mode(ExecutionTier::Cleanse);
-        assert_eq!(st.phase.mode, ExecutionMode::Validate);
-        assert_eq!(st.phase.current_tier, ExecutionTier::Cleanse);
+        st.phase.current_phase = Phase::CleanseValidate;
         st.mark_failed("x");
-        assert_eq!(st.phase.mode, ExecutionMode::Failed);
-        assert_eq!(st.repair.last_error_brief.as_deref(), Some("x"));
+        assert_eq!(st.repair.failure_context.as_ref().unwrap().brief, "x");
     }
 
     #[test]
@@ -1744,14 +1887,9 @@ mod tests {
             1
         );
         st.reset_publish_retry(PublishRetryKind::AwaitApprovalLoop);
-        assert_eq!(
-            st.publish
-                .publish_retries
-                .iter()
-                .find(|r| r.kind == PublishRetryKind::AwaitApprovalLoop)
-                .map(|r| r.count),
-            None
-        );
+        if let PublishStatus::AwaitingApproval { approval_retries, .. } = &st.publish {
+            assert_eq!(*approval_retries, 0, "approval retries should be reset to 0");
+        }
     }
 
     #[test]
@@ -1759,34 +1897,31 @@ mod tests {
         let mut st = ExecutionState::new();
 
         st.apply_validate_failure(
-            ExecutionTier::Model,
             "error A".to_string(),
             sha256_hex("error A"),
             true,
             false,
             None,
         );
-        assert_eq!(st.repair.repair_cycles, 1);
+        assert_eq!(st.repair.cycle_count(), 1);
 
         st.apply_validate_failure(
-            ExecutionTier::Model,
             "error A".to_string(),
             sha256_hex("error A"),
             true,
             false,
             None,
         );
-        assert_eq!(st.repair.repair_cycles, 2);
+        assert_eq!(st.repair.cycle_count(), 2);
 
         st.apply_validate_failure(
-            ExecutionTier::Model,
             "error B".to_string(),
             sha256_hex("error B"),
             true,
             false,
             None,
         );
-        assert_eq!(st.repair.repair_cycles, 3, "different errors still increment");
+        assert_eq!(st.repair.cycle_count(), 3, "different errors still increment");
     }
 
     #[test]
@@ -1798,10 +1933,7 @@ mod tests {
             brief: "sql validation failed".to_string(),
         });
         assert!(st.hard_mutation_repair_mode());
-        assert_eq!(
-            st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok),
-            Some(false)
-        );
+        assert!(st.last_validate_failed());
     }
 
     #[test]
@@ -1817,71 +1949,99 @@ mod tests {
             "infra-transient must not enter repair mode"
         );
         assert!(
-            st.repair.last_batch_infra_transient,
+            st.repair.infra_transient,
             "flag must be set for step-boundary short-circuit"
         );
-        assert_eq!(st.repair.repair_cycles, 0, "repair_cycles must not increment");
+        assert_eq!(st.repair.cycle_count(), 0, "repair_cycles must not increment");
         assert_eq!(
-            st.repair.last_error_brief.as_deref(),
-            Some("service error")
+            st.repair.failure_context.as_ref().unwrap().brief,
+            "service error"
         );
     }
 
     #[test]
-    fn take_batch_infra_transient_clears_flag() {
-        let mut repair = RepairState::default();
-        repair.last_batch_infra_transient = true;
-        assert!(repair.take_batch_infra_transient());
-        assert!(!repair.last_batch_infra_transient);
-        assert!(!repair.take_batch_infra_transient());
+    fn apply_event_infra_transient_cleared() {
+        let mut st = ExecutionState::new();
+        st.repair.infra_transient = true;
+        st.apply_event(DataEngineerEvent::InfraTransientCleared);
+        assert!(!st.repair.infra_transient);
+    }
+
+    #[test]
+    fn apply_event_validate_check_failed_sets_failure_context() {
+        let mut st = ExecutionState::new();
+        assert!(st.repair.failure_context.is_none());
+        assert_eq!(st.repair.status, RepairStatus::Idle);
+        st.apply_event(DataEngineerEvent::ValidateCheckFailed {
+            failure_context: ValidationFailureContext {
+                brief: "YAML references unknown columns".to_string(),
+                log_excerpts: None,
+                compile_ok: false,
+                run_ok: false,
+            },
+        });
+        assert!(st.repair.failure_context.is_some());
+        assert_eq!(
+            st.repair.failure_context.as_ref().unwrap().brief,
+            "YAML references unknown columns"
+        );
+        assert_eq!(st.repair.status, RepairStatus::Pending { cycle: 1 });
+        assert!(!st.repair.mutated_since_fail);
+    }
+
+    #[test]
+    fn apply_event_plan_revision_consumed() {
+        let mut st = ExecutionState::new();
+        st.phase.pending_plan_revision = Some(PlanRevisionIntent {
+            violations: vec![],
+            strategy: PlanRevisionStrategy::Rewrite,
+        });
+        st.apply_event(DataEngineerEvent::PlanRevisionConsumed);
+        assert!(st.phase.pending_plan_revision.is_none());
     }
 
     #[test]
     fn apply_event_batch_authoring_recovered_clears_repair() {
         let mut st = ExecutionState::new();
-        st.repair.repair_active = true;
-        st.repair.last_error_brief = Some("some error".to_string());
+        st.repair.status = RepairStatus::Pending { cycle: 1 };
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "some error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+        });
         st.apply_event(DataEngineerEvent::BatchAuthoringRecovered);
         assert!(!st.hard_mutation_repair_mode());
-        assert!(st.repair.last_error_brief.is_none());
+        assert!(st.repair.failure_context.is_none());
     }
 
     #[test]
-    fn invariants_reject_phase_reason_without_current_phase() {
+    fn invariants_reject_transition_on_preflight_phase() {
         let mut st = ExecutionState::new();
-        st.phase.current_phase = None;
-        st.phase.phase_reason_code = Some(PhaseReasonCode::PhaseSet);
-        let err = st.validate_invariants().expect_err("invariants must fail");
-        assert!(err.contains("phase_reason_code set while current_phase is none"));
-    }
-
-    #[test]
-    fn invariants_reject_duplicate_publish_retry_entries() {
-        let mut st = ExecutionState::new();
-        st.publish.publish_retries = vec![
-            PublishRetryState {
-                kind: PublishRetryKind::AwaitApprovalLoop,
-                count: 1,
-            },
-            PublishRetryState {
-                kind: PublishRetryKind::AwaitApprovalLoop,
-                count: 2,
-            },
-        ];
-        let err = st.validate_invariants().expect_err("invariants must fail");
-        assert!(err.contains("duplicate publish retry entry"));
-    }
-
-    #[test]
-    fn invariants_reject_probe_required_when_last_validate_not_failed() {
-        let mut st = ExecutionState::new();
-        st.telemetry.last_validate = Some(LastValidateState {
-            ok: Some(true),
-            ..LastValidateState::default()
+        st.phase.transition = Some(PhaseTransition::PreflightOk {
+            dbt_project_key: "k".to_string(),
+            has_query_provider: true,
+            has_dbt_provider: true,
         });
-        st.telemetry.probe.required = true;
         let err = st.validate_invariants().expect_err("invariants must fail");
-        assert!(err.contains("probe.required can only be true"));
+        assert!(err.contains("transition set while current_phase is Preflight"));
+    }
+
+    #[test]
+    fn publish_status_transitions_correctly() {
+        let mut st = ExecutionState::new();
+        assert!(matches!(st.publish, PublishStatus::NotRequested));
+        st.set_pending_publish_plan("sha123".to_string());
+        assert!(matches!(st.publish, PublishStatus::PlanPending { .. }));
+        st.set_publish_approval(PublishApprovalDecision::Approved);
+        assert!(st.is_publish_approved());
+        st.mark_publish_complete("sha123".to_string());
+        assert!(matches!(st.publish, PublishStatus::Succeeded { .. }));
+    }
+
+    #[test]
+    fn invariants_reject_probe_active_when_last_validate_not_failed() {
+        let mut st = ExecutionState::new();
+        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+        let err = st.validate_invariants().expect_err("invariants must fail");
+        assert!(err.contains("probe status can only be active while last_validate_failed is true"));
     }
 
     #[tokio::test]

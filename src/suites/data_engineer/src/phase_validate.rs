@@ -13,8 +13,8 @@ enum ValidateEscalation {
     LoopbackToAuthor {
         guard_kind: GuardBlockKind,
         reason: String,
-        reason_code: PhaseReasonCode,
-        detail: serde_json::Value,
+        transition: crate::progress_controller::PhaseTransition,
+        failure_context: crate::progress_controller::ValidationFailureContext,
     },
     Fatal(String),
 }
@@ -30,27 +30,38 @@ impl DataEngineerSuite {
             ValidateEscalation::LoopbackToAuthor {
                 guard_kind,
                 reason,
-                reason_code,
-                detail,
-            } => crate::retry_budget::guard_block_loopback_to_author(
-                thread_store,
-                thread_id,
-                phase,
-                guard_kind,
-                reason,
-                reason_code,
-                Some(detail),
-            )
-            .await
-            .map_err(PhaseError::from),
+                transition,
+                failure_context,
+            } => {
+                crate::state_manager::apply_execution_event(
+                    &thread_store.control_store(),
+                    thread_id,
+                    crate::progress_controller::DataEngineerEvent::ValidateCheckFailed {
+                        failure_context,
+                    },
+                )
+                .await
+                .map_err(|e| {
+                    format!("failed to record failure context before loopback: {e}")
+                })?;
+                crate::retry_budget::guard_block_loopback_to_author(
+                    thread_store,
+                    thread_id,
+                    phase,
+                    guard_kind,
+                    reason,
+                    transition,
+                )
+                .await
+                .map_err(PhaseError::from)
+            }
             ValidateEscalation::Fatal(reason) => Err(PhaseError::Fatal(reason)),
         }
     }
 
     fn validate_execution_failure_escalation(
         reason: String,
-        detail: serde_json::Value,
-        reason_code: PhaseReasonCode,
+        transition: crate::progress_controller::PhaseTransition,
         retry_outcome: crate::retry_budget::SubjectiveRetryOutcome,
     ) -> ValidateEscalation {
         match retry_outcome {
@@ -62,9 +73,14 @@ impl DataEngineerSuite {
             crate::retry_budget::SubjectiveRetryOutcome::WithinBudget(_) => {
                 ValidateEscalation::LoopbackToAuthor {
                     guard_kind: GuardBlockKind::ValidateExecutionFailed,
+                    failure_context: crate::progress_controller::ValidationFailureContext {
+                        brief: reason.clone(),
+                        log_excerpts: None,
+                        compile_ok: false,
+                        run_ok: false,
+                    },
                     reason,
-                    reason_code,
-                    detail,
+                    transition,
                 }
             }
         }
@@ -72,7 +88,6 @@ impl DataEngineerSuite {
 
     fn validate_precheck_escalation(
         reason: String,
-        detail: serde_json::Value,
         retry_outcome: crate::retry_budget::SubjectiveRetryOutcome,
     ) -> ValidateEscalation {
         match retry_outcome {
@@ -82,11 +97,20 @@ impl DataEngineerSuite {
                 ))
             }
             crate::retry_budget::SubjectiveRetryOutcome::WithinBudget(_) => {
+                let transition = crate::progress_controller::PhaseTransition::PrecheckFailed {
+                    reason: reason.clone(),
+                };
+                let failure_context = crate::progress_controller::ValidationFailureContext {
+                    brief: reason.clone(),
+                    log_excerpts: None,
+                    compile_ok: false,
+                    run_ok: false,
+                };
                 ValidateEscalation::LoopbackToAuthor {
                     guard_kind: GuardBlockKind::PrecheckFailed,
+                    failure_context,
                     reason,
-                    reason_code: PhaseReasonCode::PrecheckFailed,
-                    detail,
+                    transition,
                 }
             }
         }
@@ -97,8 +121,7 @@ impl DataEngineerSuite {
         thread_id: &str,
         phase: Phase,
         reason: String,
-        detail: serde_json::Value,
-        reason_code: PhaseReasonCode,
+        transition: crate::progress_controller::PhaseTransition,
     ) -> Result<PhaseOutcome, PhaseError> {
         let retry_outcome = Self::check_subjective_retry_budget(
             thread_store,
@@ -107,7 +130,7 @@ impl DataEngineerSuite {
         )
         .await?;
         let escalation =
-            Self::validate_execution_failure_escalation(reason, detail, reason_code, retry_outcome);
+            Self::validate_execution_failure_escalation(reason, transition, retry_outcome);
         Self::apply_validate_escalation(thread_store, thread_id, phase, escalation).await
     }
     fn decide_validate_pass_transition(
@@ -191,10 +214,10 @@ impl DataEngineerSuite {
                 "{}: dbt_validate succeeded but plan checklist work is still pending; returning to authoring",
                 signal
             );
-            let detail = crate::phase_reason_detail::to_value(
+            let _detail = crate::phase_reason_detail::to_value(
                 &crate::phase_reason_detail::ValidatePassToAuthoringDetail {
                     signal: signal.to_string(),
-                    plan_key: active_plan_key,
+                    plan_key: active_plan_key.clone(),
                     pending_count: completion_snapshot
                         .as_ref()
                         .map(|snap| snap.pending_count)
@@ -215,8 +238,14 @@ impl DataEngineerSuite {
                 phase,
                 GuardBlockKind::AuthoringCompletion,
                 reason,
-                PhaseReasonCode::ValidatePassToAuthoring,
-                Some(detail),
+                crate::progress_controller::PhaseTransition::ValidatePassToAuthoring {
+                    signal: signal.to_string(),
+                    plan_key: active_plan_key.clone(),
+                    pending_count: completion_snapshot
+                        .as_ref()
+                        .map(|snap| snap.pending_count)
+                        .unwrap_or(0),
+                },
             )
             .await?;
             return Ok(());
@@ -234,13 +263,9 @@ impl DataEngineerSuite {
             Some(phase),
             crate::phase_contract::PhaseDecision::forward(
                 to_phase,
-                Some(PhaseReasonCode::ValidatePassToReview),
-                Some(crate::phase_reason_detail::to_value(
-                    &crate::phase_reason_detail::ValidatePassToReviewDetail {
-                        dbt_validate_observation,
-                        dbt_validate_step_idx: trigger_step_idx,
-                    },
-                )),
+                Some(crate::progress_controller::PhaseTransition::ValidatePassToReview {
+                    step_idx: trigger_step_idx,
+                }),
             ),
         )
         .await?;
@@ -254,28 +279,9 @@ impl DataEngineerSuite {
         _question: &str,
         sctx: &SuiteCtx,
         _execution_state: &crate::progress_controller::ExecutionState,
-        _guard: &crate::control_flow::DerivedGuardState,
         thread_state_step_count: usize,
     ) -> Result<PhaseOutcome, PhaseError> {
         let actx = Self::agent_tool_ctx(thread_id, sctx);
-        {
-            let mut es = crate::progress_controller::ExecutionState::load(
-                &thread_store.control_store(),
-                thread_id,
-            )
-            .await
-            .map_err(|e| format!("failed to load execution state before validate: {e}"))?
-            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            let tier = if phase == Phase::CleanseValidate {
-                crate::progress_controller::ExecutionTier::Cleanse
-            } else {
-                crate::progress_controller::ExecutionTier::Model
-            };
-            es.enter_validate_mode(tier);
-            es.save(&thread_store.control_store(), thread_id)
-                .await
-                .map_err(|e| format!("failed to persist execution state before validate: {e}"))?;
-        }
         // Pre-validate normalization: dedupe/merge repeated model+test definitions to
         // avoid deterministic compile loops before dbt_validate.
         if let Err(e) = crate::schema_policy::normalize_schema_artifacts_for_validate(&actx).await {
@@ -289,7 +295,6 @@ impl DataEngineerSuite {
                 format!(
                     "Pre-validation normalization failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
                 ),
-                serde_json::json!({ "error": e }),
                 retry_outcome,
             );
             return Self::apply_validate_escalation(&thread_store, thread_id, phase, escalation)
@@ -309,7 +314,6 @@ impl DataEngineerSuite {
                 format!(
                     "Pre-validation failed; fix DBT YAML artifacts before re-validating.\n\n{e}"
                 ),
-                serde_json::json!({ "error": e }),
                 retry_outcome,
             );
             return Self::apply_validate_escalation(&thread_store, thread_id, phase, escalation)
@@ -376,13 +380,13 @@ impl DataEngineerSuite {
                         phase.as_str(),
                         e
                     );
+                    let reason = format!("dbt_validate execution failed: {}", e);
                     return Self::handle_validate_execution_failure(
                         thread_store,
                         thread_id,
                         phase,
-                        format!("dbt_validate execution failed: {}", e),
-                        serde_json::json!({"error": e}),
-                        PhaseReasonCode::ValidateExecutionFailed,
+                        reason.clone(),
+                        crate::progress_controller::PhaseTransition::ValidateExecutionFailed { reason },
                     )
                     .await;
                 }
@@ -447,13 +451,13 @@ impl DataEngineerSuite {
                     thread_id,
                     phase.as_str()
                 );
+                let err_reason = format!("validate_outcome_v2_contract_error: {} ({})", reason, brief);
                 return Self::handle_validate_execution_failure(
                     thread_store,
                     thread_id,
                     phase,
-                    format!("validate_outcome_v2_contract_error: {} ({})", reason, brief),
-                    serde_json::json!({"reason": reason, "brief": brief}),
-                    PhaseReasonCode::ValidateContractError,
+                    err_reason.clone(),
+                    crate::progress_controller::PhaseTransition::ValidateContractError { reason: err_reason },
                 )
                 .await;
             }
@@ -506,7 +510,7 @@ impl DataEngineerSuite {
         }
 
         // Validation failed -> go back to corresponding author phase.
-        let trigger_step_idx = thread_state_step_count.saturating_sub(1);
+        let _trigger_step_idx = thread_state_step_count.saturating_sub(1);
         let to_phase = if phase == Phase::CleanseValidate {
             Phase::CleanseAuthor
         } else {
@@ -559,16 +563,9 @@ impl DataEngineerSuite {
             Some(phase),
             crate::phase_contract::PhaseDecision::loopback(
                 to_phase,
-                Some(PhaseReasonCode::ValidateFail),
-                Some(crate::phase_reason_detail::to_value(
-                    &crate::phase_reason_detail::ValidateFailDetail {
-                        dbt_validate_observation: obs.observation.clone(),
-                        dbt_validate_step_idx: trigger_step_idx,
-                        errors: errs,
-                        facts_bundle: serde_json::to_value(&facts_bundle)
-                            .unwrap_or(serde_json::Value::Null),
-                    },
-                )),
+                Some(crate::progress_controller::PhaseTransition::ValidateFail {
+                    errors: errs,
+                }),
             ),
         )
         .await?;
@@ -610,8 +607,7 @@ mod tests {
     fn validate_execution_failure_exhaustion_is_not_plan_rewrite() {
         let escalation = DataEngineerSuite::validate_execution_failure_escalation(
             "dbt_validate execution failed".to_string(),
-            serde_json::json!({"error":"boom"}),
-            PhaseReasonCode::ValidateExecutionFailed,
+            crate::progress_controller::PhaseTransition::ValidateExecutionFailed { reason: "dbt_validate execution failed".to_string() },
             crate::retry_budget::SubjectiveRetryOutcome::Exhausted(3),
         );
         match escalation {
@@ -626,7 +622,6 @@ mod tests {
     fn validate_precheck_exhaustion_is_not_plan_rewrite() {
         let escalation = DataEngineerSuite::validate_precheck_escalation(
             "Pre-validation failed".to_string(),
-            serde_json::json!({"error":"yaml"}),
             crate::retry_budget::SubjectiveRetryOutcome::Exhausted(2),
         );
         match escalation {

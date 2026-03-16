@@ -1,7 +1,7 @@
 use crate::domain_types::GuardBlockKind;
 
 use crate::control_flow::Phase;
-use crate::progress_controller::{ExecutionState, MAX_REPAIR_CYCLES};
+use crate::progress_controller::{ExecutionState, RepairStatus, MAX_REPAIR_CYCLES};
 
 pub type PreTurnDirective = react_core::workflow::PreTurnDirective<GuardBlockKind>;
 
@@ -22,7 +22,22 @@ pub fn evaluate_pre_turn_directive(
     let phase_state = execution_state.phase_state();
     let repair_state = execution_state.repair_state();
 
-    if repair_state.repair_cycles >= MAX_REPAIR_CYCLES
+    if matches!(repair_state.status, RepairStatus::Exhausted { .. })
+        && matches!(phase, Phase::CleanseAuthor | Phase::ModelAuthor)
+    {
+        return PreTurnDirective::FailFast {
+            kind: GuardBlockKind::AuthoringToValidate,
+            reason: guard_reason(
+                "repair_subroutine_exhausted",
+                &[
+                    ("cycles_used", &repair_state.cycle_count().to_string()),
+                    ("phase", phase.as_str()),
+                ],
+            ),
+        };
+    }
+
+    if repair_state.cycle_count() >= MAX_REPAIR_CYCLES
         && matches!(
             phase,
             Phase::CleanseAuthor | Phase::ModelAuthor
@@ -33,7 +48,7 @@ pub fn evaluate_pre_turn_directive(
             reason: guard_reason(
                 "repair_cycles_exhausted",
                 &[
-                    ("repair_cycles", &repair_state.repair_cycles.to_string()),
+                    ("repair_cycles", &repair_state.cycle_count().to_string()),
                     ("max_repair_cycles", &MAX_REPAIR_CYCLES.to_string()),
                     ("phase", phase.as_str()),
                 ],
@@ -70,19 +85,18 @@ pub fn patch_impl_intent_unsatisfied(execution_state: &ExecutionState, phase: Ph
     let Some(intent) = repair.pending_patch_impl.as_ref() else {
         return false;
     };
-    intent.phase == phase && repair.mutation_epoch <= intent.entry_mutation_epoch
+    intent.phase == phase && !intent.mutated_since_set
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::progress_controller::ExecutionMode;
+    use crate::progress_controller::RepairStatus;
 
     #[test]
     fn preturn_gate_repair_cycles_exhausted() {
         let mut st = ExecutionState::new();
-        st.phase.mode = ExecutionMode::Mutate;
-        st.repair.repair_cycles = MAX_REPAIR_CYCLES;
+        st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
         let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
         match d {
             PreTurnDirective::FailFast { kind, .. } => {
@@ -95,10 +109,9 @@ mod tests {
     #[test]
     fn set_patch_impl_intent_sets_intent() {
         let mut st = ExecutionState::new();
-        st.repair.mutation_epoch = 3;
         st.set_pending_patch_impl_intent(Phase::CleanseAuthor);
         assert!(st.repair.pending_patch_impl.is_some());
-        assert_eq!(st.repair.pending_patch_impl.as_ref().unwrap().entry_mutation_epoch, 3);
+        assert!(!st.repair.pending_patch_impl.as_ref().unwrap().mutated_since_set);
     }
 
     #[test]
@@ -136,8 +149,7 @@ mod tests {
                 name: "repair_cycles_has_priority_over_replan",
                 phase: Phase::ModelAuthor,
                 setup: |st| {
-                    st.phase.mode = ExecutionMode::Mutate;
-                    st.repair.repair_cycles = MAX_REPAIR_CYCLES;
+                    st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
                     st.phase.replan_backtracks = 10;
                 },
                 expect_fail: true,
@@ -156,10 +168,20 @@ mod tests {
                 name: "repair_cycles_ignored_on_non_author_phase",
                 phase: Phase::ModelPlan,
                 setup: |st| {
-                    st.repair.repair_cycles = MAX_REPAIR_CYCLES;
+                    st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
                 },
                 expect_fail: false,
                 expect_kind: None,
+            },
+            Case {
+                name: "repair_exhausted_has_priority_over_replan",
+                phase: Phase::CleanseAuthor,
+                setup: |st| {
+                    st.repair.status = RepairStatus::Exhausted { cycles_used: 1 };
+                    st.phase.replan_backtracks = 10;
+                },
+                expect_fail: true,
+                expect_kind: Some(GuardBlockKind::AuthoringToValidate),
             },
         ];
 
@@ -178,17 +200,29 @@ mod tests {
     }
 
     #[test]
-    fn control_critical_plan_and_review_reason_details_use_typed_constructors() {
-        let phase_plan_src = include_str!("phase_plan.rs");
-        assert!(
-            phase_plan_src.contains("phase_reason_detail::plan_auto_approved("),
-            "phase_plan must use typed constructor for plan auto-approval detail"
-        );
-        assert!(
-            !phase_plan_src.contains("PlanAutoApprovedDetail {"),
-            "phase_plan must not inline PlanAutoApprovedDetail literals in transition paths"
-        );
+    fn preturn_gate_repair_exhausted_failfast() {
+        let mut st = ExecutionState::new();
+        st.repair.status = RepairStatus::Exhausted { cycles_used: 2 };
+        let d = evaluate_pre_turn_directive(&st, Phase::ModelAuthor, 3);
+        match d {
+            PreTurnDirective::FailFast { kind, reason } => {
+                assert_eq!(kind, GuardBlockKind::AuthoringToValidate);
+                assert!(reason.contains("repair_subroutine_exhausted"));
+            }
+            _ => panic!("expected failfast for Exhausted status"),
+        }
+    }
 
+    #[test]
+    fn preturn_gate_repair_exhausted_ignored_on_non_author_phase() {
+        let mut st = ExecutionState::new();
+        st.repair.status = RepairStatus::Exhausted { cycles_used: 2 };
+        let d = evaluate_pre_turn_directive(&st, Phase::ModelPlan, 3);
+        assert!(matches!(d, PreTurnDirective::Proceed));
+    }
+
+    #[test]
+    fn control_critical_plan_and_review_reason_details_use_typed_constructors() {
         let phase_review_src = include_str!("phase_review.rs");
         assert!(
             phase_review_src.contains("phase_reason_detail::review_decision_transition("),
@@ -202,28 +236,18 @@ mod tests {
 
     #[test]
     fn control_reason_detail_plan_and_author_paths_use_typed_constructors() {
-        let phase_plan_src = include_str!("phase_plan.rs");
-        assert!(
-            phase_plan_src.contains("phase_reason_detail::plan_auto_approved("),
-            "plan auto-approved transitions must use typed detail constructor"
-        );
-        assert!(
-            !phase_plan_src.contains("\"auto_approved_in_agent_mode\": true"),
-            "phase_plan should not inline auto_approved reason_detail JSON"
-        );
-
         let plan_helpers_src = include_str!("plan_review_helpers.rs");
         assert!(
             plan_helpers_src.contains("AuthoringCompleteReasonDetail"),
             "authoring-complete transition detail must use typed constructor"
         );
         assert!(
-            plan_helpers_src.contains("PlanPrunedEmptyDetail"),
-            "plan-pruned-empty transition detail must use typed constructor"
+            plan_helpers_src.contains("PhaseTransition::PlanPrunedEmpty"),
+            "plan-pruned-empty must use PhaseTransition::PlanPrunedEmpty variant"
         );
         assert!(
-            plan_helpers_src.contains("PlanSemanticInvalidErrorsDetail"),
-            "plan semantic-invalid transition detail must use typed constructor"
+            plan_helpers_src.contains("PhaseTransition::PlanSemanticInvalid"),
+            "plan semantic-invalid must use PhaseTransition::PlanSemanticInvalid variant"
         );
     }
 }

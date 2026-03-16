@@ -163,7 +163,6 @@ impl DataEngineerSuite {
 
     pub(super) fn build_tools_for_phase(
         phase: control_flow::Phase,
-        _guard: &control_flow::DerivedGuardState,
         _allow_ask_approval: bool,
         sctx: &SuiteCtx,
         plan_state: &PlanState,
@@ -355,8 +354,7 @@ impl DataEngineerSuite {
                     }
                     PlanState::CleanseSqlDatasetIds(_)
                     | PlanState::CleanseSchemaDatasetIds(_)
-                    | PlanState::ModelSqlItemNames(_)
-                    | PlanState::ModelSchemaItemNames(_) => {
+                    | PlanState::ModelSqlItemNames(_) => {
                         reg.register(FilesTool {
                             datasets: crate::ctx_ext::sctx_datasets(sctx),
                         });

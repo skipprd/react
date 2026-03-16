@@ -14,9 +14,10 @@ use crate::dbt;
 use crate::tools::files_tool::FilesTool;
 pub use react_core::workflow::TransitionIntent;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    #[default]
     Preflight,
     CleansePlan,
     CleanseAuthor,
@@ -65,32 +66,6 @@ mod state_first_tests {
                 phase,
             );
         }
-    }
-
-    #[test]
-    fn derive_guard_state_from_execution_state_marks_validate_failure() {
-        let mut st = crate::progress_controller::ExecutionState::new();
-        st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        });
-        let guard = derive_guard_state_from_execution_state(&st);
-        assert!(guard.last_validate_failed);
-        assert!(!guard.mutated_since_fail);
-    }
-
-    #[test]
-    fn derive_guard_state_from_execution_state_tracks_mutation_progress() {
-        let mut st = crate::progress_controller::ExecutionState::new();
-        st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
-        });
-        st.repair.fail_mutation_epoch = 0;
-        st.repair.mutation_epoch = 1;
-        let guard = derive_guard_state_from_execution_state(&st);
-        assert!(guard.last_validate_failed);
-        assert!(guard.mutated_since_fail);
     }
 
     #[test]
@@ -178,6 +153,15 @@ impl Phase {
     pub fn ordinal(&self) -> usize {
         ALL_PHASES.iter().position(|p| p == self).unwrap_or(0)
     }
+
+    pub fn tier(&self) -> crate::progress_controller::ExecutionTier {
+        use crate::progress_controller::ExecutionTier;
+        match self {
+            Phase::CleansePlan | Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview => ExecutionTier::Cleanse,
+            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => ExecutionTier::Model,
+            _ => ExecutionTier::Unknown,
+        }
+    }
 }
 
 impl std::str::FromStr for Phase {
@@ -259,36 +243,6 @@ pub(crate) fn replan_backtrack_counter_cap() -> usize {
     crate::env_util::max_replan_backtracks()
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct DerivedGuardState {
-    pub last_validate_failed: bool,
-    pub mutated_since_fail: bool,
-    pub probe_required: bool,
-    pub probe_satisfied: bool,
-}
-
-pub fn derive_guard_state_from_execution_state(
-    st: &crate::progress_controller::ExecutionState,
-) -> DerivedGuardState {
-    let last_validate_failed =
-        st.telemetry.last_validate.as_ref().and_then(|lv| lv.ok) == Some(false);
-    let mutated_since_fail = st.repair.mutated_since_fail();
-    let probe_status = st.probe_requirement_status();
-    let (probe_required, probe_satisfied) = match probe_status {
-        crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
-        crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
-        crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
-        crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => {
-            (false, true)
-        }
-    };
-    DerivedGuardState {
-        last_validate_failed,
-        mutated_since_fail,
-        probe_required,
-        probe_satisfied,
-    }
-}
 
 pub(crate) fn is_replan_backtrack(from: Phase, to: Phase) -> bool {
     use crate::track_spec::TrackKind;
@@ -610,55 +564,44 @@ async fn apply_telemetry_action(store: &ThreadStore, thread_id: &str, action: To
             ok,
             failure_kind,
         } => {
-            match crate::state_manager::load_execution_state_strict(
+            let phase_ok = match crate::state_manager::load_execution_state_strict(
                 &store.control_store(),
                 thread_id,
             )
             .await
             {
-                Ok(Some(mut st)) => {
-                    if st.phase.current_phase == Some(Phase::ModelPlan) {
-                        st.note_manifest_lookup_attempt(path_kind, ok, failure_kind);
-                        if let Err(e) = crate::state_manager::replace_execution_state(
-                            &store.control_store(),
-                            thread_id,
-                            st,
-                        )
-                        .await
-                        {
-                            warn!("failed to persist manifest lookup telemetry: {e}");
-                        }
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!("failed to load execution state for manifest telemetry: {e}");
+                Ok(Some(st)) => st.phase.current_phase == Phase::ModelPlan,
+                _ => false,
+            };
+            if phase_ok {
+                if let Err(e) = crate::state_manager::apply_execution_event(
+                    &store.control_store(),
+                    thread_id,
+                    crate::progress_controller::DataEngineerEvent::ManifestLookupRecorded {
+                        path_kind,
+                        success: ok,
+                        failure_kind,
+                    },
+                )
+                .await
+                {
+                    warn!("failed to persist manifest lookup telemetry: {e}");
                 }
             }
         }
         ToolTelemetryAction::MutationRecord { op, paths } => {
-            match crate::state_manager::load_execution_state_strict(
+            if let Err(e) = crate::state_manager::apply_execution_event(
                 &store.control_store(),
                 thread_id,
+                crate::progress_controller::DataEngineerEvent::MutationRecorded {
+                    op,
+                    paths,
+                    select_terms: Vec::new(),
+                },
             )
             .await
             {
-                Ok(Some(mut st)) => {
-                    st.set_last_mutation_summary(op, paths, Vec::new());
-                    if let Err(e) = crate::state_manager::replace_execution_state(
-                        &store.control_store(),
-                        thread_id,
-                        st,
-                    )
-                    .await
-                    {
-                        warn!("failed to persist non-file mutation summary: {e}");
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!("failed to load execution state for mutation summary: {e}");
-                }
+                warn!("failed to persist non-file mutation summary: {e}");
             }
         }
     }

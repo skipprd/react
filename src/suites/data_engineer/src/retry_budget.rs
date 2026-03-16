@@ -83,15 +83,14 @@ pub(crate) async fn check_subjective_retry_budget(
     kind: crate::progress_controller::SubjectiveRetryKind,
 ) -> Result<SubjectiveRetryOutcome, String> {
     let cap = subjective_retry_state_cap();
-    let mut st =
-        crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
-            .await
-            .map_err(|e| format!("failed to load execution state for subjective retry: {e}"))?
-            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-    let retries = st.bump_subjective_retry(kind, cap);
-    st.save(&thread_store.control_store(), thread_id)
-        .await
-        .map_err(|e| format!("failed to persist subjective retry: {e}"))?;
+    let st = crate::state_manager::apply_execution_event(
+        &thread_store.control_store(),
+        thread_id,
+        crate::progress_controller::DataEngineerEvent::SubjectiveRetryBumped { kind, cap },
+    )
+    .await
+    .map_err(|e| format!("failed to persist subjective retry: {e}"))?;
+    let retries = st.subjective_retries.get(&kind).copied().unwrap_or(0);
     if retries > subjective_retry_limit() {
         Ok(SubjectiveRetryOutcome::Exhausted(retries))
     } else {
@@ -99,21 +98,20 @@ pub(crate) async fn check_subjective_retry_budget(
     }
 }
 
-/// Clear subjective retry counters matching a predicate. Persists immediately.
-pub(crate) async fn clear_subjective_retries_matching(
+/// Clear subjective retry counters for the given kinds. Persists immediately.
+pub(crate) async fn clear_subjective_retries(
     thread_store: &ThreadStore,
     thread_id: &str,
-    f: impl Fn(&crate::progress_controller::SubjectiveRetryKind) -> bool,
+    kinds: Vec<crate::progress_controller::SubjectiveRetryKind>,
 ) -> Result<(), String> {
-    let mut st =
-        crate::progress_controller::ExecutionState::load(&thread_store.control_store(), thread_id)
-            .await
-            .map_err(|e| format!("failed to load execution state for retry reset: {e}"))?
-            .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-    st.clear_subjective_retries_matching(f);
-    st.save(&thread_store.control_store(), thread_id)
-        .await
-        .map_err(|e| format!("failed to clear subjective retries: {e}"))
+    crate::state_manager::apply_execution_event(
+        &thread_store.control_store(),
+        thread_id,
+        crate::progress_controller::DataEngineerEvent::SubjectiveRetriesCleared { kinds },
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| format!("failed to clear subjective retries: {e}"))
 }
 
 /// Apply a guard-block, commit a loopback decision to the corresponding author phase,
@@ -124,8 +122,7 @@ pub(crate) async fn guard_block_loopback_to_author(
     phase: Phase,
     guard_kind: crate::domain_types::GuardBlockKind,
     reason: String,
-    reason_code: crate::domain_types::PhaseReasonCode,
-    detail: Option<serde_json::Value>,
+    transition: crate::progress_controller::PhaseTransition,
 ) -> Result<super::PhaseOutcome, String> {
     crate::phase_contract::commit_guard_block(thread_store, thread_id, phase, guard_kind, reason)
         .await?;
@@ -138,13 +135,10 @@ pub(crate) async fn guard_block_loopback_to_author(
         thread_store,
         thread_id,
         Some(phase),
-        crate::phase_contract::PhaseDecision::loopback(to_phase, Some(reason_code), detail),
+        crate::phase_contract::PhaseDecision::loopback(to_phase, Some(transition)),
     )
     .await?;
-    Ok(super::PhaseOutcome::stayed_waiting(format!(
-        "looped back to author after guard block {:?}",
-        guard_kind
-    )))
+    Ok(super::PhaseOutcome::TransitionCommitted)
 }
 
 #[cfg(test)]

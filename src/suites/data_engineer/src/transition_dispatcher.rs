@@ -1,7 +1,7 @@
-use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
+use crate::domain_types::GuardBlockKind;
+use crate::progress_controller::PhaseTransition;
 use crate::state_manager::StateError;
 use react_core::session::{Observation, ThreadStep, ThreadStore};
-use serde_json::Value;
 
 use crate::control_flow::{
     allowed_next_phases, is_replan_backtrack, replan_backtrack_counter_cap, Phase, TransitionIntent,
@@ -10,7 +10,7 @@ use crate::progress_controller::ExecutionState;
 use crate::state_manager;
 
 pub type PhaseDirective =
-    react_core::workflow::PhaseDirective<Phase, PhaseReasonCode, GuardBlockKind>;
+    react_core::workflow::PhaseDirective<Phase, String, GuardBlockKind>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransitionError {
@@ -35,18 +35,20 @@ pub async fn dispatch_phase_transition(
     from_phase: Option<Phase>,
     phase: Phase,
     intent: TransitionIntent,
-    reason_code: Option<PhaseReasonCode>,
-    reason_detail: Option<Value>,
+    transition: Option<PhaseTransition>,
 ) -> Result<(), TransitionError> {
+    let reason_str = transition
+        .as_ref()
+        .map(|t| t.as_reason_str().to_string())
+        .unwrap_or_else(|| "none".to_string());
+
     if let Some(from) = from_phase {
         let is_same_phase_annotation = intent == TransitionIntent::Annotation;
         if !is_same_phase_annotation && !allowed_next_phases(from).contains(&phase) {
             return Err(TransitionError::InvalidTransition {
                 from: from.as_str().to_string(),
                 to: phase.as_str().to_string(),
-                reason: reason_code
-                    .map(|c| c.as_str().to_string())
-                    .unwrap_or_else(|| "none".to_string()),
+                reason: reason_str.clone(),
             });
         }
     }
@@ -84,12 +86,14 @@ pub async fn dispatch_phase_transition(
         st.reset_plan_bootstrap(phase);
     }
     st.with_phase_state_mut(|phase_state| {
-        phase_state.current_phase = Some(phase);
-        phase_state.phase_reason_code = reason_code.clone();
-        phase_state.phase_reason_detail = reason_detail.clone();
+        phase_state.current_phase = phase;
+        phase_state.transition = transition.clone();
     });
     state_manager::replace_execution_state(&store.control_store(), thread_id, st).await?;
 
+    let reason_detail = transition
+        .as_ref()
+        .and_then(|t| serde_json::to_value(t).ok());
     let agent = agent.unwrap_or_else(|| crate::env_util::DEFAULT_AGENT_NAME.to_string());
     if let Err(append_err) = store
         .append_step(
@@ -97,7 +101,7 @@ pub async fn dispatch_phase_transition(
             ThreadStep::Phase {
                 phase: phase.as_str().to_string(),
                 from_phase: from_phase.map(|p| p.as_str().to_string()),
-                reason_code: reason_code.map(|rc| rc.as_str().to_string()),
+                reason_code: Some(reason_str),
                 reason_detail,
                 observation: Observation::ok(),
                 ts: chrono::Utc::now().to_rfc3339(),
@@ -133,8 +137,8 @@ pub async fn apply_phase_directive(
         PhaseDirective::Transition {
             to,
             intent,
-            reason_code,
-            reason_detail,
+            reason_code: _,
+            reason_detail: _,
         } => {
             dispatch_phase_transition(
                 store,
@@ -143,8 +147,7 @@ pub async fn apply_phase_directive(
                 from_phase,
                 to,
                 intent,
-                reason_code,
-                reason_detail,
+                None,
             )
             .await
         }
@@ -202,8 +205,7 @@ mod tests {
             Some(Phase::CleanseValidate),
             Phase::CleanseReview,
             TransitionIntent::Forward,
-            Some(PhaseReasonCode::ValidatePassToReview),
-            None,
+            Some(PhaseTransition::ValidatePassToReview { step_idx: 0 }),
         )
         .await
         .expect("transition should succeed");
@@ -239,8 +241,11 @@ mod tests {
             Some(Phase::CleanseValidate),
             Phase::CleanseAuthor,
             TransitionIntent::Loopback,
-            Some(PhaseReasonCode::ValidatePassToAuthoring),
-            None,
+            Some(PhaseTransition::ValidatePassToAuthoring {
+                signal: "test".to_string(),
+                plan_key: None,
+                pending_count: 0,
+            }),
         )
         .await
         .expect("transition should succeed");
@@ -261,7 +266,7 @@ mod tests {
         let tid = "tid-model-plan-reset-state";
 
         let mut st = ExecutionState::new();
-        st.manifest.plan_bootstrap.model_done = true;
+        st.manifest.model_plan_bootstrapped = true;
         st.manifest.manifest_lookup.retry_suppressed = true;
         st.manifest.manifest_lookup.repeated_failure_count = 3;
         st.manifest.manifest_lookup.failure_signature = Some("NoSuchKey:Ambiguous".to_string());
@@ -276,8 +281,15 @@ mod tests {
             Some(Phase::ModelReview),
             Phase::ModelPlan,
             TransitionIntent::Loopback,
-            Some(PhaseReasonCode::ReviewPatchImpl),
-            None,
+            Some(PhaseTransition::ReviewPatchImpl {
+                meta: crate::domain_types::ReviewDecisionMeta {
+                    decision: crate::domain_types::ReviewDecision::PatchImpl,
+                    dataset_ids: vec![],
+                    tier: crate::domain_types::ReviewTier::Gold,
+                    review_ref: None,
+                },
+                target_paths: vec![],
+            }),
         )
         .await
         .expect("transition should succeed");
@@ -287,7 +299,7 @@ mod tests {
             .expect("state should load")
             .expect("state should exist");
         assert!(
-            !got.manifest.plan_bootstrap.model_done,
+            !got.manifest.model_plan_bootstrapped,
             "model-plan bootstrap should reset on fresh model_plan entry"
         );
         assert!(
@@ -337,7 +349,7 @@ mod tests {
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-phase-directive-annotate";
         let mut st = ExecutionState::new();
-        st.phase.current_phase = Some(Phase::CleansePlan);
+        st.phase.current_phase = Phase::CleansePlan;
         st.phase.replan_backtracks = 2;
         state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
@@ -351,7 +363,7 @@ mod tests {
             PhaseDirective::Transition {
                 to: Phase::CleansePlan,
                 intent: TransitionIntent::Annotation,
-                reason_code: Some(PhaseReasonCode::PhaseSet),
+                reason_code: Some("phase_set".to_string()),
                 reason_detail: Some(serde_json::json!({"note":"x"})),
             },
         )
@@ -373,7 +385,7 @@ mod tests {
         let store = ThreadStore::new(storage, scope, keyspace);
         let tid = "tid-loopback-cap";
         let mut st = ExecutionState::new();
-        st.phase.current_phase = Some(Phase::CleanseValidate);
+        st.phase.current_phase = Phase::CleanseValidate;
         st.phase.replan_backtracks = replan_backtrack_counter_cap();
         state_manager::replace_execution_state(&store.control_store(), tid, st)
             .await
@@ -386,8 +398,11 @@ mod tests {
             Some(Phase::CleanseValidate),
             Phase::CleanseAuthor,
             TransitionIntent::Loopback,
-            Some(PhaseReasonCode::ValidatePassToAuthoring),
-            None,
+            Some(PhaseTransition::ValidatePassToAuthoring {
+                signal: "test".to_string(),
+                plan_key: None,
+                pending_count: 0,
+            }),
         )
         .await
         .expect("transition should succeed");
@@ -415,7 +430,7 @@ mod tests {
             PhaseDirective::Transition {
                 to: Phase::CleansePlan,
                 intent: TransitionIntent::Forward,
-                reason_code: Some(PhaseReasonCode::PreflightOk),
+                reason_code: Some("preflight_ok".to_string()),
                 reason_detail: None,
             },
         )
@@ -445,106 +460,63 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn control_reason_detail_review_and_publish_paths_use_typed_constructors() {
+    fn control_review_and_publish_use_phase_transition_variants() {
         let phase_review_src = include_str!("phase_review.rs");
         assert!(
-            phase_review_src.contains("phase_reason_detail::review_decision_transition("),
-            "review transitions must use typed reason_detail constructor"
-        );
-        assert!(
-            !phase_review_src.contains("ReviewDecisionTransitionDetail {"),
-            "phase_review should not inline review transition reason_detail struct literal"
+            phase_review_src.contains("PhaseTransition::ReviewProceed")
+                || phase_review_src.contains("PhaseTransition::ReviewPatchImpl"),
+            "review transitions must use typed PhaseTransition variants"
         );
 
         let phase_publish_src = include_str!("phase_publish.rs");
         for marker in [
-            "phase_reason_detail::publish_approval_state(",
-            "phase_reason_detail::publish_observation(",
-            "phase_reason_detail::publish_auto_approved(",
-            "phase_reason_detail::publish_failure(",
+            "PhaseTransition::PublishApproved",
+            "PhaseTransition::PublishConfirmedSuccess",
+            "PhaseTransition::PublishFail",
+            "PhaseTransition::PublishConfirmedFail",
         ] {
             assert!(
                 phase_publish_src.contains(marker),
-                "phase_publish missing typed reason_detail constructor marker: {marker}"
+                "phase_publish missing PhaseTransition variant: {marker}"
             );
         }
-        assert!(
-            !phase_publish_src.contains("PublishFailureDetail {"),
-            "phase_publish should not inline publish failure reason_detail struct literal"
-        );
     }
 
     #[test]
-    fn control_critical_publish_reason_details_use_typed_constructors() {
+    fn control_critical_publish_uses_phase_transition_variants() {
         let src = include_str!("phase_publish.rs");
         assert!(
-            src.contains("phase_reason_detail::publish_approval_state("),
-            "publish approval transition must use typed approval-state constructor"
+            src.contains("PhaseTransition::PublishApproved"),
+            "publish approval transition must use PhaseTransition::PublishApproved"
         );
         assert!(
-            src.contains("phase_reason_detail::publish_observation("),
-            "publish success transitions must use typed observation constructor"
+            src.contains("PhaseTransition::PublishConfirmedSuccess"),
+            "publish success transitions must use PhaseTransition::PublishConfirmedSuccess"
         );
         assert!(
-            src.contains("phase_reason_detail::publish_auto_approved("),
-            "publish await-approval loop must use typed auto-approved constructor"
-        );
-        assert!(
-            src.contains("phase_reason_detail::publish_failure("),
-            "publish failure transitions must use typed failure constructor"
-        );
-        assert!(
-            !src.contains("PublishApprovalStateDetail {"),
-            "phase_publish must not inline PublishApprovalStateDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PublishObservationDetail {"),
-            "phase_publish must not inline PublishObservationDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PublishAutoApprovedDetail {"),
-            "phase_publish must not inline PublishAutoApprovedDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PublishFailureDetail {"),
-            "phase_publish must not inline PublishFailureDetail literals in transition paths"
+            src.contains("PhaseTransition::PublishFail"),
+            "publish failure transitions must use PhaseTransition::PublishFail"
         );
     }
 
     #[test]
-    fn control_critical_author_reason_details_use_typed_constructors() {
+    fn control_critical_author_uses_phase_transition_variants() {
         let src = include_str!("phase_author.rs");
         assert!(
-            src.contains("phase_reason_detail::plan_missing("),
-            "authoring plan-missing loopback must use typed constructor"
+            src.contains("PhaseTransition::PlanMissing"),
+            "authoring plan-missing loopback must use PhaseTransition::PlanMissing"
         );
         assert!(
-            src.contains("phase_reason_detail::plan_not_approved("),
-            "authoring plan-not-approved loopback must use typed constructor"
+            src.contains("PhaseTransition::PlanNotApproved"),
+            "authoring plan-not-approved loopback must use PhaseTransition::PlanNotApproved"
         );
         assert!(
             src.contains("commit_plan_revision_loopback("),
             "authoring semantic-invalid paths must use commit_plan_revision_loopback"
         );
         assert!(
-            src.contains("phase_reason_detail::plan_key("),
-            "authoring->validate transitions must use typed plan-key constructor"
-        );
-        assert!(
-            !src.contains("PlanMissingDetail {"),
-            "phase_author must not inline PlanMissingDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PlanNotApprovedDetail {"),
-            "phase_author must not inline PlanNotApprovedDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PlanSemanticInvalidDetail {"),
-            "phase_author must not inline PlanSemanticInvalidDetail literals in transition paths"
-        );
-        assert!(
-            !src.contains("PlanKeyDetail {"),
-            "phase_author must not inline PlanKeyDetail literals in transition paths"
+            src.contains("PhaseTransition::AuthoringComplete"),
+            "authoring complete must use PhaseTransition::AuthoringComplete"
         );
     }
 
@@ -709,31 +681,19 @@ mod tests {
     }
 
     #[test]
-    fn repair_state_uses_simplified_bool_flag() {
+    fn repair_state_uses_status_enum() {
         let src = include_str!("progress_controller.rs");
         assert!(
-            src.contains("pub repair_active: bool"),
-            "RepairState should use a simple repair_active bool"
+            src.contains("pub status: RepairStatus"),
+            "RepairState should use a RepairStatus enum"
         );
         assert!(
-            !src.contains("enum RepairModeState"),
-            "legacy RepairModeState enum must not exist after simplification"
+            !src.contains("pub repair_active: bool"),
+            "legacy repair_active bool must not exist after status enum migration"
         );
         assert!(
-            !src.contains("pub repair_mode: RepairModeState"),
-            "legacy typed repair_mode field must not exist after simplification"
-        );
-        assert!(
-            !src.contains("fn set_active_repair_mode("),
-            "temporary set_active_repair_mode helper must not exist"
-        );
-        assert!(
-            !src.contains("fn set_active_repair_mode_snapshot("),
-            "temporary set_active_repair_mode_snapshot helper must not exist"
-        );
-        assert!(
-            !src.contains("fn reset_repair_attempts("),
-            "temporary reset_repair_attempts helper must not exist"
+            !src.contains("pub mutation_epoch: u64"),
+            "legacy mutation_epoch must not exist after migration"
         );
     }
 }

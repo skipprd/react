@@ -117,8 +117,10 @@ impl Tool for PublishDbtToProviderTool {
                     .await
                     .map_err(|e| format!("failed to load strict execution state for publish: {e}"))?
                     .unwrap_or_else(ExecutionState::new);
-                last_published_digest = es.publish.publish_plan.last_published_plan_sha256.clone();
-                pending_plan_digest = es.publish.publish_plan.pending_plan_sha256.clone();
+                if let crate::progress_controller::PublishStatus::Succeeded { ref plan_sha256 } = es.publish {
+                    last_published_digest = Some(plan_sha256.clone());
+                }
+                pending_plan_digest = es.publish.plan_sha256().map(|s| s.to_string());
             }
         }
 
@@ -137,9 +139,13 @@ impl Tool for PublishDbtToProviderTool {
         if !confirm {
             if !tid.is_empty() {
                 if let Some(store) = ctx.thread_store().as_ref() {
-                    state_manager::mutate_execution_state(&store.control_store(), &tid, |es| {
-                        es.set_pending_publish_plan(plan_sha256.clone());
-                    })
+                    state_manager::apply_execution_event(
+                        &store.control_store(),
+                        &tid,
+                        crate::progress_controller::DataEngineerEvent::PublishPlanPending {
+                            sha256: plan_sha256.clone(),
+                        },
+                    )
                     .await
                     .map_err(|e| format!("failed to persist pending_publish_plan: {e}"))?;
                 }
@@ -237,9 +243,13 @@ impl Tool for PublishDbtToProviderTool {
         emit_trace(ctx, "publish finished");
         if !tid.is_empty() {
             if let Some(store) = ctx.thread_store().as_ref() {
-                state_manager::mutate_execution_state(&store.control_store(), &tid, |es| {
-                    es.mark_publish_complete(plan_sha256.clone());
-                })
+                state_manager::apply_execution_event(
+                    &store.control_store(),
+                    &tid,
+                    crate::progress_controller::DataEngineerEvent::PublishCompleted {
+                        sha256: plan_sha256.clone(),
+                    },
+                )
                 .await
                 .map_err(|e| format!("failed to persist mark_publish_complete: {e}"))?;
             }

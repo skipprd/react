@@ -575,18 +575,19 @@ impl Tool for FilesTool {
                     if mutated {
                         let paths = vec![parsed.path.clone()];
                         let select_terms = select_terms_from_paths(&paths);
-                        let _ = crate::state_manager::mutate_execution_state(
+                        if let Err(e) = crate::state_manager::apply_execution_event(
                             &store.control_store(),
                             thread_id,
-                            |es| {
-                                es.set_last_mutation_summary(
-                                    crate::progress_controller::MutationOp::Remove,
-                                    paths.clone(),
-                                    select_terms.clone(),
-                                )
+                            crate::progress_controller::DataEngineerEvent::MutationRecorded {
+                                op: crate::progress_controller::MutationOp::Remove,
+                                paths: paths.clone(),
+                                select_terms: select_terms.clone(),
                             },
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::warn!("failed to record rm mutation: {e}");
+                        }
                     }
                 }
                 Ok(out)
@@ -610,18 +611,19 @@ impl Tool for FilesTool {
                 {
                     let paths = vec![parsed.to.clone()];
                     let select_terms = select_terms_from_paths(&paths);
-                    let _ = crate::state_manager::mutate_execution_state(
+                    if let Err(e) = crate::state_manager::apply_execution_event(
                         &store.control_store(),
                         thread_id,
-                        |es| {
-                            es.set_last_mutation_summary(
-                                crate::progress_controller::MutationOp::Move,
-                                paths.clone(),
-                                select_terms.clone(),
-                            )
+                        crate::progress_controller::DataEngineerEvent::MutationRecorded {
+                            op: crate::progress_controller::MutationOp::Move,
+                            paths: paths.clone(),
+                            select_terms: select_terms.clone(),
                         },
                     )
-                    .await;
+                    .await
+                    {
+                        tracing::warn!("failed to record mv mutation: {e}");
+                    }
                 }
                 Ok(out)
             }
@@ -787,18 +789,19 @@ impl Tool for FilesTool {
                     } else {
                         let paths = vec![outcome.rel_path.clone()];
                         let select_terms = select_terms_from_paths(&paths);
-                        let _ = crate::state_manager::mutate_execution_state(
+                        if let Err(e) = crate::state_manager::apply_execution_event(
                             &store.control_store(),
                             thread_id,
-                            |es| {
-                                es.set_last_mutation_summary(
-                                    crate::progress_controller::MutationOp::Patch,
-                                    paths.clone(),
-                                    select_terms.clone(),
-                                )
+                            crate::progress_controller::DataEngineerEvent::MutationRecorded {
+                                op: crate::progress_controller::MutationOp::Patch,
+                                paths: paths.clone(),
+                                select_terms: select_terms.clone(),
                             },
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::warn!("failed to record patch mutation: {e}");
+                        }
                     }
                 }
                 Ok(response)
@@ -830,18 +833,19 @@ impl Tool for FilesTool {
                     if mutated {
                         let paths = vec![want_rel.clone()];
                         let select_terms = select_terms_from_paths(&paths);
-                        let _ = crate::state_manager::mutate_execution_state(
+                        if let Err(e) = crate::state_manager::apply_execution_event(
                             &store.control_store(),
                             thread_id,
-                            |es| {
-                                es.set_last_mutation_summary(
-                                    crate::progress_controller::MutationOp::Patch,
-                                    paths.clone(),
-                                    select_terms.clone(),
-                                )
+                            crate::progress_controller::DataEngineerEvent::MutationRecorded {
+                                op: crate::progress_controller::MutationOp::Patch,
+                                paths: paths.clone(),
+                                select_terms: select_terms.clone(),
                             },
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::warn!("failed to record write mutation: {e}");
+                        }
                     }
                 }
                 Ok(out)
@@ -1054,7 +1058,7 @@ mod tests {
         );
         let tid = "tid-hard-mutation-files-get-blocked".to_string();
         let mut es = ExecutionState::new();
-        es.repair.repair_active = true;
+        es.repair.status = crate::progress_controller::RepairStatus::Pending { cycle: 1 };
         es.set_last_mutation_summary(
             crate::progress_controller::MutationOp::Remove,
             vec!["models/staging/m.sql".to_string()],
@@ -1091,7 +1095,7 @@ mod tests {
         );
         let tid = "tid-hard-mutation-files-list-allowed".to_string();
         let mut es = ExecutionState::new();
-        es.repair.repair_active = true;
+        es.repair.status = crate::progress_controller::RepairStatus::Pending { cycle: 1 };
         es.set_last_mutation_summary(
             crate::progress_controller::MutationOp::Remove,
             vec!["models/staging/m.sql".to_string()],

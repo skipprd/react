@@ -60,11 +60,11 @@ struct AuthorPhaseCtx<'a> {
     phase: Phase,
     track: TrackKind,
     execution_state: &'a crate::progress_controller::ExecutionState,
-    repair_ctx: &'a crate::progress_controller::RepairPromptContext,
-    /// Phase-corrected guard — always use this, never a raw `guard`.
-    /// The raw `DerivedGuardState` is intentionally absent from this struct
-    /// so callers cannot accidentally use the uncorrected version.
-    phase_guard: &'a crate::control_flow::DerivedGuardState,
+    repair_ctx: &'a crate::progress_controller::RepairContext,
+    last_validate_failed: bool,
+    _mutated_since_fail: bool,
+    probe_required: bool,
+    probe_satisfied: bool,
 }
 
 fn decide_author_validate_trigger(
@@ -87,13 +87,21 @@ fn decide_author_validate_trigger(
 fn review_patch_detail(
     execution_state: &crate::progress_controller::ExecutionState,
 ) -> Option<crate::phase_reason_detail::ReviewDecisionTransitionDetail> {
-    (execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl))
-        .then_some(execution_state.phase.phase_reason_detail.clone())
-        .flatten()
-        .and_then(|v| {
-            serde_json::from_value::<crate::phase_reason_detail::ReviewDecisionTransitionDetail>(v)
-                .ok()
-        })
+    match execution_state.phase.transition.as_ref()? {
+        crate::progress_controller::PhaseTransition::ReviewPatchImpl { meta, target_paths: _ } => {
+            Some(crate::phase_reason_detail::ReviewDecisionTransitionDetail {
+                meta: meta.clone(),
+                review_phase: String::new(),
+                answer: crate::domain_types::ReviewDecision::PatchImpl,
+                forced_progress_guard: false,
+                forced_progress_by_subjective_retry: false,
+                review_subjective_retry_count: 0,
+                trigger_step_idx: 0,
+                trigger_step: serde_json::Value::Null,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn normalize_review_patch_target_path(path: &str) -> String {
@@ -151,7 +159,7 @@ fn resolve_review_patch_target_paths<T>(
 fn build_post_validate_fail_repair_context(
     track: TrackKind,
     plan_key: &str,
-    repair_ctx: &crate::progress_controller::RepairPromptContext,
+    repair_ctx: &crate::progress_controller::RepairContext,
 ) -> String {
     let mut ctx = format!(
         "Approved {} plan (stored at: {}).\n\
@@ -160,10 +168,10 @@ fn build_post_validate_fail_repair_context(
         track.as_str(),
         plan_key,
     );
-    if let Some(brief) = &repair_ctx.brief {
+    if let Some(brief) = repair_ctx.brief() {
         ctx.push_str(&format!("\n## Validation Error Summary\n{brief}\n"));
     }
-    if let Some(excerpts) = &repair_ctx.log_excerpts {
+    if let Some(excerpts) = repair_ctx.log_excerpts() {
         ctx.push_str(&format!("\n## Relevant Log Lines\n{excerpts}\n"));
     }
     ctx.push_str(
@@ -263,14 +271,16 @@ async fn transition_plan_missing(
         Some(phase),
         crate::phase_contract::PhaseDecision::loopback(
             track.plan_phase(),
-            Some(PhaseReasonCode::PlanMissing),
-            Some(crate::phase_reason_detail::plan_missing(
-                track,
-                format!(
+            Some(crate::progress_controller::PhaseTransition::PlanMissing {
+                kind: match track {
+                    crate::track_spec::TrackKind::Cleanse => crate::progress_controller::TrackKind::Cleanse,
+                    crate::track_spec::TrackKind::Model => crate::progress_controller::TrackKind::Model,
+                },
+                note: format!(
                     "authoring entered without an active {} plan; routing back to planning",
                     track.as_str()
                 ),
-            )),
+            }),
         ),
     )
     .await
@@ -373,8 +383,14 @@ async fn transition_plan_not_approved(
         Some(phase),
         crate::phase_contract::PhaseDecision::loopback(
             track.plan_phase(),
-            Some(PhaseReasonCode::PlanNotApproved),
-            Some(crate::phase_reason_detail::plan_not_approved(status)),
+            Some(crate::progress_controller::PhaseTransition::PlanNotApproved {
+                status: match status {
+                    crate::plan_types::PlanStatus::Draft => crate::progress_controller::PlanStatus::Draft,
+                    crate::plan_types::PlanStatus::Approved
+                    | crate::plan_types::PlanStatus::Completed
+                    | crate::plan_types::PlanStatus::Cancelled => crate::progress_controller::PlanStatus::Unknown,
+                },
+            }),
         ),
     )
     .await
@@ -385,8 +401,8 @@ async fn transition_to_track_validate_with_plan_key(
     thread_id: &str,
     phase: Phase,
     track: TrackKind,
-    reason_code: PhaseReasonCode,
-    plan_key: String,
+    transition: crate::progress_controller::PhaseTransition,
+    _plan_key: String,
 ) -> Result<(), String> {
     crate::phase_contract::commit_phase_decision(
         thread_store,
@@ -394,8 +410,7 @@ async fn transition_to_track_validate_with_plan_key(
         Some(phase),
         crate::phase_contract::PhaseDecision::forward(
             track.validate_phase(),
-            Some(reason_code),
-            Some(crate::phase_reason_detail::plan_key(plan_key)),
+            Some(transition),
         ),
     )
     .await
@@ -670,18 +685,18 @@ async fn load_cleanse_author_context(
             if let Some(trigger) = decide_author_validate_trigger(
                 &next_action,
                 &completion_snapshot,
-                params.phase_guard.last_validate_failed,
+                params.last_validate_failed,
             ) {
-                let reason_code = match trigger {
-                    AuthorValidateTrigger::WorkGroupValidate => PhaseReasonCode::WorkGroupValidate,
-                    AuthorValidateTrigger::PlanTasksDone => PhaseReasonCode::PlanTasksDone,
+                let transition = match trigger {
+                    AuthorValidateTrigger::WorkGroupValidate => crate::progress_controller::PhaseTransition::WorkGroupValidate,
+                    AuthorValidateTrigger::PlanTasksDone => crate::progress_controller::PhaseTransition::PlanTasksDone,
                 };
                 transition_to_track_validate_with_plan_key(
                     params.thread_store,
                     params.thread_id,
                     params.phase,
                     params.track,
-                    reason_code,
+                    transition,
                     plan.plan_key.clone(),
                 )
                 .await?;
@@ -690,7 +705,7 @@ async fn load_cleanse_author_context(
                 ));
             }
 
-            if params.phase_guard.last_validate_failed {
+            if params.last_validate_failed {
                 Ok(AuthorPlanLoadResult::Ready {
                     plan_context: build_post_validate_fail_repair_context(
                         params.track,
@@ -919,18 +934,18 @@ async fn load_model_author_context(
             if let Some(trigger) = decide_author_validate_trigger(
                 &next_action,
                 &completion_snapshot,
-                params.phase_guard.last_validate_failed,
+                params.last_validate_failed,
             ) {
-                let reason_code = match trigger {
-                    AuthorValidateTrigger::WorkGroupValidate => PhaseReasonCode::WorkGroupValidate,
-                    AuthorValidateTrigger::PlanTasksDone => PhaseReasonCode::PlanTasksDone,
+                let transition = match trigger {
+                    AuthorValidateTrigger::WorkGroupValidate => crate::progress_controller::PhaseTransition::WorkGroupValidate,
+                    AuthorValidateTrigger::PlanTasksDone => crate::progress_controller::PhaseTransition::PlanTasksDone,
                 };
                 transition_to_track_validate_with_plan_key(
                     params.thread_store,
                     params.thread_id,
                     params.phase,
                     params.track,
-                    reason_code,
+                    transition,
                     plan.plan_key.clone(),
                 )
                 .await?;
@@ -939,7 +954,7 @@ async fn load_model_author_context(
                 ));
             }
 
-            if params.phase_guard.last_validate_failed {
+            if params.last_validate_failed {
                 Ok(AuthorPlanLoadResult::Ready {
                     plan_context: build_post_validate_fail_repair_context(
                         params.track,
@@ -1063,8 +1078,7 @@ async fn build_author_prompt(
             }
         } else {
             if let Some(p) = crate::plan::load_model_plan(actx).await? {
-                if let PlanState::ModelSqlItemNames(names)
-                | PlanState::ModelSchemaItemNames(names) = plan_state
+                if let PlanState::ModelSqlItemNames(names) = plan_state
                 {
                     {
                         let mut want_names: Vec<String> = names.clone();
@@ -1114,15 +1128,7 @@ async fn build_author_prompt(
         q.push_str("\n\n");
         q.push_str(&params.repair_ctx.format_error_context());
     }
-    if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::PrecheckFailed) {
-        if let Some(detail) = params.execution_state.phase.phase_reason_detail.as_ref() {
-            q.push_str("\n\nPre-check failure detail (fix before validate):\n");
-            q.push_str(
-                &serde_json::to_string_pretty(detail).unwrap_or_else(|_| detail.to_string()),
-            );
-        }
-    }
-    if params.execution_state.phase.phase_reason_code == Some(PhaseReasonCode::ReviewPatchImpl) {
+    if matches!(params.execution_state.phase.transition.as_ref(), Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl { .. })) {
         let review_detail = review_patch_detail(params.execution_state);
         if let Some(key) = review_detail
             .as_ref()
@@ -1176,7 +1182,7 @@ async fn build_author_prompt(
         };
         append_review_patch_target_contents(&mut q, actx, &review_target_paths).await;
     }
-    if params.phase_guard.probe_required && !params.phase_guard.probe_satisfied {
+    if params.probe_required && !params.probe_satisfied {
         q.push_str("\n\nConstraint: runtime validation failed after compile; run meaningful run_sql probes (not SELECT 1) to diagnose data before re-validating. Multiple probes are allowed while they add new signal; repeated same/no-signal probes require you to switch to a mutating file fix.");
     }
 
@@ -1237,7 +1243,7 @@ async fn handle_author_run_outcome(
     params: &AuthorPhaseCtx<'_>,
     actx: &AgentCtx,
     sctx: &SuiteCtx,
-    pre_mutation_epoch: u64,
+    _pre_mutation_epoch: u64,
     outcome: RunOutcomeNonInteractive,
 ) -> Result<PhaseOutcome, PhaseError> {
     match outcome {
@@ -1259,8 +1265,12 @@ async fn handle_author_run_outcome(
             )
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-            let patch_impl_mutation_satisfied =
-                gate_state.repair.mutation_epoch > pre_mutation_epoch;
+            let patch_impl_mutation_satisfied = gate_state
+                .repair
+                .pending_patch_impl
+                .as_ref()
+                .map(|i| i.mutated_since_set)
+                .unwrap_or(true);
             if let Err(reason) = crate::progress_controller::gate_authoring_probe(&gate_state) {
                 apply_guard_block(
                     params.thread_store,
@@ -1292,10 +1302,10 @@ async fn handle_author_run_outcome(
                 Some(intent) if intent.phase == params.phase
             ) && patch_impl_mutation_satisfied
             {
-                crate::state_manager::mutate_execution_state(
+                crate::state_manager::apply_execution_event(
                     &params.thread_store.control_store(),
                     params.thread_id,
-                    |es| es.clear_pending_patch_impl(),
+                    crate::progress_controller::DataEngineerEvent::PatchImplIntentCleared,
                 )
                 .await
                 .map_err(|e| format!("failed to clear pending patch-impl intent: {e}"))?;
@@ -1328,7 +1338,7 @@ async fn handle_author_run_outcome(
             } else {
                 Phase::ModelValidate
             };
-            let reason_detail = DataEngineerSuite::authoring_complete_reason_detail(
+            let _reason_detail = DataEngineerSuite::authoring_complete_reason_detail(
                 params.thread_store,
                 params.thread_id,
                 has_proj,
@@ -1341,34 +1351,36 @@ async fn handle_author_run_outcome(
                 Some(params.phase),
                 crate::phase_contract::PhaseDecision::forward(
                     to_phase,
-                    Some(PhaseReasonCode::AuthoringComplete),
-                    Some(reason_detail),
+                    Some(crate::progress_controller::PhaseTransition::AuthoringComplete),
                 ),
             )
             .await?;
             Ok(PhaseOutcome::TransitionCommitted)
         }
         RunOutcomeNonInteractive::StepBoundary { .. } => {
-            let mut post_state = crate::progress_controller::ExecutionState::load_strict(
+            let post_state = crate::progress_controller::ExecutionState::load_strict(
                 &params.thread_store.control_store(),
                 params.thread_id,
             )
             .await?
             .unwrap_or_else(crate::progress_controller::ExecutionState::new);
 
-            if post_state.repair.take_batch_infra_transient() {
-                post_state
-                    .save(&params.thread_store.control_store(), params.thread_id)
-                    .await
-                    .map_err(|e| {
-                        format!("failed to persist infra-transient flag clear: {e}")
-                    })?;
+            if post_state.repair.infra_transient {
+                crate::state_manager::apply_execution_event(
+                    &params.thread_store.control_store(),
+                    params.thread_id,
+                    crate::progress_controller::DataEngineerEvent::InfraTransientCleared,
+                )
+                .await
+                .map_err(|e| {
+                    format!("failed to persist infra-transient flag clear: {e}")
+                })?;
                 return Ok(PhaseOutcome::stayed_waiting(
                     "batch failed with transient infrastructure error; will retry",
                 ));
             }
 
-            let mutation_advanced = post_state.repair.mutation_epoch > pre_mutation_epoch;
+            let mutation_advanced = post_state.repair.mutated_since_fail;
             if mutation_advanced {
                 Ok(PhaseOutcome::stayed_with_progress(
                     "authoring turn made mutations at the step boundary; resetting budget",
@@ -1394,9 +1406,8 @@ impl DataEngineerSuite {
         question: &str,
         sctx: &SuiteCtx,
         execution_state: &crate::progress_controller::ExecutionState,
-        guard: &crate::control_flow::DerivedGuardState,
         _thread_state_step_count: usize,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        repair_ctx: &crate::progress_controller::RepairContext,
     ) -> Result<PhaseOutcome, PhaseError> {
         let adapter = crate::authoring_driver::adapter_for_phase(phase)
             .ok_or_else(|| format!("authoring adapter missing for phase '{}'", phase.as_str()))?;
@@ -1406,17 +1417,22 @@ impl DataEngineerSuite {
             TrackKind::Model
         };
 
-        let mut phase_guard = guard.clone();
-        if matches!(
-            execution_state.phase.phase_reason_code,
-            Some(PhaseReasonCode::PrecheckFailed)
-                | Some(PhaseReasonCode::ValidateExecutionFailed)
-                | Some(PhaseReasonCode::ValidateContractError)
-                | Some(PhaseReasonCode::ValidateFail)
-        ) {
-            phase_guard.last_validate_failed = true;
-            phase_guard.mutated_since_fail = false;
-        }
+        let force_failed = matches!(
+            execution_state.phase.transition.as_ref(),
+            Some(crate::progress_controller::PhaseTransition::PrecheckFailed { .. })
+                | Some(crate::progress_controller::PhaseTransition::ValidateExecutionFailed { .. })
+                | Some(crate::progress_controller::PhaseTransition::ValidateContractError { .. })
+                | Some(crate::progress_controller::PhaseTransition::ValidateFail { .. })
+        );
+        let last_validate_failed = execution_state.last_validate_failed() || force_failed;
+        let mutated_since_fail = if force_failed { false } else { execution_state.repair.mutated_since_fail };
+        let probe_status = execution_state.probe_requirement_status();
+        let (probe_required, probe_satisfied) = match probe_status {
+            crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
+            crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
+            crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
+            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => (false, true),
+        };
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
             prompts::cleanse_system_prompt()
         } else {
@@ -1448,7 +1464,10 @@ impl DataEngineerSuite {
             track,
             execution_state,
             repair_ctx,
-            phase_guard: &phase_guard,
+            last_validate_failed,
+            _mutated_since_fail: mutated_since_fail,
+            probe_required,
+            probe_satisfied,
         };
 
         let (plan_context, plan_state) = if params.track.is_cleanse() {
@@ -1471,7 +1490,6 @@ impl DataEngineerSuite {
 
         let (registry, tools_card) = Self::build_tools_for_phase(
             params.phase,
-            params.phase_guard,
             false,
             sctx,
             &plan_state,
@@ -1487,7 +1505,7 @@ impl DataEngineerSuite {
         )
         .await?;
 
-        let pre_mutation_epoch = params.execution_state.repair.mutation_epoch;
+        let pre_mutation_epoch = 0u64; // legacy parameter — mutation tracking now uses repair.mutated_since_fail
         match Agent::run_until_block_non_interactive(
             &registry,
             &actx,

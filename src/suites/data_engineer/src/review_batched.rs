@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::domain_types::{
-    PhaseReasonCode, ReviewArtifactRef, ReviewBatchOutput, ReviewSummaryOutput, ReviewTier,
+    ReviewArtifactRef, ReviewBatchOutput, ReviewSummaryOutput, ReviewTier,
     ReviewUnifyOutput,
 };
 use react_core::agent::AgentCtx;
@@ -758,7 +758,7 @@ async fn build_project_summary(
         thread_id,
         phase,
         "review",
-        PhaseReasonCode::ReviewProjectSummary,
+        crate::progress_controller::PhaseTransition::ReviewProjectSummary.as_reason_str(),
         serde_json::json!({
             "project_notes": project_notes,
         }),
@@ -888,7 +888,7 @@ async fn review_single_batch(
         thread_id,
         phase,
         "review",
-        PhaseReasonCode::ReviewBatch,
+        crate::progress_controller::PhaseTransition::ReviewBatch.as_reason_str(),
         detail.clone(),
     )
     .await?;
@@ -991,7 +991,7 @@ async fn unify_reviews(
         thread_id,
         phase,
         "review",
-        PhaseReasonCode::ReviewFinalUnify,
+        crate::progress_controller::PhaseTransition::ReviewFinalUnify.as_reason_str(),
         serde_json::json!({
             "review_ref": review_ref.clone(),
             "meta": {

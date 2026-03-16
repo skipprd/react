@@ -1,3 +1,4 @@
+use crate::progress_controller::ValidationFailureContext;
 use serde::{Deserialize, Serialize};
 
 /// Accumulated history of a repair session, ensuring every iteration builds on all prior context.
@@ -6,15 +7,8 @@ use serde::{Deserialize, Serialize};
 /// iterations — the LLM always sees prior attempts and their outcomes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RepairSessionLog {
-    pub error_context: RepairErrorContext,
+    pub error_context: ValidationFailureContext,
     pub iterations: Vec<RepairIteration>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RepairErrorContext {
-    pub validate_brief: String,
-    #[serde(default)]
-    pub log_excerpts: Option<String>,
 }
 
 /// A single file read during the gather phase.
@@ -64,7 +58,7 @@ pub struct ValidateOutcome {
 }
 
 impl RepairSessionLog {
-    pub fn new(error_context: RepairErrorContext) -> Self {
+    pub fn new(error_context: ValidationFailureContext) -> Self {
         Self {
             error_context,
             iterations: Vec::new(),
@@ -105,7 +99,7 @@ impl RepairSessionLog {
         let mut out = String::new();
 
         out.push_str("## Error Context\n\n");
-        out.push_str(&self.error_context.validate_brief);
+        out.push_str(&self.error_context.brief);
         out.push('\n');
 
         if let Some(ref excerpts) = self.error_context.log_excerpts {
@@ -197,9 +191,11 @@ mod tests {
 
     #[test]
     fn format_for_prompt_includes_iterations() {
-        let mut log = RepairSessionLog::new(RepairErrorContext {
-            validate_brief: "dbt test failed: 2 failures".into(),
+        let mut log = RepairSessionLog::new(ValidationFailureContext {
+            brief: "dbt test failed: 2 failures".into(),
             log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
 
         log.record(
@@ -230,9 +226,11 @@ mod tests {
 
     #[test]
     fn empty_session_produces_context_only() {
-        let log = RepairSessionLog::new(RepairErrorContext {
-            validate_brief: "compile error".into(),
+        let log = RepairSessionLog::new(ValidationFailureContext {
+            brief: "compile error".into(),
             log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
         let prompt = log.format_for_prompt();
         assert!(prompt.contains("compile error"));

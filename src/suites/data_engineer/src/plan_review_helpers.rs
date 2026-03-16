@@ -27,8 +27,7 @@ impl DataEngineerSuite {
         track: crate::track_spec::TrackKind,
         actx: &AgentCtx,
         log_len: usize,
-        transition_reason_code: PhaseReasonCode,
-        transition_reason_detail: serde_json::Value,
+        transition: crate::progress_controller::PhaseTransition,
     ) -> Result<bool, String> {
         use crate::phase_plan_lifecycle::{load_plan_for_track, save_plan, TrackPlanDoc};
         use crate::plan_types::TrackPlan;
@@ -95,12 +94,9 @@ impl DataEngineerSuite {
                 Some(phase),
                 PhaseDecision::annotation(
                     phase,
-                    Some(PhaseReasonCode::PlanPrunedEmpty),
-                    Some(crate::phase_reason_detail::to_value(
-                        &crate::phase_reason_detail::PlanPrunedEmptyDetail {
-                            plan_key: doc.plan_key().to_string(),
-                        },
-                    )),
+                    Some(crate::progress_controller::PhaseTransition::PlanPrunedEmpty {
+                        plan_key: doc.plan_key().to_string(),
+                    }),
                 ),
             )
             .await?;
@@ -137,13 +133,10 @@ impl DataEngineerSuite {
                 Some(phase),
                 PhaseDecision::annotation(
                     phase,
-                    Some(PhaseReasonCode::PlanSemanticInvalid),
-                    Some(crate::phase_reason_detail::to_value(
-                        &crate::phase_reason_detail::PlanSemanticInvalidErrorsDetail {
-                            plan_key: doc.plan_key().to_string(),
-                            errors: v.errors.clone(),
-                        },
-                    )),
+                    Some(crate::progress_controller::PhaseTransition::PlanSemanticInvalid {
+                        plan_key: doc.plan_key().to_string(),
+                        errors: v.errors.clone(),
+                    }),
                 ),
             )
             .await?;
@@ -156,10 +149,10 @@ impl DataEngineerSuite {
         save_plan(actx, &doc)
             .await
             .map_err(|e| format!("failed to persist approved {} plan: {e}", track.as_str()))?;
-        crate::state_manager::mutate_execution_state(
+        crate::state_manager::apply_execution_event(
             &thread_store.control_store(),
             thread_id,
-            |es| es.clear_pending_patch_impl(),
+            crate::progress_controller::DataEngineerEvent::PatchImplIntentCleared,
         )
         .await
         .map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
@@ -170,8 +163,7 @@ impl DataEngineerSuite {
             Some(phase),
             PhaseDecision::forward(
                 track.author_phase(),
-                Some(transition_reason_code),
-                Some(transition_reason_detail),
+                Some(transition),
             ),
         )
         .await?;
@@ -201,7 +193,15 @@ impl DataEngineerSuite {
                 crate::progress_controller::ExecutionState::new()
             }
         };
-        let guard = control_flow::derive_guard_state_from_execution_state(&execution_state);
+        let last_validate_failed = execution_state.last_validate_failed();
+        let mutated_since_fail = execution_state.repair.mutated_since_fail;
+        let probe_status = execution_state.probe_requirement_status();
+        let (probe_required, probe_satisfied) = match probe_status {
+            crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
+            crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
+            crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
+            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => (false, true),
+        };
         crate::phase_reason_detail::to_value(
             &crate::phase_reason_detail::AuthoringCompleteReasonDetail {
                 invariants: crate::phase_reason_detail::AuthoringCompleteInvariantsDetail {
@@ -209,10 +209,10 @@ impl DataEngineerSuite {
                     has_any_models: has_models,
                 },
                 guard_state: crate::phase_reason_detail::AuthoringCompleteGuardStateDetail {
-                    last_validate_failed: guard.last_validate_failed,
-                    mutated_since_fail: guard.mutated_since_fail,
-                    probe_required: guard.probe_required,
-                    probe_satisfied: guard.probe_satisfied,
+                    last_validate_failed,
+                    mutated_since_fail,
+                    probe_required,
+                    probe_satisfied,
                 },
             },
         )
@@ -273,17 +273,16 @@ impl DataEngineerSuite {
             ),
         };
 
-        let entry_reason_code: Option<PhaseReasonCode> = execution_state.phase.phase_reason_code;
-        let entry_reason_detail: serde_json::Value = execution_state
-            .phase
-            .phase_reason_detail
-            .clone()
+        let entry_transition = execution_state.phase.transition.as_ref();
+        let entry_reason_detail: serde_json::Value = entry_transition
+            .and_then(|t| serde_json::to_value(t).ok())
             .unwrap_or(serde_json::Value::Null);
 
         let mut prior_review_block: Option<String> = None;
         let is_re_review = matches!(
-            entry_reason_code,
-            Some(PhaseReasonCode::ReviewProceed | PhaseReasonCode::ReviewPatchImpl)
+            entry_transition,
+            Some(crate::progress_controller::PhaseTransition::ReviewProceed)
+                | Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl { .. })
         );
         if is_re_review {
             let parsed = serde_json::from_value::<
@@ -345,10 +344,10 @@ impl DataEngineerSuite {
                 .unwrap_or_else(|_| "{}".to_string())
             ));
         }
-        if entry_reason_code.is_some() || !entry_reason_detail.is_null() {
+        if entry_transition.is_some() || !entry_reason_detail.is_null() {
             ctx_lines.push(format!(
                 "Why we are reviewing now:\n- entry_reason_code: {}\n- entry_reason_detail: {}",
-                entry_reason_code.map(|rc| rc.as_str()).unwrap_or("null"),
+                entry_transition.map(|t| t.as_reason_str()).unwrap_or("null"),
                 entry_reason_detail
             ));
         }

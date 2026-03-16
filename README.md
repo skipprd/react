@@ -123,7 +123,7 @@ react (workspace root)
     └── provider-vector-lance             LanceDB vector store
 ```
 
-**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. `react-core` provides the generic workflow runner (`PhaseOutcome`, `PhaseExecutor`, `WorkflowConfig`, `workflow::runner::run()`), the agent ReAct loop, tools, session, and provider traits. `react-runtime` wires concrete providers and hands execution to `react-transport`. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase reason codes, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
+**Dependency rule**: `react-core` has zero workspace dependencies and **zero domain-specific types**. Everything depends inward on `react-core`. `react-core` provides the generic workflow runner (`PhaseOutcome`, `PhaseExecutor`, `WorkflowConfig`, `workflow::runner::run()`), the agent ReAct loop, tools, session, and provider traits. `react-runtime` wires concrete providers and hands execution to `react-transport`. Suites are fully self-contained — they depend only on `react-core`, never on each other. Domain concepts (phase transitions, guard kinds, review decisions, provider traits like `WarehouseProvider`/`CatalogProvider`/`DbtProvider`/`QueryProvider`, thread caches) live exclusively in the suite that owns them.
 
 **Two-tier module architecture**: modules that are specific to a single suite (e.g. warehouse adapters, dbt CLI wrapper) live under that suite's directory and depend on suite-local traits. Modules that are truly suite-agnostic (e.g. S3 storage, vector store) live at the top-level `src/modules/` and depend only on `react-core`.
 
@@ -171,7 +171,7 @@ A suite owns:
 | Concern | Description |
 |---------|-------------|
 | **Phase order** | An enum of phases forming a state machine |
-| **Domain types** | Control flow enums (`PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, etc.) in a `domain_types` module |
+| **Domain types** | Control flow enums (`PhaseTransition`, `GuardBlockKind`, `ReviewDecision`, etc.) in `domain_types` + `progress_controller` modules |
 | **Prompts** | System prompt and tool card per phase |
 | **Tool registry** | Which tools are available in each phase |
 | **Policy** | An `AgentPolicy` that gates completions and interrupts |
@@ -480,7 +480,7 @@ Suites orchestrate multi-phase workflows. Each phase is a node in a state machin
 Core provides two levels of orchestration:
 
 1. **Workflow runner** (`core::workflow`) — generic `PhaseExecutor` trait + `workflow::runner::run()` loop. Handles step budgets (with progress-based reset), idle detection, and outcome routing. All suites use this single runner.
-2. **Suite contract** — `WorkflowSuiteContract` trait with associated types `Phase`, `ReasonCode`, `GuardKind`, `State`, `Event`. `PhaseDirective<P, R, G>` is generic over phase, reason, and guard kind. Domain-specific types like `PhaseReasonCode`, `GuardBlockKind`, `ReviewDecision`, and `ReviewTier` live entirely in the suite (e.g. `data_engineer/domain_types.rs`), not in core.
+2. **Suite contract** — `WorkflowSuiteContract` trait with associated types `Phase`, `GuardKind`, `State`, `Event`. `PhaseDirective<P, R, G>` is generic over phase, reason, and guard kind. Domain-specific types like `PhaseTransition`, `GuardBlockKind`, `ReviewDecision`, and `ReviewTier` live entirely in the suite (e.g. `data_engineer/progress_controller.rs`, `domain_types.rs`), not in core. All state mutations flow through a typed `DataEngineerEvent` enum via `apply_event()`, giving compile-time enforcement of valid transitions.
 
 #### `data_engineer` phases (example)
 

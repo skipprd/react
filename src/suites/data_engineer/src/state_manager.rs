@@ -1,6 +1,5 @@
 use react_core::session::ControlStateStore;
 use react_core::CoreError;
-use tracing::warn;
 
 use crate::progress_controller::{
     DataEngineerEvent, ExecutionState, EXECUTION_STATE_SCHEMA_VERSION,
@@ -55,10 +54,7 @@ pub async fn load_execution_state(
     else {
         return Ok(None);
     };
-    if let Err(e) = validate_loaded_state(&parsed) {
-        warn!(thread_id, error = %e, "dropping execution_state due to schema mismatch or corruption");
-        return Ok(None);
-    }
+    validate_loaded_state(&parsed)?;
     Ok(Some(parsed))
 }
 
@@ -76,7 +72,7 @@ pub async fn load_execution_state_strict(
     Ok(Some(parsed))
 }
 
-pub async fn mutate_execution_state(
+async fn mutate_execution_state(
     control: &ControlStateStore,
     thread_id: &str,
     mutate: impl FnOnce(&mut ExecutionState),
@@ -135,11 +131,10 @@ mod tests {
         let control = test_control_store();
         let tid = "tid-state-manager-invariant-mutate";
         let err = mutate_execution_state(&control, tid, |st| {
-            st.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-                ok: Some(true),
-                ..crate::progress_controller::LastValidateState::default()
-            });
-            st.telemetry.probe.required = true;
+            // Probe active without failure_context → invariant violation
+            st.telemetry.probe = crate::progress_controller::ProbeStatus::Required {
+                attempts: crate::progress_controller::ProbeAttempts::default(),
+            };
         })
         .await
         .expect_err("invalid post-mutation state must fail");

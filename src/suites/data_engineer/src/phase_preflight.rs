@@ -1,4 +1,4 @@
-use crate::domain_types::PhaseReasonCode;
+use crate::progress_controller::PhaseTransition;
 use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
 use react_core::suite::SuiteCtx;
@@ -53,12 +53,11 @@ impl DataEngineerSuite {
             Some(control_flow::Phase::Preflight),
             crate::phase_contract::PhaseDecision::forward(
                 control_flow::Phase::CleansePlan,
-                Some(PhaseReasonCode::PreflightOk),
-                Some(serde_json::json!({
-                    "dbt_project_key": key,
-                    "has_query_provider": crate::ctx_ext::sctx_query(sctx).is_some(),
-                    "has_dbt_provider": crate::ctx_ext::sctx_dbt(sctx).is_some(),
-                })),
+                Some(PhaseTransition::PreflightOk {
+                    dbt_project_key: key.clone(),
+                    has_query_provider: crate::ctx_ext::sctx_query(sctx).is_some(),
+                    has_dbt_provider: crate::ctx_ext::sctx_dbt(sctx).is_some(),
+                }),
             ),
         )
         .await?;

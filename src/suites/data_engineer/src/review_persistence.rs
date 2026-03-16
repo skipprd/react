@@ -6,7 +6,7 @@ use react_core::agent::AgentCtx;
 use react_core::session::{Observation, ThreadStep, ThreadStore};
 
 use super::control_flow::Phase;
-use super::domain_types::{PhaseReasonCode, ReviewDecision, ReviewTier};
+use super::domain_types::{ReviewDecision, ReviewTier};
 use super::plan as de_plan;
 use super::review_batched::{utc_ts, MAX_BATCHES_SAVED, REVIEW_SNAPSHOT_VERSION};
 use super::plan_kind::PlanKind;
@@ -16,7 +16,7 @@ pub(super) async fn append_review_step(
     thread_id: &str,
     phase: Phase,
     agent: &str,
-    code: PhaseReasonCode,
+    reason_code_str: &str,
     detail: Value,
 ) -> Result<(), String> {
     store
@@ -25,7 +25,7 @@ pub(super) async fn append_review_step(
             ThreadStep::Phase {
                 phase: phase.as_str().to_string(),
                 from_phase: Some(phase.as_str().to_string()),
-                reason_code: Some(code.as_str().to_string()),
+                reason_code: Some(reason_code_str.to_string()),
                 reason_detail: Some(detail),
                 observation: Observation::ok(),
                 ts: utc_ts(),

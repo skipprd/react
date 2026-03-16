@@ -1,5 +1,6 @@
-use crate::domain_types::{PhaseReasonCode, ReviewDecision, ReviewDecisionMeta, ReviewTier};
+use crate::domain_types::{ReviewDecision, ReviewDecisionMeta, ReviewTier};
 use crate::phase_contract::{commit_phase_decision, PhaseDecision};
+use crate::progress_controller::PhaseTransition;
 use crate::review_batched;
 use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
@@ -42,12 +43,7 @@ impl DataEngineerSuite {
         {
             Ok(f) => f,
             Err(e) => {
-                let validate_passed = execution_state
-                    .telemetry
-                    .last_validate
-                    .as_ref()
-                    .and_then(|lv| lv.ok)
-                    == Some(true);
+                let validate_passed = !execution_state.last_validate_failed();
                 if validate_passed {
                     tracing::warn!(
                         "data_engineer: review infra failure (phase={}) but validate already passed; proceeding. error={}",
@@ -75,11 +71,7 @@ impl DataEngineerSuite {
                         Some(phase),
                         PhaseDecision::forward(
                             next,
-                            Some(PhaseReasonCode::ReviewProceed),
-                            Some(serde_json::json!({
-                                "review_skipped_reason": "infra_failure_after_validate_pass",
-                                "error": e.to_string(),
-                            })),
+                            Some(PhaseTransition::ReviewProceed),
                         ),
                     )
                     .await?;
@@ -116,9 +108,10 @@ impl DataEngineerSuite {
             "phase": phase.as_str(),
             "phase_reason_code": execution_state
                 .phase
-                .phase_reason_code
-                .map(|c| c.as_str().to_string()),
-            "phase_reason_detail": execution_state.phase.phase_reason_detail.clone(),
+                .transition
+                .as_ref()
+                .map(|t| t.as_reason_str().to_string()),
+            "phase_reason_detail": execution_state.phase.transition.as_ref().and_then(|t| serde_json::to_value(t).ok()),
         });
 
         let mut meta: ReviewDecisionMeta = match decision_meta_v {
@@ -163,13 +156,10 @@ impl DataEngineerSuite {
                         phase.as_str(),
                         tries
                     );
-                    Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
-                        matches!(
-                            k,
-                            crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
-                                | crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange
-                        )
-                    })
+                    Self::clear_subjective_retries(thread_store, thread_id, vec![
+                        crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
+                        crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
+                    ])
                     .await?;
                     review_retry_count = tries;
                     meta.decision = ReviewDecision::Proceed;
@@ -181,13 +171,10 @@ impl DataEngineerSuite {
             }
         } else {
             review_retry_count = 0;
-            Self::clear_subjective_retries_matching(thread_store, thread_id, |k| {
-                matches!(
-                    k,
-                    crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl
-                        | crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange
-                )
-            })
+            Self::clear_subjective_retries(thread_store, thread_id, vec![
+                crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
+                crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
+            ])
             .await?;
         }
         out_frames.push(FlowFrame::Review {
@@ -199,7 +186,7 @@ impl DataEngineerSuite {
             ),
         });
 
-        let reason_detail = crate::phase_reason_detail::review_decision_transition(
+        let _reason_detail = crate::phase_reason_detail::review_decision_transition(
             phase.as_str(),
             meta.clone(),
             meta.decision,
@@ -212,10 +199,10 @@ impl DataEngineerSuite {
 
         match meta.decision {
             ReviewDecision::Proceed => {
-                crate::state_manager::mutate_execution_state(
+                crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    |es| es.clear_pending_patch_impl(),
+                    crate::progress_controller::DataEngineerEvent::PatchImplIntentCleared,
                 )
                 .await
                 .map(|_| ())?;
@@ -226,16 +213,15 @@ impl DataEngineerSuite {
                     _ => control_flow::Phase::Done,
                 };
                 if next == control_flow::Phase::PublishAwaitApproval {
-                    let mut st = crate::progress_controller::ExecutionState::load_strict(
+                    crate::state_manager::apply_execution_event(
                         &thread_store.control_store(),
                         thread_id,
+                        crate::progress_controller::DataEngineerEvent::PublishApprovalSet {
+                            decision: crate::progress_controller::PublishApprovalDecision::Approved,
+                        },
                     )
-                    .await?
-                    .unwrap_or_else(crate::progress_controller::ExecutionState::new);
-                    st.set_publish_approval(
-                        crate::progress_controller::PublishApprovalDecision::Approved,
-                    );
-                    st.save(&thread_store.control_store(), thread_id).await.map_err(|e| {
+                    .await
+                    .map_err(|e| {
                         format!(
                             "failed to persist explicit publish approval on model review proceed: {e}"
                         )
@@ -247,8 +233,7 @@ impl DataEngineerSuite {
                     Some(phase),
                     PhaseDecision::forward(
                         next,
-                        Some(PhaseReasonCode::ReviewProceed),
-                        Some(reason_detail),
+                        Some(PhaseTransition::ReviewProceed),
                     ),
                 )
                 .await?;
@@ -256,10 +241,33 @@ impl DataEngineerSuite {
             }
             ReviewDecision::PatchImpl => {
                 let back = patch_impl_target_phase(phase, meta.tier);
-                crate::state_manager::mutate_execution_state(
+                let review_brief = {
+                    let cleaned = Self::strip_meta_line(&answer);
+                    let max = 4_000usize;
+                    if cleaned.len() > max {
+                        format!("Review feedback (truncated):\n{}...", &cleaned[..max])
+                    } else {
+                        format!("Review feedback:\n{cleaned}")
+                    }
+                };
+                crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    |es| es.set_pending_patch_impl_intent(back),
+                    crate::progress_controller::DataEngineerEvent::ValidateCheckFailed {
+                        failure_context: crate::progress_controller::ValidationFailureContext {
+                            brief: review_brief,
+                            log_excerpts: None,
+                            compile_ok: true,
+                            run_ok: true,
+                        },
+                    },
+                )
+                .await
+                .map_err(|e| format!("failed to record review feedback as failure context: {e}"))?;
+                crate::state_manager::apply_execution_event(
+                    &thread_store.control_store(),
+                    thread_id,
+                    crate::progress_controller::DataEngineerEvent::PatchImplIntentSet { phase: back },
                 )
                 .await
                 .map(|_| ())?;
@@ -269,18 +277,20 @@ impl DataEngineerSuite {
                     Some(phase),
                     PhaseDecision::loopback(
                         back,
-                        Some(PhaseReasonCode::ReviewPatchImpl),
-                        Some(reason_detail),
+                        Some(PhaseTransition::ReviewPatchImpl {
+                            meta: meta.clone(),
+                            target_paths: meta.dataset_ids.clone(),
+                        }),
                     ),
                 )
                 .await?;
                 Ok(PhaseOutcome::TransitionCommitted)
             }
             ReviewDecision::PlanChange => {
-                crate::state_manager::mutate_execution_state(
+                crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    |es| es.clear_pending_patch_impl(),
+                    crate::progress_controller::DataEngineerEvent::PatchImplIntentCleared,
                 )
                 .await
                 .map(|_| ())?;

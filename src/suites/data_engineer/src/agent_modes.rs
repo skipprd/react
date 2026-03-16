@@ -63,8 +63,6 @@ struct DataEngineerExecutor<'a> {
 #[async_trait::async_trait]
 impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
     async fn execute_turn(&self, out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
-        use control_flow::DerivedGuardState;
-
         let execution_state = match crate::progress_controller::ExecutionState::load_strict(
             &self.thread_store.control_store(),
             self.thread_id,
@@ -76,16 +74,11 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
             Err(e) => return PhaseOutcome::Failed { reason: e },
         };
 
-        let phase = execution_state
-            .phase
-            .current_phase
-            .unwrap_or(control_flow::Phase::Preflight);
+        let phase = execution_state.phase.current_phase;
         let thread_log = self.thread_store.get(self.thread_id).await.ok();
         let thread_state_step_count =
             thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
 
-        let guard: DerivedGuardState =
-            control_flow::derive_guard_state_from_execution_state(&execution_state);
         match crate::phase_gate::evaluate_pre_turn_directive(
             &execution_state,
             phase,
@@ -93,7 +86,7 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
         ) {
             crate::phase_gate::PreTurnDirective::Proceed => {}
             crate::phase_gate::PreTurnDirective::FailFast { kind, reason } => {
-                let _ = crate::transition_dispatcher::apply_phase_directive(
+                if let Err(e) = crate::transition_dispatcher::apply_phase_directive(
                     &self.thread_store,
                     self.thread_id,
                     Some(env_util::DEFAULT_AGENT_NAME.to_string()),
@@ -104,17 +97,26 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
                         reason: reason.clone(),
                     },
                 )
-                .await;
-                let mut es = execution_state.clone();
-                es.mark_failed(reason.clone());
-                let _ = es
-                    .save(&self.thread_store.control_store(), self.thread_id)
-                    .await;
+                .await
+                {
+                    tracing::error!("failed to persist guard block on FailFast: {e}");
+                }
+                if let Err(e) = crate::state_manager::apply_execution_event(
+                    &self.thread_store.control_store(),
+                    self.thread_id,
+                    crate::progress_controller::DataEngineerEvent::MarkedFailed {
+                        reason: reason.clone(),
+                    },
+                )
+                .await
+                {
+                    tracing::error!("failed to persist mark_failed on FailFast: {e}");
+                }
                 return PhaseOutcome::Failed { reason };
             }
         }
 
-        let mut repair_ctx = execution_state.repair_prompt_context();
+        let mut repair_ctx = execution_state.repair_context();
         if let Some(log) = thread_log.as_ref() {
             if let Some(track) = TrackKind::from_any_phase(phase) {
                 repair_ctx.recent_failed_file_ops =
@@ -128,7 +130,6 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
             self.question,
             self.sctx,
             &execution_state,
-            &guard,
             thread_state_step_count,
             &repair_ctx,
             out_frames,
@@ -158,13 +159,12 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
             None
         }) {
             let detail = format!(
-                "{}\n\nExecution state at exhaustion:\n- current_phase={}\n- mode={}\n- phase_reason_code={}\n- replan_backtracks={}\n- repair_cycles={}/{}\n- hard_mutation_repair_mode={}",
+                "{}\n\nExecution state at exhaustion:\n- current_phase={}\n- phase_reason_code={}\n- replan_backtracks={}\n- repair_cycles={}/{}\n- hard_mutation_repair_mode={}",
                 budget_msg,
-                es.phase.current_phase.map(|p| p.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
-                format!("{:?}", es.phase.mode),
-                es.phase.phase_reason_code.map(|c| c.as_str().to_string()).unwrap_or_else(|| "null".to_string()),
+                es.phase.current_phase.as_str(),
+                es.phase.transition.as_ref().map(|t| t.as_reason_str().to_string()).unwrap_or_else(|| "null".to_string()),
                 es.phase.replan_backtracks,
-                es.repair.repair_cycles,
+                es.repair.cycle_count(),
                 crate::progress_controller::MAX_REPAIR_CYCLES,
                 es.hard_mutation_repair_mode(),
             );
@@ -369,12 +369,12 @@ impl DataEngineerSuite {
         crate::retry_budget::check_subjective_retry_budget(thread_store, thread_id, kind).await
     }
 
-    pub(super) async fn clear_subjective_retries_matching(
+    pub(super) async fn clear_subjective_retries(
         thread_store: &ThreadStore,
         thread_id: &str,
-        f: impl Fn(&crate::progress_controller::SubjectiveRetryKind) -> bool,
+        kinds: Vec<crate::progress_controller::SubjectiveRetryKind>,
     ) -> Result<(), String> {
-        crate::retry_budget::clear_subjective_retries_matching(thread_store, thread_id, f).await
+        crate::retry_budget::clear_subjective_retries(thread_store, thread_id, kinds).await
     }
 
     pub(super) fn validate_agent_type(agent_type: &str) -> Result<AgentMode, String> {
@@ -660,9 +660,8 @@ impl DataEngineerSuite {
         question: &str,
         sctx: &SuiteCtx,
         execution_state: &crate::progress_controller::ExecutionState,
-        guard: &control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        repair_ctx: &crate::progress_controller::RepairContext,
         out_frames: &mut Vec<FlowFrame>,
     ) -> PhaseOutcome {
         match Self::execute_phase_inner(
@@ -672,7 +671,6 @@ impl DataEngineerSuite {
             question,
             sctx,
             execution_state,
-            guard,
             thread_state_step_count,
             repair_ctx,
             out_frames,
@@ -696,22 +694,16 @@ impl DataEngineerSuite {
                     &reason,
                 )
                 .await;
-                match crate::progress_controller::ExecutionState::load(
+                if let Err(e) = crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
+                    crate::progress_controller::DataEngineerEvent::MarkedFailed {
+                        reason: reason.clone(),
+                    },
                 )
                 .await
                 {
-                    Ok(Some(mut es)) => {
-                        es.mark_failed(&reason);
-                        if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
-                            tracing::error!("failed to persist mark_failed after phase error: {e}");
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        tracing::error!("failed to load execution state after phase error: {e}");
-                    }
+                    tracing::error!("failed to persist mark_failed after phase error: {e}");
                 }
                 PhaseOutcome::Failed { reason }
             }
@@ -725,9 +717,8 @@ impl DataEngineerSuite {
         question: &str,
         sctx: &SuiteCtx,
         execution_state: &crate::progress_controller::ExecutionState,
-        guard: &control_flow::DerivedGuardState,
         thread_state_step_count: usize,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        repair_ctx: &crate::progress_controller::RepairContext,
         out_frames: &mut Vec<FlowFrame>,
     ) -> Result<PhaseOutcome, PhaseError> {
         use crate::control_flow::Phase;
@@ -741,7 +732,6 @@ impl DataEngineerSuite {
                     question,
                     sctx,
                     execution_state,
-                    guard,
                     thread_state_step_count,
                     repair_ctx,
                 )
@@ -765,7 +755,6 @@ impl DataEngineerSuite {
                         question,
                         sctx,
                         execution_state,
-                        guard,
                         thread_state_step_count,
                         repair_ctx,
                     )
@@ -780,7 +769,6 @@ impl DataEngineerSuite {
                     question,
                     sctx,
                     execution_state,
-                    guard,
                     thread_state_step_count,
                 )
                 .await
@@ -810,9 +798,14 @@ impl DataEngineerSuite {
         thread_store: &ThreadStore,
         thread_id: &str,
         sctx: &SuiteCtx,
-        _execution_state: &crate::progress_controller::ExecutionState,
-        repair_ctx: &crate::progress_controller::RepairPromptContext,
+        execution_state: &crate::progress_controller::ExecutionState,
+        _repair_ctx: &crate::progress_controller::RepairContext,
     ) -> Result<PhaseOutcome, PhaseError> {
+        let current_phase = execution_state.phase.current_phase;
+        let track = crate::track_spec::TrackKind::from_any_phase(current_phase)
+            .ok_or_else(|| format!("repair phase has no track: {}", current_phase.as_str()))?;
+        let validate_phase = track.validate_phase();
+
         let actx = Self::agent_tool_ctx(thread_id, sctx);
         let cfg = crate::resolved_config_from_ctx(&actx);
         let dispatch = cfg
@@ -822,13 +815,14 @@ impl DataEngineerSuite {
                 task_model: "gpt-4o-mini".into(),
             });
 
-        let error_context = crate::repair_session::RepairErrorContext {
-            validate_brief: repair_ctx
-                .brief
-                .clone()
-                .unwrap_or_default(),
-            log_excerpts: repair_ctx.log_excerpts.clone(),
-        };
+        let error_context = execution_state.repair.failure_context.clone().unwrap_or_else(|| {
+            crate::progress_controller::ValidationFailureContext {
+                brief: String::new(),
+                log_excerpts: None,
+                compile_ok: false,
+                run_ok: false,
+            }
+        });
 
         let result = crate::repair_subroutine::run_repair(
             sctx,
@@ -842,32 +836,48 @@ impl DataEngineerSuite {
 
         match result {
             Ok(_) => {
-                crate::state_manager::mutate_execution_state(
+                crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    |es| {
-                        es.repair.repair_active = false;
-                        let tier = es.phase.current_tier.clone();
-                        es.apply_validate_success(tier);
-                    },
+                    crate::progress_controller::DataEngineerEvent::RepairSucceeded,
                 )
                 .await
-                .map_err(|e| format!("failed to clear repair_active after success: {e}"))?;
+                .map_err(|e| format!("failed to clear repair state after success: {e}"))?;
+
+                crate::phase_contract::commit_phase_decision(
+                    thread_store,
+                    thread_id,
+                    Some(current_phase),
+                    crate::phase_contract::PhaseDecision::forward(
+                        validate_phase,
+                        Some(crate::progress_controller::PhaseTransition::RepairCompleted),
+                    ),
+                )
+                .await?;
                 Ok(PhaseOutcome::TransitionCommitted)
             }
             Err(e) => {
-                crate::state_manager::mutate_execution_state(
+                crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    |es| {
-                        es.repair.repair_active = false;
-                    },
+                    crate::progress_controller::DataEngineerEvent::RepairExhausted,
                 )
                 .await
-                .map_err(|e2| format!("failed to clear repair_active after exhaustion: {e2}"))?;
-                Ok(PhaseOutcome::stayed_waiting(format!(
-                    "repair subroutine exhausted: {e}"
-                )))
+                .map_err(|e2| format!("failed to mark repair exhausted: {e2}"))?;
+
+                crate::phase_contract::commit_phase_decision(
+                    thread_store,
+                    thread_id,
+                    Some(current_phase),
+                    crate::phase_contract::PhaseDecision::forward(
+                        validate_phase,
+                        Some(crate::progress_controller::PhaseTransition::RepairExhausted {
+                            reason: e.clone(),
+                        }),
+                    ),
+                )
+                .await?;
+                Ok(PhaseOutcome::TransitionCommitted)
             }
         }
     }

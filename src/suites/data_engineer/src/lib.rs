@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use self::policy_sql_validated::DatasetCandidate;
 use self::policy_sql_validated::SqlValidatedPolicy;
 use self::preflight::PreflightProvider;
-use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
-use crate::phase_contract::{commit_guard_block as apply_guard_block, plan_status_reason_detail};
+use crate::domain_types::GuardBlockKind;
+use crate::phase_contract::commit_guard_block as apply_guard_block;
 use react_core::agent::{
     Agent, AgentCtx, AgentPolicy, InterruptKind, RunOutcome, RunOutcomeNonInteractive,
 };
@@ -25,7 +25,7 @@ pub(crate) fn resolved_config_from_ctx(
 
 impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
     type Phase = control_flow::Phase;
-    type ReasonCode = PhaseReasonCode;
+    type ReasonCode = ();
     type GuardKind = GuardBlockKind;
     type State = crate::progress_controller::ExecutionState;
     type Event = crate::progress_controller::DataEngineerEvent;
@@ -34,8 +34,8 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
         phase.as_str()
     }
 
-    fn reason_as_str(reason: Self::ReasonCode) -> &'static str {
-        reason.as_str()
+    fn reason_as_str(_reason: Self::ReasonCode) -> &'static str {
+        "unused"
     }
 
     fn guard_kind_as_str(kind: Self::GuardKind) -> &'static str {
@@ -53,10 +53,7 @@ impl react_core::suite::WorkflowSuiteContract for DataEngineerSuite {
     fn pre_turn(
         state: &crate::progress_controller::ExecutionState,
     ) -> react_core::workflow::PreTurnDirective<Self::GuardKind> {
-        let phase = state
-            .phase_state()
-            .current_phase
-            .unwrap_or(control_flow::Phase::Preflight);
+        let phase = state.phase_state().current_phase;
         crate::phase_gate::evaluate_pre_turn_directive(
             state,
             phase,
@@ -76,10 +73,7 @@ impl react_core::suite::WorkflowNodeContract for DataEngineerSuite {
     type Node = crate::control_flow::Phase;
 
     fn node_from_state(state: &crate::progress_controller::ExecutionState) -> Self::Node {
-        state
-            .phase
-            .current_phase
-            .unwrap_or(crate::control_flow::Phase::Preflight)
+        state.phase.current_phase
     }
 
     fn phase_from_node(node: Self::Node) -> Self::Phase {
@@ -293,7 +287,6 @@ enum PlanState {
     CleanseSqlDatasetIds(Vec<String>),
     CleanseSchemaDatasetIds(Vec<String>),
     ModelSqlItemNames(Vec<String>),
-    ModelSchemaItemNames(Vec<String>),
     Unconstrained,
     /// Post-validation-failure or review-patch: only surgical file/SQL tools,
     /// no bulk authoring or batch tools.

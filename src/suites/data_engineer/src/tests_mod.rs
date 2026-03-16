@@ -260,16 +260,8 @@ async fn hard_mutation_mode_exposes_batch_tool_from_plan_state() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
 
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
     let (_reg, card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::CleanseAuthor,
-        &guard,
         true,
         &sctx,
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
@@ -287,16 +279,8 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
-    let guard = crate::control_flow::DerivedGuardState {
-        last_validate_failed: true,
-        mutated_since_fail: false,
-        probe_required: false,
-        probe_satisfied: false,
-    };
-
     let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::ModelAuthor,
-        &guard,
         true,
         &sctx,
         &super::PlanState::Unconstrained,
@@ -307,11 +291,10 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
     // Seed valid hard-repair execution state for deterministic single-target tool calls.
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-            ok: Some(false),
-            ..crate::progress_controller::LastValidateState::default()
+        seeded.repair.failure_context = Some(crate::progress_controller::ValidationFailureContext {
+            brief: "test".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
         });
-        seeded.repair.repair_active = true;
+        seeded.repair.status = crate::progress_controller::RepairStatus::Pending { cycle: 1 };
         seeded
             .save(&store.control_store(), "t")
             .await
@@ -346,11 +329,8 @@ async fn agent_phase_tool_card_and_registry_never_expose_ask_user() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-    let guard = crate::control_flow::DerivedGuardState::default();
-
     let (reg, card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::CleansePlan,
-        &guard,
         true,
         &sctx,
         &super::PlanState::ReadOnly,
@@ -407,10 +387,8 @@ async fn plan_batched_staging_model_is_not_exposed_to_agent() {
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
-    let guard = crate::control_flow::DerivedGuardState::default();
     let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::CleanseAuthor,
-        &guard,
         true,
         &sctx,
         &super::PlanState::CleanseSqlDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
@@ -441,10 +419,8 @@ async fn plan_batched_cleanse_schema_mode_exposes_only_schema_batch_tool() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-    let guard = crate::control_flow::DerivedGuardState::default();
     let (reg, card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::CleanseAuthor,
-        &guard,
         true,
         &sctx,
         &super::PlanState::CleanseSchemaDatasetIds(vec!["AwsDataCatalog.db.t1".to_string()]),
@@ -469,10 +445,8 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
 
-    let guard = crate::control_flow::DerivedGuardState::default();
     let (reg, _card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::ModelAuthor,
-        &guard,
         true,
         &sctx,
         &super::PlanState::ModelSqlItemNames(vec!["fct_orders".to_string()]),
@@ -497,32 +471,8 @@ async fn plan_batched_gold_model_is_not_exposed_to_agent() {
     assert!(err2.contains("no active model plan"));
 }
 
-#[tokio::test]
-async fn plan_batched_model_schema_mode_exposes_only_schema_batch_tool() {
-    let mut sctx = test_sctx();
-    sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
-    let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-    let guard = crate::control_flow::DerivedGuardState::default();
-    let (reg, card) = DataEngineerSuite::build_tools_for_phase(
-        crate::control_flow::Phase::ModelAuthor,
-        &guard,
-        true,
-        &sctx,
-        &super::PlanState::ModelSchemaItemNames(vec!["fct_orders".to_string()]),
-        false,
-    )
-    .expect("build_tools_for_phase should succeed");
-    assert!(card.contains("apply_next_model_schema_batch"));
-    assert!(
-        !card.contains("- apply_next_model_batch(args:{instructions?:string})"),
-        "sql batch tool must not be exposed in schema-next-action mode"
-    );
-    let err = reg
-        .call("apply_next_model_batch", serde_json::json!({}), &actx)
-        .await
-        .unwrap_err();
-    assert!(err.contains("unknown tool"));
-}
+// ModelSchemaItemNames variant removed (never constructed in production).
+// Schema-only batch mode was only used in tests; ModelSqlItemNames is the sole model plan state.
 
 #[test]
 fn review_question_includes_prior_review_and_mutation_diff_when_available() {
@@ -531,12 +481,15 @@ fn review_question_includes_prior_review_and_mutation_diff_when_available() {
 
     let prior_review_answer = "Please add tests.";
     let mut st = ExecutionState::new();
-    st.phase.phase_reason_code = Some(crate::domain_types::PhaseReasonCode::ReviewPatchImpl);
-    st.phase.phase_reason_detail = Some(serde_json::json!({
-        "review_phase":"cleanse_review",
-        "meta": {"decision":"patch_impl", "dataset_ids": ["x"], "tier":"silver"},
-        "answer": prior_review_answer
-    }));
+    st.phase.transition = Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl {
+        meta: crate::domain_types::ReviewDecisionMeta {
+            decision: crate::domain_types::ReviewDecision::PatchImpl,
+            dataset_ids: vec!["x".to_string()],
+            tier: crate::domain_types::ReviewTier::Silver,
+            review_ref: None,
+        },
+        target_paths: vec!["x".to_string()],
+    });
     st.telemetry.last_mutation_summary = Some(LastMutationSummary {
         op: crate::progress_controller::MutationOp::Patch,
         affected_paths: vec!["models/staging/stg_test_raw_raw_orders.sql".to_string()],
@@ -581,8 +534,9 @@ fn review_question_includes_entry_reason_when_review_started_from_validate_pass(
     use crate::progress_controller::ExecutionState;
 
     let mut st = ExecutionState::new();
-    st.phase.phase_reason_code = Some(crate::domain_types::PhaseReasonCode::ValidatePassToReview);
-    st.phase.phase_reason_detail = Some(serde_json::json!({"dbt_validate_step_idx": 1}));
+    st.phase.transition = Some(crate::progress_controller::PhaseTransition::ValidatePassToReview {
+        step_idx: 1,
+    });
 
     let q = DataEngineerSuite::build_review_question_with_context(
         "orig goal",
@@ -590,25 +544,24 @@ fn review_question_includes_entry_reason_when_review_started_from_validate_pass(
         &st,
     );
     assert!(q.contains("validate_pass_to_review"));
-    assert!(q.contains("dbt_validate_step_idx"));
+    assert!(q.contains("step_idx"));
 }
 
 #[test]
-fn patch_impl_intent_requires_mutation_epoch_advance() {
+fn patch_impl_intent_requires_mutation_advance() {
     use crate::control_flow::Phase;
     use crate::progress_controller::{ExecutionState, PatchImplIntent};
 
     let mut st = ExecutionState::new();
-    st.repair.mutation_epoch = 4;
     st.repair.pending_patch_impl = Some(PatchImplIntent {
         phase: Phase::ModelAuthor,
-        entry_mutation_epoch: 4,
+        mutated_since_set: false,
     });
     assert!(crate::phase_gate::patch_impl_intent_unsatisfied(
         &st,
         Phase::ModelAuthor
     ));
-    st.repair.mutation_epoch = 5;
+    st.repair.pending_patch_impl.as_mut().unwrap().mutated_since_set = true;
     assert!(!crate::phase_gate::patch_impl_intent_unsatisfied(
         &st,
         Phase::ModelAuthor
@@ -627,9 +580,8 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
 
     // Seed failing validate state directly in canonical control state.
     let mut state = crate::progress_controller::ExecutionState::new();
-    state.telemetry.last_validate = Some(crate::progress_controller::LastValidateState {
-        ok: Some(false),
-        ..crate::progress_controller::LastValidateState::default()
+    state.repair.failure_context = Some(crate::progress_controller::ValidationFailureContext {
+        brief: "test".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
     });
     state
         .save(&store.control_store(), tid)
@@ -645,7 +597,7 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
         Some(false)
     );
 
-    state.repair.repair_active = true;
+    state.repair.status = crate::progress_controller::RepairStatus::Pending { cycle: 1 };
     state.set_last_mutation_summary(
         crate::progress_controller::MutationOp::Patch,
         vec!["models/staging/stg_orders.sql".to_string()],
@@ -685,10 +637,8 @@ async fn model_plan_can_disable_json_file_after_manifest_retry_suppression() {
     let mut sctx = test_sctx();
     sctx.set_capability(Arc::new(crate::ctx_ext::QueryCap(Arc::new(MockQuery))));
     let actx = DataEngineerSuite::agent_tool_ctx("t", &sctx);
-    let guard = crate::control_flow::DerivedGuardState::default();
     let (reg, card) = DataEngineerSuite::build_tools_for_phase(
         crate::control_flow::Phase::ModelPlan,
-        &guard,
         true,
         &sctx,
         &super::PlanState::ReadOnly,

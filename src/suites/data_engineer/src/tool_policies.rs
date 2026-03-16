@@ -24,16 +24,8 @@ pub(super) fn register_batch_tool_for_plan_state(
             reg.register(tools::apply_next_batch::ApplyNextModelBatchTool);
             Some("apply_next_model_batch")
         }
-        (control_flow::Phase::ModelAuthor, PlanState::ModelSchemaItemNames(_)) => {
-            reg.register(
-                tools::apply_next_schema_batch::ApplyNextModelSchemaBatchTool {
-                    datasets: datasets.clone(),
-                },
-            );
-            Some("apply_next_model_schema_batch")
-        }
         (_, PlanState::Unconstrained | PlanState::Repair | PlanState::ReadOnly) => None,
-        (_, PlanState::ModelSqlItemNames(_) | PlanState::ModelSchemaItemNames(_)) => None,
+        (_, PlanState::ModelSqlItemNames(_)) => None,
         (_, PlanState::CleanseSqlDatasetIds(_) | PlanState::CleanseSchemaDatasetIds(_)) => None,
     }
 }
@@ -89,23 +81,32 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
         let runtime_validate = build || run;
         if let (Some(store), Some(tid)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
-            let guard =
+            let es =
                 crate::progress_controller::ExecutionState::load(&store.control_store(), tid)
                     .await
                     .map_err(|e| {
                         format!("failed to load execution state for tool policy guard: {e}")
-                    })?
-                    .map(|st| crate::control_flow::derive_guard_state_from_execution_state(&st))
-                    .unwrap_or_default();
-            if guard.last_validate_failed && !guard.mutated_since_fail {
-                return Err(crate::controller_kernel::guard_block_error(
-                    crate::controller_kernel::GuardReason::MutationRequiredAfterValidateFailure,
-                ));
-            }
-            if runtime_validate && guard.probe_required && !guard.probe_satisfied {
-                return Err(crate::controller_kernel::guard_block_error(
-                    crate::controller_kernel::GuardReason::ProbeRequiredAfterRuntimeFailure,
-                ));
+                    })?;
+            if let Some(ref st) = es {
+                let last_validate_failed = st.last_validate_failed();
+                let mutated_since_fail = st.repair.mutated_since_fail;
+                if last_validate_failed && !mutated_since_fail {
+                    return Err(crate::controller_kernel::guard_block_error(
+                        crate::controller_kernel::GuardReason::MutationRequiredAfterValidateFailure,
+                    ));
+                }
+                let probe_status = st.probe_requirement_status();
+                let (probe_required, probe_satisfied) = match probe_status {
+                    crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
+                    crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
+                    crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
+                    crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => (false, true),
+                };
+                if runtime_validate && probe_required && !probe_satisfied {
+                    return Err(crate::controller_kernel::guard_block_error(
+                        crate::controller_kernel::GuardReason::ProbeRequiredAfterRuntimeFailure,
+                    ));
+                }
             }
         }
         self.inner.call(args, ctx).await

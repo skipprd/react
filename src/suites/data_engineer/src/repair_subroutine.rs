@@ -36,8 +36,9 @@ struct GatherDiagnosisV1 {
 
 use crate::control_flow::DeterministicDbtValidateOnce;
 use crate::model_dispatch::ModelDispatch;
+use crate::progress_controller::ValidationFailureContext;
 use crate::repair_session::{
-    ApplyResult, FileOp, GatheredFile, PlannedFix, RepairErrorContext, RepairIteration,
+    ApplyResult, FileOp, GatheredFile, PlannedFix, RepairIteration,
     RepairSessionLog, ValidateOutcome,
 };
 
@@ -157,7 +158,7 @@ pub async fn run_repair(
     _thread_store: &ThreadStore,
     thread_id: &str,
     dispatch: &ModelDispatch,
-    error_context: RepairErrorContext,
+    error_context: ValidationFailureContext,
     max_iterations: Option<usize>,
 ) -> Result<Vec<FlowFrame>, String> {
     let max_iters = max_iterations.unwrap_or(DEFAULT_MAX_ITERATIONS);

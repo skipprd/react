@@ -1,4 +1,5 @@
-use crate::domain_types::{GuardBlockKind, PhaseReasonCode};
+use crate::domain_types::GuardBlockKind;
+use crate::progress_controller::PhaseTransition;
 use react_core::session::ThreadStore;
 
 use crate::control_flow::{Phase, TransitionIntent};
@@ -7,48 +8,20 @@ use crate::control_flow::{Phase, TransitionIntent};
 pub struct PhaseDecision {
     pub to: Phase,
     pub intent: TransitionIntent,
-    pub reason_code: Option<PhaseReasonCode>,
-    pub reason_detail: Option<serde_json::Value>,
+    pub transition: Option<PhaseTransition>,
 }
 
 impl PhaseDecision {
-    pub fn forward(
-        to: Phase,
-        reason_code: Option<PhaseReasonCode>,
-        reason_detail: Option<serde_json::Value>,
-    ) -> Self {
-        Self {
-            to,
-            intent: TransitionIntent::Forward,
-            reason_code,
-            reason_detail,
-        }
+    pub fn forward(to: Phase, transition: Option<PhaseTransition>) -> Self {
+        Self { to, intent: TransitionIntent::Forward, transition }
     }
 
-    pub fn loopback(
-        to: Phase,
-        reason_code: Option<PhaseReasonCode>,
-        reason_detail: Option<serde_json::Value>,
-    ) -> Self {
-        Self {
-            to,
-            intent: TransitionIntent::Loopback,
-            reason_code,
-            reason_detail,
-        }
+    pub fn loopback(to: Phase, transition: Option<PhaseTransition>) -> Self {
+        Self { to, intent: TransitionIntent::Loopback, transition }
     }
 
-    pub fn annotation(
-        phase: Phase,
-        reason_code: Option<PhaseReasonCode>,
-        reason_detail: Option<serde_json::Value>,
-    ) -> Self {
-        Self {
-            to: phase,
-            intent: TransitionIntent::Annotation,
-            reason_code,
-            reason_detail,
-        }
+    pub fn annotation(phase: Phase, transition: Option<PhaseTransition>) -> Self {
+        Self { to: phase, intent: TransitionIntent::Annotation, transition }
     }
 }
 
@@ -58,23 +31,15 @@ pub async fn commit_phase_decision(
     from_phase: Option<Phase>,
     decision: PhaseDecision,
 ) -> Result<(), String> {
-    let PhaseDecision {
-        to,
-        intent,
-        reason_code,
-        reason_detail,
-    } = decision;
-    crate::transition_dispatcher::apply_phase_directive(
+    let PhaseDecision { to, intent, transition } = decision;
+    crate::transition_dispatcher::dispatch_phase_transition(
         thread_store,
         thread_id,
         Some(crate::env_util::DEFAULT_AGENT_NAME.to_string()),
         from_phase,
-        crate::transition_dispatcher::PhaseDirective::Transition {
-            to,
-            intent,
-            reason_code,
-            reason_detail,
-        },
+        to,
+        intent,
+        transition,
     )
     .await
     .map_err(|e| e.to_string())
@@ -115,9 +80,11 @@ pub async fn commit_plan_revision_loopback(
             from_phase.as_str()
         )
     })?;
-    crate::state_manager::mutate_execution_state(&thread_store.control_store(), thread_id, |es| {
-        es.set_pending_plan_revision(violations, strategy)
-    })
+    crate::state_manager::apply_execution_event(
+        &thread_store.control_store(),
+        thread_id,
+        crate::progress_controller::DataEngineerEvent::PlanRevisionRequested { violations, strategy },
+    )
     .await
     .map(|_| ())
     .map_err(|e| e.to_string())?;
@@ -127,13 +94,11 @@ pub async fn commit_plan_revision_loopback(
         Some(from_phase),
         PhaseDecision::loopback(
             track.plan_phase(),
-            Some(PhaseReasonCode::PlanRevisionRequested),
-            None,
+            Some(PhaseTransition::PlanRevisionRequested {
+                violations: vec![],
+                strategy: crate::progress_controller::PlanRevisionStrategy::Rewrite,
+            }),
         ),
     )
     .await
-}
-
-pub fn plan_status_reason_detail(status: crate::plan_types::PlanStatus) -> serde_json::Value {
-    serde_json::json!({ "status": status.as_str() })
 }
