@@ -17,7 +17,7 @@ llm:
   provider: OPENAI_COMPAT
   base_url: https://api.openai.com
   reason_model: gpt-5.4
-  task_model: gpt-5-nano
+  task_model: gpt-5.4
   embed_model: text-embedding-3-small
   context_length: 8192
   http_timeout_secs: 120
