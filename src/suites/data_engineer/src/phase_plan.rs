@@ -440,17 +440,6 @@ async fn check_existing_plan(
     }
 
     if existing_plan.status() == crate::plan::PlanStatus::Draft {
-        let mut removed_non_raw = 0usize;
-        if let TrackPlanDoc::Cleanse(plan) = &mut existing_plan {
-            removed_non_raw = DataEngineerSuite::enforce_cleanse_plan_raw_only(plan);
-            if removed_non_raw > 0 {
-                crate::phase_plan_lifecycle::save_plan(&pctx.actx, &existing_plan)
-                    .await
-                    .map_err(|e| {
-                        format!("failed to persist cleanse draft after raw-only enforcement: {e}")
-                    })?;
-            }
-        }
         if existing_plan.is_empty() {
             let plan_key = existing_plan.plan_key().to_string();
             existing_plan.set_status(crate::plan::PlanStatus::Cancelled);
@@ -459,8 +448,8 @@ async fn check_existing_plan(
                 TrackPlanDoc::Cleanse(_) => crate::phase_reason_detail::to_value(
                     &crate::phase_reason_detail::CleanseDraftUngroundedDetail {
                         plan_key: plan_key.clone(),
-                        reason: "draft_cleanse_plan_not_raw_grounded".to_string(),
-                        removed_non_raw,
+                        reason: "draft_cleanse_plan_empty".to_string(),
+                        removed_non_raw: 0,
                     },
                 ),
                 TrackPlanDoc::Model(_) => crate::phase_reason_detail::to_value(
@@ -663,27 +652,6 @@ async fn compile_and_ground_cleanse_plan(
         for it in t.checklist.iter_mut() {
             it.evidence.clear();
         }
-    }
-
-    let pre_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
-    let removed_non_raw_initial = DataEngineerSuite::enforce_cleanse_plan_raw_only(&mut plan);
-    if removed_non_raw_initial > 0 {
-        let post_raw_ids: Vec<String> = plan.tasks.iter().map(|t| t.dataset_id.clone()).collect();
-        tracing::warn!(
-            "enforce_cleanse_plan_raw_only: removed {} non-raw tasks. before={:?}, after={:?}",
-            removed_non_raw_initial,
-            pre_raw_ids,
-            post_raw_ids,
-        );
-        DataEngineerSuite::push_snapshot_array_event(
-            &mut plan.project_snapshot,
-            "deterministic_plan_repairs",
-            serde_json::json!({
-                "kind": "cleanse_plan_raw_only_enforcement",
-                "removed_task_count": removed_non_raw_initial,
-            }),
-            200,
-        );
     }
 
     plan.status = crate::plan::PlanStatus::Draft;
@@ -1122,21 +1090,19 @@ impl DataEngineerSuite {
 
         // 4. Single-discovery pass — all downstream functions read from this,
         //    no duplicate list_datasets / catalog / staging lookups.
+        //    list_datasets() is already scoped to the configured source schema,
+        //    so all returned tables are source/raw tables by definition.
         let mut discovery = {
             let mut dataset_fqns: Vec<String> = Vec::new();
-            let mut raw_dataset_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             if let Some(ds) = crate::ctx_ext::sctx_datasets(sctx).as_ref() {
                 if let Ok(items) = ds.list_datasets().await {
                     let mut tables: Vec<String> = items.into_iter().map(|d| d.fqn()).collect();
                     tables.sort();
-                    for t in &tables {
-                        if Self::is_raw_dataset_id(t) {
-                            raw_dataset_ids.insert(t.clone());
-                        }
-                    }
                     dataset_fqns = tables;
                 }
             }
+            let raw_dataset_ids: std::collections::BTreeSet<String> =
+                dataset_fqns.iter().cloned().collect();
             let (source_schemas, _prompt_block) =
                 crate::dataset_truth::build_catalog_column_context(&pctx.actx, &dataset_fqns).await;
             crate::dataset_truth::PlanDiscoveryContext {

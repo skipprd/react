@@ -472,7 +472,7 @@ pub async fn record_staging_output_schemas(
 pub struct PlanDiscoveryContext {
     /// Every dataset FQN returned by `list_datasets()`.
     pub dataset_fqns: Vec<String>,
-    /// Subset of `dataset_fqns` that pass the `is_raw_dataset_id` filter.
+    /// Source tables to cleanse (all discovered datasets from the configured raw schema).
     pub raw_dataset_ids: BTreeSet<String>,
     /// Column schemas keyed by dataset FQN (raw) or staging model name.
     pub source_schemas: crate::plan_types::SourceSchema,

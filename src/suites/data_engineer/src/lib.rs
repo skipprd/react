@@ -335,22 +335,6 @@ impl DataEngineerSuite {
             })
     }
 
-    fn enforce_cleanse_plan_raw_only(plan: &mut crate::plan::CleansePlan) -> usize {
-        let before = plan.tasks.len();
-        plan.tasks
-            .retain(|t| Self::is_raw_dataset_id(t.dataset_id.trim()));
-        let keep: HashSet<String> = plan
-            .tasks
-            .iter()
-            .map(|t| t.dataset_id.trim().to_string())
-            .collect();
-        for b in plan.batches.iter_mut() {
-            b.retain(|ds| keep.contains(ds.trim()));
-        }
-        plan.batches.retain(|b| !b.is_empty());
-        before.saturating_sub(plan.tasks.len())
-    }
-
     fn synthesize_cleanse_plan_from_grounded_raw(
         plan: &mut crate::plan::CleansePlan,
         allowed_raw: &BTreeSet<String>,
@@ -431,15 +415,6 @@ impl DataEngineerSuite {
             .map(|chunk| chunk.to_vec())
             .collect::<Vec<_>>();
         Ok(crate::plan_schema::CleansePlanSkeletonV1 { tasks, batches })
-    }
-
-    fn is_raw_dataset_id(dataset_id: &str) -> bool {
-        let Some(ds) = crate::references::DatasetRef::parse(dataset_id) else {
-            return false;
-        };
-        let schema = ds.schema.to_ascii_lowercase();
-        let table = ds.table.to_ascii_lowercase();
-        schema.contains("raw") || table.starts_with("raw_")
     }
 
     async fn run_deterministic_probe_for_table(
