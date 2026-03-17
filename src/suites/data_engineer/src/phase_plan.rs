@@ -538,8 +538,9 @@ async fn build_plan_query(
     } else {
         format!(
             "Create a GOLD/model execution plan based on existing silver models and any intra-plan gold dependencies.\n\
-            Propose ALL valuable gold models the data supports — dimensions, facts, and aggregates.\n\
-            There is no fixed limit on total model count; models are executed in work-group batches of up to {MAX_BATCH_SIZE}.\n\n\
+            Propose the canonical, highest-value gold models: entity dimension(s), process fact(s), \
+            and a small set of the most aggregates. Do NOT produce every time-grain permutation, just the most valuable ones.\n\
+            Models are executed in work-group batches of up to {MAX_BATCH_SIZE}.\n\n\
             Original goal:\n{}\n",
             question
         )

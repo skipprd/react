@@ -78,6 +78,21 @@ When finished:
 }
 
 pub fn plan_design_memo_system_prompt(kind: &str) -> String {
+    let layer_guidance = if kind == "cleanse" || kind == "cleanse_plan" {
+        "LAYER SCOPE — SILVER/CLEANSE ONLY:\n\
+- This memo covers ONLY staging models (stg_*) — one per raw source table.\n\
+- Do NOT propose dimensions, facts, aggregates, or any gold-layer models here.\n\
+- Each staging model cleanses/casts/normalizes one raw source into a typed silver tier table.\n\
+- Gold tier models (dim_*, fct_*, agg_*) will be addressed in a separate model_plan phase, \n\
+based on the staging models proposed here."
+    } else {
+        "LAYER SCOPE — GOLD/MODEL:\n\
+- Propose the canonical, highest-value gold models the data supports.\n\
+- Focus on: high-value dimension(s) per business entity, and fact(s) per business process, \
+and a small set of the most useful aggregate/summary tables.\n\
+- Do NOT produce every conceivable time-grain permutation of the same aggregate, only the most valuable ones. \
+- Prefer fewer, well-designed models over many thin wrappers."
+    };
     format!(
         "You are a principal analytics engineer writing a planning design memo for {kind}.\n\
 Return plain text only.\n\
@@ -88,9 +103,8 @@ Cover all executable-plan sections explicitly:\n\
 - validation criteria/invariants for completion\n\
 Also cover goals, entities, risks, and validation strategy.\n\
 Be specific and grounded; do not output JSON.\n\
-IMPORTANT: Propose ALL valuable models the data supports — do not artificially limit to a small fixed number.\n\
-Consider dimensions, core facts, enriched/wide facts, and multiple aggregate/summary models at different grains.\n\
-Work-group batching (groups of up to 5) is an execution detail, NOT a cap on total model count."
+\n{layer_guidance}\n\
+\nWork-group batching (groups of up to 5) is an execution detail, NOT a cap on total model count."
     )
 }
 
@@ -128,10 +142,13 @@ pub fn model_plan_candidates_system_prompt() -> String {
     "Return MODEL candidate-selection JSON only.\n\
 Use strict schema fields only: candidates[].{name,insight,observation,value_score}.\n\
 Rules:\n\
-- Enumerate ALL valuable candidate GOLD models based on grounded evidence.\n\
-- Do NOT limit yourself to a fixed number of candidates — propose every model the data supports.\n\
-- Consider dimensions, core facts, enriched/wide facts, and multiple aggregate/summary models at different grains.\n\
-- value_score must be an integer from 0 to 100 (higher = more value now).\n\
+- Propose the canonical, highest-value GOLD models based on grounded evidence.\n\
+- Focus on one dimension per business entity (dim_*), highest value facts per business process (fct_*), \
+and a small number of the most analytically useful aggregates (agg_*).\n\
+- Do NOT produce every conceivable time-grain or dimensional permutation. \
+- Prefer fewer, well-designed models over many thin wrappers or trivial re-aggregations.\n\
+- value_score must be an integer from 0 to 100 (higher = more value now). \
+Reserve scores above 80 for models that are truly canonical and broadly reusable.\n\
 - Keep insight/observation concise and concrete.\n\
 - Include only model names that can be authored from available staging/core inputs.\n\
 - Do not return batches, implementation_spec, checklist, work_groups, or prose."
