@@ -59,7 +59,7 @@ providers:
 | `storage` | [Storage](storage.md) | Storage backend (local vs S3) and paths |
 | `scope` | [Server](server.md) | Tenant, workspace, project_id for multi-tenant scoping |
 | `llm` | [LLM](llm.md) | LLM provider, model, token limits, temperature |
-| `providers.warehouse` | [Providers](providers.md) | Warehouse connection (Athena, BigQuery, Postgres, etc.) |
+| `providers.warehouse` | [Providers](providers.md) | Warehouse connection (Athena, BigQuery, MSSQL, Postgres, Snowflake) |
 | `providers.catalog` | [Providers](providers.md) | Catalog refresh settings |
 | `providers.dbt` | [Providers](providers.md) | dbt runner, target, naming conventions |
 | `providers.vector` | [Providers](providers.md) | Vector store toggle |
@@ -72,5 +72,19 @@ Secrets (API keys, credentials) are always configured via environment variables,
 
 ```bash
 export LLM_API_KEY="sk-..."
+
+# BigQuery
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+
+# Snowflake
+export SNOWFLAKE_ACCOUNT="xy12345.us-east-1"
+export SNOWFLAKE_USER="..."
+export SNOWFLAKE_PASSWORD="..."
+
+# MSSQL
+export MSSQL_HOST="localhost"
+export MSSQL_USER="..."
+export MSSQL_PASSWORD="..."
 ```
+
+See [Environment Variables](environment-variables.md) for the full list.

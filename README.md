@@ -4,6 +4,7 @@ A **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server 
 
 ### Getting started
 
+- **MSSQL → Snowflake** (bronze tier, local storage): see [`getting-started.md`](getting-started.md)
 - Windows + BigQuery (local storage): see `GETTING_STARTED_WINDOWS_BIGQUERY.md`
 
 ### Prerequisites

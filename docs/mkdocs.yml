@@ -53,7 +53,9 @@ nav:
       - Warehouses:
           - Athena: connectors/warehouses/athena.md
           - BigQuery: connectors/warehouses/bigquery.md
+          - MSSQL: connectors/warehouses/mssql.md
           - Postgres: connectors/warehouses/postgres.md
+          - Snowflake: connectors/warehouses/snowflake.md
       - Storage:
           - Local: connectors/storage/local.md
           - S3: connectors/storage/s3.md

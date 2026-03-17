@@ -7,7 +7,7 @@ ReAct is a WebSocket-based agent runtime that drives AI-powered data engineering
 - **ReAct agent loop** — strict JSON action parsing (tool calls and finals) with configurable step budgets, per-tool timeouts, and policy-driven interrupt/approval gates
 - **Suite-based architecture** — each product surface (Data Engineer, Knowledge Base) defines its own tool registry, system prompts, agent policy, and optional preflight behaviour
 - **Multi-tenant scoping** — all persistence is namespaced by `tenant / workspace / project_id`, supporting isolated workloads on shared infrastructure
-- **Pluggable warehouses** — Athena, BigQuery, and Postgres providers implement a common `QueryProvider` trait for SQL execution and schema discovery
+- **Pluggable warehouses** — Athena, BigQuery, MSSQL, Postgres, and Snowflake providers implement a common `QueryProvider` trait for SQL execution and schema discovery
 - **dbt integration** — automated project scaffolding, model authoring, validation, and publishing via a shelled-out dbt runner (host or Docker)
 - **Vector search** — LanceDB-backed embeddings for semantic catalog search and knowledge-base retrieval
 - **Flexible storage** — local filesystem or S3 for threads, artifacts, catalog, and vector indices

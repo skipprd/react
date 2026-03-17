@@ -57,6 +57,25 @@ providers:
     enabled: true
 ```
 
+Or for Snowflake:
+
+```yaml
+providers:
+  warehouse:
+    kind: snowflake
+    database: ANALYTICS
+    schema: RAW
+    warehouse: COMPUTE_WH
+    role: TRANSFORMER
+
+  dbt:
+    enabled: true
+    runner: host
+    target: snowflake
+```
+
+See the [Snowflake connector](../connectors/warehouses/snowflake.md) docs for full configuration details, or the [MSSQL → Snowflake getting started guide](../../getting-started.md) for an end-to-end walkthrough.
+
 ## 3. Set your API key
 
 ```bash

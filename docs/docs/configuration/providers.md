@@ -18,12 +18,13 @@ The warehouse block uses a tagged union on the `kind` field:
 | `athena` | AWS Athena + Glue | [Athena connector](../connectors/warehouses/athena.md) |
 | `bigquery` | Google BigQuery | [BigQuery connector](../connectors/warehouses/bigquery.md) |
 | `postgres` | PostgreSQL | [Postgres connector](../connectors/warehouses/postgres.md) |
-| `mssql` | Microsoft SQL Server | *(coming soon)* |
-| `snowflake` | Snowflake | *(coming soon)* |
+| `mssql` | Microsoft SQL Server | [MSSQL connector](../connectors/warehouses/mssql.md) |
+| `snowflake` | Snowflake | [Snowflake connector](../connectors/warehouses/snowflake.md) |
 
-Example:
+Examples:
 
 ```yaml
+# BigQuery
 providers:
   warehouse:
     kind: bigquery
@@ -31,6 +32,26 @@ providers:
     dataset: raw_data
     location: US
     max_concurrency: 15
+```
+
+```yaml
+# Snowflake
+providers:
+  warehouse:
+    kind: snowflake
+    database: ANALYTICS
+    schema: RAW
+    warehouse: COMPUTE_WH
+    role: TRANSFORMER
+```
+
+```yaml
+# MSSQL
+providers:
+  warehouse:
+    kind: mssql
+    database: MyDatabase
+    schema: dbo
 ```
 
 ## providers.catalog
@@ -59,7 +80,7 @@ Configures the dbt integration for model authoring, validation, and publishing.
 |---|---|---|---|---|
 | `enabled` | `providers.dbt.enabled` | | `true` | Enable dbt provider |
 | `runner` | `providers.dbt.runner` | `DBT_RUNNER` | `host` | `host` (shelled out) or `docker` |
-| `target` | `providers.dbt.target` | `DBT_TARGET` | *(empty)* | dbt target (e.g. `athena`, `bigquery`, `postgres`) |
+| `target` | `providers.dbt.target` | `DBT_TARGET` | *(empty)* | dbt target (e.g. `athena`, `bigquery`, `postgres`, `snowflake`, `sqlserver`) |
 | `profiles_dir` | `providers.dbt.profiles_dir` | `DBT_PROFILES_DIR` | *(none)* | Custom dbt profiles directory |
 
 ### dbt naming

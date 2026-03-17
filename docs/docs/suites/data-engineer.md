@@ -67,7 +67,20 @@ The Data Engineer suite uses these provider config blocks:
 
 See [Configuration: Providers](../configuration/providers.md) for details.
 
+## Supported warehouses
+
+The Data Engineer suite supports the following warehouse providers:
+
+| Warehouse | Config `kind` | dbt adapter | Connector docs |
+|---|---|---|---|
+| AWS Athena | `athena` | `dbt-athena-community` | [Athena](../connectors/warehouses/athena.md) |
+| Google BigQuery | `bigquery` | `dbt-bigquery` | [BigQuery](../connectors/warehouses/bigquery.md) |
+| Microsoft SQL Server | `mssql` | `dbt-sqlserver` | [MSSQL](../connectors/warehouses/mssql.md) |
+| PostgreSQL | `postgres` | `dbt-postgres` | [Postgres](../connectors/warehouses/postgres.md) |
+| Snowflake | `snowflake` | `dbt-snowflake` | [Snowflake](../connectors/warehouses/snowflake.md) |
+
 ## Next steps
 
 - [Data Engineer Phases](data-engineer-phases.md) — detailed walkthrough of each phase
 - [Configuration: Providers](../configuration/providers.md) — warehouse, catalog, dbt, vector config
+- [MSSQL → Snowflake Getting Started](../../getting-started.md) — end-to-end migration guide

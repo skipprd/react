@@ -52,6 +52,37 @@ These variables carry sensitive values and should never be placed in YAML config
 | `DBT_DOCKER_NETWORK` | | Docker network |
 | `DBT_DOCKER_MOUNT_AWS_DIR` | `false` | Mount ~/.aws into Docker container |
 
+## Snowflake
+
+| Variable | Required | Description |
+|---|---|---|
+| `SNOWFLAKE_ACCOUNT` | Yes (when `kind: snowflake`) | Account identifier including region (e.g. `xy12345.us-east-1`) |
+| `SNOWFLAKE_USER` | Yes (when `kind: snowflake`) | Login username |
+| `SNOWFLAKE_PASSWORD` | Yes (when `kind: snowflake`) | Login password |
+| `SNOWFLAKE_DATABASE` | No | Fallback database if omitted from YAML |
+| `SNOWFLAKE_WAREHOUSE` | No | Fallback compute warehouse if omitted from YAML |
+| `SNOWFLAKE_ROLE` | No | Fallback role if omitted from YAML |
+
+## MSSQL
+
+| Variable | Required | Description |
+|---|---|---|
+| `MSSQL_HOST` | Yes (when `kind: mssql`) | SQL Server hostname or IP |
+| `MSSQL_USER` | Yes (when `kind: mssql`) | Login username |
+| `MSSQL_PASSWORD` | Yes (when `kind: mssql`) | Login password |
+| `MSSQL_DATABASE` | No | Fallback database if omitted from YAML |
+
+## Postgres
+
+| Variable | Required | Description |
+|---|---|---|
+| `PGHOST` | Yes (when `kind: postgres`) | PostgreSQL hostname (default: `localhost`) |
+| `PGPORT` | No | PostgreSQL port (default: `5432`) |
+| `PGUSER` | No | PostgreSQL username (default: `postgres`) |
+| `PGPASSWORD` | No | PostgreSQL password |
+| `PGDATABASE` | No | Fallback database if omitted from YAML |
+| `DATABASE_URL` | No | Alternative: full connection string |
+
 ## Runtime
 
 | Variable | Default | Description |

@@ -75,6 +75,7 @@ Replace `dbt-athena-community` with the adapter for your warehouse:
 |---|---|
 | Athena | `dbt-athena-community` |
 | BigQuery | `dbt-bigquery` |
+| MSSQL | `dbt-sqlserver` |
 | Postgres | `dbt-postgres` |
 | Snowflake | `dbt-snowflake` |
 
@@ -102,4 +103,5 @@ cargo build -p react --features llama_cpp
 
 ## Platform notes
 
-For a detailed Windows + BigQuery walkthrough including troubleshooting, see `GETTING_STARTED_WINDOWS_BIGQUERY.md` in the repository root.
+- For a detailed **Windows + BigQuery** walkthrough including troubleshooting, see `GETTING_STARTED_WINDOWS_BIGQUERY.md` in the repository root.
+- For an **MSSQL → Snowflake migration** guide (bronze tier, local storage), see `getting-started.md` in the repository root.
