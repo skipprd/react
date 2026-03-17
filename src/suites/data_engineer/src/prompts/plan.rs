@@ -87,7 +87,10 @@ Cover all executable-plan sections explicitly:\n\
 - work-group sequencing + dependencies\n\
 - validation criteria/invariants for completion\n\
 Also cover goals, entities, risks, and validation strategy.\n\
-Be specific and grounded; do not output JSON."
+Be specific and grounded; do not output JSON.\n\
+IMPORTANT: Propose ALL valuable models the data supports — do not artificially limit to a small fixed number.\n\
+Consider dimensions, core facts, enriched/wide facts, and multiple aggregate/summary models at different grains.\n\
+Work-group batching (groups of up to 5) is an execution detail, NOT a cap on total model count."
     )
 }
 
@@ -125,7 +128,9 @@ pub fn model_plan_candidates_system_prompt() -> String {
     "Return MODEL candidate-selection JSON only.\n\
 Use strict schema fields only: candidates[].{name,insight,observation,value_score}.\n\
 Rules:\n\
-- Enumerate high-value candidate GOLD models based on grounded evidence.\n\
+- Enumerate ALL valuable candidate GOLD models based on grounded evidence.\n\
+- Do NOT limit yourself to a fixed number of candidates — propose every model the data supports.\n\
+- Consider dimensions, core facts, enriched/wide facts, and multiple aggregate/summary models at different grains.\n\
 - value_score must be an integer from 0 to 100 (higher = more value now).\n\
 - Keep insight/observation concise and concrete.\n\
 - Include only model names that can be authored from available staging/core inputs.\n\
