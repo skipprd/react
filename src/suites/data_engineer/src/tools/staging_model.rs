@@ -141,9 +141,11 @@ fn build_staging_sys_prompt(
          - IMPORTANT: Do NOT include a dbt config block or alias; the suite enforces canonical config/alias deterministically.\n\
          - Nested fields / dotted columns:\n\
            - Use schema_columns as ground truth.\n\
-           - If schema_columns contains an EXACT column name with dots (e.g. context.session.id), treat it as a literal column name and reference it as a single quoted identifier like \"context.session.id\".\n\
-           - Only use struct dereference (e.g. context.session.id) when schema_columns indicates a struct/row parent exists (e.g. context) AND there is no exact dotted column name.\n\
-         - If a column name is reserved (e.g. timestamp), quote the identifier (\"timestamp\"). For literal dotted column names, quote the entire identifier (\"context.session.id\").\n\
+           - If schema_columns contains a column name with dots (e.g. context.session.id), it represents a nested struct path. \
+Reference it using unquoted struct dereference syntax (e.g. context.session.id) or per-segment quoting (e.g. \"context\".\"session\".\"id\"). \
+Do NOT quote the entire dot-path as a single identifier — \"context.session.id\" will FAIL with COLUMN_NOT_FOUND.\n\
+           - When aliasing dotted columns in a CTE, alias them to a flat name (e.g. context.session.id as context_session_id) so downstream references in the outer SELECT use the flat alias.\n\
+         - If a column name is reserved (e.g. timestamp), quote the identifier (\"timestamp\").\n\
          - Keep changes aligned with the user's instructions, even if they are unconventional.\n"
         ,
         provider_rules = provider_rules
@@ -928,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn staging_sys_prompt_does_not_force_struct_dereference() {
+    fn staging_sys_prompt_uses_struct_dereference_for_dotted_columns() {
         let sys = build_staging_sys_prompt(
             "athena",
             "Amazon Athena (engine v3 / Trino SQL)",
@@ -936,9 +938,9 @@ mod tests {
             "track_app_opened",
             "           - If Provider is athena (Trino SQL), DO NOT use initcap() (it is not registered). Avoid title-casing strings.\n",
         );
-        assert!(!sys.contains("DO NOT quote the whole path"));
         assert!(sys.contains("schema_columns as ground truth"));
-        assert!(sys.contains("quote the entire identifier"));
+        assert!(sys.contains("struct dereference syntax"));
+        assert!(sys.contains("Do NOT quote the entire dot-path as a single identifier"));
     }
 
     #[test]
