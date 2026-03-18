@@ -1,6 +1,6 @@
-# Microsoft SQL Server (MSSQL)
+# Microsoft SQL Server
 
-The MSSQL provider uses Microsoft SQL Server as the warehouse for SQL execution, schema discovery, and dbt materialisation. The dbt integration uses the `dbt-sqlserver` adapter with ODBC Driver 18.
+The MSSQL provider uses Microsoft SQL Server for SQL execution and dataset discovery. This is the `provider-mssql` module (`src/modules/provider-mssql/`).
 
 ## Configuration
 
@@ -8,57 +8,53 @@ The MSSQL provider uses Microsoft SQL Server as the warehouse for SQL execution,
 providers:
   warehouse:
     kind: mssql
-    database: MyDatabase
+    database: mydb
     schema: dbo
+    max_concurrency: 15
+    discovery_cache_ttl_secs: 120
 ```
 
 | Field | YAML path | Default | Description |
 |---|---|---|---|
-| `database` | `providers.warehouse.database` | `MSSQL_DATABASE` env var | SQL Server database name |
-| `schema` | `providers.warehouse.schema` | *(empty)* | Default schema for discovery (e.g. `dbo`) |
+| `database` | `providers.warehouse.database` | *(empty)* | SQL Server database name |
+| `schema` | `providers.warehouse.schema` | `dbo` | Default schema for discovery and unqualified references |
+| `max_concurrency` | `providers.warehouse.max_concurrency` | `15` | Max concurrent SQL Server queries |
+| `discovery_cache_ttl_secs` | `providers.warehouse.discovery_cache_ttl_secs` | `120` | TTL for cached discovery results (seconds) |
 
 ## Connection
 
-MSSQL credentials are provided via environment variables. They are injected into the generated dbt `profiles.yml` using Jinja `env_var()` calls.
+The MSSQL provider uses environment variables for connection details:
 
 ```bash
-export MSSQL_HOST="localhost"
-export MSSQL_USER="sa"
-export MSSQL_PASSWORD="YourStrong!Passw0rd"
-export MSSQL_DATABASE="MyDatabase"    # fallback if database is omitted from YAML
+export MSSQL_HOST=localhost
+export MSSQL_PORT=1433
+export MSSQL_USER=sa
+export MSSQL_PASSWORD=MyStr0ngP@ssword
+export MSSQL_DATABASE=mydb
 ```
 
-| Variable | Required | Description |
-|---|---|---|
-| `MSSQL_HOST` | Yes | SQL Server hostname or IP |
-| `MSSQL_USER` | Yes | Login username |
-| `MSSQL_PASSWORD` | Yes | Login password |
-| `MSSQL_DATABASE` | No | Fallback if `database` is omitted from YAML |
+### TLS / certificate trust
 
-The generated dbt profile connects on port `1433` using `ODBC Driver 18 for SQL Server`.
-
-## ODBC driver
-
-The `dbt-sqlserver` adapter requires an ODBC driver. Install ODBC Driver 18 for your platform:
+By default the provider validates the server certificate. For development or self-signed certificates:
 
 ```bash
-# macOS
-brew tap microsoft/mssql-release https://github.com/microsoft/homebrew-mssql-release
-brew install msodbcsql18
-
-# Ubuntu/Debian
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-sudo add-apt-repository "$(curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list)"
-sudo apt-get update
-sudo apt-get install -y msodbcsql18
-
-# Windows
-# Download from https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+export MSSQL_TRUST_CERT=true
 ```
+
+## SQL Server permissions
+
+The login used by ReAct needs:
+
+| Permission | Purpose |
+|---|---|
+| `db_datareader` role | Read tables and views for discovery and sampling |
+| `SELECT` on `INFORMATION_SCHEMA` | Schema and table discovery |
+| `db_datawriter` role (optional) | dbt materialisation |
+| `db_ddladmin` role (optional) | dbt schema/table creation |
 
 ## dbt target
 
-When using dbt with MSSQL, set:
+When using dbt with SQL Server, set:
 
 ```yaml
 providers:
@@ -72,80 +68,37 @@ And install the dbt adapter:
 pip install dbt-sqlserver
 ```
 
-The runtime generates a dbt `profiles.yml` with the following structure:
+The dbt profile uses ODBC Driver 18 for SQL Server. Ensure the ODBC driver is installed on the host or Docker image.
 
-```yaml
-<project_id>:
-  target: sqlserver
-  outputs:
-    sqlserver:
-      type: sqlserver
-      driver: 'ODBC Driver 18 for SQL Server'
-      server: "{{ env_var('MSSQL_HOST') }}"
-      port: 1433
-      database: MyDatabase
-      schema: <target_schema>
-      user: "{{ env_var('MSSQL_USER') }}"
-      password: "{{ env_var('MSSQL_PASSWORD') }}"
-```
+## SQL dialect (T-SQL)
 
-## SQL Server permissions
+T-SQL differences from standard SQL:
 
-The login used by the agent needs:
+- **Row limiting**: Use `SELECT TOP N` instead of `LIMIT N`
+- **Identifier quoting**: Square brackets `[schema].[table]` (not double quotes)
+- **Current time**: `GETDATE()` or `SYSDATETIME()` instead of `NOW()`
+- **String concatenation**: `+` operator or `CONCAT()` (not `||`)
+- **Safe cast**: `TRY_CAST(expr AS type)` returns NULL on failure
+- **Booleans**: `BIT` type with `0`/`1` (no `TRUE`/`FALSE` literals)
+- **Unicode strings**: Prefix with `N` (e.g. `N'text'`), use `NVARCHAR` type
 
-| Permission | Purpose |
-|---|---|
-| `db_datareader` on source database | Read source tables for discovery and querying |
-| `db_ddladmin` on target schemas | dbt creates tables/views during materialisation |
-| `CREATE SCHEMA` | dbt creates silver/gold schemas |
+## Discovery
 
-## Full example
+The MSSQL provider discovers tables and views using `INFORMATION_SCHEMA`:
 
-```yaml
-version: 1
+- Schemas from `INFORMATION_SCHEMA.SCHEMATA`
+- Tables and views from `INFORMATION_SCHEMA.TABLES`
+- Column metadata from `INFORMATION_SCHEMA.COLUMNS`
 
-storage:
-  mode: local
-  path: ./.react
+When a `schema` is configured (and is not `dbo`), discovery is scoped to that single schema. Otherwise all non-system schemas are discovered.
 
-scope:
-  tenant: local
-  workspace: dev
-  project_id: mssql_analytics
+## Stats
 
-llm:
-  provider: OPENAI_COMPAT
-  base_url: https://api.openai.com
-  reason_model: gpt-5-mini
-  task_model: gpt-5-mini
-  embed_model: text-embedding-3-small
-  max_tokens: 8192
-  temperature: 0.2
+Per-field statistics are collected using:
 
-providers:
-  warehouse:
-    kind: mssql
-    database: MyDatabase
-    schema: dbo
+- `COUNT(*)` for row count
+- `COUNT(DISTINCT col)` for exact distinct counts
+- `MIN()` / `MAX()` for numeric range (dates converted via `DATEDIFF(SECOND, '19700101', col)`)
+- Null counts via `SUM(CASE WHEN col IS NULL THEN 1 ELSE 0 END)`
 
-  catalog:
-    enabled: true
-    refresh_secs: 3600
-    max_concurrency: 8
-
-  dbt:
-    enabled: true
-    runner: host
-    target: sqlserver
-    naming:
-      target_schema: mssql_analytics
-      silver_suffix: silver
-      gold_suffix: gold
-
-  vector:
-    enabled: true
-```
-
-## Common use case: MSSQL as a source for Snowflake
-
-MSSQL is commonly used as the source system in migration workflows. For a guide on exporting MSSQL data into Snowflake as the bronze tier and building silver/gold models, see [`getting-started.md`](../../../getting-started.md) in the repository root.
+Complex types (`xml`, `geography`, `geometry`) only collect null counts.

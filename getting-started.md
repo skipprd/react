@@ -42,12 +42,50 @@ You will need:
 
 | Item | Example |
 |------|---------|
-| Account identifier | `xy12345.us-east-1` |
-| Username / password | service account or personal login |
+| Account identifier | `RSSKNWT-KC53195` or `xy12345.us-east-1` |
+| Username | service account or personal login |
+| RSA key pair **or** password | Key-pair auth is required when MFA is enabled (most accounts) |
 | Warehouse | `COMPUTE_WH` |
 | Role | `TRANSFORMER` (or any role with read on raw + create on target schemas) |
 | Database | `ANALYTICS` |
 | Raw schema (bronze) | `RAW` — where MSSQL data will land |
+
+### Generate an RSA key pair for Snowflake
+
+Snowflake accounts with MFA enabled (the default for most orgs) **cannot** use password auth for headless/programmatic tools. Key-pair authentication bypasses MFA entirely and is the recommended approach.
+
+**1. Generate an unencrypted PKCS#8 private key:**
+
+```bash
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -nocrypt
+```
+
+This produces `snowflake_key.p8` — your private key. Keep it safe and never commit it to version control.
+
+**2. Extract the public key:**
+
+```bash
+openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
+```
+
+**3. Assign the public key to your Snowflake user:**
+
+Log into Snowsight (or SnowSQL) and run:
+
+```sql
+ALTER USER PAULHUDSON SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
+```
+
+Copy the contents of `snowflake_key.pub` and paste **only** the base64 body — strip the `-----BEGIN PUBLIC KEY-----` and `-----END PUBLIC KEY-----` lines.
+
+**4. Verify the key was assigned:**
+
+```sql
+DESC USER PAULHUDSON;
+-- Look for RSA_PUBLIC_KEY_FP — it should show a fingerprint like SHA256:...
+```
+
+You will reference the private key file path in the environment variables below.
 
 ---
 
@@ -76,6 +114,36 @@ CREATE OR REPLACE STAGE ANALYTICS.RAW.mssql_stage;
 
 PUT file://customers.csv @ANALYTICS.RAW.mssql_stage AUTO_COMPRESS=TRUE;
 PUT file://orders.csv    @ANALYTICS.RAW.mssql_stage AUTO_COMPRESS=TRUE;
+
+CREATE OR REPLACE FILE FORMAT ANALYTICS.RAW.CSV_FORMAT
+  TYPE = CSV
+  FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+  SKIP_HEADER = 1;
+  
+-- Create customers table based on CSV structure
+CREATE OR REPLACE TABLE ANALYTICS.RAW.customers
+  USING TEMPLATE (
+    SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*))
+    FROM TABLE(
+      INFER_SCHEMA(
+        LOCATION => '@ANALYTICS.RAW.mssql_stage/customers.csv',
+        FILE_FORMAT => 'CSV_FORMAT'
+      )
+    )
+  );
+
+-- Create orders table  
+CREATE OR REPLACE TABLE ANALYTICS.RAW.orders
+  USING TEMPLATE (
+    SELECT ARRAY_AGG(OBJECT_CONSTRUCT(*))
+    FROM TABLE(
+      INFER_SCHEMA(
+        LOCATION => '@ANALYTICS.RAW.mssql_stage/orders.csv',
+        FILE_FORMAT => 'CSV_FORMAT'
+      )
+    )
+  );
+  
 
 COPY INTO ANALYTICS.RAW.customers FROM @ANALYTICS.RAW.mssql_stage/customers.csv
   FILE_FORMAT = (TYPE = CSV FIELD_OPTIONALLY_ENCLOSED_BY = '"' SKIP_HEADER = 1);
@@ -181,7 +249,7 @@ providers:
     database: ANALYTICS
     schema: RAW
     warehouse: COMPUTE_WH
-    role: TRANSFORMER
+    role: ACCOUNTADMIN
 
   catalog:
     enabled: true
@@ -220,12 +288,27 @@ providers:
 ```bash
 export LLM_API_KEY="sk-..."
 
-export SNOWFLAKE_ACCOUNT="xy12345.us-east-1"
-export SNOWFLAKE_USER="your_username"
+export SNOWFLAKE_ACCOUNT="RSSKNWT-KC53195"
+export SNOWFLAKE_USER="PAULHUDSON"
+```
+
+### Snowflake authentication
+
+**Key-pair auth (recommended — required when MFA is enabled):**
+
+```bash
+export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/snowflake_key.p8"
+```
+
+See [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowflake) above for how to create the key.
+
+**Password auth (only if MFA is not enforced on the account):**
+
+```bash
 export SNOWFLAKE_PASSWORD="your_password"
 ```
 
-The runtime generates a dbt `profiles.yml` at run time. It reads `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and `SNOWFLAKE_PASSWORD` from the environment via Jinja `env_var()` calls — these are **not** written to disk in plaintext.
+The runtime generates a dbt `profiles.yml` at run time. It reads `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_USER` from the environment via Jinja `env_var()` calls — these are **not** written to disk in plaintext.
 
 If `warehouse` or `role` are omitted from the YAML, the runtime also falls back to `SNOWFLAKE_WAREHOUSE` and `SNOWFLAKE_ROLE` env vars respectively.
 
@@ -245,8 +328,7 @@ Make sure your virtual environment is activated, then:
 skippr run \
   --config config.yaml \
   --suite-id data_engineer \
-  --agent agent \
-  --log info
+  --agent agent
 ```
 
 The agent will:
@@ -319,12 +401,20 @@ SELECT * FROM mssql_migration_silver.stg_raw_customers LIMIT 10;
 
 The Snowflake warehouse provider is being rolled out incrementally. If you hit this error, your binary does not yet include the Snowflake query provider. Contact support to obtain an updated binary.
 
+### MFA error: `390197 — Multi-factor authentication is required`
+
+This means your Snowflake account enforces MFA, so password auth cannot work for headless tools. Switch to key-pair authentication:
+
+1. Generate an RSA key pair — see [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowflake)
+2. Replace `SNOWFLAKE_PASSWORD` with `SNOWFLAKE_PRIVATE_KEY_PATH` pointing to your `.p8` file
+3. Restart Skippr
+
 ### Snowflake connection errors (dbt)
 
 | Symptom | Fix |
 |---------|-----|
-| `Failed to connect: 250001` | Verify `SNOWFLAKE_ACCOUNT` format — it must include the region (e.g. `xy12345.us-east-1`) |
-| `Incorrect username or password` | Check `SNOWFLAKE_USER` and `SNOWFLAKE_PASSWORD` env vars |
+| `Failed to connect: 250001` | Verify `SNOWFLAKE_ACCOUNT` format — use the org-account form (e.g. `MYORG-MYACCOUNT`) or include the region (e.g. `xy12345.us-east-1`) |
+| `Incorrect username or password` | Check `SNOWFLAKE_USER` and `SNOWFLAKE_PASSWORD` / `SNOWFLAKE_PRIVATE_KEY_PATH` env vars |
 | `Insufficient privileges` | Ensure the role has USAGE on the warehouse, database, and raw schema, plus CREATE SCHEMA on the database for silver/gold |
 
 ### `dbt: command not found` or `dbt-snowflake` adapter missing

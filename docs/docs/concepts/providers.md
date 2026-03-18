@@ -20,7 +20,7 @@ All provider traits are defined in `src/core/src/providers/`:
 
 ## QueryProvider
 
-The primary data access trait. Implementations exist for Athena, BigQuery, and Postgres.
+The primary data access trait. Implementations exist for Athena, BigQuery, Postgres, Snowflake, and Microsoft SQL Server.
 
 ```rust
 #[async_trait]
@@ -82,4 +82,6 @@ This means you can swap warehouse backends by changing a single YAML field witho
 - [Connectors: Athena](../connectors/warehouses/athena.md) — Athena provider configuration
 - [Connectors: BigQuery](../connectors/warehouses/bigquery.md) — BigQuery provider configuration
 - [Connectors: Postgres](../connectors/warehouses/postgres.md) — Postgres provider configuration
+- [Connectors: Snowflake](../connectors/warehouses/snowflake.md) — Snowflake provider configuration
+- [Connectors: MSSQL](../connectors/warehouses/mssql.md) — Microsoft SQL Server provider configuration
 - [Extending: Custom Provider](../extending/custom-provider.md) — implementing your own provider

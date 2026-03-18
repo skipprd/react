@@ -929,6 +929,96 @@ fn build_docker_run_args(
         }
     }
 
+    // Pass through Snowflake env vars for the dbt-snowflake adapter.
+    for k in [
+        "SNOWFLAKE_ACCOUNT",
+        "SNOWFLAKE_USER",
+        "SNOWFLAKE_PASSWORD",
+        "SNOWFLAKE_WAREHOUSE",
+        "SNOWFLAKE_DATABASE",
+        "SNOWFLAKE_ROLE",
+        "SNOWFLAKE_SCHEMA",
+    ] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                args.push("-e".to_string());
+                args.push(format!("{}={}", k, v));
+            }
+        }
+    }
+
+    // Key-pair auth: mount the private key file and remap the env var to the
+    // container-internal path so dbt's `private_key_path` resolves correctly.
+    if let Ok(host_key_path) = std::env::var("SNOWFLAKE_PRIVATE_KEY_PATH") {
+        let host_key_path = host_key_path.trim().to_string();
+        if !host_key_path.is_empty() {
+            let container_key_path = "/run/secrets/snowflake_key.p8";
+            args.push("-v".to_string());
+            args.push(format!("{}:{}:ro", host_key_path, container_key_path));
+            args.push("-e".to_string());
+            args.push(format!(
+                "SNOWFLAKE_PRIVATE_KEY_PATH={}",
+                container_key_path
+            ));
+        }
+    }
+
+    // Pass through MSSQL env vars for the dbt-sqlserver adapter.
+    for k in [
+        "MSSQL_HOST",
+        "MSSQL_USER",
+        "MSSQL_PASSWORD",
+        "MSSQL_DATABASE",
+        "MSSQL_PORT",
+    ] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                args.push("-e".to_string());
+                args.push(format!("{}={}", k, v));
+            }
+        }
+    }
+
+    // Pass through Postgres env vars for the dbt-postgres adapter.
+    for k in [
+        "PGHOST",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGPORT",
+        "PGDATABASE",
+    ] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                args.push("-e".to_string());
+                args.push(format!("{}={}", k, v));
+            }
+        }
+    }
+
+    // BigQuery: pass through project/location env vars and mount the service
+    // account credentials file when present.
+    for k in ["BIGQUERY_PROJECT", "BIGQUERY_LOCATION"] {
+        if let Ok(v) = std::env::var(k) {
+            if !v.trim().is_empty() {
+                args.push("-e".to_string());
+                args.push(format!("{}={}", k, v));
+            }
+        }
+    }
+    if let Ok(host_cred_path) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+        let host_cred_path = host_cred_path.trim().to_string();
+        if !host_cred_path.is_empty() {
+            let container_cred_path = "/run/secrets/gcp_credentials.json";
+            args.push("-v".to_string());
+            args.push(format!("{}:{}:ro", host_cred_path, container_cred_path));
+            args.push("-e".to_string());
+            args.push(format!(
+                "GOOGLE_APPLICATION_CREDENTIALS={}",
+                container_cred_path
+            ));
+        }
+    }
+
     // Optional: mount ~/.aws for profile-based auth chains.
     if runner.docker_mount_aws_dir {
         if let Ok(home) = std::env::var("HOME") {

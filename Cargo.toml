@@ -16,4 +16,6 @@ members = [
   "src/suites/data_engineer/src/modules/provider-athena",
   "src/suites/data_engineer/src/modules/provider-dbt",
   "src/suites/data_engineer/src/modules/provider-catalog",
+  "src/suites/data_engineer/src/modules/provider-snowflake",
+  "src/suites/data_engineer/src/modules/provider-mssql",
 ]

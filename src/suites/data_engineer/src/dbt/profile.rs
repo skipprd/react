@@ -221,6 +221,11 @@ pub fn generate_profiles_yml(
                 .get("role")
                 .and_then(|v| v.as_str())
                 .unwrap_or("{{ env_var('SNOWFLAKE_ROLE') }}");
+            let use_keypair = std::env::var("SNOWFLAKE_PRIVATE_KEY_PATH")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some();
+
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
@@ -229,7 +234,11 @@ pub fn generate_profiles_yml(
             out.push_str("      type: snowflake\n");
             out.push_str("      account: \"{{ env_var('SNOWFLAKE_ACCOUNT') }}\"\n");
             out.push_str("      user: \"{{ env_var('SNOWFLAKE_USER') }}\"\n");
-            out.push_str("      password: \"{{ env_var('SNOWFLAKE_PASSWORD') }}\"\n");
+            if use_keypair {
+                out.push_str("      private_key_path: \"{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}\"\n");
+            } else {
+                out.push_str("      password: \"{{ env_var('SNOWFLAKE_PASSWORD') }}\"\n");
+            }
             out.push_str(&format!("      role: {}\n", yaml_escape_scalar(role)));
             out.push_str(&format!(
                 "      database: {}\n",
@@ -271,13 +280,26 @@ pub fn generate_profiles_yml(
                 .get("location")
                 .and_then(|v| v.as_str())
                 .unwrap_or("{{ env_var('BIGQUERY_LOCATION', 'US') }}");
+            let use_service_account = std::env::var("GOOGLE_APPLICATION_CREDENTIALS")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .is_some();
+
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
             out.push_str("      type: bigquery\n");
-            out.push_str(&format!("      method: {}\n", yaml_escape_scalar("oauth")));
+            if use_service_account {
+                out.push_str(&format!(
+                    "      method: {}\n",
+                    yaml_escape_scalar("service-account")
+                ));
+                out.push_str("      keyfile: \"{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}\"\n");
+            } else {
+                out.push_str(&format!("      method: {}\n", yaml_escape_scalar("oauth")));
+            }
             out.push_str(&format!(
                 "      project: {}\n",
                 yaml_escape_scalar(&project)

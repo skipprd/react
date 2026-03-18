@@ -35,12 +35,16 @@ pub(crate) enum WarehouseFile {
     Mssql {
         database: Option<String>,
         schema: Option<String>,
+        max_concurrency: Option<usize>,
+        discovery_cache_ttl_secs: Option<u64>,
     },
     Snowflake {
         database: Option<String>,
         schema: Option<String>,
         warehouse: Option<String>,
         role: Option<String>,
+        max_concurrency: Option<usize>,
+        discovery_cache_ttl_secs: Option<u64>,
     },
     Bigquery {
         project: Option<String>,
@@ -117,22 +121,37 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             namespace: schema.unwrap_or_default(),
             extras: serde_json::json!({}),
         },
-        WarehouseFile::Mssql { database, schema } => WarehouseResolved {
+        WarehouseFile::Mssql {
+            database,
+            schema,
+            max_concurrency,
+            discovery_cache_ttl_secs,
+        } => WarehouseResolved {
             kind: WarehouseKind::Mssql,
             container: database.unwrap_or_default(),
             namespace: schema.unwrap_or_default(),
-            extras: serde_json::json!({}),
+            extras: serde_json::json!({
+                "max_concurrency": max_concurrency,
+                "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
+            }),
         },
         WarehouseFile::Snowflake {
             database,
             schema,
             warehouse,
             role,
+            max_concurrency,
+            discovery_cache_ttl_secs,
         } => WarehouseResolved {
             kind: WarehouseKind::Snowflake,
             container: database.unwrap_or_default(),
             namespace: schema.unwrap_or_default(),
-            extras: serde_json::json!({ "warehouse": warehouse, "role": role }),
+            extras: serde_json::json!({
+                "warehouse": warehouse,
+                "role": role,
+                "max_concurrency": max_concurrency,
+                "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
+            }),
         },
         WarehouseFile::Bigquery {
             project,
