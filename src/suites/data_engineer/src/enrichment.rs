@@ -595,21 +595,21 @@ impl DataEngineerSuite {
             "data_engineer.plan_design_memo",
             ctx.thread_id().clone(),
         )?;
-        ctx.llm()
-            .chat(
-                &[
-                    ChatMessage {
-                        role: ChatRole::System,
-                        content: sys,
-                    },
-                    ChatMessage {
-                        role: ChatRole::User,
-                        content: user,
-                    },
-                ],
-                &opts,
-            )
-            .map_err(|e| e.to_string())
+        ctx.llm_chat(
+            &[
+                ChatMessage {
+                    role: ChatRole::System,
+                    content: sys,
+                },
+                ChatMessage {
+                    role: ChatRole::User,
+                    content: user,
+                },
+            ],
+            &opts,
+        )
+        .await
+        .map_err(|e| e.to_string())
     }
 
     pub(super) async fn critique_design_memo(

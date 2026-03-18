@@ -30,23 +30,9 @@ impl Tool for SearchDbtExamplesTool {
             }));
         }
         let k = args.get("k").and_then(|x| x.as_u64()).unwrap_or(8) as usize;
-        // Ensure examples synced at least once (non-blocking if already done)
-        crate::dbt::examples::ensure_synced_once(
-            ctx.storage().clone(),
-            ctx.scope().clone(),
-            ctx.llm().clone(),
-            ctx.vector().clone(),
-        )
-        .await;
+        crate::dbt::examples::ensure_synced_once(ctx).await;
         let embed_chars = query.len();
-        let results = crate::dbt::examples::search_examples(
-            ctx.scope().clone(),
-            ctx.llm().clone(),
-            ctx.vector().clone(),
-            &query,
-            k,
-        )
-        .await?;
+        let results = crate::dbt::examples::search_examples(ctx, &query, k).await?;
         // Map to compact response
         let mut examples: Vec<Value> = Vec::new();
         for sc in results.into_iter() {

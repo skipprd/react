@@ -85,9 +85,6 @@ impl AgentCtx {
     pub fn policy(&self) -> &Arc<dyn AgentPolicy> {
         &self.policy
     }
-    pub fn llm(&self) -> &Arc<dyn crate::llm::LargeLanguageModel> {
-        &self.llm
-    }
     pub fn storage(&self) -> &Arc<dyn StorageAdapter> {
         &self.storage
     }

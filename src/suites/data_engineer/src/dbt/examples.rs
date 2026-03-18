@@ -2,14 +2,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::{info, warn};
 
-use react_core::llm::LargeLanguageModel;
-use react_core::provider_traits::{ScoredVectorChunk, VectorChunk, VectorStore};
-use react_core::scope::RequestScope;
-use react_core::storage::StorageAdapter;
+use react_core::agent::AgentCtx;
+use react_core::provider_traits::{ScoredVectorChunk, VectorChunk};
 
 static SYNC_ONCE: OnceCell<()> = OnceCell::const_new();
 
@@ -17,16 +14,12 @@ static SYNC_ONCE: OnceCell<()> = OnceCell::const_new();
 ///
 /// - Stores raw file bytes under `dbt-examples/<project>/<path>` (best effort).
 /// - Upserts embeddings into the *current scope* vector store (best effort).
-pub async fn ensure_synced_once(
-    storage: Arc<dyn StorageAdapter>,
-    scope: RequestScope,
-    llm: Arc<dyn LargeLanguageModel>,
-    vector: Option<Arc<dyn VectorStore>>,
-) {
+pub async fn ensure_synced_once(ctx: &AgentCtx) {
+    let ctx = ctx.clone();
     let _ = SYNC_ONCE
         .get_or_init(|| async move {
             info!("dbt_examples: ensure_synced_once triggered (startup)");
-            if let Err(e) = sync_from_local(storage, &scope, llm, vector).await {
+            if let Err(e) = sync_from_local(&ctx).await {
                 warn!("DBT examples sync skipped/failed: {}", e);
             }
         })
@@ -34,26 +27,22 @@ pub async fn ensure_synced_once(
 }
 
 pub async fn search_examples(
-    scope: RequestScope,
-    llm: Arc<dyn LargeLanguageModel>,
-    vector: Option<Arc<dyn VectorStore>>,
+    ctx: &AgentCtx,
     query: &str,
     k: usize,
 ) -> Result<Vec<ScoredVectorChunk>, String> {
-    let vector = vector.ok_or_else(|| {
+    let vector = ctx.vector().as_ref().ok_or_else(|| {
         "vector provider missing (dbt examples search requires embeddings)".to_string()
     })?;
-    let v = llm
-        .embed(&[query.to_string()])
+    let v = ctx
+        .llm_embed(&[query.to_string()])
         .map_err(|e| e.to_string())?
         .pop()
         .unwrap_or_default();
     if v.is_empty() {
         return Ok(Vec::new());
     }
-    // Note: current VectorStore API doesn't support server-side filtering.
-    // We upsert `kind="dbt_example"` and filter client-side.
-    let mut hits = vector.query(&scope, &v, k * 3, None).await?;
+    let mut hits = vector.query(ctx.scope(), &v, k * 3, None).await?;
     hits.retain(|h| {
         h.item.kind == react_core::provider_traits::ChunkKind::Other("dbt_example".to_string())
     });
@@ -113,21 +102,16 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", h.finalize())
 }
 
-async fn sync_from_local(
-    storage: Arc<dyn StorageAdapter>,
-    scope: &RequestScope,
-    llm: Arc<dyn LargeLanguageModel>,
-    vector: Option<Arc<dyn VectorStore>>,
-) -> Result<(), String> {
+async fn sync_from_local(ctx: &AgentCtx) -> Result<(), String> {
     let root = local_examples_root();
     if !root.exists() {
         return Err("dbt-examples/ folder not found".to_string());
     }
 
-    let vector = match vector {
-        Some(v) => v,
-        None => return Err("vector provider missing".to_string()),
-    };
+    let vector = ctx
+        .vector()
+        .as_ref()
+        .ok_or_else(|| "vector provider missing".to_string())?;
 
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     let mut stack: Vec<PathBuf> = vec![root.clone()];
@@ -182,7 +166,7 @@ async fn sync_from_local(
     while i < chunks.len() {
         let j = (i + batch).min(chunks.len());
         let texts: Vec<String> = chunks[i..j].iter().map(|c| c.text.clone()).collect();
-        let vecs = llm.embed(&texts).map_err(|e| e.to_string())?;
+        let vecs = ctx.llm_embed(&texts).map_err(|e| e.to_string())?;
         for (k, v) in vecs.into_iter().enumerate() {
             chunks[i + k].vector = v;
         }
@@ -192,7 +176,8 @@ async fn sync_from_local(
     // Best-effort store raw bytes in storage (so tool can point at an object key)
     for (rel, bytes) in files.into_iter() {
         let key = format!("dbt-examples/{}", rel);
-        let _ = storage
+        let _ = ctx
+            .storage()
             .put_bytes(&key, &bytes, "application/octet-stream")
             .await;
     }
@@ -201,7 +186,7 @@ async fn sync_from_local(
     let mut p = 0usize;
     while p < chunks.len() {
         let q = (p + batch).min(chunks.len());
-        vector.upsert(scope, &chunks[p..q]).await?;
+        vector.upsert(ctx.scope(), &chunks[p..q]).await?;
         p = q;
     }
     Ok(())
