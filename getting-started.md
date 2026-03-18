@@ -73,7 +73,7 @@ openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
 Log into Snowsight (or SnowSQL) and run:
 
 ```sql
-ALTER USER PAULHUDSON SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
+ALTER USER YOURUSERNAME SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
 ```
 
 Copy the contents of `snowflake_key.pub` and paste **only** the base64 body — strip the `-----BEGIN PUBLIC KEY-----` and `-----END PUBLIC KEY-----` lines.
@@ -81,7 +81,7 @@ Copy the contents of `snowflake_key.pub` and paste **only** the base64 body — 
 **4. Verify the key was assigned:**
 
 ```sql
-DESC USER PAULHUDSON;
+DESC USER YOURUSERNAME;
 -- Look for RSA_PUBLIC_KEY_FP — it should show a fingerprint like SHA256:...
 ```
 
@@ -288,8 +288,8 @@ providers:
 ```bash
 export LLM_API_KEY="sk-..."
 
-export SNOWFLAKE_ACCOUNT="RSSKNWT-KC53195"
-export SNOWFLAKE_USER="PAULHUDSON"
+export SNOWFLAKE_ACCOUNT="RSSKNWT-KC12345"
+export SNOWFLAKE_USER="YOURUSERNAME"
 ```
 
 ### Snowflake authentication
