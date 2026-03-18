@@ -220,7 +220,7 @@ impl SnowflakeProvider {
     }
 
     fn quote_ident_sf(ident: &str) -> String {
-        format!("\"{}\"", ident.replace('"', "\"\""))
+        format!("\"{}\"", ident.to_uppercase().replace('"', "\"\""))
     }
 
     fn quote_table(database: &str, schema: &str, table: &str) -> String {
