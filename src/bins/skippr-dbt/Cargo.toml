@@ -1,0 +1,24 @@
+[package]
+name = "skippr-dbt"
+version = "0.0.0-git"
+edition = "2021"
+
+[[bin]]
+name = "skippr-dbt"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+react-core = { path = "../../core" }
+react = { path = "../../runtime" }
+react-suite-data-engineer = { path = "../../suites/data_engineer" }
+react-module-storage-s3 = { path = "../../modules/adaptors/storage-s3" }
+react-module-storage-local = { path = "../../modules/adaptors/storage-local" }
+react-module-provider-vector-lance = { path = "../../modules/providers/vector-lance" }
+react-module-provider-postgres = { path = "../../suites/data_engineer/src/modules/provider-postgres" }
+react-module-provider-bigquery = { path = "../../suites/data_engineer/src/modules/provider-bigquery" }
+react-module-provider-athena = { path = "../../suites/data_engineer/src/modules/provider-athena" }
+react-module-provider-dbt = { path = "../../suites/data_engineer/src/modules/provider-dbt" }
+react-module-provider-catalog = { path = "../../suites/data_engineer/src/modules/provider-catalog" }
+react-module-provider-snowflake = { path = "../../suites/data_engineer/src/modules/provider-snowflake" }
+react-module-provider-mssql = { path = "../../suites/data_engineer/src/modules/provider-mssql" }

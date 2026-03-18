@@ -12,19 +12,19 @@ It uses:
 
 ## Prerequisites
 
-### Skippr binary
+### skippr-dbt binary
 
-Download the Skippr binary for your platform from the link provided to you. Place it somewhere on your PATH (or reference it by full path in the commands below).
+Download the `skippr-dbt` binary for your platform from the link provided to you. Place it somewhere on your PATH (or reference it by full path in the commands below).
 
 Verify:
 
 ```bash
-skippr --version
+skippr-dbt --version
 ```
 
 ### Python 3.10+ and dbt
 
-Python is required to run `dbt`, which Skippr shells out to for model validation and materialisation.
+Python is required to run `dbt`, which `skippr-dbt` shells out to for model validation and materialisation.
 
 | Tool | Why | Install |
 |------|-----|---------|
@@ -158,7 +158,7 @@ Snowflake provides a managed connector that replicates MSSQL tables continuously
 
 ### Migration is on the Roadmap
 
-In future, the Skippr project will support seemless migration of data between systems during the modeling phase.
+In future, `skippr-dbt` will support seamless migration of data between systems during the modeling phase.
 
 ### Verify bronze data
 
@@ -175,7 +175,7 @@ SELECT * FROM customers LIMIT 10;
 
 ## 2. Set up the dbt environment
 
-Skippr shells out to `dbt` for model compilation, validation, and materialisation. You need `dbt-core` and the Snowflake adapter installed in a Python virtual environment.
+`skippr-dbt` shells out to `dbt` for model compilation, validation, and materialisation. You need `dbt-core` and the Snowflake adapter installed in a Python virtual environment.
 
 ### Create a virtual environment
 
@@ -204,14 +204,14 @@ You should see output listing `dbt-core` and `dbt-snowflake` with their versions
 
 ### dbt packages (dbt_utils)
 
-Skippr generates a `packages.yml` in the dbt project that declares dependencies such as `dbt-labs/dbt_utils`. These are dbt packages (not pip packages). You will need to run `dbt deps` to install them after Skippr has scaffolded the project:
+`skippr-dbt` generates a `packages.yml` in the dbt project that declares dependencies such as `dbt-labs/dbt_utils`. These are dbt packages (not pip packages). You will need to run `dbt deps` to install them after the project has been scaffolded:
 
 ```bash
 cd .react/local/dev/mssql_migration/dbt
 dbt deps
 ```
 
-**Important:** The virtual environment must be activated whenever you run Skippr, so that `dbt` is available on PATH.
+**Important:** The virtual environment must be activated whenever you run `skippr-dbt`, so that `dbt` is available on PATH.
 
 ---
 
@@ -320,14 +320,13 @@ export SKIPPR_LOG=info
 
 ---
 
-## 5. Run Skippr
+## 5. Run skippr-dbt
 
 Make sure your virtual environment is activated, then:
 
 ```bash
-skippr run \
+skippr-dbt run \
   --config config.yaml \
-  --suite-id data_engineer \
   --agent agent
 ```
 
@@ -407,7 +406,7 @@ This means your Snowflake account enforces MFA, so password auth cannot work for
 
 1. Generate an RSA key pair — see [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowflake)
 2. Replace `SNOWFLAKE_PASSWORD` with `SNOWFLAKE_PRIVATE_KEY_PATH` pointing to your `.p8` file
-3. Restart Skippr
+3. Restart `skippr-dbt`
 
 ### Snowflake connection errors (dbt)
 

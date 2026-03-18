@@ -3,6 +3,7 @@
 //! Runtime crate (CLI + WS server + concrete provider implementations).
 
 pub mod bootstrap;
+pub mod cli;
 pub mod config;
 pub mod llm;
 pub mod runtime_context;

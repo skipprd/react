@@ -4,7 +4,7 @@ A **WebSocket-based ReAct agent runtime**. Clients send JSON frames, the server 
 
 ### Getting started
 
-- **MSSQL → Snowflake** (bronze tier, local storage): see [`getting-started.md`](getting-started.md)
+- **MSSQL → Snowflake** (bronze tier, local storage) — uses the **`skippr-dbt`** binary: see [`getting-started.md`](getting-started.md)
 - Windows + BigQuery (local storage): see `GETTING_STARTED_WINDOWS_BIGQUERY.md`
 
 ### Prerequisites
@@ -106,7 +106,8 @@ react (workspace root)
 ├── src/core            (react-core)      Generic loop, traits, session, workflow — no infra or domain deps
 │   └── src/workflow/                     Workflow runner: PhaseOutcome, PhaseExecutor trait, run()
 ├── src/transport       (react-transport) WS protocol/server + headless transport
-├── src/runtime         (react)           CLI/bootstrap + concrete provider wiring
+├── src/runtime         (react)           CLI/bootstrap + concrete provider wiring (all suites)
+├── src/bins/skippr-dbt (skippr-dbt)      Customer-facing binary (data_engineer suite only)
 ├── src/suites          (react-suites)    Suite implementations
 │   └── lib.rs + one directory per suite (data_engineer/, kb/)
 │       └── data_engineer/

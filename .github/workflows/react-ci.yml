@@ -163,6 +163,9 @@ jobs:
       - name: Build react release binary
         run: cargo build --release -p react --target ${{ matrix.target }}
 
+      - name: Build skippr-dbt release binary
+        run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
+
       - name: Install dbt runtime (linux)
         if: runner.os == 'Linux'
         run: |
@@ -230,6 +233,20 @@ jobs:
         with:
           name: react-${{ matrix.target }}
           path: target\${{ matrix.target }}\release\react${{ matrix.bin_ext }}
+
+      - name: Upload skippr-dbt artifact (unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skippr-dbt-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
+
+      - name: Upload skippr-dbt artifact (windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skippr-dbt-${{ matrix.target }}
+          path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
 
   react_ci_build_test:
     name: React build + tests
@@ -347,22 +364,23 @@ jobs:
       - name: Download React Artifacts
         uses: actions/download-artifact@v4
 
-      - name: Compress React Artifacts
+      - name: Compress Artifacts
         run: |
           ls -la .
           shopt -s nullglob
-          for d in react-*; do
+          for d in react-* skippr-dbt-*; do
             if [ -d "$d" ]; then
               tar -czvf "${d}.tar.gz" "$d"
             fi
           done
-          ls -la react-*.tar.gz || true
+          ls -la react-*.tar.gz skippr-dbt-*.tar.gz || true
 
-      - name: Upload React assets to GitHub Release
+      - name: Upload assets to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ./react-*.tar.gz
+            ./skippr-dbt-*.tar.gz
           tag_name: ${{ github.ref_name }}
           token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           fail_on_unmatched_files: false

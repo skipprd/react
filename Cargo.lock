@@ -7148,6 +7148,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "skippr-dbt"
+version = "0.0.0-git"
+dependencies = [
+ "react",
+ "react-core",
+ "react-module-provider-athena",
+ "react-module-provider-bigquery",
+ "react-module-provider-catalog",
+ "react-module-provider-dbt",
+ "react-module-provider-mssql",
+ "react-module-provider-postgres",
+ "react-module-provider-snowflake",
+ "react-module-provider-vector-lance",
+ "react-module-storage-local",
+ "react-module-storage-s3",
+ "react-suite-data-engineer",
+ "tokio",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
