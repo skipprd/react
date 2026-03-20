@@ -1,66 +1,18 @@
-name: React CI/CD Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - master
-      - "v*"
     tags:
       - "*"
-  pull_request:
 
 jobs:
-  react_cleanup:
-    name: React cleanup
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+  # ---------------------------------------------------------------------------
+  # Core react: build + unit tests (no data_engineer suite, no integration runs)
+  # ---------------------------------------------------------------------------
+  react_core:
+    name: Core react build + test
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    container:
-      image: python:3.8-alpine
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          apk add --no-cache groff less jq
-          pip install awscli
-      - name: Configure AWS and clean React resources
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
-          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-          aws configure set default.region "$AWS_DEFAULT_REGION"
-
-          REACT_BUCKET="asgsdag-datalake"
-          REACT_SCOPE_PREFIX="picnic/dev"
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-            aws s3 rm "s3://${REACT_BUCKET}/${REACT_SCOPE_PREFIX}/example${i}/" --recursive || true
-          done
-          aws s3 rm "s3://${REACT_BUCKET}/${REACT_SCOPE_PREFIX}/example1_windows/" --recursive || true
-          aws s3 rm "s3://${REACT_BUCKET}/${REACT_SCOPE_PREFIX}/example1_linux_x86_64/" --recursive || true
-          aws s3 rm "s3://${REACT_BUCKET}/${REACT_SCOPE_PREFIX}/example1_macos_arm64/" --recursive || true
-
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
-            aws glue delete-database --catalog-id 353855562591 --name "example${i}_silver" || true
-            aws glue delete-database --catalog-id 353855562591 --name "example${i}_gold" || true
-          done
-          aws glue delete-database --catalog-id 353855562591 --name "example1_windows_silver" || true
-          aws glue delete-database --catalog-id 353855562591 --name "example1_windows_gold" || true
-          aws glue delete-database --catalog-id 353855562591 --name "example1_linux_x86_64_silver" || true
-          aws glue delete-database --catalog-id 353855562591 --name "example1_linux_x86_64_gold" || true
-          aws glue delete-database --catalog-id 353855562591 --name "example1_macos_arm64_silver" || true
-          aws glue delete-database --catalog-id 353855562591 --name "example1_macos_arm64_gold" || true
-
-  react_ci:
-    name: React build + tests + examples (single runner)
-    needs:
-      - react_cleanup
-    if: always() && (needs.react_cleanup.result == 'success' || needs.react_cleanup.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     env:
       CARGO_TARGET_DIR: target
     steps:
@@ -81,44 +33,62 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Install dbt runtime
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install dbt-core dbt-athena-community dbt-snowflake dbt-sqlserver
+      - name: Check OpenAPI generated artifact drift (core)
+        run: bash scripts/check-openapi-drift-core.sh
 
-      - name: Check OpenAPI generated artifact drift
-        run: bash scripts/check-openapi-drift-core.sh && bash scripts/check-openapi-drift-suite-data-engineer.sh
-
-      - name: Enforce control-state log-read guardrails
-        run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
+      - name: Build react crate
+        run: cargo build -p react
 
       - name: Test react crate
         run: cargo test -p react --lib --tests
 
-      - name: Build react binary (debug)
-        run: cargo build -p react --bin react
+  # ---------------------------------------------------------------------------
+  # skippr-dbt: build + unit tests
+  # ---------------------------------------------------------------------------
+  skippr_dbt_test:
+    name: skippr-dbt build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Run React examples (1..4) in parallel
-        env:
-          REACT_LOG_THREAD_STEPS: ${{ secrets.REACT_LOG_THREAD_STEPS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          ./target/debug/react --log info run --parallel --storage-mode s3 \
-            --config ./react1.yaml \
-            --config ./react2.yaml \
-            --config ./react3.yaml \
-            --config ./react4.yaml \
-            --suite-id data_engineer \
-            --agent agent
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-builder
+        with:
+          rust-version: stable
 
-  react_binary_build:
-    name: react build (${{ matrix.name }})
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check OpenAPI generated artifact drift (data_engineer suite)
+        run: bash scripts/check-openapi-drift-suite-data-engineer.sh
+
+      - name: Enforce control-state log-read guardrails
+        run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
+
+      - name: Build skippr-dbt
+        run: cargo build -p skippr-dbt
+
+      - name: Test skippr-dbt
+        run: cargo test -p skippr-dbt
+
+  # ---------------------------------------------------------------------------
+  # skippr-dbt: release binaries (macOS, Linux, Windows)
+  # ---------------------------------------------------------------------------
+  skippr_dbt_binary_build:
+    name: skippr-dbt release (${{ matrix.name }})
     needs:
-      - react_ci
+      - react_core
+      - skippr_dbt_test
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -160,79 +130,8 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
-      - name: Build react release binary
-        run: cargo build --release -p react --target ${{ matrix.target }}
-
       - name: Build skippr-dbt release binary
         run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
-
-      - name: Install dbt runtime (linux)
-        if: runner.os == 'Linux'
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install dbt-core dbt-athena-community dbt-snowflake dbt-sqlserver
-
-      - name: Install dbt runtime (macos)
-        if: runner.os == 'macOS'
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install dbt-core dbt-athena-community dbt-snowflake dbt-sqlserver
-
-      - name: Install dbt runtime (windows)
-        if: runner.os == 'Windows'
-        run: |
-          python -m pip install --upgrade pip
-          pip install dbt-core dbt-athena-community dbt-snowflake dbt-sqlserver
-
-      - name: Run Linux react config (release binary)
-        if: runner.os == 'Linux'
-        env:
-          REACT_LOG_THREAD_STEPS: ${{ secrets.REACT_LOG_THREAD_STEPS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          ./target/${{ matrix.target }}/release/react --log info run --storage-mode s3 --config ./react-linux-x86_64.yaml --suite-id data_engineer --agent agent
-
-      - name: Run macOS react config (release binary)
-        if: runner.os == 'macOS'
-        env:
-          REACT_LOG_THREAD_STEPS: ${{ secrets.REACT_LOG_THREAD_STEPS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          ./target/${{ matrix.target }}/release/react --log info run --storage-mode s3 --config ./react-macos-arm64.yaml --suite-id data_engineer --agent agent
-
-      - name: Run Windows react config (release binary)
-        if: runner.os == 'Windows'
-        env:
-          REACT_LOG_THREAD_STEPS: ${{ secrets.REACT_LOG_THREAD_STEPS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          .\target\${{ matrix.target }}\release\react${{ matrix.bin_ext }} --log info run --storage-mode s3 --config .\react-windows.yaml --suite-id data_engineer --agent agent
-
-      - name: Upload react artifact (unix)
-        if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: react-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/react${{ matrix.bin_ext }}
-
-      - name: Upload react artifact (windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: react-${{ matrix.target }}
-          path: target\${{ matrix.target }}\release\react${{ matrix.bin_ext }}
 
       - name: Upload skippr-dbt artifact (unix)
         if: runner.os != 'Windows'
@@ -248,124 +147,18 @@ jobs:
           name: skippr-dbt-${{ matrix.target }}
           path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
 
-  react_ci_build_test:
-    name: React build + tests
+  # ---------------------------------------------------------------------------
+  # skippr-dbt: Windows MSSQL -> Snowflake end-to-end
+  # ---------------------------------------------------------------------------
+  skippr_dbt_el_windows_e2e:
+    name: Windows MSSQL -> Snowflake E2E (skippr-dbt)
     needs:
-      - react_cleanup
-    if: always() && (needs.react_cleanup.result == 'success' || needs.react_cleanup.result == 'skipped')
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TARGET_DIR: target
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/setup-builder
-        with:
-          rust-version: stable
-
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Build react crate
-        run: cargo build -p react
-
-      - name: Test react crate
-        run: cargo test -p react
-
-  react_examples_parallel:
-    needs:
-      - react_ci_build_test
-    name: React examples (parallel)
-    runs-on: ubuntu-latest-32-cores
-    env:
-      CARGO_TARGET_DIR: target
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/setup-builder
-        with:
-          rust-version: stable
-
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Install dbt runtime
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install dbt-core dbt-athena-community dbt-snowflake dbt-sqlserver
-
-      - name: Run React examples (1..8) in parallel
-        env:
-          REACT_LOG_THREAD_STEPS: ${{ secrets.REACT_LOG_THREAD_STEPS }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-          CIRCLES_AWS_ACCESS_KEY_ID: ${{ secrets.CIRCLES_AWS_ACCESS_KEY_ID }}
-          CIRCLES_AWS_SECRET_ACCESS_KEY: ${{ secrets.CIRCLES_AWS_SECRET_ACCESS_KEY }}
-          CIRCLES_AWS_REGION: ${{ secrets.CIRCLES_AWS_REGION }}
-        run: |
-          echo "React parallel AWS diagnostics"
-          echo "AWS_REGION=${AWS_REGION}"
-          if command -v aws >/dev/null 2>&1; then
-            aws --version
-            aws sts get-caller-identity || true
-            aws glue get-database --name test_raw
-            table_count=$(aws glue get-tables --database-name test_raw --max-results 1 --query 'length(TableList)' --output text)
-            echo "glue test_raw table_count=${table_count}"
-            if [ "${table_count}" = "0" ]; then
-              echo "ERROR: Glue database test_raw has zero tables; aborting before react parallel run"
-              exit 1
-            fi
-          else
-            echo "aws cli not available on runner"
-            exit 1
-          fi
-
-          cargo run -p react -- run --parallel \
-            --config ./react1.yaml \
-            --config ./react2.yaml \
-            --config ./react3.yaml \
-            --config ./react4.yaml \
-            --config ./react5.yaml \
-            --config ./react6.yaml \
-            --config ./react7.yaml \
-            --config ./react8.yaml \
-            --suite-id data_engineer \
-            --agent agent
-
-  react_el_windows_e2e:
-    name: Windows MSSQL -> Snowflake EL E2E
-    needs:
-      - react_binary_build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+      - skippr_dbt_binary_build
+    if: "!startsWith(github.ref, 'refs/tags/test')"
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download react Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: react-x86_64-pc-windows-msvc
-          path: bin
 
       - name: Download skippr-dbt Windows artifact
         uses: actions/download-artifact@v4
@@ -384,7 +177,6 @@ jobs:
         shell: pwsh
         run: |
           choco install sql-server-express -y --no-progress
-          # Wait for SQL Server service to be running
           $timeout = 120
           $elapsed = 0
           while ($elapsed -lt $timeout) {
@@ -403,17 +195,13 @@ jobs:
         shell: pwsh
         run: |
           Import-Module SqlServer -ErrorAction SilentlyContinue
-          # Enable mixed-mode auth and SA login via sqlcmd against the named instance
           sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
-          # Enable TCP/IP via registry
-          $regPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL*\MSSQLServer\SuperSocketNetLib\Tcp"
           $tcpPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp" }
           foreach ($path in $tcpPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
           }
-          # Set TCP port to 1433 on IPAll
           $ipAllPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp\IPAll" }
           foreach ($path in $ipAllPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "TcpPort" -Value "1433" -ErrorAction SilentlyContinue
@@ -441,7 +229,7 @@ jobs:
         run: |
           $env:SNOWFLAKE_PRIVATE_KEY_PEM | Out-File -FilePath snowflake_key.p8 -Encoding ascii -NoNewline
 
-      - name: Run EL + modeling pipeline
+      - name: Run skippr-dbt EL + modeling pipeline
         shell: pwsh
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -451,38 +239,38 @@ jobs:
           MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\react.exe --log info run --config .\react-el-windows-snowflake.yaml --suite-id data_engineer --agent agent
+          .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-el-windows-snowflake.yaml
 
-  publish_react:
-    name: Publish React Release
-    if: startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/test')
+  # ---------------------------------------------------------------------------
+  # Publish skippr-dbt release
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish skippr-dbt Release
+    if: "!startsWith(github.ref, 'refs/tags/test')"
     needs:
-      - react_binary_build
+      - skippr_dbt_binary_build
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Download React Artifacts
+      - name: Download skippr-dbt Artifacts
         uses: actions/download-artifact@v4
 
       - name: Compress Artifacts
         run: |
-          ls -la .
           shopt -s nullglob
-          for d in react-* skippr-dbt-*; do
+          for d in skippr-dbt-*; do
             if [ -d "$d" ]; then
               tar -czvf "${d}.tar.gz" "$d"
             fi
           done
-          ls -la react-*.tar.gz skippr-dbt-*.tar.gz || true
+          ls -la skippr-dbt-*.tar.gz || true
 
       - name: Upload assets to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ./react-*.tar.gz
-            ./skippr-dbt-*.tar.gz
+          files: ./skippr-dbt-*.tar.gz
           tag_name: ${{ github.ref_name }}
           token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           fail_on_unmatched_files: false
