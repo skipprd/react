@@ -981,6 +981,15 @@ impl ExecutionState {
         self.debug_assert_invariants();
     }
 
+    pub fn apply_repair_succeeded(&mut self) {
+        self.repair.status = RepairStatus::Idle;
+        self.repair.failure_context = None;
+        self.repair.mutated_since_fail = false;
+        self.repair.pending_patch_impl = None;
+        self.repair.infra_transient = false;
+        self.debug_assert_invariants();
+    }
+
     pub fn phase_state(&self) -> &PhaseState {
         &self.phase
     }
@@ -1433,7 +1442,7 @@ impl ExecutionState {
                 self.repair.pending_patch_impl = None;
             }
             DataEngineerEvent::RepairSucceeded => {
-                self.apply_validate_success();
+                self.apply_repair_succeeded();
             }
             DataEngineerEvent::RepairExhausted => {
                 let cycles = self.repair.cycle_count();
@@ -1699,6 +1708,36 @@ mod tests {
             st.subjective_retries
                 .get(&SubjectiveRetryKind::ValidatePrecheckFailed),
             None
+        );
+    }
+
+    #[test]
+    fn repair_succeeded_preserves_subjective_retry_counters() {
+        let mut st = ExecutionState::new();
+        st.repair.status = RepairStatus::Pending { cycle: 2 };
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "precheck error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+        });
+        st.subjective_retries
+            .insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
+        st.subjective_retries
+            .insert(SubjectiveRetryKind::ValidateExecutionFailed, 1);
+
+        st.apply_repair_succeeded();
+
+        assert_eq!(st.repair.status, RepairStatus::Idle);
+        assert!(st.repair.failure_context.is_none());
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::ValidatePrecheckFailed),
+            Some(&2),
+            "precheck retry counter must survive repair_succeeded"
+        );
+        assert_eq!(
+            st.subjective_retries
+                .get(&SubjectiveRetryKind::ValidateExecutionFailed),
+            Some(&1),
+            "execution-failed retry counter must survive repair_succeeded"
         );
     }
 
