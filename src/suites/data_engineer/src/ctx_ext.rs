@@ -5,7 +5,8 @@ use react_core::suite::SuiteCtx;
 
 use super::de_config::ProvidersResolved;
 use super::providers::{
-    CatalogProvider, DatasetCatalogProvider, DbtProvider, QueryProvider, WarehouseProvider,
+    CatalogProvider, DatasetCatalogProvider, DbtProvider, QueryProvider, SkipprProvider,
+    WarehouseProvider,
 };
 
 // TODO(items-83-85): The capability newtypes, cap_accessors macro, wire_sctx_capabilities,
@@ -25,6 +26,7 @@ pub struct DbtCap(pub Arc<dyn DbtProvider>);
 pub struct QueryCap(pub Arc<dyn QueryProvider>);
 pub struct DatasetsCap(pub Arc<dyn DatasetCatalogProvider>);
 pub struct CatalogCap(pub Arc<dyn CatalogProvider>);
+pub struct SkipprCap(pub Arc<dyn SkipprProvider>);
 pub struct ProvidersCfgCap(pub ProvidersResolved);
 
 pub(crate) fn actx_warehouse(ctx: &AgentCtx) -> Option<Arc<dyn WarehouseProvider>> {
@@ -59,6 +61,14 @@ pub(crate) fn actx_catalog(ctx: &AgentCtx) -> Option<Arc<dyn CatalogProvider>> {
     ctx.capability::<CatalogCap>().map(|c| c.0.clone())
 }
 
+pub(crate) fn sctx_skippr(ctx: &SuiteCtx) -> Option<Arc<dyn SkipprProvider>> {
+    ctx.capability::<SkipprCap>().map(|c| c.0.clone())
+}
+
+pub(crate) fn actx_skippr(ctx: &AgentCtx) -> Option<Arc<dyn SkipprProvider>> {
+    ctx.capability::<SkipprCap>().map(|c| c.0.clone())
+}
+
 pub(crate) fn actx_providers_cfg(ctx: &AgentCtx) -> Option<ProvidersResolved> {
     ctx.capability::<ProvidersCfgCap>().map(|c| c.0.clone())
 }
@@ -71,6 +81,7 @@ pub fn wire_sctx_capabilities(
     datasets: Option<Arc<dyn DatasetCatalogProvider>>,
     catalog: Option<Arc<dyn CatalogProvider>>,
     dbt: Option<Arc<dyn DbtProvider>>,
+    skippr: Option<Arc<dyn SkipprProvider>>,
     providers_cfg: ProvidersResolved,
 ) {
     sctx.set_capability(Arc::new(WarehouseCap(warehouse)));
@@ -85,6 +96,9 @@ pub fn wire_sctx_capabilities(
     }
     if let Some(d) = dbt {
         sctx.set_capability(Arc::new(DbtCap(d)));
+    }
+    if let Some(s) = skippr {
+        sctx.set_capability(Arc::new(SkipprCap(s)));
     }
     sctx.set_capability(Arc::new(ProvidersCfgCap(providers_cfg)));
 }
@@ -108,6 +122,9 @@ pub fn copy_capabilities_to_actx(sctx: &SuiteCtx, actx: &mut AgentCtx) {
     }
     if let Some(cat) = sctx.capability::<CatalogCap>() {
         actx.set_capability(cat);
+    }
+    if let Some(s) = sctx.capability::<SkipprCap>() {
+        actx.set_capability(s);
     }
     if let Some(cfg) = sctx.capability::<ProvidersCfgCap>() {
         actx.set_capability(cfg);

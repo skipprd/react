@@ -110,6 +110,9 @@ pub(crate) mod patch_schemas;
 mod phase_author;
 mod phase_author_lifecycle;
 pub(crate) mod phase_contract;
+mod phase_el_discover;
+mod phase_el_sync;
+mod phase_el_verify;
 pub(crate) mod phase_gate;
 mod phase_plan;
 mod phase_plan_lifecycle;
@@ -647,6 +650,9 @@ impl Suite for DataEngineerSuite {
         }
         use crate::control_flow::Phase;
         vec![
+            Phase::ElDiscover.as_str(),
+            Phase::ElSync.as_str(),
+            Phase::ElVerify.as_str(),
             Phase::Preflight.as_str(),
             Phase::CleansePlan.as_str(),
             Phase::CleanseAuthor.as_str(),

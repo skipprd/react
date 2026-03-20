@@ -5970,6 +5970,7 @@ dependencies = [
  "react-module-provider-dbt",
  "react-module-provider-mssql",
  "react-module-provider-postgres",
+ "react-module-provider-skippr",
  "react-module-provider-snowflake",
  "react-module-provider-vector-lance",
  "react-module-storage-local",
@@ -6100,6 +6101,21 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-postgres",
+]
+
+[[package]]
+name = "react-module-provider-skippr"
+version = "0.0.0-git"
+dependencies = [
+ "async-trait",
+ "react-core",
+ "react-suite-data-engineer",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

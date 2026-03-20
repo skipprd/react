@@ -3,6 +3,7 @@ pub mod catalog_types;
 pub mod dataset_catalog;
 pub mod dbt;
 pub mod query;
+pub mod skippr;
 pub mod stats;
 pub mod type_parse;
 pub mod warehouse;
@@ -20,5 +21,10 @@ pub use catalog_types::{
 pub use dataset_catalog::{DatasetCatalogProvider, DatasetId};
 pub use dbt::{DbtProvider, DbtValidateArgs, DbtValidateResult};
 pub use query::{QueryProvider, QueryResult};
+pub use skippr::{
+    SkipprDiscoverResult, SkipprFieldSchema, SkipprNamespaceSchema, SkipprNamespaceStatus,
+    SkipprOutputConfig, SkipprPipelineConfig, SkipprPipelineStatus, SkipprProvider,
+    SkipprSyncResult,
+};
 pub use stats::DatasetFieldStats;
 pub use warehouse::{WarehouseNaming, WarehouseProvider};

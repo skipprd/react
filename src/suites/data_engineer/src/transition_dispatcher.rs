@@ -87,7 +87,11 @@ pub async fn dispatch_phase_transition(
     }
     st.with_phase_state_mut(|phase_state| {
         phase_state.current_phase = phase;
-        phase_state.transition = transition.clone();
+        phase_state.transition = if phase == Phase::Preflight {
+            None
+        } else {
+            transition.clone()
+        };
     });
     state_manager::replace_execution_state(&store.control_store(), thread_id, st).await?;
 

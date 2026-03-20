@@ -158,6 +158,12 @@ pub enum PhaseTransition {
     PhaseBlocked,
     RepairCompleted,
     RepairExhausted { reason: String },
+
+    ElDiscoverOk { namespaces_count: usize },
+    ElSyncOk { tables_synced: usize },
+    ElSyncFailed { reason: String },
+    ElVerifyOk,
+    ElVerifyFailed { reason: String },
 }
 
 impl PhaseTransition {
@@ -195,6 +201,11 @@ impl PhaseTransition {
             Self::PhaseBlocked => "phase_blocked",
             Self::RepairCompleted => "repair_completed",
             Self::RepairExhausted { .. } => "repair_exhausted",
+            Self::ElDiscoverOk { .. } => "el_discover_ok",
+            Self::ElSyncOk { .. } => "el_sync_ok",
+            Self::ElSyncFailed { .. } => "el_sync_failed",
+            Self::ElVerifyOk => "el_verify_ok",
+            Self::ElVerifyFailed { .. } => "el_verify_failed",
         }
     }
 }
@@ -395,6 +406,7 @@ impl Default for MutationOp {
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTier {
     Unknown,
+    El,
     Cleanse,
     Model,
 }

@@ -7,9 +7,10 @@ use react_module_provider_catalog::DefaultCatalogProvider;
 use react_module_provider_dbt::{DbtProjectProvider, DbtRunnerConfig, DbtRunnerMode};
 use react_module_provider_mssql::{MssqlProvider, MssqlSettings};
 use react_module_provider_postgres::{PostgresProvider, PostgresSettings};
+use react_module_provider_skippr::SkipprCliProvider;
 use react_module_provider_snowflake::{SnowflakeProvider, SnowflakeSettings};
 use react_suite_data_engineer::ctx_ext::{
-    CatalogCap, DatasetsCap, DbtCap, ProvidersCfgCap, QueryCap, WarehouseCap,
+    CatalogCap, DatasetsCap, DbtCap, ProvidersCfgCap, QueryCap, SkipprCap, WarehouseCap,
 };
 use react_suite_data_engineer::de_config::{self as de_cfg, WarehouseKind};
 
@@ -135,10 +136,20 @@ fn resolve_snowflake_settings(providers: &de_cfg::ProvidersResolved) -> Snowflak
     });
 
     SnowflakeSettings {
-        account: getenv_nonempty("SNOWFLAKE_ACCOUNT"),
-        user: getenv_nonempty("SNOWFLAKE_USER"),
-        password: getenv_nonempty("SNOWFLAKE_PASSWORD"),
-        private_key_pem,
+        account: getenv_nonempty("SNOWFLAKE_ACCOUNT").or_else(|| {
+            extras.get("account").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        user: getenv_nonempty("SNOWFLAKE_USER").or_else(|| {
+            extras.get("user").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        password: getenv_nonempty("SNOWFLAKE_PASSWORD").or_else(|| {
+            extras.get("password").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        private_key_pem: private_key_pem.or_else(|| {
+            extras.get("private_key_path")
+                .and_then(|v| v.as_str())
+                .and_then(|path| std::fs::read_to_string(path).ok())
+        }),
         database: nonempty(&providers.warehouse.container),
         schema: nonempty(&providers.warehouse.namespace),
         warehouse,
@@ -196,6 +207,14 @@ pub(crate) async fn wire_providers(
         .expect("resolved_config must be set before wire_providers");
     let providers = de_cfg::de_config_from_resolved(cfg).unwrap_or_default();
     let wh_kind = providers.warehouse.kind;
+    let skippr_data_dir = {
+        let fs_root = cfg.storage.path.as_deref().unwrap_or("/tmp/skippr-dbt");
+        std::path::PathBuf::from(fs_root)
+            .join(cfg.scope.tenant.as_str())
+            .join(cfg.scope.workspace.as_str())
+            .join(cfg.scope.project_id.as_str())
+            .join("skippr")
+    };
 
     match wh_kind {
         WarehouseKind::Athena => {
@@ -312,6 +331,15 @@ pub(crate) async fn wire_providers(
             keyspace.clone(),
             runner,
         )))));
+    }
+
+    if providers.el.enabled {
+        let skippr_provider = SkipprCliProvider::new(
+            providers.el.clone(),
+            providers.warehouse.clone(),
+            skippr_data_dir,
+        );
+        sctx.set_capability(Arc::new(SkipprCap(Arc::new(skippr_provider))));
     }
 
     sctx.set_capability(Arc::new(ProvidersCfgCap(providers)));

@@ -11,6 +11,14 @@ pub(crate) struct ProvidersFile {
     pub catalog: Option<CatalogFile>,
     pub dbt: Option<DbtFile>,
     pub vector: Option<VectorFile>,
+    pub el: Option<ElToolFile>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct ElToolFile {
+    pub enabled: Option<bool>,
+    pub skippr_binary: Option<String>,
+    pub skippr_input: Option<serde_json::Value>,
 }
 
 /// Warehouse configuration for a single provider (source or target).
@@ -39,6 +47,10 @@ pub(crate) enum WarehouseFile {
         discovery_cache_ttl_secs: Option<u64>,
     },
     Snowflake {
+        account: Option<String>,
+        user: Option<String>,
+        password: Option<String>,
+        private_key_path: Option<String>,
         database: Option<String>,
         schema: Option<String>,
         warehouse: Option<String>,
@@ -136,6 +148,10 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             }),
         },
         WarehouseFile::Snowflake {
+            account,
+            user,
+            password,
+            private_key_path,
             database,
             schema,
             warehouse,
@@ -147,6 +163,10 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             container: database.unwrap_or_default(),
             namespace: schema.unwrap_or_default(),
             extras: serde_json::json!({
+                "account": account,
+                "user": user,
+                "password": password,
+                "private_key_path": private_key_path,
                 "warehouse": warehouse,
                 "role": role,
                 "max_concurrency": max_concurrency,
@@ -204,6 +224,8 @@ pub fn resolve_providers_from_yaml(
         .or(dbt_f.docker_mount_aws_dir)
         .unwrap_or(false);
 
+    let el_f = pf.el.unwrap_or_default();
+
     let warehouse_resolved = resolve_warehouse(wh_f);
     let providers = serde_json::json!({
         "warehouse": warehouse_resolved,
@@ -234,6 +256,11 @@ pub fn resolve_providers_from_yaml(
         },
         "vector": {
             "enabled": vec_f.enabled.unwrap_or(true),
+        },
+        "el": {
+            "enabled": el_f.enabled.unwrap_or(false),
+            "skippr_binary": el_f.skippr_binary.unwrap_or_else(|| "skippr".to_string()),
+            "skippr_input": el_f.skippr_input.unwrap_or(serde_json::Value::Null),
         },
     });
 
@@ -282,6 +309,17 @@ pub struct ProvidersResolved {
     pub dbt: DbtResolved,
     #[serde(default)]
     pub vector: VectorResolved,
+    #[serde(default)]
+    pub el: ElToolResolved,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ElToolResolved {
+    pub enabled: bool,
+    #[serde(default)]
+    pub skippr_binary: String,
+    #[serde(default)]
+    pub skippr_input: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

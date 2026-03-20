@@ -17,6 +17,9 @@ pub use react_core::workflow::TransitionIntent;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    ElDiscover,
+    ElSync,
+    ElVerify,
     #[default]
     Preflight,
     CleansePlan,
@@ -110,7 +113,10 @@ mod state_first_tests {
     }
 }
 
-pub const ALL_PHASES: [Phase; 12] = [
+pub const ALL_PHASES: [Phase; 15] = [
+    Phase::ElDiscover,
+    Phase::ElSync,
+    Phase::ElVerify,
     Phase::Preflight,
     Phase::CleansePlan,
     Phase::CleanseAuthor,
@@ -128,6 +134,9 @@ pub const ALL_PHASES: [Phase; 12] = [
 impl Phase {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Phase::ElDiscover => "el_discover",
+            Phase::ElSync => "el_sync",
+            Phase::ElVerify => "el_verify",
             Phase::Preflight => "preflight",
             Phase::CleansePlan => "cleanse_plan",
             Phase::CleanseAuthor => "cleanse_author",
@@ -154,6 +163,7 @@ impl Phase {
     pub fn tier(&self) -> crate::progress_controller::ExecutionTier {
         use crate::progress_controller::ExecutionTier;
         match self {
+            Phase::ElDiscover | Phase::ElSync | Phase::ElVerify => ExecutionTier::El,
             Phase::CleansePlan | Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview => ExecutionTier::Cleanse,
             Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => ExecutionTier::Model,
             _ => ExecutionTier::Unknown,
@@ -166,6 +176,9 @@ impl std::str::FromStr for Phase {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
+            "el_discover" => Ok(Phase::ElDiscover),
+            "el_sync" => Ok(Phase::ElSync),
+            "el_verify" => Ok(Phase::ElVerify),
             "preflight" => Ok(Phase::Preflight),
             "cleanse_plan" => Ok(Phase::CleansePlan),
             "cleanse_author" => Ok(Phase::CleanseAuthor),
@@ -185,6 +198,9 @@ impl std::str::FromStr for Phase {
 
 pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
     match from {
+        Phase::ElDiscover => &[Phase::ElSync],
+        Phase::ElSync => &[Phase::ElSync, Phase::ElVerify],
+        Phase::ElVerify => &[Phase::ElVerify, Phase::Preflight, Phase::ElSync],
         Phase::Preflight => &[Phase::CleansePlan],
         Phase::CleansePlan => &[Phase::CleansePlan, Phase::CleanseAuthor],
         Phase::CleanseAuthor => &[

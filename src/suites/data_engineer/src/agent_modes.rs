@@ -377,6 +377,14 @@ impl DataEngineerSuite {
         crate::retry_budget::clear_subjective_retries(thread_store, thread_id, kinds).await
     }
 
+    fn el_enabled(sctx: &SuiteCtx) -> bool {
+        sctx.resolved_config()
+            .as_ref()
+            .and_then(|c| crate::de_config::de_config_from_resolved(c))
+            .map(|p| p.el.enabled)
+            .unwrap_or(false)
+    }
+
     pub(super) fn validate_agent_type(agent_type: &str) -> Result<AgentMode, String> {
         AgentMode::parse(agent_type)
     }
@@ -587,30 +595,56 @@ impl DataEngineerSuite {
         sctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         use control_flow::Phase;
-        if let Err(e) = Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await {
+
+        let has_el = Self::el_enabled(sctx);
+
+        if has_el {
             let thread_store = ThreadStore::new(
                 sctx.storage().clone(),
                 sctx.scope().clone(),
                 sctx.keyspace().clone(),
             );
-            let reason = format!(
-                "catalog bootstrap metadata gate failed before planning:\n{}",
-                e.trim()
-            );
-            tracing::error!(
-                thread_id = %thread_id,
-                error = %e,
-                "data_engineer: refusing to continue after preflight catalog metadata gate failure"
-            );
-            let _ = apply_guard_block(
-                &thread_store,
+            let existing = crate::progress_controller::ExecutionState::load_strict(
+                &thread_store.control_store(),
                 thread_id,
-                Phase::Preflight,
-                GuardBlockKind::PrecheckFailed,
-                reason.clone(),
             )
-            .await;
-            return Err(format!("agent_mode_await_user_forbidden: {}", reason));
+            .await
+            .unwrap_or(None);
+            if existing.is_none() {
+                let mut es = crate::progress_controller::ExecutionState::new();
+                es.phase.current_phase = Phase::ElDiscover;
+                if let Err(e) = es.save(&thread_store.control_store(), thread_id).await {
+                    tracing::warn!("failed to seed EL initial phase: {e}");
+                }
+            }
+        }
+
+        if !has_el {
+            if let Err(e) = Self::ensure_catalog_bootstrap_semaphored(thread_id, sctx).await {
+                let thread_store = ThreadStore::new(
+                    sctx.storage().clone(),
+                    sctx.scope().clone(),
+                    sctx.keyspace().clone(),
+                );
+                let reason = format!(
+                    "catalog bootstrap metadata gate failed before planning:\n{}",
+                    e.trim()
+                );
+                tracing::error!(
+                    thread_id = %thread_id,
+                    error = %e,
+                    "data_engineer: refusing to continue after preflight catalog metadata gate failure"
+                );
+                let _ = apply_guard_block(
+                    &thread_store,
+                    thread_id,
+                    Phase::Preflight,
+                    GuardBlockKind::PrecheckFailed,
+                    reason.clone(),
+                )
+                .await;
+                return Err(format!("agent_mode_await_user_forbidden: {}", reason));
+            }
         }
 
         let model_name = sctx
@@ -723,6 +757,9 @@ impl DataEngineerSuite {
     ) -> Result<PhaseOutcome, PhaseError> {
         use crate::control_flow::Phase;
         match phase {
+            Phase::ElDiscover => Self::execute_el_discover_phase(thread_store, thread_id, sctx).await,
+            Phase::ElSync => Self::execute_el_sync_phase(thread_store, thread_id, sctx).await,
+            Phase::ElVerify => Self::execute_el_verify_phase(thread_store, thread_id, sctx).await,
             Phase::Preflight => Self::execute_preflight_phase(thread_store, thread_id, sctx).await,
             Phase::CleansePlan | Phase::ModelPlan => {
                 Self::execute_plan_phase(

@@ -303,6 +303,7 @@ pub async fn build_catalog_column_context(
 
     let mut schema_map: SourceSchema = BTreeMap::new();
     let catalog = crate::ctx_ext::actx_catalog(ctx);
+    let query_provider = crate::ctx_ext::actx_query(ctx);
 
     if let Some(cat) = catalog {
         for ds_id in dataset_ids {
@@ -344,6 +345,37 @@ pub async fn build_catalog_column_context(
         }
     } else {
         tracing::warn!("build_catalog_column_context: CatalogProvider not available");
+    }
+
+    if let Some(qp) = query_provider {
+        for ds_id in dataset_ids {
+            let id = ds_id.trim();
+            if id.is_empty() || schema_map.contains_key(id) {
+                continue;
+            }
+            match qp.schema(id).await {
+                Ok(cols) if !cols.is_empty() => {
+                    tracing::info!(
+                        "build_catalog_column_context: warehouse fallback for {} ({} cols)",
+                        id,
+                        cols.len()
+                    );
+                    let src_cols: Vec<SourceColumnDef> = cols
+                        .into_iter()
+                        .map(|(name, data_type)| SourceColumnDef { name, data_type })
+                        .collect();
+                    schema_map.insert(id.to_string(), src_cols);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::debug!(
+                        "build_catalog_column_context: warehouse schema fallback failed for {}: {}",
+                        id,
+                        e
+                    );
+                }
+            }
+        }
     }
 
     let prompt_block = render_source_schema_prompt_block(&schema_map);

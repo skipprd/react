@@ -440,6 +440,7 @@ mod tests {
                 docker_mount_aws_dir: false,
             },
             vector: de_config::VectorResolved { enabled: false },
+            el: de_config::ElToolResolved::default(),
         }
     }
 

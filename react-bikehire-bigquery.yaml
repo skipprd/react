@@ -7,7 +7,7 @@ storage:
 scope:
   tenant: local
   workspace: dev
-  project_id: mssql_migration
+  project_id: bike_hire_bigquery
 
 llm:
   provider: OPENAI_COMPAT
@@ -23,20 +23,20 @@ llm:
 
 providers:
   warehouse:
-    kind: snowflake
-    account: RSSKNWT-KC53195
-    user: paulhudson
-    private_key_path: ./snowflake_key.p8
-    database: ANALYTICS
-    schema: RAW
-    warehouse: COMPUTE_WH
-    role: ACCOUNTADMIN
+    kind: bigquery
+    project: optimistic-jet-274810
+    dataset: newyork
+    location: US
+    max_concurrency: 15
 
   el:
     enabled: true
     skippr_input:
-      kind: mssql
-      connection_string: "${MSSQL_CONNECTION_STRING}"
+      kind: s3
+      s3_bucket: skippr-e2e-sample-data
+      s3_prefix: bike-hire/
+      transform:
+        namespace_fields: event_type
 
   catalog:
     enabled: true
@@ -46,9 +46,9 @@ providers:
   dbt:
     enabled: true
     runner: host
-    target: snowflake
+    target: bigquery
     naming:
-      target_schema: mssql_migration
+      target_schema: bike_hire
       silver_suffix: silver
       gold_suffix: gold
 

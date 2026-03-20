@@ -461,7 +461,7 @@ impl DatasetCatalogProvider for SnowflakeProvider {
         let mut ns_stats = DatasetFieldStats::new(&dataset.fqn());
 
         for (name, ty) in cols.into_iter().take(max_fields) {
-            let expr = Self::quote_ident_sf(&name);
+            let expr = format!("\"{}\"", name.replace('"', "\"\""));
             let ty_lc = ty.trim().to_lowercase();
             let is_complex = ty_lc.starts_with("variant")
                 || ty_lc.starts_with("object")
