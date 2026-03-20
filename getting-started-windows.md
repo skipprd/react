@@ -1,12 +1,12 @@
-# Getting Started: MSSQL to Snowflake (EL + modeling, local storage)
+# Getting Started (Windows): MSSQL to Snowflake (EL + modeling, local storage)
 
-This guide walks a technical user through **extracting data from MSSQL**, **loading it into Snowflake** as a bronze (raw) tier, and then **building silver/gold dbt models** on top — all driven by `skippr-dbt` and `skippr`.
+This guide walks a **Windows** user through **extracting data from MSSQL**, **loading it into Snowflake** as a bronze (raw) tier, and then **building silver/gold dbt models** on top — all driven by `skippr-dbt` and `skippr`.
 
 It uses:
 
 - **skippr** for extract-and-load (MSSQL source -> Snowflake destination)
 - **Snowflake** as the warehouse provider (destination)
-- **Local filesystem storage** (writes under `./.react/` — no S3 required)
+- **Local filesystem storage** (writes under `.\.react\` — no S3 required)
 - **Your own OpenAI API key** (or any OpenAI-compatible endpoint)
 
 ---
@@ -15,18 +15,18 @@ It uses:
 
 ### skippr-dbt and skippr binaries
 
-Download both binaries for your platform:
+Download the Windows binaries:
 
 | Binary | Purpose |
 |--------|---------|
-| `skippr-dbt` | Orchestrates the full pipeline: EL, schema mapping, dbt modeling |
-| `skippr` (v6.15.0+) | Performs extract-and-load between source and destination |
+| `skippr-dbt.exe` | Orchestrates the full pipeline: EL, schema mapping, dbt modeling |
+| `skippr.exe` (v6.15.0+) | Performs extract-and-load between source and destination |
 
-Place both somewhere on your PATH (or reference them by full path).
+Place both in a directory on your PATH, or reference them by full path.
 
-Verify:
+Verify (from PowerShell):
 
-```bash
+```powershell
 skippr-dbt --version
 skippr --version
 ```
@@ -35,15 +35,21 @@ skippr --version
 
 Python is required to run `dbt`, which `skippr-dbt` shells out to for model validation and materialisation.
 
-| Tool | Why | Install |
-|------|-----|---------|
-| **Python 3.10+** | Hosts `dbt` | [python.org](https://www.python.org/) |
+Install Python via `winget`:
 
-Verify:
-
-```bash
-python3 --version      # or `python --version` on Windows
+```powershell
+winget install Python.Python.3.12
 ```
+
+Verify (open a **new** PowerShell window after installing):
+
+```powershell
+python --version
+```
+
+### Docker Desktop (for local MSSQL dev)
+
+If you don't already have an MSSQL instance, you can run one locally via Docker. Install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) and make sure Docker is running.
 
 ### Snowflake account
 
@@ -63,9 +69,12 @@ You will need:
 
 Snowflake accounts with MFA enabled (the default for most orgs) **cannot** use password auth for headless/programmatic tools. Key-pair authentication bypasses MFA entirely and is the recommended approach.
 
+You can use `openssl` from **Git Bash** (installed with Git for Windows) or install [Win64 OpenSSL](https://slproweb.com/products/Win32OpenSSL.html).
+
 **1. Generate an unencrypted PKCS#8 private key:**
 
 ```bash
+# Run in Git Bash
 openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -nocrypt
 ```
 
@@ -114,8 +123,8 @@ server=tcp:YOUR_HOST,1433;database=YOUR_DB;user id=sa;password=YOUR_PASS;TrustSe
 
 If you don't have an existing instance, the repo includes a Docker Compose file that starts Azure SQL Edge and seeds sample tables:
 
-```bash
-docker compose -f test/el-integration/docker-compose.yml up -d
+```powershell
+docker compose -f test\el-integration\docker-compose.yml up -d
 ```
 
 Wait for the seed service to complete (check with `docker compose logs seed`), then use:
@@ -128,8 +137,8 @@ The seed creates three tables: `dbo.customers`, `dbo.orders`, and `dbo.order_ite
 
 To tear down later:
 
-```bash
-docker compose -f test/el-integration/docker-compose.yml down -v
+```powershell
+docker compose -f test\el-integration\docker-compose.yml down -v
 ```
 
 ---
@@ -140,24 +149,24 @@ docker compose -f test/el-integration/docker-compose.yml down -v
 
 ### Create a virtual environment
 
-```bash
-mkdir -p skippr-workspace && cd skippr-workspace
+```powershell
+mkdir skippr-workspace
+cd skippr-workspace
 
-python3 -m venv .venv
-source .venv/bin/activate          # macOS / Linux
-# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install --upgrade pip
 ```
 
 ### Install dbt with the Snowflake adapter
 
-```bash
+```powershell
 pip install dbt-core dbt-snowflake
 ```
 
 Confirm both are installed:
 
-```bash
+```powershell
 dbt --version
 ```
 
@@ -167,8 +176,8 @@ You should see output listing `dbt-core` and `dbt-snowflake` with their versions
 
 `skippr-dbt` generates a `packages.yml` in the dbt project that declares dependencies such as `dbt-labs/dbt_utils`. These are dbt packages (not pip packages). You will need to run `dbt deps` to install them after the project has been scaffolded:
 
-```bash
-cd .react/local/dev/mssql_migration/dbt
+```powershell
+cd .react\local\dev\mssql_migration\dbt
 dbt deps
 ```
 
@@ -254,29 +263,29 @@ providers:
 
 ### Required
 
-```bash
-export LLM_API_KEY="sk-..."
+```powershell
+$env:LLM_API_KEY = "sk-..."
 
-export SNOWFLAKE_ACCOUNT="RSSKNWT-KC12345"
-export SNOWFLAKE_USER="YOURUSERNAME"
+$env:SNOWFLAKE_ACCOUNT = "RSSKNWT-KC12345"
+$env:SNOWFLAKE_USER = "YOURUSERNAME"
 
-export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
 ```
 
 ### Snowflake authentication
 
 **Key-pair auth (recommended — required when MFA is enabled):**
 
-```bash
-export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/snowflake_key.p8"
+```powershell
+$env:SNOWFLAKE_PRIVATE_KEY_PATH = "C:\path\to\snowflake_key.p8"
 ```
 
 See [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowflake) above for how to create the key.
 
 **Password auth (only if MFA is not enforced on the account):**
 
-```bash
-export SNOWFLAKE_PASSWORD="your_password"
+```powershell
+$env:SNOWFLAKE_PASSWORD = "your_password"
 ```
 
 The runtime generates a dbt `profiles.yml` at run time. It reads `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_USER` from the environment via Jinja `env_var()` calls — these are **not** written to disk in plaintext.
@@ -285,8 +294,8 @@ If `warehouse` or `role` are omitted from the YAML, the runtime also falls back 
 
 ### Optional
 
-```bash
-export SKIPPR_LOG=info
+```powershell
+$env:SKIPPR_LOG = "info"
 ```
 
 ---
@@ -295,20 +304,20 @@ export SKIPPR_LOG=info
 
 Make sure your virtual environment is activated, then:
 
-```bash
-skippr-dbt run \
-  --config config.yaml \
-  --agent agent
+```powershell
+skippr-dbt --log info run --config .\config.yaml --agent agent
 ```
 
 ### Terminal and log modes
 
-By default, the `run` subcommand renders a **live terminal UI** (TUI) showing phases, tasks, and tool calls in real time. This requires a real TTY (e.g. a native terminal emulator).
+By default, the `run` subcommand renders a **live terminal UI** (TUI) showing phases, tasks, and tool calls in real time. This requires a real TTY.
+
+On Windows, PowerShell is often not recognized as a TTY, so **`--log info` is the recommended default** for Windows users. If you are using Windows Terminal (the modern terminal app), the TUI may work — try running without `--log` to see.
 
 | Flag | Behavior |
 |------|----------|
-| _(none)_ | Terminal UI enabled. Press `q` to close the UI. |
-| `--log info` | Disables the TUI; prints plain structured logs to stdout. Recommended for CI, scripts, and piped output. |
+| _(none)_ | Terminal UI enabled (requires a TTY — may not work in all PowerShell hosts). |
+| `--log info` | Disables the TUI; prints plain structured logs to stdout. **Recommended on Windows.** |
 | `--log debug` | Same as `--log info` but with debug-level output. |
 | `--log trace` | Most verbose — includes internal tracing spans. |
 | `--terminal` | Explicitly enables the TUI (useful with the `serve` subcommand where it is not the default). |
@@ -316,14 +325,12 @@ By default, the `run` subcommand renders a **live terminal UI** (TUI) showing ph
 
 The terminal UI is **not supported** with `--parallel` multi-config runs.
 
-If you see `"terminal mode not enabled: stdout is not a TTY"`, use `--log info` instead.
+If you see `"terminal mode not enabled: stdout is not a TTY"`, use `--log info`.
 
-**Example (headless / CI-friendly):**
+**Example (debug mode):**
 
-```bash
-skippr-dbt --log info run \
-  --config config.yaml \
-  --agent agent
+```powershell
+skippr-dbt --log debug run --config .\config.yaml --agent agent
 ```
 
 ### What happens when you run
@@ -348,13 +355,14 @@ Because `providers.el` is configured, the agent starts with extract-and-load bef
 With `storage.mode: local` and `storage.path: ./.react`, all artifacts land under:
 
 ```
-.react/
-└── local/
-    └── dev/
-        └── mssql_migration/
-            ├── threads/          # Thread state and transcript JSON
+.react\
+└── local\
+    └── dev\
+        └── mssql_migration\
+            ├── skippr\              # Generated skippr.yml and EL metadata
+            ├── threads\             # Thread state and transcript JSON
             │   └── <thread-id>.json
-            └── logs/             # Per-run logs
+            └── logs\                # Per-run logs
                 └── <thread-id>.log
 ```
 
@@ -363,9 +371,9 @@ With `storage.mode: local` and `storage.path: ./.react`, all artifacts land unde
 The agent writes dbt models into the working dbt project directory. Look for:
 
 ```
-models/
+models\
 ├── schema.yml                     # Source definitions (pointing at RAW tables)
-└── staging/
+└── staging\
     ├── stg_raw_customers.sql      # Silver model for customers
     └── stg_raw_orders.sql         # Silver model for orders
 ```
@@ -376,8 +384,8 @@ Each staging model uses `{{ source("raw", "customers") }}` to reference the bron
 
 After the agent finishes, you can run dbt directly against the generated project:
 
-```bash
-source .venv/bin/activate
+```powershell
+.\.venv\Scripts\Activate.ps1
 dbt debug   --profiles-dir .   # Verify connection
 dbt run     --profiles-dir .   # Materialize models into Snowflake
 dbt test    --profiles-dir .   # Run any generated tests
@@ -401,6 +409,16 @@ SELECT * FROM mssql_migration_silver.stg_raw_customers LIMIT 10;
 
 The Snowflake warehouse provider is being rolled out incrementally. If you hit this error, your binary does not yet include the Snowflake query provider. Contact support to obtain an updated binary.
 
+### `terminal mode not enabled: stdout is not a TTY`
+
+This happens when the terminal UI is requested but stdout isn't a real terminal. Common in older PowerShell hosts, ISE, or piped output.
+
+**Fix:** Run with `--log info` to use plain log output:
+
+```powershell
+skippr-dbt --log info run --config .\config.yaml --agent agent
+```
+
 ### MFA error: `390197 — Multi-factor authentication is required`
 
 This means your Snowflake account enforces MFA, so password auth cannot work for headless tools. Switch to key-pair authentication:
@@ -421,22 +439,29 @@ This means your Snowflake account enforces MFA, so password auth cannot work for
 
 Activate your Python virtual environment and confirm the adapter is installed:
 
-```bash
-source .venv/bin/activate          # macOS / Linux
-# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+```powershell
+.\.venv\Scripts\Activate.ps1
 dbt --version
 ```
 
 If `dbt-snowflake` is not listed, reinstall:
 
-```bash
+```powershell
 pip install dbt-core dbt-snowflake
 ```
 
 ### LLM errors (401 / timeouts)
 
-- Confirm `LLM_API_KEY` is set and valid.
+- Confirm `$env:LLM_API_KEY` is set and valid.
 - If requests timeout on large contexts, increase `llm.http_timeout_secs` in the YAML.
+
+### MSSQL connection errors
+
+| Symptom | Fix |
+|---------|-----|
+| `Login failed for user 'sa'` | Verify the password in `MSSQL_CONNECTION_STRING` and that SQL Server auth is enabled |
+| `Cannot open database` | Confirm the database name in the connection string exists |
+| `Connection refused` | Check the host/port — Docker MSSQL runs on `127.0.0.1:1433` by default |
 
 ---
 
@@ -445,11 +470,11 @@ pip install dbt-core dbt-snowflake
 | What | Where |
 |------|-------|
 | Config file | `config.yaml` (working directory) |
-| Local artifacts | `.react/local/dev/mssql_migration/` |
-| Generated skippr.yml | `.react/local/dev/mssql_migration/skippr/skippr.yml` |
-| dbt models | `models/staging/stg_*.sql` |
-| Source definitions | `models/schema.yml` |
-| Thread logs | `.react/local/dev/mssql_migration/logs/<thread-id>.log` |
+| Local artifacts | `.react\local\dev\mssql_migration\` |
+| Generated skippr.yml | `.react\local\dev\mssql_migration\skippr\skippr.yml` |
+| dbt models | `models\staging\stg_*.sql` |
+| Source definitions | `models\schema.yml` |
+| Thread logs | `.react\local\dev\mssql_migration\logs\<thread-id>.log` |
 | Snowflake raw schema | `ANALYTICS.RAW` |
 | Snowflake silver schema | `ANALYTICS.MSSQL_MIGRATION_SILVER` |
 | Snowflake gold schema | `ANALYTICS.MSSQL_MIGRATION_GOLD` |

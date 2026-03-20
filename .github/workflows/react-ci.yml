@@ -351,6 +351,108 @@ jobs:
             --suite-id data_engineer \
             --agent agent
 
+  react_el_windows_e2e:
+    name: Windows MSSQL -> Snowflake EL E2E
+    needs:
+      - react_binary_build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download react Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: react-x86_64-pc-windows-msvc
+          path: bin
+
+      - name: Download skippr-dbt Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: skippr-dbt-x86_64-pc-windows-msvc
+          path: bin
+
+      - name: Download skippr 6.15.0 for Windows
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr.tar.gz
+          tar -xzf skippr.tar.gz
+          Copy-Item skippr-windows_x86\skippr.exe bin\skippr.exe
+
+      - name: Install SQL Server Express
+        shell: pwsh
+        run: |
+          choco install sql-server-express -y --no-progress
+          # Wait for SQL Server service to be running
+          $timeout = 120
+          $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { break }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+          }
+          if ($elapsed -ge $timeout) {
+            Write-Error "SQL Server Express did not start within ${timeout}s"
+            exit 1
+          }
+          Write-Host "SQL Server Express is running."
+
+      - name: Configure SQL Server for TCP and SA login
+        shell: pwsh
+        run: |
+          Import-Module SqlServer -ErrorAction SilentlyContinue
+          # Enable mixed-mode auth and SA login via sqlcmd against the named instance
+          sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
+          sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
+          sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
+          # Enable TCP/IP via registry
+          $regPath = "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL*\MSSQLServer\SuperSocketNetLib\Tcp"
+          $tcpPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp" }
+          foreach ($path in $tcpPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
+          }
+          # Set TCP port to 1433 on IPAll
+          $ipAllPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp\IPAll" }
+          foreach ($path in $ipAllPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "TcpPort" -Value "1433" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $path.PSPath -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
+          }
+          Restart-Service -Name 'MSSQL$SQLEXPRESS' -Force
+          Start-Sleep -Seconds 10
+
+      - name: Create and seed test database
+        shell: pwsh
+        run: |
+          sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -Q "CREATE DATABASE testdb"
+          sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -d testdb -i test\el-integration\seed.sql
+
+      - name: Install dbt runtime
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-core dbt-snowflake
+
+      - name: Write Snowflake private key
+        shell: pwsh
+        env:
+          SNOWFLAKE_PRIVATE_KEY_PEM: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PEM }}
+        run: |
+          $env:SNOWFLAKE_PRIVATE_KEY_PEM | Out-File -FilePath snowflake_key.p8 -Encoding ascii -NoNewline
+
+      - name: Run EL + modeling pipeline
+        shell: pwsh
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: snowflake_key.p8
+          MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
+        run: |
+          $env:PATH = "$(Get-Location)\bin;$env:PATH"
+          .\bin\react.exe --log info run --config .\react-el-windows-snowflake.yaml --suite-id data_engineer --agent agent
+
   publish_react:
     name: Publish React Release
     if: startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/tags/test')
