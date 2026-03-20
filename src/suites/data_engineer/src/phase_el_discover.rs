@@ -67,17 +67,6 @@ impl DataEngineerSuite {
             "EL discover complete"
         );
 
-        // 4. Persist discovered schemas to storage
-        let schemas_json = serde_json::to_value(&pipeline_status)
-            .map_err(|e| format!("failed to serialize pipeline status: {}", e))?;
-        let schemas_key = sctx
-            .keyspace()
-            .scoped_key(sctx.scope(), &["el", "discovered_schemas"]);
-        sctx.storage()
-            .put_json(&schemas_key, &schemas_json)
-            .await
-            .map_err(|e| format!("failed to persist discovered schemas: {}", e))?;
-
         crate::phase_contract::commit_phase_decision(
             thread_store,
             thread_id,
