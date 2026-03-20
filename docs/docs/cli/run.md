@@ -1,82 +1,50 @@
-# react run
+# skippr-dbt run
 
-Run the agent in headless mode (no WebSocket server). Executes a single workflow and exits.
+Execute the full pipeline: extract, load, and model.
 
 ## Usage
 
 ```bash
-cargo run -p react -- run --config <path> [flags]
+skippr-dbt run [--log <level>]
 ```
 
 ## Flags
 
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--config` | Yes | | Path to YAML config file. Can be specified multiple times for parallel runs. |
-| `--suite-id` | No | `data_engineer` | Suite to run |
-| `--agent` | No | suite default | Agent type (`ask`, `agent`, `kb`, `review`) |
-| `--thread-id` | No | auto-generated | Resume an existing thread by ID |
-| `--parallel` | No | off | Run multiple `--config` files concurrently |
-| `--storage-mode` | No | `local` (or config value) | Storage backend: `local` or `s3` |
-| `--bucket` | No | | S3 bucket name |
-| `--log` | No | `info` | Log level |
+| Flag | Description |
+|---|---|
+| `--log info` | Print structured logs to stdout instead of the live terminal UI |
+| `--log debug` | Debug-level logs |
+| `--log trace` | Most verbose logging |
 
-## What it does
+When `--log` is omitted, a live terminal UI is displayed showing phases, tasks, and progress in real time.
 
-1. Loads the YAML config file(s)
-2. Initialises providers
-3. Creates or resumes a thread
-4. Runs the suite's agent loop to completion
-5. Persists the thread and exits
+## What happens
 
-In parallel mode, each config runs in its own async task with prefixed log output.
+1. **Discover** -- reads source schemas (e.g. MSSQL tables, S3 files).
+2. **Sync** -- extracts rows and loads them into the warehouse bronze schema.
+3. **Verify** -- confirms destination tables exist and are queryable.
+4. **Plan** -- designs a silver (staging) layer using AI-assisted schema mapping.
+5. **Author** -- writes dbt SQL models with source references, type casting, and renaming.
+6. **Validate** -- runs `dbt compile` and `dbt run` against the warehouse.
+7. **Review** -- checks generated models for quality.
 
 ## Example
 
-Single run:
-
 ```bash
-export LLM_API_KEY="sk-..."
-cargo run -p react -- run \
-  --config my-config.yml \
-  --suite-id data_engineer \
-  --agent agent \
-  --log info
+source .venv/bin/activate
+skippr-dbt run
 ```
 
-Parallel multi-config:
+With structured logging:
 
 ```bash
-cargo run -p react -- run --parallel \
-  --config project-a.yml \
-  --config project-b.yml \
-  --suite-id data_engineer
+skippr-dbt run --log info
 ```
-
-Resume a thread:
-
-```bash
-cargo run -p react -- run \
-  --config my-config.yml \
-  --thread-id 7c19291d-2218-4d51-adfe-901e9fd30835
-```
-
-## Environment variables
-
-| Variable | Description |
-|---|---|
-| `REACT_HEADLESS` | Set to `true` to auto-answer `await_user` and `await_approval` prompts |
-| `REACT_PLAIN_PROGRESS` | Set to `true` for plain progress output (no terminal UI) |
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | Agent completed successfully |
-| Non-zero | Runtime error or agent failure |
-
-## Notes
-
-- Parallel mode is non-interactive. `--terminal` is not supported.
-- On Windows, use `--log info` for plain output if PowerShell does not support the terminal UI.
-- If the agent hits an `await_user` or `await_approval` interrupt without `REACT_HEADLESS=true`, it will block waiting for input that will never arrive.
+| 0 | Pipeline completed successfully |
+| 1 | Pipeline failed (check logs) |
+| 130 | Interrupted (Ctrl+C) |

@@ -1,5 +1,5 @@
-site_name: ReAct Docs
-site_description: ReAct is a WebSocket-based ReAct agent runtime for AI-driven data engineering and knowledge-base workflows.
+site_name: Skippr dbt
+site_description: Data pipeline CLI — extract, load, and model with dbt.
 theme:
   name: material
   features:
@@ -14,68 +14,24 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
-extra_css:
-  - stylesheets/app.css
 nav:
   - Home: index.md
   - Getting Started:
-      - Installation: getting-started/install.md
+      - Install: getting-started/install.md
       - Quick Start: getting-started/quickstart.md
-      - Headless Mode: getting-started/quickstart-headless.md
-  - Concepts:
-      - How It Works: concepts/how-it-works.md
-      - Suites: concepts/suites.md
-      - Threads: concepts/threads.md
-      - Providers: concepts/providers.md
-      - Agent Policy: concepts/agent-policy.md
-      - Keyspace: concepts/keyspace.md
-      - Flow Frames: concepts/flow-frames.md
-  - Suites:
-      - Data Engineer: suites/data-engineer.md
-      - Data Engineer Phases: suites/data-engineer-phases.md
-      - Knowledge Base: suites/kb.md
-  - WebSocket API:
-      - Overview: websocket-api/overview.md
-      - Client Frames: websocket-api/client-frames.md
-      - Server Frames: websocket-api/server-frames.md
-      - Schemas: websocket-api/schemas.md
   - CLI Reference:
-      - serve: cli/serve.md
+      - init: cli/init.md
+      - connect: cli/connect.md
+      - doctor: cli/doctor.md
       - run: cli/run.md
   - Configuration:
-      - Overview: configuration/overview.md
-      - Server: configuration/server.md
-      - Storage: configuration/storage.md
-      - LLM: configuration/llm.md
-      - Providers: configuration/providers.md
+      - Config File: configuration/config-file.md
       - Environment Variables: configuration/environment-variables.md
-  - Connectors:
-      - Warehouses:
-          - Athena: connectors/warehouses/athena.md
-          - BigQuery: connectors/warehouses/bigquery.md
-          - MSSQL: connectors/warehouses/mssql.md
-          - Postgres: connectors/warehouses/postgres.md
-          - Snowflake: connectors/warehouses/snowflake.md
-      - Storage:
-          - Local: connectors/storage/local.md
-          - S3: connectors/storage/s3.md
-      - Vector:
-          - LanceDB: connectors/vector/lancedb.md
-  - Extending:
-      - Custom Suite: extending/custom-suite.md
-      - Custom Tool: extending/custom-tool.md
-      - Custom Provider: extending/custom-provider.md
-      - Custom Policy: extending/custom-policy.md
   - Operations:
-      - Logging: operations/logging.md
+      - Logs and Artifacts: operations/logs.md
       - Troubleshooting: operations/troubleshooting.md
-  - License: license.md
+  - How It Works: how-it-works.md
 
 markdown_extensions:
   - toc:
       permalink: True
-
-extra:
-  social:
-    - icon: fontawesome/brands/github
-      link: https://github.com/skipprd/skipprd

@@ -1,0 +1,15 @@
+project: el_windows_e2e
+
+warehouse:
+  kind: snowflake
+  database: ANALYTICS
+  schema: RAW
+  warehouse: COMPUTE_WH
+  role: ACCOUNTADMIN
+
+source:
+  kind: mssql
+  connection_string: ${MSSQL_CONNECTION_STRING}
+
+dbt:
+  target_schema: el_windows_e2e

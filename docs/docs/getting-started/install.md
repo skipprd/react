@@ -1,83 +1,33 @@
-# Installation
+# Install
 
-## Prerequisites
+## 1. Download binaries
 
-ReAct is built with Rust. You need the following on your system:
+Download `skippr-dbt` and `skippr` for your platform from the releases page.
 
-| Dependency | Purpose |
+| Binary | Purpose |
 |---|---|
-| **Rust toolchain** (stable) | Build the `react` binary |
-| **protoc** (Protocol Buffers compiler) | Required by the LanceDB dependency at build time |
-| **Python 3.10+** | Required for dbt when using the Data Engineer suite |
-| **Google Cloud SDK** (optional) | Needed for BigQuery authentication via Application Default Credentials |
+| `skippr-dbt` | Pipeline orchestrator -- the main CLI you interact with |
+| `skippr` (v6.15.0+) | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
 
-### Rust
-
-Install via [rustup](https://rustup.rs/):
+Place both on your `PATH` and verify:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+skippr-dbt --version
+skippr --version
 ```
 
-Verify:
+## 2. Install Python and dbt
 
-```bash
-cargo --version
-```
-
-### Protocol Buffers
-
-Install `protoc` for your platform:
-
-```bash
-# macOS
-brew install protobuf
-
-# Ubuntu/Debian
-sudo apt-get install -y protobuf-compiler
-
-# Windows (via Chocolatey)
-choco install protoc
-```
-
-Verify:
-
-```bash
-protoc --version
-```
-
-## Build from source
-
-Clone the repository and build the `react` crate:
-
-```bash
-git clone <your-repo-url>
-cd react
-cargo build -p react
-```
-
-The binary is built to `target/debug/react` (or `target/release/react` with `--release`).
-
-## Python virtual environment and dbt
-
-The Data Engineer suite shells out to `dbt` for project scaffolding and validation. Install it in an isolated venv:
+Python 3.10+ is required to run `dbt`, which `skippr-dbt` uses for model compilation and materialisation.
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate        # macOS / Linux
+# .\.venv\Scripts\Activate.ps1   # Windows PowerShell
+
 pip install --upgrade pip
-pip install dbt-core dbt-athena-community
+pip install dbt-core dbt-snowflake   # or dbt-bigquery, etc.
 ```
-
-Replace `dbt-athena-community` with the adapter for your warehouse:
-
-| Warehouse | dbt adapter package |
-|---|---|
-| Athena | `dbt-athena-community` |
-| BigQuery | `dbt-bigquery` |
-| MSSQL | `dbt-sqlserver` |
-| Postgres | `dbt-postgres` |
-| Snowflake | `dbt-snowflake` |
 
 Verify:
 
@@ -85,23 +35,47 @@ Verify:
 dbt --version
 ```
 
-Make sure the venv is activated whenever you run the server or any workflow that invokes dbt.
+The virtual environment must be activated whenever you run `skippr-dbt`.
 
-## Feature flags
+## 3. Set up your LLM API key
 
-The `react` crate supports optional Cargo features:
-
-| Feature | Default | Description |
-|---|---|---|
-| `llama_cpp` | off | Enables the Llama.cpp local LLM provider |
-
-Enable a feature at build time:
+Skippr dbt uses an LLM to assist with schema mapping and model generation. Set your API key:
 
 ```bash
-cargo build -p react --features llama_cpp
+export LLM_API_KEY="sk-..."
 ```
 
-## Platform notes
+## 4. Warehouse credentials
 
-- For a detailed **Windows + BigQuery** walkthrough including troubleshooting, see `GETTING_STARTED_WINDOWS_BIGQUERY.md` in the repository root.
-- For an **MSSQL → Snowflake migration** guide (bronze tier, local storage), see `getting-started.md` in the repository root.
+### Snowflake
+
+Set these environment variables:
+
+```bash
+export SNOWFLAKE_ACCOUNT="MYORG-MYACCOUNT"
+export SNOWFLAKE_USER="myuser"
+export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/snowflake_key.p8"
+```
+
+Key-pair authentication is recommended (and required when MFA is enabled). To generate a key pair:
+
+```bash
+openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out snowflake_key.p8 -nocrypt
+openssl rsa -in snowflake_key.p8 -pubout -out snowflake_key.pub
+```
+
+Then assign the public key in Snowflake:
+
+```sql
+ALTER USER myuser SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
+```
+
+### BigQuery
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+## Next steps
+
+Head to the [Quick Start](quickstart.md) to initialise your first project.

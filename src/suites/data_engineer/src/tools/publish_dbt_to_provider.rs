@@ -540,7 +540,7 @@ mod tests {
             suite_config: serde_json::json!({
                 "warehouse": { "kind": "athena", "container": "AwsDataCatalog", "namespace": "picnic", "extras": {"region":"eu-west-1","workgroup":"wg","result_s3":"s3://x/"} },
                 "catalog": { "enabled": false, "refresh_secs": 60, "max_concurrency": 8 },
-                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "picnic", "silver_suffix": "silver", "gold_suffix": "warehouse" }, "runner": "host" },
+                "dbt": { "enabled": true, "target": "athena", "naming": { "target_schema": "picnic", "silver_suffix": "silver", "gold_suffix": "gold" }, "runner": "host" },
                 "vector": { "enabled": false }
             }),
         });

@@ -1,158 +1,66 @@
 # Troubleshooting
 
-## Build errors
+## Common issues
 
-### `Could not find protoc`
+### `skippr-dbt.yaml not found`
 
-**Cause:** The `protoc` (Protocol Buffers compiler) is not installed or not on PATH. Required by the LanceDB dependency at build time.
-
-**Fix:** Install protobuf for your platform and verify:
-
-```bash
-protoc --version
-```
-
-See [Installation](../getting-started/install.md) for platform-specific instructions.
-
-## LLM errors
-
-### `parser_error invalid JSON twice`
-
-**Cause:** The LLM's output is being truncated because `max_tokens` is too low. The agent receives incomplete JSON and fails to parse it.
-
-**Fix:** Increase `llm.max_tokens` in your YAML config or set the env var:
-
-```bash
-export LLM_MAX_TOKENS=8192
-```
-
-For `gpt-5.x`, 8192 is a reasonable starting point for data engineering workflows that generate large tool-call payloads.
-
-### LLM request failed: 401
-
-**Cause:** Invalid or missing API key.
-
-**Fix:** Ensure `LLM_API_KEY` is set:
-
-```bash
-export LLM_API_KEY="sk-..."
-```
-
-### LLM request failed: 429
-
-**Cause:** Rate limited by the LLM provider.
-
-**Fix:** Reduce concurrency or wait. The `error` frame includes `retry_after_ms` when available.
-
-### LLM request timeout
-
-**Cause:** The LLM API call exceeded `llm.http_timeout_secs`.
-
-**Fix:** Increase the timeout:
-
-```yaml
-llm:
-  http_timeout_secs: 120
-```
-
-## Warehouse errors
-
-### BigQuery: `DefaultCredentialsError`
-
-**Cause:** Google Cloud credentials are not configured.
-
-**Fix:**
-
-- Application Default Credentials: `gcloud auth application-default login`
-- Service account: `export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"`
-
-### BigQuery: location mismatch
-
-**Cause:** `providers.warehouse.location` does not match the dataset's actual location in BigQuery.
-
-**Fix:** Set the location to match your dataset (e.g. `US`, `EU`, `us-central1`).
-
-### Athena: missing permissions
-
-**Cause:** The IAM identity lacks required Athena/Glue/S3 permissions.
-
-**Fix:** See [Athena connector](../connectors/warehouses/athena.md) for the required permission list.
-
-### Postgres: connection refused
-
-**Cause:** PostgreSQL is not running or the connection parameters are wrong.
-
-**Fix:** Verify `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` environment variables.
-
-## dbt errors
+Run `skippr-dbt init <project>` in the working directory first.
 
 ### `dbt: command not found`
 
-**Cause:** dbt is not installed or the virtual environment is not activated.
-
-**Fix:**
+Activate the Python virtual environment before running `skippr-dbt`:
 
 ```bash
 source .venv/bin/activate
-pip install dbt-core dbt-bigquery  # or your adapter
+dbt --version
 ```
 
-### dbt validation failures
-
-**Cause:** Authored models have SQL or schema errors.
-
-**Fix:** The Data Engineer suite's repair loop automatically attempts remediation. If repair fails:
-
-1. Check the dbt error output in the tool_end payload
-2. Inspect the generated models in `{scope}/dbt/models/`
-3. The agent may ask for user input (`await_user`) if automated repair is exhausted
-
-## Storage errors
-
-### `missing storage bucket for s3 mode`
-
-**Cause:** S3 storage mode is selected but no bucket is configured.
-
-**Fix:** Set the bucket via CLI flag, env var, or YAML:
+If `dbt` is not installed:
 
 ```bash
-export SKIPPR_S3_BUCKET=my-bucket
+pip install dbt-core dbt-snowflake
 ```
 
-### S3: access denied
+### `skippr: command not found`
 
-**Cause:** The IAM identity lacks required S3 permissions.
+The `skippr` binary is not on PATH. Download it from the releases page and place it on your PATH.
 
-**Fix:** See [S3 storage connector](../connectors/storage/s3.md) for the required permission list and IAM policy.
+### MFA error: `390197 -- Multi-factor authentication is required`
 
-## Server errors
+Your Snowflake account enforces MFA, so password auth cannot work for headless tools. Switch to key-pair authentication:
 
-### `terminal mode not enabled: stdout is not a TTY`
+1. Generate an RSA key pair (see [Install](../getting-started/install.md#snowflake))
+2. Set `SNOWFLAKE_PRIVATE_KEY_PATH` instead of `SNOWFLAKE_PASSWORD`
 
-**Cause:** `--terminal` was passed but stdout is not a real terminal (e.g. running in CI, piped, or certain Windows shells).
+### Snowflake connection errors
 
-**Fix:** Run without `--terminal` and use `--log info` for plain output:
+| Symptom | Fix |
+|---|---|
+| `Failed to connect: 250001` | Check the `SNOWFLAKE_ACCOUNT` format -- use the org-account form (e.g. `MYORG-MYACCOUNT`) or include the region (e.g. `xy12345.us-east-1`) |
+| `Incorrect username or password` | Verify `SNOWFLAKE_USER` and auth env vars |
+| `Insufficient privileges` | Ensure the role has USAGE on the warehouse, database, and raw schema, plus CREATE SCHEMA for silver/gold |
+
+### LLM errors (401 / timeouts)
+
+- Confirm `LLM_API_KEY` is set and valid.
+- If requests timeout, set `LLM_HTTP_TIMEOUT_SECS=120` in the environment.
+- If output is truncated, set `LLM_MAX_TOKENS=8192`.
+
+### Sync stalls with no output
+
+The extract-and-load step produced no output within the idle timeout. Common causes:
+
+| Cause | Fix |
+|---|---|
+| Debug build of `skippr` | Rebuild `skippr` in release mode |
+| Warehouse connection hanging | Check credentials and network access |
+| AWS credentials missing | Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for S3 sources |
+
+### `dbt deps` needed
+
+After the first run, `skippr-dbt` generates a `packages.yml` in the dbt project. If dbt reports missing packages, run:
 
 ```bash
-cargo run -p react -- serve --config my-config.yml --log info
+cd .skippr-dbt/local/dev/<project>/dbt   # or the project root if models are there
+dbt deps
 ```
-
-### Agent reached step limit
-
-**Cause:** The agent exhausted its step budget without producing a valid final.
-
-**Fix:** This triggers the policy's `fallback` method, which typically asks the user to retry. If this happens frequently:
-
-- Check that the task is feasible with the configured tools
-- Increase `max_steps` in the suite configuration
-- Verify that `max_tokens` is high enough for the LLM to produce complete tool-call JSON
-
-## Recovery
-
-ReAct threads are designed to be resumable. If the server crashes or the client disconnects:
-
-1. The thread is persisted to storage after every step
-2. Use `open` (WebSocket) or `--thread-id` (CLI) to resume from the last persisted state
-3. The agent continues from where it left off
-
-No manual intervention is needed for crash recovery.

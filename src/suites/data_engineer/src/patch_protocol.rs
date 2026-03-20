@@ -606,7 +606,7 @@ mod tests {
                     "naming": {
                         "target_schema": "test",
                         "silver_suffix": "silver",
-                        "gold_suffix": "warehouse"
+                        "gold_suffix": "gold"
                     },
                     "runner": "host"
                 },

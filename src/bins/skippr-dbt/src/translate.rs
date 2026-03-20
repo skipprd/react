@@ -1,0 +1,218 @@
+use react::config::{ReactConfigFile, ScopeFile, StorageFile};
+
+use crate::public_config::{SkipprDbtConfig, SourceConfig, WarehouseConfig};
+
+/// Translate the public `skippr-dbt` config into the internal runtime config.
+pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
+    let project = cfg.project.trim();
+    if project.is_empty() {
+        return Err("project name is required in skippr-dbt.yaml".to_string());
+    }
+
+    let warehouse_json = match &cfg.warehouse {
+        Some(WarehouseConfig::Snowflake {
+            database,
+            schema,
+            warehouse,
+            role,
+        }) => {
+            let mut m = serde_json::Map::new();
+            m.insert("kind".into(), "snowflake".into());
+            if let Some(v) = database {
+                m.insert("database".into(), v.clone().into());
+            }
+            if let Some(v) = schema {
+                m.insert("schema".into(), v.clone().into());
+            }
+            if let Some(v) = warehouse {
+                m.insert("warehouse".into(), v.clone().into());
+            }
+            if let Some(v) = role {
+                m.insert("role".into(), v.clone().into());
+            }
+            serde_json::Value::Object(m)
+        }
+        Some(WarehouseConfig::Bigquery {
+            project,
+            dataset,
+            location,
+        }) => {
+            let mut m = serde_json::Map::new();
+            m.insert("kind".into(), "bigquery".into());
+            if let Some(v) = project {
+                m.insert("project".into(), v.clone().into());
+            }
+            if let Some(v) = dataset {
+                m.insert("dataset".into(), v.clone().into());
+            }
+            if let Some(v) = location {
+                m.insert("location".into(), v.clone().into());
+            }
+            serde_json::Value::Object(m)
+        }
+        None => return Err("warehouse is not configured. Run: skippr-dbt connect warehouse <kind>".to_string()),
+    };
+
+    let dbt_target = cfg.warehouse_kind_str().unwrap_or_default().to_string();
+
+    let dbt_cfg = cfg.dbt.clone().unwrap_or_default();
+    let target_schema = dbt_cfg
+        .target_schema
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| project.to_string());
+    let silver_suffix = dbt_cfg
+        .silver_suffix
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "silver".to_string());
+    let gold_suffix = dbt_cfg
+        .gold_suffix
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "gold".to_string());
+
+    let el_json = match &cfg.source {
+        Some(source) => {
+            let skippr_input = match source {
+                SourceConfig::Mssql { connection_string } => {
+                    let mut m = serde_json::Map::new();
+                    m.insert("kind".into(), "mssql".into());
+                    if let Some(cs) = connection_string {
+                        m.insert("connection_string".into(), cs.clone().into());
+                    }
+                    serde_json::Value::Object(m)
+                }
+                SourceConfig::S3 {
+                    s3_bucket,
+                    s3_prefix,
+                    transform,
+                } => {
+                    let mut m = serde_json::Map::new();
+                    m.insert("kind".into(), "s3".into());
+                    if let Some(v) = s3_bucket {
+                        m.insert("s3_bucket".into(), v.clone().into());
+                    }
+                    if let Some(v) = s3_prefix {
+                        m.insert("s3_prefix".into(), v.clone().into());
+                    }
+                    if let Some(t) = transform {
+                        let mut tm = serde_json::Map::new();
+                        if let Some(nf) = &t.namespace_fields {
+                            tm.insert("namespace_fields".into(), nf.clone().into());
+                        }
+                        if !tm.is_empty() {
+                            m.insert("transform".into(), serde_json::Value::Object(tm));
+                        }
+                    }
+                    serde_json::Value::Object(m)
+                }
+            };
+            serde_json::json!({
+                "enabled": true,
+                "skippr_input": skippr_input,
+            })
+        }
+        None => serde_json::json!({ "enabled": false }),
+    };
+
+    let providers = serde_json::json!({
+        "warehouse": warehouse_json,
+        "el": el_json,
+        "catalog": {
+            "enabled": true,
+            "refresh_secs": 3600,
+            "max_concurrency": 8,
+        },
+        "dbt": {
+            "enabled": true,
+            "runner": "host",
+            "target": dbt_target,
+            "naming": {
+                "target_schema": target_schema,
+                "silver_suffix": silver_suffix,
+                "gold_suffix": gold_suffix,
+            },
+        },
+        "vector": {
+            "enabled": true,
+        },
+    });
+
+    Ok(ReactConfigFile {
+        version: Some(1),
+        server: None,
+        storage: Some(StorageFile {
+            mode: Some("local".into()),
+            bucket: None,
+            path: Some("./.skippr-dbt".into()),
+        }),
+        scope: Some(ScopeFile {
+            tenant: Some("local".into()),
+            workspace: Some("dev".into()),
+            project_id: Some(project.to_string()),
+        }),
+        llm: None,
+        providers: Some(providers),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::public_config::*;
+
+    #[test]
+    fn translate_minimal_snowflake() {
+        let cfg = SkipprDbtConfig {
+            project: "my_project".into(),
+            warehouse: Some(WarehouseConfig::Snowflake {
+                database: Some("ANALYTICS".into()),
+                schema: Some("RAW".into()),
+                warehouse: Some("COMPUTE_WH".into()),
+                role: Some("ACCOUNTADMIN".into()),
+            }),
+            source: Some(SourceConfig::Mssql {
+                connection_string: Some("${MSSQL_CONNECTION_STRING}".into()),
+            }),
+            dbt: None,
+        };
+
+        let internal = to_internal(&cfg).unwrap();
+        assert_eq!(
+            internal.scope.as_ref().unwrap().project_id.as_deref(),
+            Some("my_project")
+        );
+        let p = internal.providers.unwrap();
+        assert_eq!(p["warehouse"]["kind"], "snowflake");
+        assert_eq!(p["el"]["enabled"], true);
+        assert_eq!(p["dbt"]["naming"]["target_schema"], "my_project");
+        assert_eq!(p["dbt"]["naming"]["silver_suffix"], "silver");
+        assert_eq!(p["dbt"]["naming"]["gold_suffix"], "gold");
+        assert_eq!(p["dbt"]["target"], "snowflake");
+    }
+
+    #[test]
+    fn translate_missing_warehouse_errors() {
+        let cfg = SkipprDbtConfig {
+            project: "test".into(),
+            warehouse: None,
+            source: None,
+            dbt: None,
+        };
+        assert!(to_internal(&cfg).is_err());
+    }
+
+    #[test]
+    fn translate_empty_project_errors() {
+        let cfg = SkipprDbtConfig {
+            project: "".into(),
+            warehouse: Some(WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            }),
+            source: None,
+            dbt: None,
+        };
+        assert!(to_internal(&cfg).is_err());
+    }
+}

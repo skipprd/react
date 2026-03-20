@@ -214,7 +214,7 @@ pub fn resolve_providers_from_yaml(
         .or(Some("silver".to_string()));
     let naming_gold_suffix = getenv_nonempty(env_keys::DBT_GOLD_SUFFIX)
         .or(dbt_naming_f.gold_suffix)
-        .or(Some("warehouse".to_string()));
+        .or(Some("gold".to_string()));
 
     let docker_mount_aws_dir = getenv_nonempty(env_keys::DBT_DOCKER_MOUNT_AWS_DIR)
         .map(|v| {

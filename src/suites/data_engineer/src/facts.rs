@@ -431,7 +431,7 @@ mod tests {
                 naming: de_config::DbtNamingResolved {
                     target_schema: "test".to_string(),
                     silver_suffix: "silver".to_string(),
-                    gold_suffix: "warehouse".to_string(),
+                    gold_suffix: "gold".to_string(),
                 },
                 runner: "host".to_string(),
                 docker_image: None,

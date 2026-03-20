@@ -71,7 +71,7 @@ use react_core::resolved_config as rc;
 ///       # dbt target.schema (base) and tier suffixes. Example schemas: raw=test_raw, silver=test_silver, gold=test_warehouse
 ///       target_schema: test
 ///       silver_suffix: silver
-///       gold_suffix: warehouse
+///       gold_suffix: gold
 ///   vector:
 ///     enabled: true
 /// ```

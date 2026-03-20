@@ -5,12 +5,12 @@ use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 
-use react_core::resolved_config as rc;
 use react_core::suite::SuiteRegistry;
-use tracing_subscriber::prelude::*;
+
+use crate::run_engine;
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -131,70 +131,6 @@ enum Command {
     },
 }
 
-fn bind_runtime_scope_preference(scope: &react_core::scope::RequestScope) {
-    crate::runtime_settings::set_scope_preference(
-        scope.tenant.as_str().to_string(),
-        scope.workspace.as_str().to_string(),
-        scope.project_id.as_str().to_string(),
-    );
-}
-
-fn init_logging(log: &Option<String>, verbose_debug: bool) {
-    if std::env::var("RUST_LOG")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .is_none()
-    {
-        let level = log.as_deref().unwrap_or("info");
-        if (level == "debug" || level == "trace") && !verbose_debug {
-            let quiet = format!(
-                "{level},\
-aws_smithy_http=info,\
-aws_smithy_http_tower=info,\
-aws_smithy_runtime=info,\
-aws_sdk_s3=info,\
-aws_sdk_sts=info,\
-aws_sdk_athena=info,\
-aws_sdk_glue=info,\
-aws_config=info,\
-tokio_tungstenite=info,\
-tungstenite=info,\
-lance=info,\
-lance_core=info,\
-lance_io=info,\
-lance_table=info,\
-react_transport::ws=info,\
-react::vector=info,\
-h2=info,\
-rustls=info,\
-tokio_rustls=info,\
-hyper_rustls=info,\
-hyper=info,\
-reqwest=info",
-                level = level
-            );
-            std::env::set_var("RUST_LOG", quiet);
-        } else {
-            std::env::set_var("RUST_LOG", level);
-        }
-    }
-}
-
-fn resolve_log_dir(cfg: &crate::config::ReactResolvedConfig) -> PathBuf {
-    if let Ok(v) = std::env::var("REACT_LOG_DIR") {
-        let p = v.trim();
-        if !p.is_empty() {
-            return PathBuf::from(p);
-        }
-    }
-    if cfg.storage.mode == rc::StorageMode::Local {
-        if let Some(ref root) = cfg.storage.path {
-            return PathBuf::from(root).join("logs");
-        }
-    }
-    PathBuf::from("./.react/logs")
-}
-
 fn config_run_label(index: usize, config_path: &str) -> String {
     let stem = Path::new(config_path)
         .file_stem()
@@ -214,15 +150,6 @@ fn sanitize_for_filename(s: &str) -> String {
             }
         })
         .collect()
-}
-
-fn resolve_default_suite_id(registry: &SuiteRegistry) -> String {
-    registry
-        .list_ids()
-        .into_iter()
-        .next()
-        .unwrap_or("kb")
-        .to_string()
 }
 
 async fn run_parallel_configs(
@@ -429,61 +356,6 @@ async fn stream_child_output<R>(
     }
 }
 
-struct TracingGuards {
-    _file: tracing_appender::non_blocking::WorkerGuard,
-    _run: Option<tracing_appender::non_blocking::WorkerGuard>,
-}
-
-fn init_tracing(
-    log_dir: &Path,
-    enable_console: bool,
-    run_writer: Option<crate::thread_logs::RunThreadLogWriter>,
-) -> TracingGuards {
-    let _ = std::fs::create_dir_all(log_dir);
-    let appender = tracing_appender::rolling::daily(log_dir, "react.log");
-    let (nb, guard) = tracing_appender::non_blocking(appender);
-
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_writer(nb)
-        .with_target(true)
-        .with_filter(tracing_subscriber::EnvFilter::from_default_env());
-
-    let (run_layer_opt, run_guard) = if let Some(w) = run_writer {
-        let (run_nb, run_guard) = tracing_appender::non_blocking(w);
-        let run_layer = tracing_subscriber::fmt::layer()
-            .with_ansi(false)
-            .with_writer(run_nb)
-            .with_target(true)
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
-        (Some(run_layer), Some(run_guard))
-    } else {
-        (None, None)
-    };
-
-    let console_layer_opt = if enable_console {
-        Some(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(true)
-                .with_target(true)
-                .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
-        )
-    } else {
-        None
-    };
-
-    let _ = tracing_subscriber::registry()
-        .with(file_layer)
-        .with(run_layer_opt)
-        .with(console_layer_opt)
-        .try_init();
-
-    TracingGuards {
-        _file: guard,
-        _run: run_guard,
-    }
-}
-
 /// Shared CLI entrypoint. Parses args, runs the requested command using the
 /// provided suite registry. Binary name in `--help` is inferred from `argv[0]`.
 pub async fn run(registry: SuiteRegistry) {
@@ -500,7 +372,7 @@ pub async fn run(registry: SuiteRegistry) {
             workspace,
             project_id,
         } => {
-            init_logging(&cli.log, cli.verbose_debug);
+            run_engine::init_logging(&cli.log, cli.verbose_debug);
             let file_cfg = match crate::config::ReactConfigFile::load_yaml(Path::new(&config)) {
                 Ok(c) => c,
                 Err(e) => {
@@ -526,12 +398,12 @@ pub async fn run(registry: SuiteRegistry) {
                     std::process::exit(1);
                 }
             };
-            bind_runtime_scope_preference(&cfg.scope);
+            run_engine::bind_runtime_scope_preference(&cfg.scope);
             crate::runtime_settings::bind_resolved_config(&cfg);
 
-            let log_dir = resolve_log_dir(&cfg);
+            let log_dir = run_engine::resolve_log_dir(&cfg);
             let enable_console = cli.log.is_some() && !cli.terminal;
-            let _guards = init_tracing(&log_dir, enable_console, None);
+            let _guards = run_engine::init_tracing(&log_dir, enable_console, None);
 
             if cli.terminal {
                 if std::env::var("REACT_HEADLESS")
@@ -618,7 +490,7 @@ pub async fn run(registry: SuiteRegistry) {
                 }
             };
 
-            init_logging(&cli.log, cli.verbose_debug);
+            run_engine::init_logging(&cli.log, cli.verbose_debug);
 
             let file_cfg = match crate::config::ReactConfigFile::load_yaml(Path::new(&config)) {
                 Ok(c) => c,
@@ -645,146 +517,21 @@ pub async fn run(registry: SuiteRegistry) {
                     std::process::exit(1);
                 }
             };
-            bind_runtime_scope_preference(&cfg.scope);
-            crate::runtime_settings::bind_resolved_config(&cfg);
 
-            let log_dir = resolve_log_dir(&cfg);
-            let terminal_default = true;
-            let terminal_enabled = terminal_default && cli.log.is_none();
-            let enable_console = cli.log.is_some() && !terminal_enabled;
-
-            if terminal_enabled {
-                if std::env::var("REACT_LOG_LLM_CALLS")
-                    .ok()
-                    .filter(|v| !v.trim().is_empty())
-                    .is_none()
-                {
-                    std::env::set_var("REACT_LOG_LLM_CALLS", "1");
-                }
-                if std::env::var("REACT_LOG_LLM_RESPONSE_TEXT")
-                    .ok()
-                    .filter(|v| !v.trim().is_empty())
-                    .is_none()
-                {
-                    std::env::set_var("REACT_LOG_LLM_RESPONSE_TEXT", "1");
-                }
-            }
-
-            let run_logs = if terminal_enabled {
-                if cfg.storage.mode == rc::StorageMode::Local {
-                    if let Some(root) = cfg.storage.path.as_ref() {
-                        crate::thread_logs::RunThreadLogs::new_local(
-                            root.clone(),
-                            cfg.scope.clone(),
-                        )
-                        .ok()
-                    } else {
-                        None
-                    }
-                } else {
-                    crate::thread_logs::RunThreadLogs::new_buffered(cfg.scope.clone()).ok()
-                }
-            } else {
-                None
-            };
-            let run_writer = run_logs.as_ref().map(|l| l.make_writer());
-            let guards = init_tracing(&log_dir, enable_console, run_writer);
-
-            if std::env::var("REACT_HEADLESS")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-                .is_none()
-            {
-                std::env::set_var("REACT_HEADLESS", "1");
-            }
-            if terminal_enabled {
-                if let Err(e) = react_transport::ws::terminal::init() {
-                    tracing::warn!("terminal mode not enabled: {}", e);
-                }
-            }
-
-            let suite_ctx = match crate::bootstrap::build_suite_ctx(&cfg).await {
-                Ok(ctx) => ctx,
-                Err(e) => {
-                    tracing::error!("{}", e);
-                    std::process::exit(1);
-                }
-            };
-            let keyspace = suite_ctx.keyspace().clone();
-
-            let requested_thread_id = thread_id.clone();
-
-            if let (Some(ref tid), Some(ref logs)) = (thread_id.as_ref(), run_logs.as_ref()) {
-                let _ = logs.bind_thread_id(keyspace.as_ref(), tid);
-            }
-
-            let storage_for_logs = suite_ctx.storage().clone();
-            let keyspace_for_logs = suite_ctx.keyspace().clone();
-
-            let (thread_id_tx, tid_rx) = if run_logs.is_some() && requested_thread_id.is_none() {
-                let (tx, rx) = mpsc::unbounded_channel::<String>();
-                (Some(tx), Some(rx))
-            } else {
-                (None, None)
-            };
-
-            if let (Some(mut rx), Some(logs)) = (tid_rx, run_logs.clone()) {
-                let ks = keyspace.clone();
-                tokio::spawn(async move {
-                    if let Some(tid) = rx.recv().await {
-                        let _ = logs.bind_thread_id(ks.as_ref(), &tid);
-                    }
-                });
-            }
-
-            let suite_id = suite_id
-                .clone()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| resolve_default_suite_id(&registry));
-            let run_fut = react_transport::headless::run_headless(
-                suite_ctx,
-                react_transport::headless::RunOpts {
+            let exit_code = run_engine::run_headless_from_config(
+                cfg,
+                registry,
+                run_engine::HeadlessRunOpts {
+                    log_level: cli.log,
+                    verbose_debug: cli.verbose_debug,
+                    terminal: cli.terminal,
                     thread_id,
                     suite_id,
                     agent,
-                    thread_id_tx,
+                    skip_logging_init: true,
                 },
-                registry,
-            );
-
-            let mut thread_id_for_logs: Option<String> = None;
-            let exit_code: i32 = tokio::select! {
-                r = run_fut => {
-                    match r {
-                        Ok((code, tid)) => {
-                            thread_id_for_logs = Some(tid);
-                            code
-                        }
-                        Err(e) => {
-                            tracing::error!("{}", e);
-                            1
-                        }
-                    }
-                },
-                _ = tokio::signal::ctrl_c() => 130,
-            };
-            if terminal_enabled {
-                react_transport::ws::terminal::shutdown();
-            }
-
-            drop(guards);
-
-            if let Some(logs) = run_logs.as_ref() {
-                let tid = thread_id_for_logs
-                    .clone()
-                    .or_else(|| requested_thread_id.clone());
-                if let Some(tid) = tid {
-                    let _ = logs.bind_thread_id(keyspace.as_ref(), &tid);
-                    let _ = logs
-                        .upload_if_needed(storage_for_logs.clone(), keyspace_for_logs.clone(), &tid)
-                        .await;
-                }
-            }
+            )
+            .await;
             std::process::exit(exit_code);
         }
     }

@@ -83,7 +83,7 @@ struct SanitizedProjectYaml {
 
 fn render_dbt_project_yaml(project_name: &str, profile_name: &str) -> String {
     format!(
-        "name: {name}\nversion: '1.0'\nprofile: '{profile_name}'\nmodel-paths: ['models']\nseed-paths: ['seeds']\nmacro-paths: ['macros']\ntarget-path: 'target'\n\nmodels:\n  {name}:\n    # Suffix strategy: dbt materializes schemas as <DBT_TARGET_SCHEMA>_<suffix>.\n    # Default all models into GOLD by setting their custom schema name to the gold suffix.\n    +schema: \"{{{{ env_var('DBT_GOLD_SUFFIX', 'warehouse') }}}}\"\n    # Force staging models under models/staging into SILVER.\n    staging:\n      +schema: \"{{{{ env_var('DBT_SILVER_SUFFIX', 'silver') }}}}\"\n",
+        "name: {name}\nversion: '1.0'\nprofile: '{profile_name}'\nmodel-paths: ['models']\nseed-paths: ['seeds']\nmacro-paths: ['macros']\ntarget-path: 'target'\n\nmodels:\n  {name}:\n    # Suffix strategy: dbt materializes schemas as <DBT_TARGET_SCHEMA>_<suffix>.\n    # Default all models into GOLD by setting their custom schema name to the gold suffix.\n    +schema: \"{{{{ env_var('DBT_GOLD_SUFFIX', 'gold') }}}}\"\n    # Force staging models under models/staging into SILVER.\n    staging:\n      +schema: \"{{{{ env_var('DBT_SILVER_SUFFIX', 'silver') }}}}\"\n",
         name = project_name,
         profile_name = profile_name
     )

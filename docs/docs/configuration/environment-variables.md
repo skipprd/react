@@ -1,93 +1,44 @@
 # Environment Variables
 
-All environment variables recognised by ReAct. Variables override YAML config values (see [precedence](overview.md)).
+All secrets and authentication credentials are configured via environment variables. They are never stored in the config file.
 
-## Secrets
+## Required
 
-These variables carry sensitive values and should never be placed in YAML config files.
-
-| Variable | Description |
-|---|---|
-| `LLM_API_KEY` | API key for the LLM provider |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to Google Cloud service account JSON (BigQuery) |
-| `AWS_ACCESS_KEY_ID` | AWS access key (Athena, S3) |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key (Athena, S3) |
-| `AWS_DEFAULT_REGION` | AWS region |
-
-## LLM
-
-| Variable | Default | Description |
+| Variable | When | Description |
 |---|---|---|
-| `LLM_PROVIDER` | `OPENAI_COMPAT` | LLM provider (`OPENAI_COMPAT`, `OPENAI`, `LLAMA_CPP`, `null`) |
-| `LLM_BASE_URL` | | Base URL for the LLM API |
-| `LLM_CHAT_MODEL` | | Chat model identifier |
-| `LLM_EMBED_MODEL` | | Embedding model identifier |
-| `LLM_CONTEXT_LENGTH` | `4096` | Max input context tokens |
-| `LLM_MAX_TOKENS` | `1024` | Max output tokens per call |
-| `LLM_TEMPERATURE` | | Sampling temperature |
-| `LLM_TOP_P` | | Nucleus sampling parameter |
-| `LLM_HTTP_TIMEOUT_SECS` | `30` | HTTP timeout for LLM calls (seconds) |
-| `LLM_GPU_LAYERS` | | GPU layers to offload (Llama.cpp only) |
-
-## Storage
-
-| Variable | Default | Description |
-|---|---|---|
-| `REACT_STORAGE_MODE` | `local` | Storage backend (`local`, `s3`) |
-| `REACT_STORAGE_PATH` | `./.react` | Local storage directory |
-| `SKIPPR_S3_BUCKET` | | S3 bucket for storage |
-
-## dbt
-
-| Variable | Default | Description |
-|---|---|---|
-| `DBT_TARGET` | | dbt target (e.g. `athena`, `bigquery`) |
-| `DBT_PROFILES_DIR` | | Custom dbt profiles directory |
-| `DBT_TARGET_SCHEMA` | | Base schema name for dbt materialisation |
-| `DBT_SILVER_SUFFIX` | `silver` | Silver tier schema suffix |
-| `DBT_GOLD_SUFFIX` | `warehouse` | Gold tier schema suffix |
-| `DBT_RUNNER` | `host` | dbt runner mode (`host`, `docker`) |
-| `DBT_DOCKER_IMAGE` | | Docker image for dbt (when runner=docker) |
-| `DBT_DOCKER_PLATFORM` | | Docker platform |
-| `DBT_DOCKER_NETWORK` | | Docker network |
-| `DBT_DOCKER_MOUNT_AWS_DIR` | `false` | Mount ~/.aws into Docker container |
+| `LLM_API_KEY` | Always | API key for the LLM provider (e.g. OpenAI) |
 
 ## Snowflake
 
-| Variable | Required | Description |
-|---|---|---|
-| `SNOWFLAKE_ACCOUNT` | Yes (when `kind: snowflake`) | Account identifier including region (e.g. `xy12345.us-east-1`) |
-| `SNOWFLAKE_USER` | Yes (when `kind: snowflake`) | Login username |
-| `SNOWFLAKE_PASSWORD` | Yes (when `kind: snowflake`) | Login password |
-| `SNOWFLAKE_DATABASE` | No | Fallback database if omitted from YAML |
-| `SNOWFLAKE_WAREHOUSE` | No | Fallback compute warehouse if omitted from YAML |
-| `SNOWFLAKE_ROLE` | No | Fallback role if omitted from YAML |
+| Variable | Description |
+|---|---|
+| `SNOWFLAKE_ACCOUNT` | Account identifier (e.g. `MYORG-MYACCOUNT` or `xy12345.us-east-1`) |
+| `SNOWFLAKE_USER` | Login username |
+| `SNOWFLAKE_PRIVATE_KEY_PATH` | Path to `.p8` private key file (key-pair auth, recommended) |
+| `SNOWFLAKE_PASSWORD` | Password (only when MFA is not enforced) |
 
-## MSSQL
+Key-pair auth is recommended and required when MFA is enabled on the Snowflake account.
 
-| Variable | Required | Description |
-|---|---|---|
-| `MSSQL_HOST` | Yes (when `kind: mssql`) | SQL Server hostname or IP |
-| `MSSQL_USER` | Yes (when `kind: mssql`) | Login username |
-| `MSSQL_PASSWORD` | Yes (when `kind: mssql`) | Login password |
-| `MSSQL_DATABASE` | No | Fallback database if omitted from YAML |
+## BigQuery
 
-## Postgres
+| Variable | Description |
+|---|---|
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to a GCP service account JSON key file |
 
-| Variable | Required | Description |
-|---|---|---|
-| `PGHOST` | Yes (when `kind: postgres`) | PostgreSQL hostname (default: `localhost`) |
-| `PGPORT` | No | PostgreSQL port (default: `5432`) |
-| `PGUSER` | No | PostgreSQL username (default: `postgres`) |
-| `PGPASSWORD` | No | PostgreSQL password |
-| `PGDATABASE` | No | Fallback database if omitted from YAML |
-| `DATABASE_URL` | No | Alternative: full connection string |
+## Source credentials
 
-## Runtime
+| Variable | Description |
+|---|---|
+| `MSSQL_CONNECTION_STRING` | ADO.NET connection string for SQL Server |
+| `AWS_ACCESS_KEY_ID` | AWS access key (for S3 sources) |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key (for S3 sources) |
+
+## Optional overrides
 
 | Variable | Default | Description |
 |---|---|---|
-| `REACT_HEADLESS` | `false` | Auto-answer prompts in headless `run` mode |
-| `REACT_PLAIN_PROGRESS` | `false` | Plain progress output (no terminal UI) |
-| `REACT_LOG_DIR` | | Override log output directory |
-| `RUST_LOG` | | Standard Rust log filter (e.g. `info`, `react=debug`) |
+| `LLM_BASE_URL` | `https://api.openai.com` | Override the LLM API endpoint |
+| `LLM_MAX_TOKENS` | `8192` | Max output tokens per LLM call |
+| `DBT_TARGET_SCHEMA` | Same as project | Override the dbt base schema name |
+| `DBT_SILVER_SUFFIX` | `silver` | Override the silver tier suffix |
+| `DBT_GOLD_SUFFIX` | `gold` | Override the gold tier suffix |

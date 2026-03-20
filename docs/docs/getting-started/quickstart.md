@@ -1,135 +1,125 @@
 # Quick Start
 
-This guide walks through building ReAct, configuring a local server, and running your first agent interaction.
+This guide walks through setting up a project that extracts data from MSSQL, loads it into Snowflake, and generates dbt models -- in under 5 minutes.
 
-## 1. Build
+## Prerequisites
+
+- `skippr-dbt` and `skippr` on PATH ([Install](install.md))
+- Python venv with `dbt-core` and `dbt-snowflake` installed
+- Environment variables set: `LLM_API_KEY`, `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_PATH`
+- An accessible MSSQL instance (or Docker for local dev)
+
+## 1. Initialise the project
 
 ```bash
-cargo build -p react
+mkdir my-workspace && cd my-workspace
+skippr-dbt init mssql-migration
 ```
 
-## 2. Create a config file
+This creates `skippr-dbt.yaml` with your project name and a `.env.example` showing the required environment variables.
 
-Copy the example config and edit it for your environment:
+## 2. Connect the warehouse
 
 ```bash
-cp src/runtime/config.example.yml my-config.yml
+skippr-dbt connect warehouse snowflake \
+  --database ANALYTICS \
+  --schema RAW \
+  --warehouse COMPUTE_WH \
+  --role ACCOUNTADMIN
 ```
 
-A minimal config for local development with BigQuery:
+Or run without flags to be prompted interactively.
+
+## 3. Connect the source
+
+```bash
+skippr-dbt connect source mssql \
+  --connection-string '${MSSQL_CONNECTION_STRING}'
+```
+
+Using `${MSSQL_CONNECTION_STRING}` reads the value from your environment at runtime. Set it:
+
+```bash
+export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+## 4. Check prerequisites
+
+```bash
+skippr-dbt doctor
+```
+
+This verifies that all binaries, credentials, and config are in place.
+
+## 5. Run the pipeline
+
+```bash
+skippr-dbt run
+```
+
+The pipeline will:
+
+1. **Discover** source schemas from MSSQL.
+2. **Sync** data into Snowflake bronze tables.
+3. **Verify** the destination tables are queryable.
+4. **Plan** a silver (staging) layer with one model per raw table.
+5. **Author** dbt SQL models with type casting and column mapping.
+6. **Validate** by running `dbt compile` and `dbt run` against the warehouse.
+
+## 6. Verify outputs
+
+### Generated config
+
+```
+skippr-dbt.yaml          # your project config
+```
+
+### Local artifacts
+
+```
+.skippr-dbt/
+└── local/
+    └── dev/
+        └── mssql_migration/
+            ├── logs/        # run logs
+            └── skippr/      # generated skippr pipeline config
+```
+
+### dbt models
+
+```
+models/
+├── schema.yml                   # source definitions
+└── staging/
+    ├── stg_raw_customers.sql    # silver model
+    └── stg_raw_orders.sql       # silver model
+```
+
+### Snowflake schemas
+
+| Schema | Contents |
+|---|---|
+| `ANALYTICS.RAW` | Bronze -- raw MSSQL data |
+| `ANALYTICS.MSSQL_MIGRATION_SILVER` | Silver -- staged and cleansed |
+| `ANALYTICS.MSSQL_MIGRATION_GOLD` | Gold -- mart-ready models |
+
+## What's in skippr-dbt.yaml
+
+After running `init` and `connect`, your config looks like this:
 
 ```yaml
-version: 1
+project: mssql_migration
 
-storage:
-  mode: local
-  path: ./.react
+warehouse:
+  kind: snowflake
+  database: ANALYTICS
+  schema: RAW
+  warehouse: COMPUTE_WH
+  role: ACCOUNTADMIN
 
-scope:
-  tenant: local
-  workspace: dev
-  project_id: quickstart
-
-llm:
-  provider: OPENAI_COMPAT
-  base_url: https://api.openai.com
-  chat_model: gpt-5.1
-  embed_model: text-embedding-3-small
-  max_tokens: 8192
-  temperature: 0.2
-
-providers:
-  warehouse:
-    kind: bigquery
-    project: your-gcp-project
-    dataset: your-dataset
-    location: US
-
-  catalog:
-    enabled: true
-
-  dbt:
-    enabled: true
-    runner: host
-    target: bigquery
-
-  vector:
-    enabled: true
+source:
+  kind: mssql
+  connection_string: ${MSSQL_CONNECTION_STRING}
 ```
 
-Or for Snowflake:
-
-```yaml
-providers:
-  warehouse:
-    kind: snowflake
-    database: ANALYTICS
-    schema: RAW
-    warehouse: COMPUTE_WH
-    role: TRANSFORMER
-
-  dbt:
-    enabled: true
-    runner: host
-    target: snowflake
-```
-
-See the [Snowflake connector](../connectors/warehouses/snowflake.md) docs for full configuration details, or the [MSSQL → Snowflake getting started guide](../../getting-started.md) for an end-to-end walkthrough.
-
-## 3. Set your API key
-
-```bash
-export LLM_API_KEY="sk-..."
-```
-
-## 4. Start the server
-
-```bash
-cargo run -p react -- serve --config my-config.yml --port 8787 --terminal
-```
-
-The server starts a WebSocket endpoint at `ws://localhost:8787/`.
-
-## 5. Connect and interact
-
-Open a WebSocket connection to `ws://localhost:8787/` using any WS client (e.g. `websocat`, Postman, or your own app). Send a JSON frame to list available suites:
-
-```json
-{
-  "v": 1,
-  "type": "suites",
-  "cid": "00000000-0000-0000-0000-000000000001"
-}
-```
-
-The server responds with the registered suites and their allowed agent types.
-
-Start a new thread with the Data Engineer suite:
-
-```json
-{
-  "v": 1,
-  "type": "new",
-  "cid": "00000000-0000-0000-0000-000000000002",
-  "suiteId": "data_engineer",
-  "agentType": "agent",
-  "question": "What tables are available in my dataset?"
-}
-```
-
-The server responds with `thread_assigned`, then streams `phase`, `tool_start`, `tool_end`, `llm_start`, `llm_end` events as the agent works, and finishes with a `final` frame containing the result.
-
-## What just happened?
-
-1. **serve** — started the WebSocket server, loaded config, and initialised providers (warehouse, catalog, dbt, vector, storage)
-2. **suites** — returned the registered suites (`data_engineer`, `kb`) and their allowed agent modes
-3. **new** — created a thread, ran the Data Engineer suite's preflight (catalog discovery), then entered the ReAct loop: LLM call → tool execution → observation → repeat until final
-4. **final** — the agent produced a validated result, persisted the thread to storage, and streamed the answer back
-
-## Next steps
-
-- [How It Works](../concepts/how-it-works.md) — the ReAct loop, suites, and agent policy
-- [Configuration Overview](../configuration/overview.md) — all config blocks and environment variables
-- [CLI Reference: serve](../cli/serve.md) — server flags and options
-- [WebSocket API](../websocket-api/overview.md) — frame types and connection lifecycle
-- [Headless Mode](quickstart-headless.md) — run without a WebSocket connection
+That's the entire user-facing config. Everything else is handled automatically.
