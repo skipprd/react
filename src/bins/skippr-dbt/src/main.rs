@@ -466,6 +466,11 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
     let mut reg = react_core::suite::SuiteRegistry::new();
     reg.register(react_suite_data_engineer::DataEngineerSuite);
 
+    let thread_id = find_latest_thread(cfg.project.trim());
+    if let Some(ref tid) = thread_id {
+        eprintln!("[skippr-dbt] resuming thread {tid}");
+    }
+
     let exit_code = react::run_engine::run_headless_from_config(
         resolved,
         reg,
@@ -473,7 +478,7 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
             log_level: log,
             verbose_debug: false,
             terminal: false,
-            thread_id: None,
+            thread_id,
             suite_id: None,
             agent: "agent".to_string(),
             skip_logging_init: false,
@@ -481,6 +486,37 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
     )
     .await;
     std::process::exit(exit_code);
+}
+
+/// Find the most recently modified primary thread for a project.
+///
+/// Scans `.skippr-dbt/local/dev/<project>/threads/` for `<uuid>.json` files
+/// (skipping companion files like `<uuid>__gather_0.json`) and returns the
+/// thread ID with the newest modification time, if any.
+fn find_latest_thread(project: &str) -> Option<String> {
+    let threads_dir = PathBuf::from(format!(
+        ".skippr-dbt/local/dev/{}/threads",
+        project.trim()
+    ));
+    let entries = std::fs::read_dir(&threads_dir).ok()?;
+
+    let mut latest: Option<(String, std::time::SystemTime)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".json") || name.contains("__") {
+            continue;
+        }
+        let stem = name.strip_suffix(".json")?;
+        if stem.len() != 36 || stem.chars().filter(|c| *c == '-').count() != 4 {
+            continue;
+        }
+        let modified = entry.metadata().ok()?.modified().ok()?;
+        if latest.as_ref().map_or(true, |(_, t)| modified > *t) {
+            latest = Some((stem.to_string(), modified));
+        }
+    }
+
+    latest.map(|(tid, _)| tid)
 }
 
 // ---------------------------------------------------------------------------

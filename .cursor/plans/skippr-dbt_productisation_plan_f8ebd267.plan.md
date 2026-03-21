@@ -226,6 +226,10 @@ $ skippr-dbt run
 - Public docs updated for authenticated flow
 - Getting-started guides updated (no more `LLM_API_KEY` section for product users)
 
+## Note: thread resumption semantics
+
+`skippr-dbt run` must resume the existing thread for a project rather than creating a new one each run. The data engineer suite is a stateful pipeline, not a chat — execution state, repair context, and probe status are all bound to the thread. A local-mode fix is in place (`find_latest_thread` by mtime), but productisation needs a durable equivalent: when state moves to S3, the backend should store a `latest_thread_id` per project or provide a list-threads-by-project API so the CLI can resolve the canonical thread without scanning the bucket.
+
 ## Key files to modify (react repo)
 
 - [src/bins/skippr-dbt/src/main.rs](src/bins/skippr-dbt/src/main.rs) -- add `user` subcommand tree
