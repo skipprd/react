@@ -1,4 +1,4 @@
-use react::config::{ReactConfigFile, ScopeFile, StorageFile};
+use react::config::{LlmFile, ReactConfigFile, ScopeFile, StorageFile};
 
 use crate::public_config::{SkipprDbtConfig, SourceConfig, WarehouseConfig};
 
@@ -149,7 +149,19 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             workspace: Some("dev".into()),
             project_id: Some(project.to_string()),
         }),
-        llm: None,
+        llm: Some(LlmFile {
+            provider: Some("OPENAI_COMPAT".into()),
+            base_url: Some("https://api.openai.com".into()),
+            reason_model: Some("gpt-5.4".into()),
+            task_model: Some("gpt-5.4".into()),
+            embed_model: Some("text-embedding-3-small".into()),
+            context_length: Some(8192),
+            http_timeout_secs: Some(120),
+            max_tokens: Some(8192),
+            temperature: Some(0.2),
+            top_p: Some(1.0),
+            ..Default::default()
+        }),
         providers: Some(providers),
     })
 }
