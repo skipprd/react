@@ -515,7 +515,15 @@ impl DataEngineerSuite {
     }
 
     fn parse_json_object_strict(raw: &str) -> Result<serde_json::Value, String> {
-        serde_json::from_str::<serde_json::Value>(raw).map_err(|e| e.to_string())
+        serde_json::from_str::<serde_json::Value>(raw).map_err(|e| {
+            let preview: String = raw.chars().take(500).collect();
+            tracing::error!(
+                raw_len = raw.len(),
+                raw_preview = %preview,
+                "parse_json_object_strict failed: {e}"
+            );
+            e.to_string()
+        })
     }
 
     fn parse_json_typed_strict<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, String> {
