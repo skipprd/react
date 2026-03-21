@@ -242,10 +242,12 @@ STRICT RULES:\n\
          [Repair iteration {iter} of {max}]\n\n\
          Follow these steps in order:\n\
          1. Read the failing model SQL file.\n\
-         2. Read each upstream model SQL file referenced via ref().\n\
-         3. Optionally call sql_schema on upstream models for column types.\n\
-         4. Call vect_query ONCE with scope \"doc\" to check for similar past repairs.\n\
-         5. Finish immediately — do not repeat any reads.",
+         2. Read the YAML schema file for the failing model (e.g. models/staging/<model>.yml). \
+            If the error message mentions a specific YAML file, read that file.\n\
+         3. Read each upstream model SQL file referenced via ref().\n\
+         4. Optionally call sql_schema on upstream models for column types.\n\
+         5. Call vect_query ONCE with scope \"doc\" to check for similar past repairs.\n\
+         6. Finish immediately — do not repeat any reads.",
         iter = iteration + 1,
         max = DEFAULT_MAX_ITERATIONS,
     );
@@ -410,7 +412,9 @@ async fn extract_diagnosis_structured(
                  ## Investigation Results\n{investigation_context}\n\n\
                  Produce a JSON object with:\n\
                  - \"diagnosis\": a thorough root-cause analysis\n\
-                 - \"affected_files\": list of relative file paths that likely need fixing\n\
+                 - \"affected_files\": list of relative file paths that likely need fixing. \
+                   Include BOTH .sql and .yml files when the issue involves column mismatches \
+                   between SQL outputs and YAML schema declarations.\n\
                  - \"upstream_schemas\": for each upstream model referenced via ref() by the \
                    failing model(s), list the model_path and the exact column names from its \
                    final SELECT statement",
@@ -477,7 +481,12 @@ async fn run_reason(
                 .to_string(),
         ];
         for gf in &gathered.files {
-            lines.push(format!("\n### `{}`\n```sql\n{}\n```", gf.path, gf.content));
+            let lang = if gf.path.ends_with(".yml") || gf.path.ends_with(".yaml") {
+                "yaml"
+            } else {
+                "sql"
+            };
+            lines.push(format!("\n### `{}`\n```{lang}\n{}\n```", gf.path, gf.content));
         }
         lines.join("\n")
     } else {
@@ -494,7 +503,9 @@ async fn run_reason(
          ## Full Repair History\n{history}\n\n\
          Rules:\n\
          - If a prior patch attempt failed, use op \"write\" instead of \"patch\".\n\
-         - Fix the actual SQL model files when tests fail, not just the schema YAML.\n\
+         - Fix BOTH SQL and YAML files as needed. When columns are added to or removed from \
+           a SQL model's final SELECT, the corresponding YAML schema file (e.g. \
+           models/staging/<model>.yml) MUST be updated to match. SQL and YAML are a contract pair.\n\
          - Produce at least one fix.\n\
          - When using op \"write\", output the COMPLETE file content based on the Current File \
            Contents above. Do NOT invent SQL structure — modify the existing content.\n\

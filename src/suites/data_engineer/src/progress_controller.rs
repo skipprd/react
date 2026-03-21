@@ -987,6 +987,7 @@ impl ExecutionState {
         self.repair.mutated_since_fail = false;
         self.repair.pending_patch_impl = None;
         self.repair.infra_transient = false;
+        self.telemetry.probe = ProbeStatus::NotRequired;
         self.debug_assert_invariants();
     }
 
@@ -1440,6 +1441,7 @@ impl ExecutionState {
                 self.repair.status = RepairStatus::Idle;
                 self.repair.failure_context = None;
                 self.repair.pending_patch_impl = None;
+                self.telemetry.probe = ProbeStatus::NotRequired;
             }
             DataEngineerEvent::RepairSucceeded => {
                 self.apply_repair_succeeded();
