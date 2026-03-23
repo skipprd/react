@@ -40,6 +40,12 @@ pub enum WarehouseConfig {
         #[serde(default)]
         location: Option<String>,
     },
+    Postgres {
+        #[serde(default)]
+        database: Option<String>,
+        #[serde(default)]
+        schema: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,6 +100,7 @@ impl SkipprDbtConfig {
         match &self.warehouse {
             Some(WarehouseConfig::Snowflake { .. }) => Some("snowflake"),
             Some(WarehouseConfig::Bigquery { .. }) => Some("bigquery"),
+            Some(WarehouseConfig::Postgres { .. }) => Some("postgres"),
             None => None,
         }
     }
@@ -105,6 +112,10 @@ impl SkipprDbtConfig {
             None => None,
         }
     }
+
+    pub fn uses_postgres(&self) -> bool {
+        matches!(&self.warehouse, Some(WarehouseConfig::Postgres { .. }))
+    }
 }
 
 impl WarehouseConfig {
@@ -112,6 +123,7 @@ impl WarehouseConfig {
         match self {
             Self::Snowflake { .. } => "snowflake",
             Self::Bigquery { .. } => "bigquery",
+            Self::Postgres { .. } => "postgres",
         }
     }
 }

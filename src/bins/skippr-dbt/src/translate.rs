@@ -50,6 +50,17 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
+        Some(WarehouseConfig::Postgres { database, schema }) => {
+            let mut m = serde_json::Map::new();
+            m.insert("kind".into(), "postgres".into());
+            if let Some(v) = database {
+                m.insert("database".into(), v.clone().into());
+            }
+            if let Some(v) = schema {
+                m.insert("schema".into(), v.clone().into());
+            }
+            serde_json::Value::Object(m)
+        }
         None => return Err("warehouse is not configured. Run: skippr-dbt connect warehouse <kind>".to_string()),
     };
 
@@ -210,6 +221,32 @@ mod tests {
             dbt: None,
         };
         assert!(to_internal(&cfg).is_err());
+    }
+
+    #[test]
+    fn translate_postgres_warehouse() {
+        let cfg = SkipprDbtConfig {
+            project: "pg_project".into(),
+            warehouse: Some(WarehouseConfig::Postgres {
+                database: Some("analytics".into()),
+                schema: Some("public".into()),
+            }),
+            source: Some(SourceConfig::Mssql {
+                connection_string: Some("${MSSQL_CONNECTION_STRING}".into()),
+            }),
+            dbt: None,
+        };
+
+        let internal = to_internal(&cfg).unwrap();
+        assert_eq!(
+            internal.scope.as_ref().unwrap().project_id.as_deref(),
+            Some("pg_project")
+        );
+        let p = internal.providers.unwrap();
+        assert_eq!(p["warehouse"]["kind"], "postgres");
+        assert_eq!(p["warehouse"]["database"], "analytics");
+        assert_eq!(p["dbt"]["target"], "postgres");
+        assert_eq!(p["dbt"]["naming"]["target_schema"], "pg_project");
     }
 
     #[test]

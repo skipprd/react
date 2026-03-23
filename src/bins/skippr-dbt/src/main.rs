@@ -79,6 +79,13 @@ enum WarehouseKind {
         #[arg(long)]
         location: Option<String>,
     },
+    /// PostgreSQL warehouse.
+    Postgres {
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -160,6 +167,13 @@ SNOWFLAKE_ACCOUNT=
 SNOWFLAKE_USER=
 SNOWFLAKE_PRIVATE_KEY_PATH=
 
+# PostgreSQL (when warehouse is postgres)
+PGHOST=localhost
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=
+PGDATABASE=
+
 # MSSQL (when source is mssql)
 MSSQL_CONNECTION_STRING=
 ",
@@ -220,6 +234,11 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
                 dataset,
                 location,
             }
+        }
+        WarehouseKind::Postgres { database, schema } => {
+            let database = database.or_else(|| prompt("PostgreSQL database"));
+            let schema = schema.or_else(|| prompt("PostgreSQL schema (default: public)"));
+            WarehouseConfig::Postgres { database, schema }
         }
     };
 
@@ -368,6 +387,10 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_snowflake_env(&mut ok);
     }
 
+    if let Some(WarehouseConfig::Postgres { .. }) = &cfg.warehouse {
+        check_postgres_env(&mut ok);
+    }
+
     println!();
     if ok {
         println!("All checks passed. Run 'skippr-dbt run' to start.");
@@ -401,6 +424,29 @@ fn check_snowflake_env(ok: &mut bool) {
         check_pass("SNOWFLAKE_PASSWORD is set (password auth)");
     } else {
         check_fail("Snowflake auth not configured — set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD");
+        *ok = false;
+    }
+}
+
+fn check_postgres_env(ok: &mut bool) {
+    let has_host = env_set("PGHOST");
+    let has_user = env_set("PGUSER");
+    let has_password = env_set("PGPASSWORD");
+
+    if has_host {
+        check_pass("PGHOST is set");
+    } else {
+        check_fail("PGHOST is not set (defaults to localhost)");
+    }
+    if has_user {
+        check_pass("PGUSER is set");
+    } else {
+        check_fail("PGUSER is not set (defaults to postgres)");
+    }
+    if has_password {
+        check_pass("PGPASSWORD is set");
+    } else {
+        check_fail("PGPASSWORD is not set");
         *ok = false;
     }
 }

@@ -242,6 +242,127 @@ jobs:
           .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-el-windows-snowflake.yaml
 
   # ---------------------------------------------------------------------------
+  # skippr-dbt: Windows MSSQL -> Postgres end-to-end (no cloud deps)
+  # ---------------------------------------------------------------------------
+  skippr_dbt_el_windows_postgres_e2e:
+    name: Windows MSSQL -> Postgres E2E (skippr-dbt)
+    needs:
+      - skippr_dbt_binary_build
+    if: "!startsWith(github.ref, 'refs/tags/test')"
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download skippr-dbt Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: skippr-dbt-x86_64-pc-windows-msvc
+          path: bin
+
+      - name: Download skippr 6.15.0 for Windows
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr.tar.gz
+          tar -xzf skippr.tar.gz
+          Copy-Item skippr-windows_x86\skippr.exe bin\skippr.exe
+
+      - name: Install SQL Server Express
+        shell: pwsh
+        run: |
+          choco install sql-server-express -y --no-progress
+          $timeout = 120
+          $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            $svc = Get-Service -Name 'MSSQL$SQLEXPRESS' -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { break }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+          }
+          if ($elapsed -ge $timeout) {
+            Write-Error "SQL Server Express did not start within ${timeout}s"
+            exit 1
+          }
+          Write-Host "SQL Server Express is running."
+
+      - name: Configure SQL Server for TCP and SA login
+        shell: pwsh
+        run: |
+          Import-Module SqlServer -ErrorAction SilentlyContinue
+          sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
+          sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
+          sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
+          $tcpPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp" }
+          foreach ($path in $tcpPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
+          }
+          $ipAllPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp\IPAll" }
+          foreach ($path in $ipAllPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "TcpPort" -Value "1433" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $path.PSPath -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
+          }
+          Restart-Service -Name 'MSSQL$SQLEXPRESS' -Force
+          Start-Sleep -Seconds 10
+
+      - name: Create and seed MSSQL test database
+        shell: pwsh
+        run: |
+          sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -Q "CREATE DATABASE testdb"
+          sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -d testdb -i test\el-integration\seed.sql
+
+      - name: Install PostgreSQL
+        shell: pwsh
+        run: |
+          choco install postgresql16 -y --no-progress --params '/Password:Skippr!Test123'
+          $timeout = 60
+          $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }
+            if ($svc) { break }
+            Start-Sleep -Seconds 5
+            $elapsed += 5
+          }
+          if ($elapsed -ge $timeout) {
+            Write-Error "PostgreSQL did not start within ${timeout}s"
+            exit 1
+          }
+          Write-Host "PostgreSQL is running."
+
+      - name: Configure PostgreSQL test database
+        shell: pwsh
+        run: |
+          $pgBin = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          $env:PATH = "$pgBin;$env:PATH"
+          $env:PGPASSWORD = "Skippr!Test123"
+          psql -U postgres -c "CREATE DATABASE testdb;"
+          Write-Host "PostgreSQL testdb created."
+
+      - name: Install dbt runtime
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-core dbt-postgres
+
+      - name: Run skippr-dbt EL + modeling pipeline
+        shell: pwsh
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: "Skippr!Test123"
+          PGDATABASE: testdb
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: "Skippr!Test123"
+          POSTGRES_DATABASE: testdb
+        run: |
+          $env:PATH = "$(Get-Location)\bin;$env:PATH"
+          .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
+
+  # ---------------------------------------------------------------------------
   # Publish skippr-dbt release
   # ---------------------------------------------------------------------------
   publish:
