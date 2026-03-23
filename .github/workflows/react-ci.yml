@@ -381,5 +381,6 @@ jobs:
         with:
           files: ./skippr-dbt-*.tar.gz
           tag_name: ${{ github.ref_name }}
-          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
