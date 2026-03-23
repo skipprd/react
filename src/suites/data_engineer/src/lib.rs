@@ -103,6 +103,7 @@ pub mod failure_kind;
 pub mod failure_text;
 mod llm_profiles;
 pub(crate) mod model_dispatch;
+pub mod metering;
 pub(crate) mod naming;
 pub(crate) mod patch_contract;
 pub(crate) mod patch_protocol;

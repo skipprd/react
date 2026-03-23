@@ -50,7 +50,7 @@ impl DataEngineerSuite {
             "EL sync complete"
         );
 
-        crate::phase_contract::commit_phase_decision(
+        crate::phase_contract::commit_metered_decision(
             thread_store,
             thread_id,
             Some(control_flow::Phase::ElSync),
@@ -60,6 +60,11 @@ impl DataEngineerSuite {
                     tables_synced: sync_result.tables_synced,
                 }),
             ),
+            vec![crate::metering::UsageEvent::TablesSynced {
+                count: sync_result.tables_synced as u64,
+                project_id: pipeline_name.to_string(),
+            }],
+            crate::metering::global_metering(),
         )
         .await?;
 

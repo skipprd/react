@@ -774,3 +774,35 @@ fn control_state_thread_log_read_guardrails_are_enforced_in_rust_tests() {
         }
     }
 }
+
+#[test]
+fn billable_phases_use_metered_commit() {
+    for (name, src) in [
+        ("phase_el_discover.rs", include_str!("phase_el_discover.rs")),
+        ("phase_el_sync.rs", include_str!("phase_el_sync.rs")),
+        ("phase_author.rs", include_str!("phase_author.rs")),
+        ("agent_modes.rs", include_str!("agent_modes.rs")),
+        ("plan_review_helpers.rs", include_str!("plan_review_helpers.rs")),
+    ] {
+        assert!(
+            src.contains("commit_metered_decision"),
+            "{name} is a billable phase and MUST use commit_metered_decision"
+        );
+    }
+}
+
+#[test]
+fn billable_phases_construct_usage_events() {
+    for (name, src, expected_event) in [
+        ("phase_el_discover.rs", include_str!("phase_el_discover.rs"), "UsageEvent::FieldsDiscovered"),
+        ("phase_el_sync.rs", include_str!("phase_el_sync.rs"), "UsageEvent::TablesSynced"),
+        ("phase_author.rs", include_str!("phase_author.rs"), "UsageEvent::ModelsAuthored"),
+        ("agent_modes.rs", include_str!("agent_modes.rs"), "UsageEvent::RepairCycle"),
+        ("plan_review_helpers.rs", include_str!("plan_review_helpers.rs"), "UsageEvent::PlanApproved"),
+    ] {
+        assert!(
+            src.contains(expected_event),
+            "{name} must construct {expected_event} for metering"
+        );
+    }
+}

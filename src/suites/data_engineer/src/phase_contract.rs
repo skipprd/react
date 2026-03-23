@@ -45,6 +45,18 @@ pub async fn commit_phase_decision(
     .map_err(|e| e.to_string())
 }
 
+pub async fn commit_metered_decision(
+    thread_store: &ThreadStore,
+    thread_id: &str,
+    from_phase: Option<Phase>,
+    decision: PhaseDecision,
+    usage: Vec<crate::metering::UsageEvent>,
+    metering: &crate::metering::MeteringClient,
+) -> Result<(), String> {
+    metering.record_batch(&usage).await;
+    commit_phase_decision(thread_store, thread_id, from_phase, decision).await
+}
+
 pub async fn commit_guard_block(
     thread_store: &ThreadStore,
     thread_id: &str,

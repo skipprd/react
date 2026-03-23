@@ -177,6 +177,39 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
     })
 }
 
+/// Overlay authenticated mode onto an existing config:
+/// - Switch storage to S3 with STS credentials
+/// - Route LLM through the proxy
+/// - Initialize metering client
+pub fn apply_authenticated_overlay(
+    cfg: &mut ReactConfigFile,
+    creds: &crate::api_client::CredentialsResponse,
+    auth_token: &str,
+) {
+    cfg.storage = Some(StorageFile {
+        mode: Some("s3".into()),
+        bucket: Some(creds.bucket.clone()),
+        path: Some(creds.key_prefix.clone()),
+    });
+
+    if !creds.llm_proxy_url.is_empty() {
+        if let Some(ref mut llm) = cfg.llm {
+            llm.base_url = Some(creds.llm_proxy_url.clone());
+        }
+    }
+
+    let accounting_url = if creds.accounting_url.is_empty() {
+        None
+    } else {
+        Some(creds.accounting_url.clone())
+    };
+
+    react_suite_data_engineer::metering::init_metering(
+        accounting_url,
+        Some(auth_token.to_string()),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

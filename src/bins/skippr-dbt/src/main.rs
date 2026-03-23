@@ -1,3 +1,5 @@
+mod auth;
+mod api_client;
 mod public_config;
 mod translate;
 
@@ -41,6 +43,30 @@ enum Cmd {
 
     /// Execute the full pipeline (extract, load, model).
     Run,
+
+    /// User account management (signup, login, balance, etc.).
+    User {
+        #[command(subcommand)]
+        action: UserAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UserAction {
+    /// Sign up or log in with your phone number.
+    Login,
+    /// Log out and remove local credentials.
+    Logout,
+    /// Show account balance and recent usage.
+    Account,
+    /// Purchase a credit pack.
+    BuyCredits {
+        /// Credit pack: starter (500), growth (2000), scale (10000).
+        #[arg(long)]
+        pack: String,
+    },
+    /// Show detailed usage log.
+    Usage,
 }
 
 #[derive(Subcommand, Debug)]
@@ -391,6 +417,12 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_postgres_env(&mut ok);
     }
 
+    if auth::load_credentials().is_some() {
+        check_pass("skippr-dbt user credentials found (authenticated mode)");
+    } else {
+        check_fail("not logged in — run 'skippr-dbt user login' for cloud storage + metering");
+    }
+
     println!();
     if ok {
         println!("All checks passed. Run 'skippr-dbt run' to start.");
@@ -490,13 +522,40 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     };
 
-    let internal_file = match translate::to_internal(&cfg) {
+    let mut internal_file = match translate::to_internal(&cfg) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
     };
+
+    if let Some(creds) = auth::load_credentials() {
+        let base_url = auth::auth_base_url();
+        let client = api_client::ApiClient::new(&base_url);
+        match client.get_credentials(&creds.access_token).await {
+            Ok(srv_creds) => {
+                translate::apply_authenticated_overlay(&mut internal_file, &srv_creds, &creds.access_token);
+                eprintln!("[skippr-dbt] authenticated — S3 storage + LLM proxy active");
+            }
+            Err(e) => {
+                eprintln!("[skippr-dbt] warning: credential exchange failed ({}), running in local mode", e);
+            }
+        }
+
+        if let Ok(account) = client.get_account(&creds.access_token).await {
+            let remaining = account.balance.credits_remaining;
+            if remaining <= 0.0 {
+                eprintln!("[skippr-dbt] ERROR: No credits remaining. Purchase credits to continue.");
+                eprintln!("[skippr-dbt]   skippr-dbt user buy-credits --pack starter");
+                std::process::exit(1);
+            } else if remaining < LOW_BALANCE_THRESHOLD {
+                eprintln!("[skippr-dbt] WARNING: Low balance ({:.1} credits). The run may exhaust your credits.", remaining);
+            } else {
+                eprintln!("[skippr-dbt] credits: {:.1} remaining", remaining);
+            }
+        }
+    }
 
     let resolved = match react::config::resolve_config(
         internal_file,
@@ -596,5 +655,207 @@ async fn main() {
         },
         Cmd::Doctor => cmd_doctor(&cli.config),
         Cmd::Run => cmd_run(cli.log, &cli.config).await,
+        Cmd::User { action } => match action {
+            UserAction::Login => cmd_user_login().await,
+            UserAction::Logout => cmd_user_logout(),
+            UserAction::Account => cmd_user_account().await,
+            UserAction::BuyCredits { pack } => cmd_user_buy_credits(&pack).await,
+            UserAction::Usage => cmd_user_usage().await,
+        },
+    }
+}
+
+async fn cmd_user_login() {
+    if auth::load_credentials().is_some() {
+        eprintln!("Already logged in. Run 'skippr-dbt user logout' first to switch accounts.");
+        std::process::exit(1);
+    }
+
+    println!("Enter your phone number (e.g. +1234567890):");
+    let mut phone = String::new();
+    std::io::stdin().read_line(&mut phone).unwrap();
+    let phone = phone.trim();
+
+    if phone.is_empty() || !phone.starts_with('+') {
+        eprintln!("Invalid phone number. Must start with + and country code (e.g. +1234567890).");
+        std::process::exit(1);
+    }
+
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+
+    match client.sign_in(phone).await {
+        Ok(_) => {
+            println!("Verification code sent to {}.", phone);
+            println!("Enter the 6-digit code:");
+            let mut code = String::new();
+            std::io::stdin().read_line(&mut code).unwrap();
+            let code = code.trim();
+
+            match client.confirm(phone, code).await {
+                Ok(tokens) => {
+                    auth::save_credentials(&tokens);
+                    println!();
+                    println!("  Logged in successfully.");
+                    println!();
+                    println!("  Next steps:");
+                    println!("    skippr-dbt user account       — view balance");
+                    println!("    skippr-dbt user buy-credits   — purchase credits");
+                    println!("    skippr-dbt run                — start a pipeline");
+                    println!();
+                }
+                Err(e) => {
+                    eprintln!("Confirmation failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Sign-in failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_user_logout() {
+    auth::clear_credentials();
+    println!("Logged out. Local credentials removed.");
+}
+
+async fn cmd_user_account() {
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.get_account(&creds.access_token).await {
+        Ok(account) => {
+            println!();
+            println!("  Account");
+            println!("  {}", "-".repeat(50));
+            println!("  Plan:              {}", account.profile.plan);
+            println!("  Credits remaining: {:.1}", account.balance.credits_remaining);
+            println!("  Credits purchased: {:.1}", account.balance.credits_purchased);
+            println!("  Credits used:      {:.1}", account.balance.credits_used);
+            println!("  Period:            {}", account.balance.period);
+            if let Some(ref sub) = account.subscription {
+                println!("  Subscription:      {} ({})", sub.status, sub.price_id);
+            }
+            println!();
+
+            print_low_balance_warning(account.balance.credits_remaining);
+
+            if !account.recent_usage.is_empty() {
+                println!("  Recent usage (last 10):");
+                println!("  {:<22} {:<22} {:>8}  {}", "Timestamp", "Event", "Credits", "Project");
+                println!("  {}", "-".repeat(70));
+                for u in account.recent_usage.iter().take(10) {
+                    println!("  {:<22} {:<22} {:>8.1}  {}",
+                        &u.timestamp[..std::cmp::min(22, u.timestamp.len())],
+                        u.event_type,
+                        u.credits_charged,
+                        u.project_id.as_deref().unwrap_or("-"),
+                    );
+                }
+                println!();
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to fetch account: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_user_buy_credits(pack: &str) {
+    let valid_packs = ["starter", "growth", "scale"];
+    if !valid_packs.contains(&pack) {
+        eprintln!("Invalid credit pack '{}'. Choose one of:", pack);
+        eprintln!("  starter  — 500 credits   ($50)");
+        eprintln!("  growth   — 2,000 credits ($180)");
+        eprintln!("  scale    — 10,000 credits ($800)");
+        std::process::exit(1);
+    }
+
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.buy_credits(&creds.access_token, pack).await {
+        Ok(url) => {
+            println!();
+            println!("  Open this URL to complete your purchase:");
+            println!("  {}", url);
+            println!();
+            println!("  Credits will be added to your account once payment completes.");
+            println!();
+        }
+        Err(e) => {
+            eprintln!("Failed to start checkout: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_user_usage() {
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.get_account(&creds.access_token).await {
+        Ok(account) => {
+            println!();
+            println!("  Usage log ({:.1} credits remaining)", account.balance.credits_remaining);
+            println!();
+            if account.recent_usage.is_empty() {
+                println!("  No usage recorded yet.");
+            } else {
+                println!("  {:<22} {:<22} {:>8}  {:<10}  {}",
+                    "Timestamp", "Event", "Credits", "Qty", "Project");
+                println!("  {}", "-".repeat(78));
+                let mut total = 0.0_f64;
+                for u in &account.recent_usage {
+                    total += u.credits_charged;
+                    println!("  {:<22} {:<22} {:>8.1}  {:<10.0}  {}",
+                        &u.timestamp[..std::cmp::min(22, u.timestamp.len())],
+                        u.event_type,
+                        u.credits_charged,
+                        u.quantity,
+                        u.project_id.as_deref().unwrap_or("-"),
+                    );
+                }
+                println!("  {}", "-".repeat(78));
+                println!("  {:>52.1}  total shown", total);
+            }
+            println!();
+
+            print_low_balance_warning(account.balance.credits_remaining);
+        }
+        Err(e) => {
+            eprintln!("Failed to fetch usage: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+const LOW_BALANCE_THRESHOLD: f64 = 50.0;
+
+fn print_low_balance_warning(credits_remaining: f64) {
+    if credits_remaining <= 0.0 {
+        eprintln!("  WARNING: You have no credits remaining. Billable operations will fail.");
+        eprintln!("  Run: skippr-dbt user buy-credits --pack starter");
+        eprintln!();
+    } else if credits_remaining < LOW_BALANCE_THRESHOLD {
+        eprintln!("  WARNING: Low balance ({:.1} credits). Consider purchasing more credits.", credits_remaining);
+        eprintln!("  Run: skippr-dbt user buy-credits --pack starter");
+        eprintln!();
     }
 }

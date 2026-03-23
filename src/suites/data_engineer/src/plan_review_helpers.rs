@@ -1,5 +1,5 @@
 use super::*;
-use crate::phase_contract::{commit_phase_decision, PhaseDecision};
+use crate::phase_contract::{commit_phase_decision, commit_metered_decision, PhaseDecision};
 
 impl DataEngineerSuite {
     pub(super) fn collect_targeted_semantic_tasks(
@@ -157,7 +157,11 @@ impl DataEngineerSuite {
         .await
         .map_err(|e| format!("failed to clear pending patch impl intent: {e}"))?;
 
-        commit_phase_decision(
+        let (tasks_count, batches_count) = match &doc {
+            TrackPlanDoc::Cleanse(p) => (p.tasks.len() as u64, p.batches.len() as u64),
+            TrackPlanDoc::Model(p) => (p.tasks.len() as u64, p.batches.len() as u64),
+        };
+        commit_metered_decision(
             thread_store,
             thread_id,
             Some(phase),
@@ -165,6 +169,12 @@ impl DataEngineerSuite {
                 track.author_phase(),
                 Some(transition),
             ),
+            vec![crate::metering::UsageEvent::PlanApproved {
+                tasks: tasks_count,
+                batches: batches_count,
+                project_id: thread_id.to_string(),
+            }],
+            crate::metering::global_metering(),
         )
         .await?;
         Ok(true)

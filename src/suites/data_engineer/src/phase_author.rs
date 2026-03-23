@@ -1345,7 +1345,7 @@ async fn handle_author_run_outcome(
                 has_models,
             )
             .await;
-            crate::phase_contract::commit_phase_decision(
+            crate::phase_contract::commit_metered_decision(
                 params.thread_store,
                 params.thread_id,
                 Some(params.phase),
@@ -1353,6 +1353,12 @@ async fn handle_author_run_outcome(
                     to_phase,
                     Some(crate::progress_controller::PhaseTransition::AuthoringComplete),
                 ),
+                vec![crate::metering::UsageEvent::ModelsAuthored {
+                    silver: 0,
+                    gold: 0,
+                    project_id: params.thread_id.to_string(),
+                }],
+                crate::metering::global_metering(),
             )
             .await?;
             Ok(PhaseOutcome::TransitionCommitted)

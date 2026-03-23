@@ -881,7 +881,7 @@ impl DataEngineerSuite {
                 .await
                 .map_err(|e| format!("failed to clear repair state after success: {e}"))?;
 
-                crate::phase_contract::commit_phase_decision(
+                crate::phase_contract::commit_metered_decision(
                     thread_store,
                     thread_id,
                     Some(current_phase),
@@ -889,6 +889,11 @@ impl DataEngineerSuite {
                         validate_phase,
                         Some(crate::progress_controller::PhaseTransition::RepairCompleted),
                     ),
+                    vec![crate::metering::UsageEvent::RepairCycle {
+                        cycle: 1,
+                        project_id: thread_id.to_string(),
+                    }],
+                    crate::metering::global_metering(),
                 )
                 .await?;
                 Ok(PhaseOutcome::TransitionCommitted)
@@ -902,7 +907,7 @@ impl DataEngineerSuite {
                 .await
                 .map_err(|e2| format!("failed to mark repair exhausted: {e2}"))?;
 
-                crate::phase_contract::commit_phase_decision(
+                crate::phase_contract::commit_metered_decision(
                     thread_store,
                     thread_id,
                     Some(current_phase),
@@ -912,6 +917,11 @@ impl DataEngineerSuite {
                             reason: e.clone(),
                         }),
                     ),
+                    vec![crate::metering::UsageEvent::RepairCycle {
+                        cycle: 1,
+                        project_id: thread_id.to_string(),
+                    }],
+                    crate::metering::global_metering(),
                 )
                 .await?;
                 Ok(PhaseOutcome::TransitionCommitted)

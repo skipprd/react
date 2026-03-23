@@ -61,13 +61,18 @@ impl DataEngineerSuite {
             );
         }
 
+        let total_fields: u64 = pipeline_status.namespaces.iter()
+            .map(|ns| ns.fields.len() as u64)
+            .sum();
+
         tracing::info!(
             namespaces = namespaces_count,
+            total_fields = total_fields,
             pipeline = pipeline_name,
             "EL discover complete"
         );
 
-        crate::phase_contract::commit_phase_decision(
+        crate::phase_contract::commit_metered_decision(
             thread_store,
             thread_id,
             Some(control_flow::Phase::ElDiscover),
@@ -75,6 +80,11 @@ impl DataEngineerSuite {
                 control_flow::Phase::ElSync,
                 Some(PhaseTransition::ElDiscoverOk { namespaces_count }),
             ),
+            vec![crate::metering::UsageEvent::FieldsDiscovered {
+                count: total_fields,
+                project_id: pipeline_name.to_string(),
+            }],
+            crate::metering::global_metering(),
         )
         .await?;
 
