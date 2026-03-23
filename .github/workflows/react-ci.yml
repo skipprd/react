@@ -23,15 +23,10 @@ jobs:
         with:
           rust-version: stable
 
-      - name: Cargo cache
-        uses: actions/cache@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          prefix-key: v1-react-core
 
       - name: Check OpenAPI generated artifact drift (core)
         run: bash scripts/check-openapi-drift-core.sh
@@ -59,15 +54,10 @@ jobs:
         with:
           rust-version: stable
 
-      - name: Cargo cache
-        uses: actions/cache@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          prefix-key: v1-skippr-dbt-test
 
       - name: Check OpenAPI generated artifact drift (data_engineer suite)
         run: bash scripts/check-openapi-drift-suite-data-engineer.sh
@@ -122,15 +112,11 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cargo cache
-        uses: actions/cache@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-release-
+          prefix-key: v1-release
+          key: ${{ matrix.target }}
 
       - name: Build skippr-dbt release binary
         run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
