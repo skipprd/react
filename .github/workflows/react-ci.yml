@@ -6,134 +6,134 @@ on:
       - "*"
 
 jobs:
-  # # ---------------------------------------------------------------------------
-  # # Core react: build + unit tests (no data_engineer suite, no integration runs)
-  # # ---------------------------------------------------------------------------
-  # react_core:
-  #   name: Core react build + test
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 30
-  #   env:
-  #     CARGO_TARGET_DIR: target
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - name: Setup Rust toolchain
-  #       uses: ./.github/actions/setup-builder
-  #       with:
-  #         rust-version: stable
-  #
-  #     - name: Rust cache
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         prefix-key: v1-react-core
-  #
-  #     - name: Check OpenAPI generated artifact drift (core)
-  #       run: bash scripts/check-openapi-drift-core.sh
-  #
-  #     - name: Build react crate
-  #       run: cargo build -p react
-  #
-  #     - name: Test react crate
-  #       run: cargo test -p react --lib --tests
+  # ---------------------------------------------------------------------------
+  # Core react: build + unit tests (no data_engineer suite, no integration runs)
+  # ---------------------------------------------------------------------------
+  react_core:
+    name: Core react build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-builder
+        with:
+          rust-version: stable
+  
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-react-core
+  
+      - name: Check OpenAPI generated artifact drift (core)
+        run: bash scripts/check-openapi-drift-core.sh
+  
+      - name: Build react crate
+        run: cargo build -p react
+  
+      - name: Test react crate
+        run: cargo test -p react --lib --tests
 
-  # # ---------------------------------------------------------------------------
-  # # skippr-dbt: build + unit tests
-  # # ---------------------------------------------------------------------------
-  # skippr_dbt_test:
-  #   name: skippr-dbt build + test
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 30
-  #   env:
-  #     CARGO_TARGET_DIR: target
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - name: Setup Rust toolchain
-  #       uses: ./.github/actions/setup-builder
-  #       with:
-  #         rust-version: stable
-  #
-  #     - name: Rust cache
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         prefix-key: v1-skippr-dbt-test
-  #
-  #     - name: Check OpenAPI generated artifact drift (data_engineer suite)
-  #       run: bash scripts/check-openapi-drift-suite-data-engineer.sh
-  #
-  #     - name: Enforce control-state log-read guardrails
-  #       run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
-  #
-  #     - name: Build skippr-dbt
-  #       run: cargo build -p skippr-dbt
-  #
-  #     - name: Test skippr-dbt
-  #       run: cargo test -p skippr-dbt
+  # ---------------------------------------------------------------------------
+  # skippr-dbt: build + unit tests
+  # ---------------------------------------------------------------------------
+  skippr_dbt_test:
+    name: skippr-dbt build + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-builder
+        with:
+          rust-version: stable
+  
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-skippr-dbt-test
+  
+      - name: Check OpenAPI generated artifact drift (data_engineer suite)
+        run: bash scripts/check-openapi-drift-suite-data-engineer.sh
+  
+      - name: Enforce control-state log-read guardrails
+        run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
+  
+      - name: Build skippr-dbt
+        run: cargo build -p skippr-dbt
+  
+      - name: Test skippr-dbt
+        run: cargo test -p skippr-dbt
 
-  # # ---------------------------------------------------------------------------
-  # # skippr-dbt: release binaries (macOS, Linux, Windows)
-  # # ---------------------------------------------------------------------------
-  # skippr_dbt_binary_build:
-  #   name: skippr-dbt release (${{ matrix.name }})
-  #   needs:
-  #     - react_core
-  #     - skippr_dbt_test
-  #   timeout-minutes: 120
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       include:
-  #         - name: macos arm64
-  #           runs_on: macos-latest
-  #           target: aarch64-apple-darwin
-  #           bin_ext: ""
-  #         - name: linux x86_64
-  #           runs_on: ubuntu-latest
-  #           target: x86_64-unknown-linux-gnu
-  #           bin_ext: ""
-  #         - name: windows x86_64
-  #           runs_on: windows-latest
-  #           target: x86_64-pc-windows-msvc
-  #           bin_ext: ".exe"
-  #   runs-on: ${{ matrix.runs_on }}
-  #   env:
-  #     CARGO_TARGET_DIR: target
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #
-  #     - name: Install Rust toolchain
-  #       uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         targets: ${{ matrix.target }}
-  #
-  #     - name: Setup protoc
-  #       uses: arduino/setup-protoc@v3
-  #       with:
-  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
-  #
-  #     - name: Rust cache
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         prefix-key: v1-release
-  #         key: ${{ matrix.target }}
-  #
-  #     - name: Build skippr-dbt release binary
-  #       run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
-  #
-  #     - name: Upload skippr-dbt artifact (unix)
-  #       if: runner.os != 'Windows'
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: skippr-dbt-${{ matrix.target }}
-  #         path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
-  #
-  #     - name: Upload skippr-dbt artifact (windows)
-  #       if: runner.os == 'Windows'
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: skippr-dbt-${{ matrix.target }}
-  #         path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
+  # ---------------------------------------------------------------------------
+  # skippr-dbt: release binaries (macOS, Linux, Windows)
+  # ---------------------------------------------------------------------------
+  skippr_dbt_binary_build:
+    name: skippr-dbt release (${{ matrix.name }})
+    needs:
+      - react_core
+      - skippr_dbt_test
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos arm64
+            runs_on: macos-latest
+            target: aarch64-apple-darwin
+            bin_ext: ""
+          - name: linux x86_64
+            runs_on: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_ext: ""
+          - name: windows x86_64
+            runs_on: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_ext: ".exe"
+    runs-on: ${{ matrix.runs_on }}
+    env:
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+  
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+  
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-release
+          key: ${{ matrix.target }}
+  
+      - name: Build skippr-dbt release binary
+        run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
+  
+      - name: Upload skippr-dbt artifact (unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skippr-dbt-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
+  
+      - name: Upload skippr-dbt artifact (windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skippr-dbt-${{ matrix.target }}
+          path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
 
   # ---------------------------------------------------------------------------
   # skippr-dbt: Windows MSSQL -> Snowflake end-to-end
@@ -396,37 +396,37 @@ jobs:
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
           .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
 
-  # # ---------------------------------------------------------------------------
-  # # Publish skippr-dbt release
-  # # ---------------------------------------------------------------------------
-  # publish:
-  #   name: Publish skippr-dbt Release
-  #   if: "!startsWith(github.ref, 'refs/tags/test')"
-  #   needs:
-  #     - skippr_dbt_binary_build
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Check out code
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Download skippr-dbt Artifacts
-  #       uses: actions/download-artifact@v4
-  #
-  #     - name: Compress Artifacts
-  #       run: |
-  #         shopt -s nullglob
-  #         for d in skippr-dbt-*; do
-  #           if [ -d "$d" ]; then
-  #             tar -czvf "${d}.tar.gz" "$d"
-  #           fi
-  #         done
-  #         ls -la skippr-dbt-*.tar.gz || true
-  #
-  #     - name: Upload assets to GitHub Release
-  #       uses: softprops/action-gh-release@v1
-  #       with:
-  #         files: ./skippr-dbt-*.tar.gz
-  #         tag_name: ${{ github.ref_name }}
-  #         fail_on_unmatched_files: false
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # ---------------------------------------------------------------------------
+  # Publish skippr-dbt release
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish skippr-dbt Release
+    if: "!startsWith(github.ref, 'refs/tags/test')"
+    needs:
+      - skippr_dbt_binary_build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+  
+      - name: Download skippr-dbt Artifacts
+        uses: actions/download-artifact@v4
+  
+      - name: Compress Artifacts
+        run: |
+          shopt -s nullglob
+          for d in skippr-dbt-*; do
+            if [ -d "$d" ]; then
+              tar -czvf "${d}.tar.gz" "$d"
+            fi
+          done
+          ls -la skippr-dbt-*.tar.gz || true
+  
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./skippr-dbt-*.tar.gz
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
