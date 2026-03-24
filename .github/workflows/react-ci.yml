@@ -186,6 +186,12 @@ jobs:
           sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
+          # Enable Mixed Mode authentication (SQL + Windows) — required for SA login
+          $mssqlServerPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SQLEXPRESS\MSSQLServer" -and $_.PSPath -notlike "*SuperSocketNetLib*" -and $_.PSPath -notlike "*Parameters*" }
+          foreach ($path in $mssqlServerPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "LoginMode" -Value 2 -ErrorAction SilentlyContinue
+            Write-Host "Set LoginMode=2 (Mixed Mode) on $($path.PSPath)"
+          }
           $tcpPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp" }
           foreach ($path in $tcpPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
@@ -196,7 +202,20 @@ jobs:
             Set-ItemProperty -Path $path.PSPath -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
           }
           Restart-Service -Name 'MSSQL$SQLEXPRESS' -Force
-          Start-Sleep -Seconds 10
+          # Wait for TCP to be ready
+          $timeout = 30; $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 1433)
+              $tcp.Close()
+              Write-Host "SQL Server TCP port 1433 is ready."
+              break
+            } catch {
+              Start-Sleep -Seconds 2
+              $elapsed += 2
+            }
+          }
+          if ($elapsed -ge $timeout) { Write-Warning "TCP 1433 not ready after ${timeout}s" }
 
       - name: Create and seed test database
         shell: pwsh
@@ -280,6 +299,12 @@ jobs:
           sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
+          # Enable Mixed Mode authentication (SQL + Windows) — required for SA login
+          $mssqlServerPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SQLEXPRESS\MSSQLServer" -and $_.PSPath -notlike "*SuperSocketNetLib*" -and $_.PSPath -notlike "*Parameters*" }
+          foreach ($path in $mssqlServerPaths) {
+            Set-ItemProperty -Path $path.PSPath -Name "LoginMode" -Value 2 -ErrorAction SilentlyContinue
+            Write-Host "Set LoginMode=2 (Mixed Mode) on $($path.PSPath)"
+          }
           $tcpPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SuperSocketNetLib\Tcp" }
           foreach ($path in $tcpPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "Enabled" -Value 1 -ErrorAction SilentlyContinue
@@ -290,7 +315,20 @@ jobs:
             Set-ItemProperty -Path $path.PSPath -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
           }
           Restart-Service -Name 'MSSQL$SQLEXPRESS' -Force
-          Start-Sleep -Seconds 10
+          # Wait for TCP to be ready
+          $timeout = 30; $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 1433)
+              $tcp.Close()
+              Write-Host "SQL Server TCP port 1433 is ready."
+              break
+            } catch {
+              Start-Sleep -Seconds 2
+              $elapsed += 2
+            }
+          }
+          if ($elapsed -ge $timeout) { Write-Warning "TCP 1433 not ready after ${timeout}s" }
 
       - name: Create and seed MSSQL test database
         shell: pwsh
