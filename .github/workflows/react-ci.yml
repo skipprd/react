@@ -344,30 +344,26 @@ jobs:
           sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -Q "CREATE DATABASE testdb"
           sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -d testdb -i test\el-integration\seed.sql
 
-      - name: Install PostgreSQL
+      - name: Start pre-installed PostgreSQL and configure
         shell: pwsh
         run: |
-          choco install postgresql16 -y --no-progress --params '/Password:Skippr!Test123'
-          $timeout = 60
-          $elapsed = 0
-          while ($elapsed -lt $timeout) {
-            $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }
-            if ($svc) { break }
-            Start-Sleep -Seconds 5
-            $elapsed += 5
-          }
-          if ($elapsed -ge $timeout) {
-            Write-Error "PostgreSQL did not start within ${timeout}s"
-            exit 1
-          }
-          Write-Host "PostgreSQL is running."
-
-      - name: Configure PostgreSQL test database
-        shell: pwsh
-        run: |
-          $pgBin = (Get-ChildItem "C:\Program Files\PostgreSQL\*\bin" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          $pgDir = (Get-ChildItem "C:\Program Files\PostgreSQL\*" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          $pgBin = "$pgDir\bin"
           $env:PATH = "$pgBin;$env:PATH"
-          $env:PGPASSWORD = "Skippr!Test123"
+          # Set the superuser password
+          $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
+          if (-not $svc) {
+            Write-Error "No pre-installed PostgreSQL service found"; exit 1
+          }
+          # Start the service if not running
+          if ($svc.Status -ne 'Running') {
+            Start-Service $svc.Name
+            Start-Sleep -Seconds 5
+          }
+          Write-Host "PostgreSQL service $($svc.Name) is running."
+          # Set postgres superuser password
+          psql -U postgres -c "ALTER USER postgres PASSWORD 'Skippr!Test123';"
+          # Create test database
           psql -U postgres -c "CREATE DATABASE testdb;"
           Write-Host "PostgreSQL testdb created."
 
