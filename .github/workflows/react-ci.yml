@@ -2,8 +2,6 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - "**"
     tags:
       - "*"
 
@@ -150,26 +148,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # - name: Download skippr-dbt Windows artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: skippr-dbt-x86_64-pc-windows-msvc
-      #     path: bin
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build skippr-dbt
+      - name: Download skippr-dbt from latest GitHub Release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          cargo build --release -p skippr-dbt
-          Copy-Item target\release\skippr-dbt.exe bin\skippr-dbt.exe
+          gh release download --pattern "skippr-dbt-x86_64-pc-windows-msvc.tar.gz" --dir .
+          tar -xzf skippr-dbt-x86_64-pc-windows-msvc.tar.gz
+          Copy-Item skippr-dbt-x86_64-pc-windows-msvc\skippr-dbt.exe bin\skippr-dbt.exe
 
       - name: Download skippr 6.15.0 for Windows
         shell: pwsh
@@ -278,26 +265,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # - name: Download skippr-dbt Windows artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: skippr-dbt-x86_64-pc-windows-msvc
-      #     path: bin
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build skippr-dbt
+      - name: Download skippr-dbt from GitHub Release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          cargo build --release -p skippr-dbt
-          Copy-Item target\release\skippr-dbt.exe bin\skippr-dbt.exe
+          gh release download ${{ github.ref_name }} --pattern "skippr-dbt-x86_64-pc-windows-msvc.tar.gz" --dir .
+          tar -xzf skippr-dbt-x86_64-pc-windows-msvc.tar.gz
+          Copy-Item skippr-dbt-x86_64-pc-windows-msvc\skippr-dbt.exe bin\skippr-dbt.exe
 
       - name: Download skippr 6.15.0 for Windows
         shell: pwsh
