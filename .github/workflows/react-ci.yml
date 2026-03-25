@@ -244,8 +244,8 @@ jobs:
         shell: pwsh
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
-          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ACCOUNT: ${{ env.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ env.SNOWFLAKE_USER }}
           SNOWFLAKE_PRIVATE_KEY_PATH: snowflake_key.p8
           MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
         run: |
