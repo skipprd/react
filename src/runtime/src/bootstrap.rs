@@ -33,8 +33,18 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
             .bucket
             .clone()
             .ok_or_else(|| "missing storage.bucket for s3 mode".to_string())?;
-        let storage = Arc::new(S3StorageAdapter::from_env(b.clone()).await)
-            as Arc<dyn react_core::storage::StorageAdapter>;
+        let storage = if let Some(creds) = &cfg.storage.s3_credentials {
+            Arc::new(S3StorageAdapter::from_credentials(
+                b.clone(),
+                &creds.access_key_id,
+                &creds.secret_access_key,
+                creds.session_token.as_deref(),
+                &creds.region,
+            ).await) as Arc<dyn react_core::storage::StorageAdapter>
+        } else {
+            Arc::new(S3StorageAdapter::from_env(b.clone()).await)
+                as Arc<dyn react_core::storage::StorageAdapter>
+        };
         let lance_prefix = format!("s3://{}", b);
         let keyspace = Arc::new(DefaultKeyspace::new(b.clone()));
         (

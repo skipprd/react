@@ -19,6 +19,29 @@ impl S3StorageAdapter {
         let client = aws_sdk_s3::Client::new(&aws_cfg);
         Self { bucket, client }
     }
+
+    pub async fn from_credentials(
+        bucket: String,
+        access_key_id: &str,
+        secret_access_key: &str,
+        session_token: Option<&str>,
+        region: &str,
+    ) -> Self {
+        let creds = aws_sdk_s3::config::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            session_token.map(|s| s.to_string()),
+            None,
+            "skippr-auth",
+        );
+        let s3_config = aws_sdk_s3::Config::builder()
+            .behavior_version_latest()
+            .region(aws_sdk_s3::config::Region::new(region.to_string()))
+            .credentials_provider(creds)
+            .build();
+        let client = aws_sdk_s3::Client::from_conf(s3_config);
+        Self { bucket, client }
+    }
 }
 
 #[async_trait]

@@ -109,10 +109,19 @@ pub struct ServerResolved {
 }
 
 #[derive(Clone, Debug)]
+pub struct S3Credentials {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: Option<String>,
+    pub region: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct StorageResolved {
     pub mode: StorageMode,
     pub bucket: Option<String>,
     pub path: Option<String>,
+    pub s3_credentials: Option<S3Credentials>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -1010,6 +1010,7 @@ mod tests {
                 mode: react_core::resolved_config::StorageMode::Local,
                 bucket: None,
                 path: None,
+                s3_credentials: None,
             },
             scope: RequestScope::parse("t", "w", "p").expect("valid test scope"),
             llm: react_core::resolved_config::LlmResolved::default(),

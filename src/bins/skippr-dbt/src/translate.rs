@@ -1,4 +1,5 @@
 use react::config::{LlmFile, ReactConfigFile, ScopeFile, StorageFile};
+use react_core::resolved_config::S3Credentials;
 
 use crate::public_config::{SkipprDbtConfig, SourceConfig, WarehouseConfig};
 
@@ -154,6 +155,7 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             mode: Some("local".into()),
             bucket: None,
             path: Some("./.skippr-dbt".into()),
+            s3_credentials: None,
         }),
         scope: Some(ScopeFile {
             tenant: Some("local".into()),
@@ -190,6 +192,12 @@ pub fn apply_authenticated_overlay(
         mode: Some("s3".into()),
         bucket: Some(creds.bucket.clone()),
         path: Some(creds.key_prefix.clone()),
+        s3_credentials: Some(S3Credentials {
+            access_key_id: creds.credentials.access_key_id.clone(),
+            secret_access_key: creds.credentials.secret_access_key.clone(),
+            session_token: Some(creds.credentials.session_token.clone()),
+            region: "us-east-1".to_string(),
+        }),
     });
 
     if !creds.llm_api_key.is_empty() {

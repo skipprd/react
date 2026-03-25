@@ -115,6 +115,8 @@ pub struct StorageFile {
     pub mode: Option<String>,
     pub bucket: Option<String>,
     pub path: Option<String>,
+    #[serde(skip)]
+    pub s3_credentials: Option<rc::S3Credentials>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -300,6 +302,7 @@ pub fn resolve_config(
             mode: mode.clone(),
             bucket: bucket.clone(),
             path: path.clone(),
+            s3_credentials: file.storage.as_ref().and_then(|s| s.s3_credentials.clone()),
         },
         scope: RequestScope::parse(tenant, workspace, project_id).map_err(|e| e.to_string())?,
         llm,
@@ -382,7 +385,7 @@ mod tests {
                 storage: Some(StorageFile {
                     mode: Some("s3".into()),
                     bucket: Some("yaml-bucket".into()),
-                    path: None,
+                    ..Default::default()
                 }),
                 providers: Some(minimal_providers_json()),
                 ..Default::default()
@@ -424,7 +427,7 @@ mod tests {
                 storage: Some(StorageFile {
                     mode: Some("s3".into()),
                     bucket: Some("b".into()),
-                    path: None,
+                    ..Default::default()
                 }),
                 scope: Some(ScopeFile {
                     tenant: Some("a/b".into()),
