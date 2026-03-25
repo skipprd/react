@@ -349,17 +349,17 @@ jobs:
         run: |
           $pgDir = (Get-ChildItem "C:\Program Files\PostgreSQL\*" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
           $pgBin = "$pgDir\bin"
-          $pgData = "$env:RUNNER_TEMP\pgdata"
+          $pgData = "$env:USERPROFILE\pgdata"
           $env:PATH = "$pgBin;$env:PATH"
           Write-Host "PostgreSQL dir: $pgDir"
-          # Initialize into a writable directory
-          New-Item -ItemType Directory -Path $pgData -Force
+          # Remove stale data dir if present, let initdb create it with correct permissions
+          if (Test-Path $pgData) { Remove-Item -Recurse -Force $pgData }
           $pwFile = New-TemporaryFile
           Set-Content -Path $pwFile -Value "Skippr!Test123"
           & "$pgBin\initdb.exe" -D $pgData -U postgres -A md5 --pwfile=$pwFile --encoding=UTF8
           Remove-Item $pwFile
           # Start via pg_ctl
-          & "$pgBin\pg_ctl.exe" start -D $pgData -l "$env:RUNNER_TEMP\pg.log" -w
+          & "$pgBin\pg_ctl.exe" start -D $pgData -l "$env:USERPROFILE\pg.log" -w
           # Wait for TCP
           $timeout = 30; $elapsed = 0
           while ($elapsed -lt $timeout) {
