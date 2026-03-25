@@ -349,31 +349,17 @@ jobs:
         run: |
           $pgDir = (Get-ChildItem "C:\Program Files\PostgreSQL\*" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
           $pgBin = "$pgDir\bin"
-          $pgData = "$pgDir\data"
+          $pgData = "D:\pgdata"
           $env:PATH = "$pgBin;$env:PATH"
           Write-Host "PostgreSQL dir: $pgDir"
-          # Initialize the data directory if needed
-          if (-not (Test-Path "$pgData\PG_VERSION")) {
-            Write-Host "Initializing PostgreSQL data directory..."
-            $pwFile = New-TemporaryFile
-            Set-Content -Path $pwFile -Value "Skippr!Test123"
-            & "$pgBin\initdb.exe" -D $pgData -U postgres -A md5 --pwfile=$pwFile --encoding=UTF8
-            Remove-Item $pwFile
-          }
-          # Try starting via service first, fall back to pg_ctl
-          $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
-          if ($svc) {
-            try {
-              Start-Service $svc.Name -ErrorAction Stop
-              Write-Host "PostgreSQL service started."
-            } catch {
-              Write-Host "Service start failed, using pg_ctl..."
-              & "$pgBin\pg_ctl.exe" start -D $pgData -l "$pgDir\pg.log" -w
-            }
-          } else {
-            Write-Host "No service found, using pg_ctl..."
-            & "$pgBin\pg_ctl.exe" start -D $pgData -l "$pgDir\pg.log" -w
-          }
+          # Initialize into a writable directory
+          New-Item -ItemType Directory -Path $pgData -Force
+          $pwFile = New-TemporaryFile
+          Set-Content -Path $pwFile -Value "Skippr!Test123"
+          & "$pgBin\initdb.exe" -D $pgData -U postgres -A md5 --pwfile=$pwFile --encoding=UTF8
+          Remove-Item $pwFile
+          # Start via pg_ctl
+          & "$pgBin\pg_ctl.exe" start -D $pgData -l "D:\pg.log" -w
           # Wait for TCP
           $timeout = 30; $elapsed = 0
           while ($elapsed -lt $timeout) {
