@@ -92,3 +92,24 @@ pub mod router;
 pub mod session;
 pub mod thread_ctx;
 pub mod types;
+
+use once_cell::sync::OnceCell;
+
+pub struct LlmUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub model: String,
+}
+
+type LlmUsageHandler = Box<dyn Fn(LlmUsage) + Send + Sync>;
+static LLM_USAGE_HANDLER: OnceCell<LlmUsageHandler> = OnceCell::new();
+
+pub fn set_llm_usage_handler(f: LlmUsageHandler) {
+    let _ = LLM_USAGE_HANDLER.set(f);
+}
+
+pub(crate) fn report_llm_usage(usage: LlmUsage) {
+    if let Some(handler) = LLM_USAGE_HANDLER.get() {
+        handler(usage);
+    }
+}

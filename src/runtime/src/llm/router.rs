@@ -402,6 +402,24 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         }
 
         let parsed = adapter.parse_chat_http(&ph)?;
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&ph.body_text) {
+            let usage = v.get("usage");
+            let input_tokens = usage
+                .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0);
+            let output_tokens = usage
+                .and_then(|u| u.get("output_tokens").or_else(|| u.get("completion_tokens")))
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0);
+            if input_tokens > 0 || output_tokens > 0 {
+                super::report_llm_usage(super::LlmUsage {
+                    input_tokens,
+                    output_tokens,
+                    model: req.model.clone(),
+                });
+            }
+        }
         // Observability response logging (no truncation). If not enabled, do not print parsed text at all by default.
         if let (Some(tid), Some(call_id), Some(prompt_hash), Some(built)) = (
             obs_thread_id.as_deref(),

@@ -179,7 +179,7 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
 
 /// Overlay authenticated mode onto an existing config:
 /// - Switch storage to S3 with STS credentials
-/// - Route LLM through the proxy
+/// - Set server-provided LLM API key (if user hasn't set their own)
 /// - Initialize metering client
 pub fn apply_authenticated_overlay(
     cfg: &mut ReactConfigFile,
@@ -192,9 +192,10 @@ pub fn apply_authenticated_overlay(
         path: Some(creds.key_prefix.clone()),
     });
 
-    if !creds.llm_proxy_url.is_empty() {
-        if let Some(ref mut llm) = cfg.llm {
-            llm.base_url = Some(creds.llm_proxy_url.clone());
+    if !creds.llm_api_key.is_empty() {
+        let existing = std::env::var("LLM_API_KEY").ok().filter(|v| !v.trim().is_empty());
+        if existing.is_none() {
+            std::env::set_var("LLM_API_KEY", &creds.llm_api_key);
         }
     }
 
@@ -208,6 +209,14 @@ pub fn apply_authenticated_overlay(
         accounting_url,
         Some(auth_token.to_string()),
     );
+
+    react::llm::set_llm_usage_handler(Box::new(|usage: react::llm::LlmUsage| {
+        react_suite_data_engineer::metering::report_llm_usage(
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.model,
+        );
+    }));
 }
 
 #[cfg(test)]

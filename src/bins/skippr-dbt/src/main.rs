@@ -67,6 +67,20 @@ enum UserAction {
     },
     /// Show detailed usage log.
     Usage,
+    /// Create a new API key for CI/CD or automation.
+    CreateApiKey {
+        /// Human-readable label (e.g. "github-actions").
+        #[arg(long)]
+        name: String,
+    },
+    /// Revoke an existing API key.
+    RevokeApiKey {
+        /// The key_id to revoke (from list-api-keys output).
+        #[arg(long)]
+        key_id: String,
+    },
+    /// List all API keys for your account.
+    ListApiKeys,
 }
 
 #[derive(Subcommand, Debug)]
@@ -185,8 +199,13 @@ fn cmd_init(name: &str, explicit_config: &Option<PathBuf>) {
         let _ = std::fs::write(
             &env_example,
             "\
-# Required
-LLM_API_KEY=sk-...
+# Authentication (required — choose one)
+# Interactive: skippr-dbt user login
+# CI/CD: set SKIPPR_API_KEY
+SKIPPR_API_KEY=sk_live_...
+
+# Optional: override the server-provided LLM key with your own
+# LLM_API_KEY=sk-...
 
 # Snowflake (when warehouse is snowflake)
 SNOWFLAKE_ACCOUNT=
@@ -398,15 +417,21 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         ok = false;
     }
 
+    if auth::load_credentials().is_some() || env_set("SKIPPR_API_KEY") {
+        check_pass("authenticated (credentials or SKIPPR_API_KEY)");
+    } else {
+        check_fail("not authenticated — run 'skippr-dbt user login' or set SKIPPR_API_KEY");
+        ok = false;
+    }
+
     if std::env::var("LLM_API_KEY")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .is_some()
     {
-        check_pass("LLM_API_KEY is set");
+        check_pass("LLM_API_KEY is set (custom key — overrides server-provided key)");
     } else {
-        check_fail("LLM_API_KEY is not set");
-        ok = false;
+        check_pass("LLM_API_KEY not set (will use server-provided key)");
     }
 
     if let Some(WarehouseConfig::Snowflake { .. }) = &cfg.warehouse {
@@ -415,12 +440,6 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
 
     if let Some(WarehouseConfig::Postgres { .. }) = &cfg.warehouse {
         check_postgres_env(&mut ok);
-    }
-
-    if auth::load_credentials().is_some() {
-        check_pass("skippr-dbt user credentials found (authenticated mode)");
-    } else {
-        check_fail("not logged in — run 'skippr-dbt user login' for cloud storage + metering");
     }
 
     println!();
@@ -530,20 +549,50 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     };
 
-    if let Some(creds) = auth::load_credentials() {
+    // Authentication is mandatory. SKIPPR_API_KEY env var takes priority, then credentials.json.
+    let creds = if let Ok(api_key) = std::env::var("SKIPPR_API_KEY") {
+        if api_key.trim().is_empty() {
+            eprintln!("[skippr-dbt] ERROR: SKIPPR_API_KEY is set but empty.");
+            std::process::exit(1);
+        }
         let base_url = auth::auth_base_url();
         let client = api_client::ApiClient::new(&base_url);
-        match client.get_credentials(&creds.access_token).await {
-            Ok(srv_creds) => {
-                translate::apply_authenticated_overlay(&mut internal_file, &srv_creds, &creds.access_token);
-                eprintln!("[skippr-dbt] authenticated — S3 storage + LLM proxy active");
+        match client.exchange_api_key(api_key.trim()).await {
+            Ok(tokens) => {
+                eprintln!("[skippr-dbt] authenticated via API key");
+                tokens
             }
             Err(e) => {
-                eprintln!("[skippr-dbt] warning: credential exchange failed ({}), running in local mode", e);
+                eprintln!("[skippr-dbt] ERROR: API key authentication failed: {}", e);
+                std::process::exit(1);
             }
         }
+    } else if let Some(creds) = auth::load_credentials() {
+        eprintln!("[skippr-dbt] authenticated via stored credentials");
+        creds
+    } else {
+        eprintln!("[skippr-dbt] ERROR: Authentication required.");
+        eprintln!("[skippr-dbt]   Run 'skippr-dbt user login' to authenticate interactively,");
+        eprintln!("[skippr-dbt]   or set SKIPPR_API_KEY for CI/CD.");
+        std::process::exit(1);
+    };
 
-        if let Ok(account) = client.get_account(&creds.access_token).await {
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.get_credentials(&creds.access_token).await {
+        Ok(srv_creds) => {
+            translate::apply_authenticated_overlay(&mut internal_file, &srv_creds, &creds.access_token);
+            eprintln!("[skippr-dbt] cloud storage + metering active");
+        }
+        Err(e) => {
+            eprintln!("[skippr-dbt] ERROR: Failed to fetch server credentials: {}", e);
+            eprintln!("[skippr-dbt]   Check your connection and login status.");
+            std::process::exit(1);
+        }
+    }
+
+    match client.get_account(&creds.access_token).await {
+        Ok(account) => {
             let remaining = account.balance.credits_remaining;
             if remaining <= 0.0 {
                 eprintln!("[skippr-dbt] ERROR: No credits remaining. Purchase credits to continue.");
@@ -554,6 +603,11 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
             } else {
                 eprintln!("[skippr-dbt] credits: {:.1} remaining", remaining);
             }
+        }
+        Err(e) => {
+            eprintln!("[skippr-dbt] ERROR: Could not verify account balance ({}). Refusing to run.", e);
+            eprintln!("[skippr-dbt]   Check your connection and login status (skippr-dbt user login).");
+            std::process::exit(1);
         }
     }
 
@@ -661,6 +715,9 @@ async fn main() {
             UserAction::Account => cmd_user_account().await,
             UserAction::BuyCredits { pack } => cmd_user_buy_credits(&pack).await,
             UserAction::Usage => cmd_user_usage().await,
+            UserAction::CreateApiKey { name } => cmd_user_create_api_key(&name).await,
+            UserAction::RevokeApiKey { key_id } => cmd_user_revoke_api_key(&key_id).await,
+            UserAction::ListApiKeys => cmd_user_list_api_keys().await,
         },
     }
 }
@@ -841,6 +898,86 @@ async fn cmd_user_usage() {
         }
         Err(e) => {
             eprintln!("Failed to fetch usage: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_user_create_api_key(name: &str) {
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.create_api_key(&creds.access_token, name).await {
+        Ok(key) => {
+            println!();
+            println!("  API key created: {}", key.name);
+            println!();
+            println!("    {}", key.raw_key);
+            println!();
+            println!("  Save this key — it will not be shown again.");
+            println!("  Set it as SKIPPR_API_KEY in your CI environment.");
+            println!();
+        }
+        Err(e) => {
+            eprintln!("Failed to create API key: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_user_revoke_api_key(key_id: &str) {
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.revoke_api_key(&creds.access_token, key_id).await {
+        Ok(()) => {
+            println!("API key {} revoked.", key_id);
+        }
+        Err(e) => {
+            eprintln!("Failed to revoke API key: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_user_list_api_keys() {
+    let creds = auth::load_credentials();
+    let Some(creds) = creds else {
+        eprintln!("Not logged in. Run: skippr-dbt user login");
+        std::process::exit(1);
+    };
+    let base_url = auth::auth_base_url();
+    let client = api_client::ApiClient::new(&base_url);
+    match client.list_api_keys(&creds.access_token).await {
+        Ok(keys) => {
+            println!();
+            if keys.is_empty() {
+                println!("  No API keys found.");
+                println!("  Create one with: skippr-dbt user create-api-key --name \"my-key\"");
+            } else {
+                println!("  {:<38} {:<20} {:<10} {}", "Key ID", "Name", "Status", "Created");
+                println!("  {}", "-".repeat(80));
+                for k in &keys {
+                    println!("  {:<38} {:<20} {:<10} {}",
+                        k.key_id,
+                        k.name,
+                        k.status,
+                        &k.created_at[..std::cmp::min(22, k.created_at.len())],
+                    );
+                }
+            }
+            println!();
+        }
+        Err(e) => {
+            eprintln!("Failed to list API keys: {}", e);
             std::process::exit(1);
         }
     }

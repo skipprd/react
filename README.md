@@ -179,7 +179,8 @@ The destination is always `providers.warehouse` — `skippr-dbt` generates `skip
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `LLM_API_KEY` | Yes | API key for the LLM provider |
+| `SKIPPR_API_KEY` | CI/CD | Per-user API key for non-interactive auth. When set, `cmd_run` exchanges it for JWTs automatically. |
+| `LLM_API_KEY` | No | Optional override — use your own LLM key instead of the server-provided one. |
 | `SNOWFLAKE_ACCOUNT` | Snowflake only | Account identifier (e.g. `MYORG-MYACCOUNT`) |
 | `SNOWFLAKE_USER` | Snowflake only | Username |
 | `SNOWFLAKE_PRIVATE_KEY_PATH` | Snowflake key-pair auth | Path to `.p8` private key file |
@@ -187,6 +188,16 @@ The destination is always `providers.warehouse` — `skippr-dbt` generates `skip
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 sources | AWS credentials for skippr to read source data |
 | `MSSQL_CONNECTION_STRING` | MSSQL sources | ADO.NET connection string |
 | `LLM_MAX_TOKENS` | No | Override LLM output token limit (default: from `llm.max_tokens` in config) |
+| `SKIPPR_AUTH_URL` | No | Override the auth service URL (default: `https://auth.skippr.io`) |
+
+#### Authentication
+
+Authentication is required to run `skippr-dbt`. Two modes are supported:
+
+1. **Interactive login** — `skippr-dbt user login` (phone OTP, stores tokens in `~/.skippr-dbt/credentials.json`)
+2. **API key** — set `SKIPPR_API_KEY=sk_live_...` env var (recommended for CI/CD)
+
+Authentication provides cloud S3 storage for pipeline artifacts, a server-provided LLM API key, and usage metering with credit-based billing. You may optionally set `LLM_API_KEY` to override the server-provided key with your own.
 
 #### LLM output size
 

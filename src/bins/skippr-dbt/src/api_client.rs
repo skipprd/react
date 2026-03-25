@@ -147,6 +147,78 @@ impl ApiClient {
         Ok(data.checkout_url)
     }
 
+    pub async fn exchange_api_key(&self, api_key: &str) -> Result<StoredCredentials, String> {
+        let url = format!("{}/auth/api-key-exchange", self.base_url);
+        let resp = self.http.post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("API key exchange failed: {}", text));
+        }
+
+        let data: TokenExchangeResponse = resp.json().await
+            .map_err(|e| format!("Parse error: {}", e))?;
+
+        Ok(StoredCredentials {
+            access_token: data.token,
+            refresh_token: data.refresh_token,
+        })
+    }
+
+    pub async fn create_api_key(&self, token: &str, name: &str) -> Result<CreateApiKeyResponse, String> {
+        let url = format!("{}/auth/api-keys", self.base_url);
+        let body = serde_json::json!({ "name": name });
+        let resp = self.http.post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Create API key failed: {}", text));
+        }
+
+        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+    }
+
+    pub async fn list_api_keys(&self, token: &str) -> Result<Vec<ApiKeyInfo>, String> {
+        let url = format!("{}/auth/api-keys", self.base_url);
+        let resp = self.http.get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("List API keys failed: {}", text));
+        }
+
+        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+    }
+
+    pub async fn revoke_api_key(&self, token: &str, key_id: &str) -> Result<(), String> {
+        let url = format!("{}/auth/api-keys/{}", self.base_url, key_id);
+        let resp = self.http.delete(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Revoke API key failed: {}", text));
+        }
+
+        Ok(())
+    }
+
     pub async fn get_credentials(&self, token: &str) -> Result<CredentialsResponse, String> {
         let url = format!("{}/auth/credentials", self.base_url);
         let resp = self.http.post(&url)
@@ -169,7 +241,7 @@ pub struct CredentialsResponse {
     pub credentials: StsCreds,
     pub bucket: String,
     pub key_prefix: String,
-    pub llm_proxy_url: String,
+    pub llm_api_key: String,
     pub accounting_url: String,
 }
 
@@ -179,4 +251,25 @@ pub struct StsCreds {
     pub secret_access_key: String,
     pub session_token: String,
     pub expiration: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenExchangeResponse {
+    pub token: String,
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateApiKeyResponse {
+    pub key_id: String,
+    pub raw_key: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiKeyInfo {
+    pub key_id: String,
+    pub name: String,
+    pub created_at: String,
+    pub status: String,
 }

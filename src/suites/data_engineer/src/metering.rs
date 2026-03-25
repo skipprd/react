@@ -7,6 +7,20 @@ pub fn init_metering(accounting_url: Option<String>, auth_token: Option<String>)
     let _ = METERING_CLIENT.set(MeteringClient::new(accounting_url, auth_token));
 }
 
+pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
+    let event = UsageEvent::LlmRequest { input_tokens, output_tokens, model };
+    let client = global_metering();
+    if !client.is_enabled() {
+        return;
+    }
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let client = global_metering();
+            client.record_batch(&[event]).await;
+        });
+    }
+}
+
 pub fn global_metering() -> &'static MeteringClient {
     static NOOP: once_cell::sync::Lazy<MeteringClient> = once_cell::sync::Lazy::new(MeteringClient::noop);
     METERING_CLIENT.get().unwrap_or(&NOOP)
@@ -20,6 +34,7 @@ pub enum UsageEvent {
     PlanApproved { tasks: u64, batches: u64, project_id: String },
     RepairCycle { cycle: u64, project_id: String },
     PipelineRun { project_id: String },
+    LlmRequest { input_tokens: u64, output_tokens: u64, model: String },
 }
 
 impl UsageEvent {
@@ -33,6 +48,9 @@ impl UsageEvent {
             Self::PlanApproved { .. } => 0.0,
             Self::RepairCycle { .. } => 0.0,
             Self::PipelineRun { .. } => 3.0,
+            Self::LlmRequest { input_tokens, output_tokens, .. } => {
+                (*input_tokens + *output_tokens) as f64 * 0.001
+            }
         }
     }
 
@@ -44,6 +62,7 @@ impl UsageEvent {
             Self::PlanApproved { .. } => "plan_approved",
             Self::RepairCycle { .. } => "repair_cycle",
             Self::PipelineRun { .. } => "pipeline_run",
+            Self::LlmRequest { .. } => "llm_request",
         }
     }
 
@@ -55,6 +74,7 @@ impl UsageEvent {
             | Self::PlanApproved { project_id, .. }
             | Self::RepairCycle { project_id, .. }
             | Self::PipelineRun { project_id, .. } => project_id,
+            Self::LlmRequest { .. } => "",
         }
     }
 }
@@ -120,6 +140,7 @@ mod tests {
             UsageEvent::PlanApproved { tasks: 2, batches: 1, project_id: "test".into() },
             UsageEvent::RepairCycle { cycle: 1, project_id: "test".into() },
             UsageEvent::PipelineRun { project_id: "test".into() },
+            UsageEvent::LlmRequest { input_tokens: 1000, output_tokens: 500, model: "gpt-4o".into() },
         ];
         let credits: Vec<f64> = events.iter().map(|e| e.credits()).collect();
         assert!((credits[0] - 20.0).abs() < f64::EPSILON);
@@ -128,5 +149,6 @@ mod tests {
         assert!((credits[3] - 0.0).abs() < f64::EPSILON);
         assert!((credits[4] - 0.0).abs() < f64::EPSILON);
         assert!((credits[5] - 3.0).abs() < f64::EPSILON);
+        assert!((credits[6] - 1.5).abs() < f64::EPSILON);
     }
 }
