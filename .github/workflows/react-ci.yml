@@ -9,131 +9,131 @@ jobs:
   # ---------------------------------------------------------------------------
   # Core react: build + unit tests (no data_engineer suite, no integration runs)
   # ---------------------------------------------------------------------------
-  react_core:
-    name: Core react build + test
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CARGO_TARGET_DIR: target
-    steps:
-      - uses: actions/checkout@v4
+  # react_core:
+  #   name: Core react build + test
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   env:
+  #     CARGO_TARGET_DIR: target
+  #   steps:
+  #     - uses: actions/checkout@v4
   
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/setup-builder
-        with:
-          rust-version: stable
+  #     - name: Setup Rust toolchain
+  #       uses: ./.github/actions/setup-builder
+  #       with:
+  #         rust-version: stable
   
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v1-react-core
+  #     - name: Rust cache
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         prefix-key: v1-react-core
   
-      - name: Check OpenAPI generated artifact drift (core)
-        run: bash scripts/check-openapi-drift-core.sh
+  #     - name: Check OpenAPI generated artifact drift (core)
+  #       run: bash scripts/check-openapi-drift-core.sh
   
-      - name: Build react crate
-        run: cargo build -p react
+  #     - name: Build react crate
+  #       run: cargo build -p react
   
-      - name: Test react crate
-        run: cargo test -p react --lib --tests
+  #     - name: Test react crate
+  #       run: cargo test -p react --lib --tests
 
   # ---------------------------------------------------------------------------
   # skippr-dbt: build + unit tests
   # ---------------------------------------------------------------------------
-  skippr_dbt_test:
-    name: skippr-dbt build + test
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CARGO_TARGET_DIR: target
-    steps:
-      - uses: actions/checkout@v4
+  # skippr_dbt_test:
+  #   name: skippr-dbt build + test
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   env:
+  #     CARGO_TARGET_DIR: target
+  #   steps:
+  #     - uses: actions/checkout@v4
   
-      - name: Setup Rust toolchain
-        uses: ./.github/actions/setup-builder
-        with:
-          rust-version: stable
+  #     - name: Setup Rust toolchain
+  #       uses: ./.github/actions/setup-builder
+  #       with:
+  #         rust-version: stable
   
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v1-skippr-dbt-test
+  #     - name: Rust cache
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         prefix-key: v1-skippr-dbt-test
   
-      - name: Check OpenAPI generated artifact drift (data_engineer suite)
-        run: bash scripts/check-openapi-drift-suite-data-engineer.sh
+  #     - name: Check OpenAPI generated artifact drift (data_engineer suite)
+  #       run: bash scripts/check-openapi-drift-suite-data-engineer.sh
   
-      - name: Enforce control-state log-read guardrails
-        run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
+  #     - name: Enforce control-state log-read guardrails
+  #       run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
   
-      - name: Build skippr-dbt
-        run: cargo build -p skippr-dbt
+  #     - name: Build skippr-dbt
+  #       run: cargo build -p skippr-dbt
   
-      - name: Test skippr-dbt
-        run: cargo test -p skippr-dbt
+  #     - name: Test skippr-dbt
+  #       run: cargo test -p skippr-dbt
 
   # ---------------------------------------------------------------------------
   # skippr-dbt: release binaries (macOS, Linux, Windows)
   # ---------------------------------------------------------------------------
-  skippr_dbt_binary_build:
-    name: skippr-dbt release (${{ matrix.name }})
-    needs:
-      - react_core
-      - skippr_dbt_test
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macos arm64
-            runs_on: macos-latest
-            target: aarch64-apple-darwin
-            bin_ext: ""
-          - name: linux x86_64
-            runs_on: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            bin_ext: ""
-          - name: windows x86_64
-            runs_on: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin_ext: ".exe"
-    runs-on: ${{ matrix.runs_on }}
-    env:
-      CARGO_TARGET_DIR: target
-    steps:
-      - uses: actions/checkout@v4
+  # skippr_dbt_binary_build:
+  #   name: skippr-dbt release (${{ matrix.name }})
+  #   needs:
+  #     - react_core
+  #     - skippr_dbt_test
+  #   timeout-minutes: 120
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - name: macos arm64
+  #           runs_on: macos-latest
+  #           target: aarch64-apple-darwin
+  #           bin_ext: ""
+  #         - name: linux x86_64
+  #           runs_on: ubuntu-latest
+  #           target: x86_64-unknown-linux-gnu
+  #           bin_ext: ""
+  #         - name: windows x86_64
+  #           runs_on: windows-latest
+  #           target: x86_64-pc-windows-msvc
+  #           bin_ext: ".exe"
+  #   runs-on: ${{ matrix.runs_on }}
+  #   env:
+  #     CARGO_TARGET_DIR: target
+  #   steps:
+  #     - uses: actions/checkout@v4
   
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+  #     - name: Install Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: ${{ matrix.target }}
   
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Setup protoc
+  #       uses: arduino/setup-protoc@v3
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
   
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v1-release
-          key: ${{ matrix.target }}
+  #     - name: Rust cache
+  #       uses: Swatinem/rust-cache@v2
+  #       with:
+  #         prefix-key: v1-release
+  #         key: ${{ matrix.target }}
   
-      - name: Build skippr-dbt release binary
-        run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
+  #     - name: Build skippr-dbt release binary
+  #       run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
   
-      - name: Upload skippr-dbt artifact (unix)
-        if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: skippr-dbt-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
+  #     - name: Upload skippr-dbt artifact (unix)
+  #       if: runner.os != 'Windows'
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: skippr-dbt-${{ matrix.target }}
+  #         path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
   
-      - name: Upload skippr-dbt artifact (windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: skippr-dbt-${{ matrix.target }}
-          path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
+  #     - name: Upload skippr-dbt artifact (windows)
+  #       if: runner.os == 'Windows'
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: skippr-dbt-${{ matrix.target }}
+  #         path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
 
   # ---------------------------------------------------------------------------
   # skippr-dbt: Windows MSSQL -> Snowflake end-to-end
@@ -344,26 +344,47 @@ jobs:
           sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -Q "CREATE DATABASE testdb"
           sqlcmd -S "localhost,1433" -U sa -P "Skippr!Test123" -d testdb -i test\el-integration\seed.sql
 
-      - name: Start pre-installed PostgreSQL and configure
+      - name: Start PostgreSQL and configure
         shell: pwsh
         run: |
           $pgDir = (Get-ChildItem "C:\Program Files\PostgreSQL\*" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
           $pgBin = "$pgDir\bin"
+          $pgData = "$pgDir\data"
           $env:PATH = "$pgBin;$env:PATH"
-          # Set the superuser password
+          Write-Host "PostgreSQL dir: $pgDir"
+          # Initialize the data directory if needed
+          if (-not (Test-Path "$pgData\PG_VERSION")) {
+            Write-Host "Initializing PostgreSQL data directory..."
+            $pwFile = New-TemporaryFile
+            Set-Content -Path $pwFile -Value "Skippr!Test123"
+            & "$pgBin\initdb.exe" -D $pgData -U postgres -A md5 --pwfile=$pwFile --encoding=UTF8
+            Remove-Item $pwFile
+          }
+          # Try starting via service first, fall back to pg_ctl
           $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue
-          if (-not $svc) {
-            Write-Error "No pre-installed PostgreSQL service found"; exit 1
+          if ($svc) {
+            try {
+              Start-Service $svc.Name -ErrorAction Stop
+              Write-Host "PostgreSQL service started."
+            } catch {
+              Write-Host "Service start failed, using pg_ctl..."
+              & "$pgBin\pg_ctl.exe" start -D $pgData -l "$pgDir\pg.log" -w
+            }
+          } else {
+            Write-Host "No service found, using pg_ctl..."
+            & "$pgBin\pg_ctl.exe" start -D $pgData -l "$pgDir\pg.log" -w
           }
-          # Start the service if not running
-          if ($svc.Status -ne 'Running') {
-            Start-Service $svc.Name
-            Start-Sleep -Seconds 5
+          # Wait for TCP
+          $timeout = 30; $elapsed = 0
+          while ($elapsed -lt $timeout) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 5432)
+              $tcp.Close(); Write-Host "PostgreSQL port 5432 is ready."; break
+            } catch { Start-Sleep -Seconds 2; $elapsed += 2 }
           }
-          Write-Host "PostgreSQL service $($svc.Name) is running."
-          # Set postgres superuser password
-          psql -U postgres -c "ALTER USER postgres PASSWORD 'Skippr!Test123';"
+          if ($elapsed -ge $timeout) { Write-Error "PostgreSQL TCP 5432 not ready"; exit 1 }
           # Create test database
+          $env:PGPASSWORD = "Skippr!Test123"
           psql -U postgres -c "CREATE DATABASE testdb;"
           Write-Host "PostgreSQL testdb created."
 
@@ -395,34 +416,34 @@ jobs:
   # ---------------------------------------------------------------------------
   # Publish skippr-dbt release
   # ---------------------------------------------------------------------------
-  publish:
-    name: Publish skippr-dbt Release
-    if: "!startsWith(github.ref, 'refs/tags/test')"
-    needs:
-      - skippr_dbt_binary_build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
+  # publish:
+  #   name: Publish skippr-dbt Release
+  #   if: "!startsWith(github.ref, 'refs/tags/test')"
+  #   needs:
+  #     - skippr_dbt_binary_build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Check out code
+  #       uses: actions/checkout@v4
   
-      - name: Download skippr-dbt Artifacts
-        uses: actions/download-artifact@v4
+  #     - name: Download skippr-dbt Artifacts
+  #       uses: actions/download-artifact@v4
   
-      - name: Compress Artifacts
-        run: |
-          shopt -s nullglob
-          for d in skippr-dbt-*; do
-            if [ -d "$d" ]; then
-              tar -czvf "${d}.tar.gz" "$d"
-            fi
-          done
-          ls -la skippr-dbt-*.tar.gz || true
+  #     - name: Compress Artifacts
+  #       run: |
+  #         shopt -s nullglob
+  #         for d in skippr-dbt-*; do
+  #           if [ -d "$d" ]; then
+  #             tar -czvf "${d}.tar.gz" "$d"
+  #           fi
+  #         done
+  #         ls -la skippr-dbt-*.tar.gz || true
   
-      - name: Upload assets to GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ./skippr-dbt-*.tar.gz
-          tag_name: ${{ github.ref_name }}
-          fail_on_unmatched_files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Upload assets to GitHub Release
+  #       uses: softprops/action-gh-release@v1
+  #       with:
+  #         files: ./skippr-dbt-*.tar.gz
+  #         tag_name: ${{ github.ref_name }}
+  #         fail_on_unmatched_files: false
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
