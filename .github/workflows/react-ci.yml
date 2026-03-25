@@ -349,7 +349,7 @@ jobs:
         run: |
           $pgDir = (Get-ChildItem "C:\Program Files\PostgreSQL\*" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
           $pgBin = "$pgDir\bin"
-          $pgData = "D:\pgdata"
+          $pgData = "$env:RUNNER_TEMP\pgdata"
           $env:PATH = "$pgBin;$env:PATH"
           Write-Host "PostgreSQL dir: $pgDir"
           # Initialize into a writable directory
@@ -359,7 +359,7 @@ jobs:
           & "$pgBin\initdb.exe" -D $pgData -U postgres -A md5 --pwfile=$pwFile --encoding=UTF8
           Remove-Item $pwFile
           # Start via pg_ctl
-          & "$pgBin\pg_ctl.exe" start -D $pgData -l "D:\pg.log" -w
+          & "$pgBin\pg_ctl.exe" start -D $pgData -l "$env:RUNNER_TEMP\pg.log" -w
           # Wait for TCP
           $timeout = 30; $elapsed = 0
           while ($elapsed -lt $timeout) {
