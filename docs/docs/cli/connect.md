@@ -1,12 +1,12 @@
-# skippr-dbt connect
+# skippr connect
 
 Configure a warehouse or data source connection.
 
 ## Usage
 
 ```bash
-skippr-dbt connect warehouse <kind> [flags]
-skippr-dbt connect source <kind> [flags]
+skippr connect warehouse <kind> [flags]
+skippr connect source <kind> [flags]
 ```
 
 When flags are omitted, the command prompts interactively.
@@ -18,7 +18,7 @@ When flags are omitted, the command prompts interactively.
 ### Snowflake
 
 ```bash
-skippr-dbt connect warehouse snowflake \
+skippr connect warehouse snowflake \
   --database ANALYTICS \
   --schema RAW \
   --warehouse COMPUTE_WH \
@@ -37,7 +37,7 @@ Authentication is always via environment variables (`SNOWFLAKE_ACCOUNT`, `SNOWFL
 ### BigQuery
 
 ```bash
-skippr-dbt connect warehouse bigquery \
+skippr connect warehouse bigquery \
   --project my-gcp-project \
   --dataset raw_data \
   --location US
@@ -52,7 +52,7 @@ skippr-dbt connect warehouse bigquery \
 ### Postgres
 
 ```bash
-skippr-dbt connect warehouse postgres \
+skippr connect warehouse postgres \
   --database analytics \
   --schema public
 ```
@@ -71,7 +71,7 @@ Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, `
 ### MSSQL
 
 ```bash
-skippr-dbt connect source mssql \
+skippr connect source mssql \
   --connection-string '${MSSQL_CONNECTION_STRING}'
 ```
 
@@ -82,7 +82,7 @@ skippr-dbt connect source mssql \
 ### S3
 
 ```bash
-skippr-dbt connect source s3 \
+skippr connect source s3 \
   --bucket my-data-bucket \
   --prefix raw/
 ```
@@ -96,5 +96,5 @@ skippr-dbt connect source s3 \
 
 ## Notes
 
-- `connect` commands update `skippr-dbt.yaml` in the current directory. Run `skippr-dbt init` first.
+- `connect` commands update `skippr.yaml` in the current directory. Run `skippr init` first.
 - Sensitive values (passwords, keys, connection strings) should use environment variable references in the config and be set in your shell or `.env` file.

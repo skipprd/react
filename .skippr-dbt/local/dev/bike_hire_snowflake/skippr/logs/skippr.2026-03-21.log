@@ -1,0 +1,1234 @@
+2026-03-21T09:28:49.297426Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:28:49.297691Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:28:49.297764Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T09:28:49.297780Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:28:49.297892Z  INFO skippr: No existing Skippr metadata, will discover schemas
+2026-03-21T09:28:49.300793Z  INFO skippr::helpers::offsets: Offset DB size: 0.0 B
+2026-03-21T09:28:49.460670Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T09:28:49.461094Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:28:49.461156Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:28:49.461893Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:28:49.461908Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:28:49.942380Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPVHPLF4QB", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:28:49Z", account_id: "353855562591" }
+2026-03-21T09:29:03.368101Z  INFO skippr::ingest_work: Schema discovery complete, writing metadata to Skippr
+2026-03-21T09:29:03.368170Z  INFO skippr::ingest_work: Analysed schema for 1000 -> 1000/1000 records
+2026-03-21T09:29:03.369439Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T09:29:03.410089Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:29:03.410158Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:29:03.410170Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:29:03.410577Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_end", "trip_start", "trip_resume"])
+2026-03-21T09:29:03.423374Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:29:03.423412Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:29:03.423885Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_092903_avFgbbw3lP5cxQwWOxvnu5ftjijKiDQL.json
+2026-03-21T09:29:03.423900Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:29:03.424192Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_start", "trip_resume", "trip_end"])
+2026-03-21T09:29:03.424207Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T09:29:03.424214Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T09:29:03.437234Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T09:29:03.437978Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T09:29:03.437991Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T09:29:03.437997Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T09:29:03.438003Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T09:29:03.438007Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T09:29:03.438031Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T09:29:03.574081Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T09:29:03.574299Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:29:03.574311Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:29:03.574470Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:29:03.574480Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:29:03.844946Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T09:29:03.845035Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T09:29:03.845101Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:29:03.849860Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:29:04.072080Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP2IQVMUXK", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:29:04Z", account_id: "353855562591" }
+2026-03-21T09:29:04.090795Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:29:05.763247Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:29:05.763344Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T09:29:06.164815Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T09:29:06.164953Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:29:11.780066Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:29:11.781480Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T09:29:12.183439Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T09:29:12.183746Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:29:15.908744Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:29:15.908893Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T09:29:16.309479Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T09:29:16.309819Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:29:25.903216Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:29:25.903272Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T09:29:36.500812Z  INFO skippr::ingest_work: Queueing 10 ingest tasks of 819.4 MB (10 tasks in queue, 10/10 active threads, 0 tasks waiting)
+2026-03-21T09:29:37.142152Z  INFO skippr::discover::evolution: Creating new evolution for field: 'isbn' to type: 'string'
+2026-03-21T09:29:37.144837Z  INFO skippr::ingest::ingest: Discovered new field: isbn_string of type: string on namespace 'trip_pause'
+2026-03-21T09:29:37.147389Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T09:29:37.547129Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T09:29:37.547219Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:29:47.726877Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:29:47.727153Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T09:29:47.840144Z  INFO skippr::ingest_work: Optimising chunk size: active_cores: 10, active_tasks: 20, throughput: 12.5 TB/s (rising), chunk_size: 4.8 MB -> 5.2 MB, adjustment: 1.10x
+2026-03-21T09:29:47.840185Z  INFO skippr::ingest_work: Queueing 10 ingest tasks of 819.0 MB (20 tasks in queue, 10/10 active threads, 10 tasks waiting)
+2026-03-21T09:30:03.424978Z  INFO skippr::metrics: Messages per Min: 600000
+2026-03-21T09:30:03.425083Z  INFO skippr::metrics: Messages Fixed per Min: 0
+2026-03-21T09:30:03.425105Z  INFO skippr::metrics: Bytes Total: 491.7 MB
+2026-03-21T09:30:03.425123Z  INFO skippr::metrics: Messages Total: 600000
+2026-03-21T09:30:03.425153Z  INFO skippr::metrics: Deadletters per Min: 0
+2026-03-21T09:30:03.425167Z  INFO skippr::metrics: Deadletter Total: 0
+2026-03-21T09:30:03.425195Z  INFO skippr::metrics: Runtime: 60 seconds
+2026-03-21T09:30:03.425265Z  INFO skippr::metrics: Uploads total: 0, inflight: 0, avg latency: 0.00 ms
+2026-03-21T09:30:03.425311Z  INFO skippr::metrics: Targets - upload: 19, wal: 16, s3_download: 240 | active: 10, queue: 20
+2026-03-21T09:30:06.753187Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:30:06.758952Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:30:07.134725Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/19f68569-d295-42f7-8749-a36bb7f2bb6a.parquet (25065 rows, 1.7 MB)
+2026-03-21T09:30:07.189455Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/c5c2e005-f260-4488-aa90-50a6008153ad.parquet (24973 rows, 1.8 MB)
+2026-03-21T09:30:07.249824Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/372226f2-26f6-4292-b0e5-be457c11c676.parquet (25122 rows, 1.7 MB)
+2026-03-21T09:30:07.321125Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/04098afe-667a-4bcf-b932-c6fe88e18c72.parquet (24875 rows, 1.8 MB)
+2026-03-21T09:30:08.017769Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25065 rows)
+2026-03-21T09:30:08.043457Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25122 rows)
+2026-03-21T09:30:08.091590Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24875 rows)
+2026-03-21T09:30:08.092093Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24973 rows)
+2026-03-21T09:30:10.200747Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25065 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:10.210755Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24973 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:10.227160Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24875 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:10.287985Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25122 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:10.408272Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/57e27e41-268c-4743-a6c9-88a09a431796.parquet (25288 rows, 1.7 MB)
+2026-03-21T09:30:10.453999Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/7cebeb68-763c-490e-b81a-2e6856b147d6.parquet (25065 rows, 1.8 MB)
+2026-03-21T09:30:10.863702Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25065 rows)
+2026-03-21T09:30:10.914200Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25288 rows)
+2026-03-21T09:30:12.961164Z  INFO skippr::ingest_work: Optimising chunk size: active_cores: 10, active_tasks: 20, throughput: 507.2 MB/s (falling), chunk_size: 5.2 MB -> 5.8 MB, adjustment: 1.10x
+2026-03-21T09:30:12.961198Z  INFO skippr::ingest_work: Queueing 10 ingest tasks of 822.0 MB (20 tasks in queue, 10/10 active threads, 10 tasks waiting)
+2026-03-21T09:30:14.340841Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25288 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:14.344061Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25065 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:14.870176Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/cd5abd28-f619-4155-8491-59027b8440dd.parquet (25038 rows, 1.7 MB)
+2026-03-21T09:30:14.916770Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/c2c837d4-52ad-4273-b7c1-366e5c5fcd9c.parquet (25162 rows, 1.8 MB)
+2026-03-21T09:30:14.964603Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/55834272-345d-46f6-ae2f-feb7f190e4d8.parquet (24751 rows, 1.8 MB)
+2026-03-21T09:30:15.029769Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/e3784972-821b-42f1-93cd-5784bdbc9de9.parquet (25112 rows, 1.7 MB)
+2026-03-21T09:30:16.144954Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25038 rows)
+2026-03-21T09:30:16.444575Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24751 rows)
+2026-03-21T09:30:16.479265Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25162 rows)
+2026-03-21T09:30:16.568484Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25112 rows)
+2026-03-21T09:30:18.241527Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24751 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:18.283219Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25112 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:18.786288Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25038 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:19.604448Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25162 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:34.487450Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/cb7bb888-3b89-4b03-a3d8-4edc62764148.parquet (24926 rows, 1.8 MB)
+2026-03-21T09:30:35.035659Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24926 rows)
+2026-03-21T09:30:37.528149Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24926 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:37.767030Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/036ce130-c730-4dbf-b262-cd2d87e60aed.parquet (25044 rows, 1.7 MB)
+2026-03-21T09:30:37.842610Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/64487f55-56fb-4a98-9e72-92011f22ff5b.parquet (24970 rows, 1.8 MB)
+2026-03-21T09:30:37.922625Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/b866ea8c-9e33-4099-96f1-7d51148b272b.parquet (25211 rows, 1.7 MB)
+2026-03-21T09:30:37.998521Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/867200f0-0623-4f7e-bd23-91ded3fffccf.parquet (25000 rows, 1.8 MB)
+2026-03-21T09:30:38.816816Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25044 rows)
+2026-03-21T09:30:39.121032Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24970 rows)
+2026-03-21T09:30:39.134138Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25000 rows)
+2026-03-21T09:30:39.178211Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25211 rows)
+2026-03-21T09:30:41.526278Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25000 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:41.721022Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25211 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:42.246832Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24970 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:42.894788Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25044 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:30:48.607448Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/ad491121-b919-45db-b6b4-4b88f24f532a.parquet (24873 rows, 1.8 MB)
+2026-03-21T09:30:48.676933Z  INFO skippr::ingest_work: Optimising chunk size: active_cores: 10, active_tasks: 20, throughput: 743.3 MB/s (falling), chunk_size: 5.8 MB -> 6.3 MB, adjustment: 1.10x
+2026-03-21T09:30:48.676969Z  INFO skippr::ingest_work: Queueing 10 ingest tasks of 819.5 MB (20 tasks in queue, 10/10 active threads, 10 tasks waiting)
+2026-03-21T09:30:48.965391Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24873 rows)
+2026-03-21T09:30:51.569834Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24873 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:51.722698Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/d1623f78-0d4f-4640-b891-7531a9d5c178.parquet (24730 rows, 1.8 MB)
+2026-03-21T09:30:51.787527Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/71a5b1fd-1af4-43da-a56c-37a904a6eeb9.parquet (24999 rows, 1.8 MB)
+2026-03-21T09:30:51.841272Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/3095aec8-b797-4655-9a61-56f9cc5fee6b.parquet (25103 rows, 1.8 MB)
+2026-03-21T09:30:52.359147Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25103 rows)
+2026-03-21T09:30:52.457004Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24999 rows)
+2026-03-21T09:30:52.517464Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24730 rows)
+2026-03-21T09:30:54.208381Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24999 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:54.818522Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24730 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:30:55.479078Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25103 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:01.592514Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/bf3b510d-d54b-4044-a84e-83decd07eecf.parquet (24908 rows, 1.8 MB)
+2026-03-21T09:31:01.951797Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24908 rows)
+2026-03-21T09:31:03.426801Z  INFO skippr::metrics: Messages per Min: 2000000
+2026-03-21T09:31:03.427917Z  INFO skippr::metrics: Messages Fixed per Min: 0
+2026-03-21T09:31:03.427929Z  INFO skippr::metrics: Bytes Total: 2.1 GB
+2026-03-21T09:31:03.427958Z  INFO skippr::metrics: Messages Total: 2600000
+2026-03-21T09:31:03.427976Z  INFO skippr::metrics: Deadletters per Min: 0
+2026-03-21T09:31:03.427998Z  INFO skippr::metrics: Deadletter Total: 0
+2026-03-21T09:31:03.428002Z  INFO skippr::metrics: Runtime: 120 seconds
+2026-03-21T09:31:03.428130Z  INFO skippr::metrics: Uploads total: 19, inflight: 1, avg latency: 0.00 ms
+2026-03-21T09:31:03.436445Z  INFO skippr::metrics: Targets - upload: 23, wal: 16, s3_download: 208 | active: 10, queue: 20
+2026-03-21T09:31:04.447608Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24908 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:04.804417Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/21de6984-fe8b-42b3-aa76-12dc1052bc7a.parquet (24850 rows, 1.8 MB)
+2026-03-21T09:31:04.886531Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/62279ae0-f0aa-4561-b0c7-6e76936e474b.parquet (25072 rows, 1.7 MB)
+2026-03-21T09:31:04.949457Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/7fd5c050-0283-4314-b8b6-6352cbb55a86.parquet (25009 rows, 1.8 MB)
+2026-03-21T09:31:05.007926Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/7ee1b8fe-992e-445d-be66-a3bd43056619.parquet (24683 rows, 1.8 MB)
+2026-03-21T09:31:05.078072Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/b88f28dc-0627-4240-be30-4529635bff2d.parquet (25013 rows, 1.7 MB)
+2026-03-21T09:31:05.144854Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/f2e3e429-8ab6-4586-834e-73087f86413c.parquet (25027 rows, 1.8 MB)
+2026-03-21T09:31:05.195319Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/d03a4d5c-4f46-42b3-97d7-753706ac4a11.parquet (24869 rows, 1.8 MB)
+2026-03-21T09:31:05.266647Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/d1e2e92b-5b19-4f07-9421-1ea7c962085d.parquet (25051 rows, 1.7 MB)
+2026-03-21T09:31:05.340617Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/0c1286c6-e6a1-4071-8286-e1df5074238a.parquet (24978 rows, 1.7 MB)
+2026-03-21T09:31:06.422102Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25027 rows)
+2026-03-21T09:31:06.431965Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24683 rows)
+2026-03-21T09:31:06.474350Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24850 rows)
+2026-03-21T09:31:06.640815Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25013 rows)
+2026-03-21T09:31:06.710788Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25051 rows)
+2026-03-21T09:31:06.711033Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25072 rows)
+2026-03-21T09:31:06.742908Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25009 rows)
+2026-03-21T09:31:06.779447Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24978 rows)
+2026-03-21T09:31:06.844912Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24869 rows)
+2026-03-21T09:31:08.681898Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25027 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:08.712034Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25009 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:08.727884Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25051 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:08.898656Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24978 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:08.966418Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24869 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:09.051786Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24850 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:09.459875Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25013 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:09.631015Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24683 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:09.832764Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25072 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:10.381810Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/759daf3c-8dd0-4342-a631-3845e4dd6964.parquet (25043 rows, 1.7 MB)
+2026-03-21T09:31:10.429828Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/1692caae-75db-4625-ab20-e3a6b0fc479d.parquet (25192 rows, 1.7 MB)
+2026-03-21T09:31:10.490057Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/5c9cd834-2308-4925-b102-9f56e3144d6a.parquet (25129 rows, 1.7 MB)
+2026-03-21T09:31:10.541444Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/12c519c3-9ac6-4f1a-bd80-2daeeeb5c168.parquet (24918 rows, 1.7 MB)
+2026-03-21T09:31:10.590789Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/96537362-2a92-424f-b9e0-e0095cf4034f.parquet (25136 rows, 1.7 MB)
+2026-03-21T09:31:10.646248Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/1b908eb0-477e-400c-954f-bed3a9396005.parquet (24860 rows, 1.7 MB)
+2026-03-21T09:31:10.700055Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/3e54a9e2-8a53-47d1-b491-46a98d648cdf.parquet (24880 rows, 1.7 MB)
+2026-03-21T09:31:10.754858Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/e5611992-7cb8-4d81-b51a-21be59abe80a.parquet (24817 rows, 1.8 MB)
+2026-03-21T09:31:10.815802Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/2e2185ca-b0d9-4fde-aca6-b662293e0137.parquet (24770 rows, 1.7 MB)
+2026-03-21T09:31:10.861690Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/7bd4c6ec-b07a-43eb-99ab-c81522ae3c88.parquet (25086 rows, 1.8 MB)
+2026-03-21T09:31:10.917216Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/148c3c3d-b128-44c0-8530-e7a1fa33a598.parquet (24861 rows, 1.7 MB)
+2026-03-21T09:31:10.977950Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/262e4d17-a899-4527-ac1a-6cd19f4fa14c.parquet (25293 rows, 1.7 MB)
+2026-03-21T09:31:11.032266Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/b1418ffb-b506-4ba2-992a-24ea7a41d2e2.parquet (25057 rows, 1.7 MB)
+2026-03-21T09:31:11.081927Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/05cf737a-0a9d-4a4c-9282-1f0b586b563b.parquet (25080 rows, 1.7 MB)
+2026-03-21T09:31:11.131246Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/2b0eb4a8-9451-4e17-8963-29b36d1c1cbf.parquet (24830 rows, 1.7 MB)
+2026-03-21T09:31:11.195683Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/b56f4b8c-d883-4109-9ce4-93aaa9c75640.parquet (24948 rows, 1.8 MB)
+2026-03-21T09:31:12.385093Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25192 rows)
+2026-03-21T09:31:12.528503Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25136 rows)
+2026-03-21T09:31:13.197449Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24880 rows)
+2026-03-21T09:31:13.356751Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24918 rows)
+2026-03-21T09:31:13.357008Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24860 rows)
+2026-03-21T09:31:13.556685Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24770 rows)
+2026-03-21T09:31:13.594817Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25057 rows)
+2026-03-21T09:31:13.817711Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25086 rows)
+2026-03-21T09:31:13.826590Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24830 rows)
+2026-03-21T09:31:13.826882Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24817 rows)
+2026-03-21T09:31:13.832769Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24861 rows)
+2026-03-21T09:31:13.832962Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25080 rows)
+2026-03-21T09:31:13.853763Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25129 rows)
+2026-03-21T09:31:13.900758Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24948 rows)
+2026-03-21T09:31:13.912066Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25043 rows)
+2026-03-21T09:31:13.914492Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25293 rows)
+2026-03-21T09:31:14.148003Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25192 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:14.790151Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25136 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:15.043309Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24880 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:15.198765Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24918 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:15.228547Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24860 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:15.334901Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24770 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:15.417084Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25057 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:15.625051Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25129 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:15.635726Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24861 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:16.398248Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25080 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:16.539043Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24830 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:16.581590Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24817 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:16.780107Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25293 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:16.847182Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24948 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:16.887994Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25043 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:17.439856Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25086 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:17.872515Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/67102586-1e9a-4cde-9dc7-88f7a6c20e34.parquet (25081 rows, 1.8 MB)
+2026-03-21T09:31:17.932805Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/9664469d-d2cf-4ba0-8f58-7209fb5c29b0.parquet (24647 rows, 1.8 MB)
+2026-03-21T09:31:17.989686Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/5b6d9d94-07e7-4dcd-8a24-ebc17b7d0c84.parquet (24841 rows, 1.7 MB)
+2026-03-21T09:31:18.054972Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/11486c4c-e30e-491d-9eb2-73c60b0f56c3.parquet (24986 rows, 1.7 MB)
+2026-03-21T09:31:18.103476Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/2762ba7c-966f-43d0-a5b7-b56b7f215adb.parquet (3 rows, 7.6 KB)
+2026-03-21T09:31:18.104737Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/de34ac26-d470-4a36-b48b-834df238d364.parquet (24924 rows, 1.7 MB)
+2026-03-21T09:31:18.161326Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/1b89885a-7d46-44b9-9907-44def2061396.parquet (25219 rows, 1.7 MB)
+2026-03-21T09:31:18.215250Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0ff7a977-1a6c-4e71-a16e-51ed294f6c60.parquet (24992 rows, 1.7 MB)
+2026-03-21T09:31:18.262488Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/def492c8-b270-4041-b2b0-43dbdd869380.parquet (25154 rows, 1.7 MB)
+2026-03-21T09:31:18.315850Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/2f1d67ac-c784-4c48-a171-8cbd174d855d.parquet (24786 rows, 1.7 MB)
+2026-03-21T09:31:18.367011Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/78d79d2e-1da0-4b9e-96fe-3291158650d7.parquet (25329 rows, 1.7 MB)
+2026-03-21T09:31:18.426890Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/dea9409d-58c2-41b4-8f7f-f5a17f092ea4.parquet (24923 rows, 1.7 MB)
+2026-03-21T09:31:18.505987Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0b6e77b1-40dc-4ad5-9a76-f900fe0d6ee4.parquet (25038 rows, 1.7 MB)
+2026-03-21T09:31:18.556826Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/0538c914-919d-47a8-a902-46bde80743c9.parquet (24645 rows, 1.7 MB)
+2026-03-21T09:31:18.725572Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (3 rows)
+2026-03-21T09:31:19.707345Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24647 rows)
+2026-03-21T09:31:19.715429Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25219 rows)
+2026-03-21T09:31:19.815127Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24992 rows)
+2026-03-21T09:31:19.825544Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25038 rows)
+2026-03-21T09:31:20.130884Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24786 rows)
+2026-03-21T09:31:20.342334Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24924 rows)
+2026-03-21T09:31:20.346151Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24645 rows)
+2026-03-21T09:31:20.346879Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25329 rows)
+2026-03-21T09:31:20.568711Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24841 rows)
+2026-03-21T09:31:20.614306Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25081 rows)
+2026-03-21T09:31:20.787164Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24986 rows)
+2026-03-21T09:31:20.787488Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25154 rows)
+2026-03-21T09:31:20.803630Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24923 rows)
+2026-03-21T09:31:21.077525Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 3 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:22.320571Z  INFO skippr::ingest_work: Optimising chunk size: active_cores: 10, active_tasks: 20, throughput: 341.2 MB/s (falling), chunk_size: 6.3 MB -> 7.0 MB, adjustment: 1.10x
+2026-03-21T09:31:22.320629Z  INFO skippr::ingest_work: Queueing 10 ingest tasks of 819.3 MB (20 tasks in queue, 11/10 active threads, 9 tasks waiting)
+2026-03-21T09:31:22.670702Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24992 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:22.672197Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24786 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:22.833733Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25329 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:22.840123Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24841 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:23.089084Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25081 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:23.337484Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25038 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:23.351639Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24647 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:23.394420Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25219 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:24.138024Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25154 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:24.143967Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24924 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:24.192485Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24645 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:24.258534Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24923 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:25.591485Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24986 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:25.797650Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/5c47c4c1-8ea3-453e-8283-0c217cf3471f.parquet (25315 rows, 1.8 MB)
+2026-03-21T09:31:25.864041Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/36de17e2-8e86-44ab-a62d-e5911bd6ac09.parquet (24967 rows, 1.8 MB)
+2026-03-21T09:31:25.934477Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/8ff5e136-a7e6-4059-817c-c91a86ad57b5.parquet (24961 rows, 1.7 MB)
+2026-03-21T09:31:26.033252Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/1df23e52-d0aa-4a13-a0e8-696821c52814.parquet (25091 rows, 1.7 MB)
+2026-03-21T09:31:26.077807Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/849fe8c6-9d30-45db-970f-d0b2b37ebf72.parquet (24971 rows, 1.8 MB)
+2026-03-21T09:31:26.697240Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25091 rows)
+2026-03-21T09:31:26.819675Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24971 rows)
+2026-03-21T09:31:26.910838Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24967 rows)
+2026-03-21T09:31:27.028581Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24961 rows)
+2026-03-21T09:31:27.116436Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25315 rows)
+2026-03-21T09:31:27.674090Z  INFO skippr::ingest_work: Optimising chunk size: active_cores: 10, active_tasks: 20, throughput: 188.2 TB/s (rising), chunk_size: 7.0 MB -> 7.7 MB, adjustment: 1.10x
+2026-03-21T09:31:27.674259Z  INFO skippr::ingest_work: Queueing 1 ingest tasks of 82.3 MB (20 tasks in queue, 10/10 active threads, 10 tasks waiting)
+2026-03-21T09:31:27.674269Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:31:29.321227Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24961 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:29.370940Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24967 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:29.716135Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25315 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:30.266280Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25091 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:30.482664Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24971 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:30.703387Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/0f958ff3-11ab-421e-bcaa-21a50e4441c2.parquet (25049 rows, 1.8 MB)
+2026-03-21T09:31:30.764693Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/86305ce9-ef39-4f8d-b69b-52606c4bd62c.parquet (25060 rows, 1.8 MB)
+2026-03-21T09:31:30.821610Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/d7bf0462-bf47-49ff-a3d6-8f6827469a70.parquet (24993 rows, 1.8 MB)
+2026-03-21T09:31:30.877173Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/75a70712-a4f3-44e1-a4b9-7a0694795d37.parquet (24964 rows, 1.7 MB)
+2026-03-21T09:31:30.935714Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/9b8be732-4c56-49ec-b82b-42721dc8cc9c.parquet (24945 rows, 1.8 MB)
+2026-03-21T09:31:30.993864Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/4cea0d49-f5d2-45e9-94f8-ca042bade35d.parquet (24943 rows, 1.8 MB)
+2026-03-21T09:31:31.745803Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24945 rows)
+2026-03-21T09:31:31.822471Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24993 rows)
+2026-03-21T09:31:31.862632Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25060 rows)
+2026-03-21T09:31:31.968730Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25049 rows)
+2026-03-21T09:31:32.019219Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24964 rows)
+2026-03-21T09:31:32.131429Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24943 rows)
+2026-03-21T09:31:32.758255Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:34.427498Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25060 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:34.645855Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25049 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:34.868389Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24943 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:34.902893Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24993 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:35.785129Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24945 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:36.006334Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24964 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:36.596419Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/5cca243e-c004-4090-9718-eaeaa53b6e5d.parquet (25146 rows, 1.7 MB)
+2026-03-21T09:31:36.646215Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/aaf2b88e-c5a9-44ce-802e-862baee447d9.parquet (25065 rows, 1.7 MB)
+2026-03-21T09:31:36.698199Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/71c85fc0-2a52-4972-b88f-5e2b737f9c6c.parquet (25111 rows, 1.7 MB)
+2026-03-21T09:31:36.762366Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/20c4ce0a-3c7d-4c1d-a75a-dba9855fb8fb.parquet (24966 rows, 1.7 MB)
+2026-03-21T09:31:36.822479Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/0bfb69cf-6220-4f90-83f7-4d23c5340124.parquet (25171 rows, 1.8 MB)
+2026-03-21T09:31:36.877233Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/4a984c27-039e-4bdf-aa60-d793e38755f0.parquet (24779 rows, 1.7 MB)
+2026-03-21T09:31:36.932127Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/60523040-abd4-4c45-bd9d-72553d37bb1c.parquet (24944 rows, 1.7 MB)
+2026-03-21T09:31:36.984715Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/e0a90d21-954b-4f90-a14b-a5afff4546a6.parquet (24726 rows, 1.8 MB)
+2026-03-21T09:31:37.037273Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/1fb65a88-dc57-4d8c-beff-5644697ba427.parquet (24822 rows, 1.7 MB)
+2026-03-21T09:31:37.086043Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/8d19a112-04a0-4dcb-a381-b0d25110b661.parquet (24892 rows, 1.7 MB)
+2026-03-21T09:31:37.134774Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/bffa6afa-1013-4014-be52-d29a59d7e9aa.parquet (24982 rows, 1.7 MB)
+2026-03-21T09:31:37.188387Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/28e4cedf-0128-4a68-b19c-8f2bf6101609.parquet (25167 rows, 1.7 MB)
+2026-03-21T09:31:37.233139Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/ceec0cfd-18e8-4932-826e-6bdb840c3e78.parquet (24972 rows, 1.7 MB)
+2026-03-21T09:31:37.284564Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/ab1b5f96-5fe5-465d-818d-1ac2e7b65b6a.parquet (24997 rows, 1.7 MB)
+2026-03-21T09:31:37.336276Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/9fc57c31-29ad-4dd2-a91d-34b74b739de6.parquet (24872 rows, 1.7 MB)
+2026-03-21T09:31:37.385179Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/b1acbf9c-e148-48d7-a221-5199b913cec2.parquet (25081 rows, 1.7 MB)
+2026-03-21T09:31:37.844681Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:39.418055Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25111 rows)
+2026-03-21T09:31:39.438878Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24997 rows)
+2026-03-21T09:31:39.605065Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24892 rows)
+2026-03-21T09:31:39.677524Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24822 rows)
+2026-03-21T09:31:39.879299Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24944 rows)
+2026-03-21T09:31:39.896968Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24726 rows)
+2026-03-21T09:31:39.897504Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25146 rows)
+2026-03-21T09:31:39.967773Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24966 rows)
+2026-03-21T09:31:40.082827Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24779 rows)
+2026-03-21T09:31:40.083017Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25167 rows)
+2026-03-21T09:31:40.083143Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24982 rows)
+2026-03-21T09:31:40.088556Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25171 rows)
+2026-03-21T09:31:40.102406Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24972 rows)
+2026-03-21T09:31:40.111047Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25065 rows)
+2026-03-21T09:31:40.129235Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24872 rows)
+2026-03-21T09:31:40.141732Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25081 rows)
+2026-03-21T09:31:42.737923Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24822 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:42.875444Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:43.516844Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24944 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:43.549361Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24779 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:43.674537Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24966 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:44.314775Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25111 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:44.689971Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25081 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:44.883133Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24997 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:45.041687Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24982 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:45.058016Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25146 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:45.388837Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25171 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:45.423997Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24892 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:45.608292Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24872 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:45.762644Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24726 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:45.920833Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25167 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:45.998084Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24972 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:46.339501Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25065 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:46.467834Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/19bd73b6-f9f4-4577-86ca-a92ac0b7b53a.parquet (25054 rows, 1.7 MB)
+2026-03-21T09:31:46.519725Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/54b4d285-154c-4d47-9999-f2d086498aa1.parquet (25004 rows, 1.7 MB)
+2026-03-21T09:31:46.571876Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/30b348e0-a106-4176-9ed6-694e14f9aeaf.parquet (25306 rows, 1.7 MB)
+2026-03-21T09:31:47.234265Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25004 rows)
+2026-03-21T09:31:47.405086Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25054 rows)
+2026-03-21T09:31:47.467464Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25306 rows)
+2026-03-21T09:31:47.886121Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:49.813084Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25306 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:51.001856Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25004 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:51.045737Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25054 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:31:51.797846Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/9c611bfb-6b2f-4dc3-bd11-1f462d3515da.parquet (25059 rows, 1.7 MB)
+2026-03-21T09:31:51.853330Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0b081dd3-6a00-475e-a2d9-afa650a3b043.parquet (24871 rows, 1.7 MB)
+2026-03-21T09:31:51.943516Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/3581ec1a-7563-43cb-a558-d33fb7da64cf.parquet (24915 rows, 1.8 MB)
+2026-03-21T09:31:52.008684Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/073acec2-18b2-4a05-9469-d481910b6d7b.parquet (24970 rows, 1.7 MB)
+2026-03-21T09:31:52.078695Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/b5ff16d4-42f1-492e-ac57-14183cc81651.parquet (24984 rows, 1.8 MB)
+2026-03-21T09:31:52.141806Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/c8d5f1b3-21c9-48d9-a102-73dabe21e3a1.parquet (25005 rows, 1.7 MB)
+2026-03-21T09:31:52.212122Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/888dd9db-0a41-4e09-a203-6be9aabaacd9.parquet (25241 rows, 1.7 MB)
+2026-03-21T09:31:52.320802Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/55296717-878f-4cc2-ae2f-31061d7915d3.parquet (24937 rows, 1.7 MB)
+2026-03-21T09:31:52.429470Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/c8f3c778-9497-4053-a16a-2ed63a0af96c.parquet (24920 rows, 1.7 MB)
+2026-03-21T09:31:52.548751Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/c2ab2559-0df2-455b-9f43-4524a5bf1d37.parquet (25198 rows, 1.7 MB)
+2026-03-21T09:31:52.667627Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/4dcd5fa6-c0e7-4877-a1e0-a093a3421b2a.parquet (24828 rows, 1.7 MB)
+2026-03-21T09:31:52.757110Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/f2d8891a-98ca-4cf1-9495-3b9f968e08e3.parquet (25091 rows, 1.7 MB)
+2026-03-21T09:31:52.827113Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/4011172e-8aa6-40eb-9c37-cbbc1be53541.parquet (25036 rows, 1.7 MB)
+2026-03-21T09:31:52.967598Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:55.476957Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24871 rows)
+2026-03-21T09:31:55.479344Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25091 rows)
+2026-03-21T09:31:55.582960Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25198 rows)
+2026-03-21T09:31:55.659411Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24984 rows)
+2026-03-21T09:31:55.781804Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25059 rows)
+2026-03-21T09:31:55.785087Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25005 rows)
+2026-03-21T09:31:55.788047Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24828 rows)
+2026-03-21T09:31:55.791761Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24915 rows)
+2026-03-21T09:31:55.792614Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25241 rows)
+2026-03-21T09:31:55.927983Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25036 rows)
+2026-03-21T09:31:55.929999Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24970 rows)
+2026-03-21T09:31:56.303878Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24920 rows)
+2026-03-21T09:31:56.400730Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24937 rows)
+2026-03-21T09:31:58.024367Z  INFO skippr::ingest_work: Waiting for 10 ingest tasks to finish
+2026-03-21T09:31:59.097048Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24871 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:31:59.581496Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25241 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:31:59.583335Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24915 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:31:59.623833Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25059 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:01.154520Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24970 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:01.206474Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25091 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:01.222662Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25036 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:01.349695Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24920 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:01.543881Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25005 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:01.545145Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24828 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:01.663258Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25198 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:01.893996Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24984 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:02.395020Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24937 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:02.803596Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/f94dfb5f-f681-44a6-8423-b8bd117d8144.parquet (25049 rows, 1.7 MB)
+2026-03-21T09:32:02.847869Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/1dd06122-6c3f-4dcb-8415-5c6907c6911c.parquet (25097 rows, 1.8 MB)
+2026-03-21T09:32:02.894780Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/ee4c6a31-7a6c-4b2c-8aaf-fdbaf87f0a64.parquet (25172 rows, 1.7 MB)
+2026-03-21T09:32:02.938837Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/530a4fe3-7035-4faa-98c9-811a63a2be5d.parquet (24910 rows, 1.8 MB)
+2026-03-21T09:32:02.985010Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/5fe717f4-4013-42cb-b18e-3e7e78f5d82f.parquet (25105 rows, 1.7 MB)
+2026-03-21T09:32:03.029597Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/24a3235f-297e-4f60-824b-44c637c95714.parquet (25080 rows, 1.8 MB)
+2026-03-21T09:32:03.040603Z  INFO skippr::ingest_work: Waiting for 5 ingest tasks to finish
+2026-03-21T09:32:03.076147Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/f06c9686-171b-4aa4-a9e4-b3327569d18b.parquet (25014 rows, 1.7 MB)
+2026-03-21T09:32:03.120160Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/3d541566-ddaf-4b56-9eba-8915d124497d.parquet (25028 rows, 1.7 MB)
+2026-03-21T09:32:03.164394Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/5d950772-e693-40e8-ba7c-a1955cacf6c9.parquet (25012 rows, 1.7 MB)
+2026-03-21T09:32:03.208278Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/baad8b3b-ca79-428d-b60c-c75943443360.parquet (24978 rows, 1.7 MB)
+2026-03-21T09:32:03.251891Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/8212cd17-60b6-45a6-adc4-92aa2230eb72.parquet (25034 rows, 1.7 MB)
+2026-03-21T09:32:03.296496Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/b180bf6c-dd33-4c0d-be3e-09b972379b21.parquet (25216 rows, 1.8 MB)
+2026-03-21T09:32:03.343563Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/f0d29619-3e2b-41af-8454-cfb798198c85.parquet (24985 rows, 1.7 MB)
+2026-03-21T09:32:03.387254Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/ec725c8d-4fe6-4805-b8ee-c447a807a690.parquet (25034 rows, 1.7 MB)
+2026-03-21T09:32:03.431497Z  INFO skippr::metrics: Messages per Min: 2000000
+2026-03-21T09:32:03.440705Z  INFO skippr::metrics: Messages Fixed per Min: 0
+2026-03-21T09:32:03.440715Z  INFO skippr::metrics: Bytes Total: 3.7 GB
+2026-03-21T09:32:03.440719Z  INFO skippr::metrics: Messages Total: 4600000
+2026-03-21T09:32:03.440723Z  INFO skippr::metrics: Deadletters per Min: 0
+2026-03-21T09:32:03.440729Z  INFO skippr::metrics: Deadletter Total: 0
+2026-03-21T09:32:03.431501Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/ffc7d360-c104-4f16-a075-31943b208973.parquet (25084 rows, 1.7 MB)
+2026-03-21T09:32:03.440735Z  INFO skippr::metrics: Runtime: 180 seconds
+2026-03-21T09:32:03.440774Z  INFO skippr::metrics: Uploads total: 102, inflight: 16, avg latency: 0.00 ms
+2026-03-21T09:32:03.440778Z  INFO skippr::metrics: Targets - upload: 27, wal: 16, s3_download: 176 | active: 10, queue: 20
+2026-03-21T09:32:03.485939Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/9530107b-d28e-4f7a-814c-9135178f8871.parquet (25078 rows, 1.7 MB)
+2026-03-21T09:32:05.310861Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25084 rows)
+2026-03-21T09:32:05.930302Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25049 rows)
+2026-03-21T09:32:05.930926Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24978 rows)
+2026-03-21T09:32:06.128178Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25012 rows)
+2026-03-21T09:32:06.153596Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25078 rows)
+2026-03-21T09:32:06.243605Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24910 rows)
+2026-03-21T09:32:06.542162Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25105 rows)
+2026-03-21T09:32:06.564867Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24985 rows)
+2026-03-21T09:32:06.593641Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25080 rows)
+2026-03-21T09:32:06.828268Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25034 rows)
+2026-03-21T09:32:06.866998Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25097 rows)
+2026-03-21T09:32:06.893503Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25216 rows)
+2026-03-21T09:32:06.898572Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25172 rows)
+2026-03-21T09:32:06.900244Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25014 rows)
+2026-03-21T09:32:06.931747Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25034 rows)
+2026-03-21T09:32:06.940272Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25028 rows)
+2026-03-21T09:32:08.051934Z  INFO skippr::ingest_work: Waiting for 5 ingest tasks to finish
+2026-03-21T09:32:08.999964Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25049 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:09.234433Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25012 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:09.285237Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25084 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:09.379807Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24985 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:09.383710Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25078 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:09.952175Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25080 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:10.408834Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25105 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:10.887200Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25216 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:11.008761Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25172 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:11.152909Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24910 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:11.198663Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25028 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:11.346265Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24978 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:11.501498Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25097 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:11.745757Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25014 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:12.095698Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25034 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:12.363075Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25034 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:12.728954Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/fe99bd76-1ffc-4e54-a48c-482b68b22f5e.parquet (25021 rows, 1.7 MB)
+2026-03-21T09:32:12.773875Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/f530c45b-7b75-4867-913d-75bc361f349f.parquet (25147 rows, 1.8 MB)
+2026-03-21T09:32:12.820383Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/416efa92-6476-4afd-9143-7d1d3a044765.parquet (25118 rows, 1.7 MB)
+2026-03-21T09:32:12.864202Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/af080a10-2c67-4bb1-abfd-5372f290ef12.parquet (24972 rows, 1.7 MB)
+2026-03-21T09:32:12.908586Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0613c059-154c-48e9-8dc6-b9c0f5a818ea.parquet (25034 rows, 1.7 MB)
+2026-03-21T09:32:12.953347Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/8e950d22-bd6d-4eae-8a3b-145d532d2279.parquet (25044 rows, 1.7 MB)
+2026-03-21T09:32:12.998435Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/e484d5b3-023d-43c7-99c0-45464307a67f.parquet (25007 rows, 1.7 MB)
+2026-03-21T09:32:13.042929Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/7b88fbef-7316-407a-a5e5-c994337257d6.parquet (25259 rows, 1.8 MB)
+2026-03-21T09:32:13.076276Z  INFO skippr::ingest_work: Waiting for 4 ingest tasks to finish
+2026-03-21T09:32:13.087858Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/f84bc37c-a7e1-4434-865f-1ec20b1537ed.parquet (25009 rows, 1.7 MB)
+2026-03-21T09:32:13.131853Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/770d8898-72d5-4410-9cbb-ddb3542f595a.parquet (25097 rows, 1.8 MB)
+2026-03-21T09:32:13.178194Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/69b302dc-3108-4806-a505-ffdfc24b7e76.parquet (25117 rows, 1.8 MB)
+2026-03-21T09:32:13.224770Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/304fb97b-9d7e-4226-a079-6573ea0ffc27.parquet (25027 rows, 1.8 MB)
+2026-03-21T09:32:13.271390Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/9272cd5c-a1bd-4e29-901a-2afe1a8ad654.parquet (25239 rows, 1.8 MB)
+2026-03-21T09:32:13.318283Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/4d3043fe-d2c5-4e08-a177-9f664572ab5b.parquet (25062 rows, 1.7 MB)
+2026-03-21T09:32:15.851792Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25034 rows)
+2026-03-21T09:32:16.757803Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25259 rows)
+2026-03-21T09:32:17.010232Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25062 rows)
+2026-03-21T09:32:17.417759Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25044 rows)
+2026-03-21T09:32:18.087030Z  INFO skippr::ingest_work: Waiting for 1 ingest tasks to finish
+2026-03-21T09:32:18.402154Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:32:18.402203Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T09:32:18.402530Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T09:32:18.402540Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:32:18.402547Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:32:18.402611Z  INFO skippr: Reached end of source data
+2026-03-21T09:32:18.402633Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T09:32:18.402644Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T09:32:18.402651Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T09:32:18.699910Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25021 rows)
+2026-03-21T09:32:18.702383Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25009 rows)
+2026-03-21T09:32:18.899802Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25117 rows)
+2026-03-21T09:32:18.900977Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25007 rows)
+2026-03-21T09:32:19.262770Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25118 rows)
+2026-03-21T09:32:19.539307Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24972 rows)
+2026-03-21T09:32:19.574932Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25147 rows)
+2026-03-21T09:32:19.704282Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25239 rows)
+2026-03-21T09:32:19.755015Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25097 rows)
+2026-03-21T09:32:19.796997Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25027 rows)
+2026-03-21T09:32:19.825102Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25034 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:20.033734Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25044 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:21.158208Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25021 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:21.357555Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25009 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:21.534263Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25259 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:21.714132Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25007 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:21.718551Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24972 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:21.773938Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25118 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:22.311528Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25062 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:22.647764Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25147 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:22.711513Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25097 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:22.799464Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25117 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:22.865376Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25027 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:23.029203Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25239 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:23.475495Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/77eae330-d066-4cc9-b934-bf978bd0d4e2.parquet (24958 rows, 1.7 MB)
+2026-03-21T09:32:23.517761Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/846dc94a-4269-4c15-8dd2-3da2a8bcb8c3.parquet (24905 rows, 1.7 MB)
+2026-03-21T09:32:23.559426Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/a652415c-10ac-46f3-93f3-7004f8e320ee.parquet (25037 rows, 1.8 MB)
+2026-03-21T09:32:23.605003Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/46910a14-f210-4edf-a07e-c08affb3b6ad.parquet (24858 rows, 1.7 MB)
+2026-03-21T09:32:23.646651Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/a8aabc8e-2bfc-4397-8dd6-6c77e754246f.parquet (25030 rows, 1.7 MB)
+2026-03-21T09:32:23.689293Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/9660068c-a1bc-4d8c-944e-aa2504e46639.parquet (24908 rows, 1.7 MB)
+2026-03-21T09:32:23.731533Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/d5a0ea57-b9c3-4c38-a375-664a8b214134.parquet (25160 rows, 1.8 MB)
+2026-03-21T09:32:23.776359Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/4592397f-68fd-4ce2-b5ce-e84db5389505.parquet (25041 rows, 1.8 MB)
+2026-03-21T09:32:23.820991Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/60d76888-e5c2-4ae0-8eec-ec3208bded44.parquet (24834 rows, 1.7 MB)
+2026-03-21T09:32:23.862833Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/54c2e4b7-2efd-4e3a-b115-4ebb4464980e.parquet (24936 rows, 1.7 MB)
+2026-03-21T09:32:23.904909Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/44092f31-36d7-4465-8c10-761f2ab7c414.parquet (24827 rows, 1.7 MB)
+2026-03-21T09:32:23.946602Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/e223adc7-b501-419d-9d85-3e1cc063ba9a.parquet (24927 rows, 1.7 MB)
+2026-03-21T09:32:23.987960Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/ec7e3b5e-97a0-49af-a8e2-bd0fb7f710d5.parquet (25023 rows, 1.7 MB)
+2026-03-21T09:32:24.030361Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/7b838350-5413-4da5-9e8d-1bd2580e1483.parquet (25045 rows, 1.8 MB)
+2026-03-21T09:32:24.074830Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/20b18912-fb35-40c7-a352-4d6774a3d30f.parquet (25000 rows, 1.7 MB)
+2026-03-21T09:32:24.116778Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/6a8bc020-60f2-42c1-9469-5cc6935696ca.parquet (25069 rows, 1.7 MB)
+2026-03-21T09:32:28.597856Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24927 rows)
+2026-03-21T09:32:31.201272Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24858 rows)
+2026-03-21T09:32:31.284461Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25160 rows)
+2026-03-21T09:32:31.364104Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24958 rows)
+2026-03-21T09:32:31.597647Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24908 rows)
+2026-03-21T09:32:31.907392Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25037 rows)
+2026-03-21T09:32:32.101609Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24936 rows)
+2026-03-21T09:32:32.310838Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25069 rows)
+2026-03-21T09:32:32.330630Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25030 rows)
+2026-03-21T09:32:32.331684Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24905 rows)
+2026-03-21T09:32:32.332511Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24927 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:32.344962Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25041 rows)
+2026-03-21T09:32:32.351208Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24834 rows)
+2026-03-21T09:32:32.434406Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25023 rows)
+2026-03-21T09:32:32.505091Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25045 rows)
+2026-03-21T09:32:32.603817Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25000 rows)
+2026-03-21T09:32:32.715976Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24827 rows)
+2026-03-21T09:32:35.256074Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24936 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:35.814633Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25037 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:36.950559Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25069 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:37.112641Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24905 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:37.907039Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25023 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:38.085767Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25041 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:38.233863Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25160 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:38.242126Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24908 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:38.314646Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24858 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:38.489380Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25030 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:38.571354Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25045 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:38.740374Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24958 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:39.066098Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24827 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:39.200143Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24834 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:39.329989Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25000 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:39.744111Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/6d1c433a-ddd5-46e6-8591-9dfafc5acbbf.parquet (25275 rows, 1.7 MB)
+2026-03-21T09:32:39.786966Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/fb4dac37-2f67-4fda-8e43-cec7b023709c.parquet (25049 rows, 1.7 MB)
+2026-03-21T09:32:39.828509Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/fb38afec-1e18-4514-ac3b-55f0bafd87a5.parquet (24820 rows, 1.7 MB)
+2026-03-21T09:32:39.869667Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/b9bd8ca9-ab8a-47c5-9e9f-f6f645a74e39.parquet (24806 rows, 1.8 MB)
+2026-03-21T09:32:39.912367Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/f5434722-4589-453e-839c-b03aef1fc145.parquet (25081 rows, 1.7 MB)
+2026-03-21T09:32:39.953975Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/df38b1dc-6f09-4bc4-9b33-9380c85ef5c0.parquet (24811 rows, 1.7 MB)
+2026-03-21T09:32:39.994172Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/b62d4bfb-46aa-4f0c-ba75-e3fbc03f9b5c.parquet (24995 rows, 1.7 MB)
+2026-03-21T09:32:40.035555Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/630ea06c-82ec-4889-8b85-18751129f3cb.parquet (25000 rows, 1.7 MB)
+2026-03-21T09:32:40.076633Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/461dd538-036a-47f9-9a65-372eb5b64aa4.parquet (24845 rows, 1.7 MB)
+2026-03-21T09:32:40.117097Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/e7157a3c-ad91-4ec0-87ef-6f06be7cb472.parquet (24932 rows, 1.7 MB)
+2026-03-21T09:32:40.158151Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/50b04e07-73b6-4b80-b0aa-46155ad83f8e.parquet (25177 rows, 1.7 MB)
+2026-03-21T09:32:40.200563Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/1b986361-52bb-45c6-b348-45f985539928.parquet (25014 rows, 1.7 MB)
+2026-03-21T09:32:40.244816Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/43efdde9-8f85-4dd9-abf0-f9c443403711.parquet (25131 rows, 1.7 MB)
+2026-03-21T09:32:40.285720Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/716fb371-04f6-48ba-b874-84f0a3176823.parquet (24985 rows, 1.7 MB)
+2026-03-21T09:32:40.326931Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/3722676f-421e-497b-a392-d1f760477608.parquet (24981 rows, 1.7 MB)
+2026-03-21T09:32:40.368479Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/188cd637-b544-4e4a-9463-e15c2aa6fcab.parquet (25369 rows, 1.8 MB)
+2026-03-21T09:32:47.333663Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25049 rows)
+2026-03-21T09:32:48.317973Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24806 rows)
+2026-03-21T09:32:48.720055Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25131 rows)
+2026-03-21T09:32:48.824853Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24811 rows)
+2026-03-21T09:32:49.019714Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25000 rows)
+2026-03-21T09:32:49.069515Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25014 rows)
+2026-03-21T09:32:49.222473Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24995 rows)
+2026-03-21T09:32:49.223215Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24845 rows)
+2026-03-21T09:32:49.309462Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25081 rows)
+2026-03-21T09:32:49.329634Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24820 rows)
+2026-03-21T09:32:49.592568Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25177 rows)
+2026-03-21T09:32:49.741553Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25275 rows)
+2026-03-21T09:32:49.977439Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25369 rows)
+2026-03-21T09:32:49.987327Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24981 rows)
+2026-03-21T09:32:50.361369Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24985 rows)
+2026-03-21T09:32:50.365937Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24932 rows)
+2026-03-21T09:32:51.893437Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25049 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:51.921587Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24811 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:51.975487Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25000 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:52.049336Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25081 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:52.081661Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24845 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:52.192899Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25014 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:53.715598Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24995 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:53.817100Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25177 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:53.836817Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25369 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:54.259691Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24806 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:32:54.342498Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25275 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:54.392939Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24981 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:54.853376Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25131 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:32:55.050050Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24985 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:32:55.129286Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24932 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:55.539030Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24820 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:32:55.787815Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/5c82fa02-f010-4f53-88e7-4af8803a1a80.parquet (25089 rows, 1.7 MB)
+2026-03-21T09:32:55.830010Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/370b0245-5a66-4c03-93e9-9b2c4687f1e5.parquet (25181 rows, 1.7 MB)
+2026-03-21T09:32:55.871729Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/2123e16a-ef3b-483b-8d45-a9ecf39f494a.parquet (24843 rows, 1.7 MB)
+2026-03-21T09:32:55.912105Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/726dec4c-1734-4455-855c-ad0b5eaf1409.parquet (25021 rows, 1.7 MB)
+2026-03-21T09:32:55.953755Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/b22e79c9-3081-45f1-a65b-7c5582b604b4.parquet (25061 rows, 1.7 MB)
+2026-03-21T09:32:55.996262Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/967acbe5-298d-4b9e-b6c4-6cc6c3d17387.parquet (24807 rows, 1.7 MB)
+2026-03-21T09:32:56.037240Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/ae573e15-5760-4ef5-8179-674f8db0c9d9.parquet (24691 rows, 1.7 MB)
+2026-03-21T09:32:56.077383Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/b1d4fa20-6b86-4c69-b479-a3fb7137a0e7.parquet (25044 rows, 1.7 MB)
+2026-03-21T09:32:56.119087Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/c62fb9b2-d466-41c9-a653-b90172205db1.parquet (24784 rows, 1.7 MB)
+2026-03-21T09:33:00.265365Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25061 rows)
+2026-03-21T09:33:01.197720Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24691 rows)
+2026-03-21T09:33:01.877205Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24784 rows)
+2026-03-21T09:33:02.027171Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25044 rows)
+2026-03-21T09:33:02.028035Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24843 rows)
+2026-03-21T09:33:02.444666Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25021 rows)
+2026-03-21T09:33:02.458343Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24807 rows)
+2026-03-21T09:33:02.639029Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25089 rows)
+2026-03-21T09:33:03.250734Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25181 rows)
+2026-03-21T09:33:03.432655Z  INFO skippr::metrics: Messages per Min: 500000
+2026-03-21T09:33:03.432827Z  INFO skippr::metrics: Messages Fixed per Min: 0
+2026-03-21T09:33:03.432851Z  INFO skippr::metrics: Bytes Total: 4.1 GB
+2026-03-21T09:33:03.432865Z  INFO skippr::metrics: Messages Total: 5100000
+2026-03-21T09:33:03.432877Z  INFO skippr::metrics: Deadletters per Min: 0
+2026-03-21T09:33:03.432891Z  INFO skippr::metrics: Deadletter Total: 0
+2026-03-21T09:33:03.432905Z  INFO skippr::metrics: Runtime: 240 seconds
+2026-03-21T09:33:03.432921Z  INFO skippr::metrics: Uploads total: 164, inflight: 9, avg latency: 0.00 ms
+2026-03-21T09:33:03.432936Z  INFO skippr::metrics: Targets - upload: 20, wal: 10, s3_download: 176 | active: 10, queue: 20
+2026-03-21T09:33:04.995211Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24843 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:05.275358Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25089 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:05.407723Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25021 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:05.418632Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24807 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:05.467526Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25044 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:05.704998Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25061 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:06.206097Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24784 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:06.338719Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25181 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:06.379626Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24691 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:06.785821Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/415aee9a-9c3c-424e-8c19-ba9273d39c3b.parquet (24969 rows, 1.7 MB)
+2026-03-21T09:33:06.827490Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/98d366e0-1004-423a-b245-755699619191.parquet (24717 rows, 1.7 MB)
+2026-03-21T09:33:06.869622Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/8f61019c-1b44-4197-aa03-b94616ea6eee.parquet (24921 rows, 1.7 MB)
+2026-03-21T09:33:06.910791Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0c44a398-7d95-4509-b509-74cbe6306654.parquet (24949 rows, 1.7 MB)
+2026-03-21T09:33:06.951686Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/e04e778a-cd28-4ff9-b79a-4bc353fa9db4.parquet (25201 rows, 1.7 MB)
+2026-03-21T09:33:06.993005Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/de7e8aa3-c34e-4e6a-ba03-1a626ab8f998.parquet (24875 rows, 1.7 MB)
+2026-03-21T09:33:07.033800Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/e5dbe3c8-e0a7-4e2b-b894-76b8c038d75b.parquet (24990 rows, 1.7 MB)
+2026-03-21T09:33:07.074983Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/f48ea5e6-2b64-4384-b2ba-35ca298d3e3e.parquet (24807 rows, 1.7 MB)
+2026-03-21T09:33:07.114827Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/aa1aba59-f9f3-4a8b-a555-6cf374952565.parquet (24786 rows, 1.7 MB)
+2026-03-21T09:33:07.155563Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/af0afad8-e77b-4e59-bd46-4b751c0e4c6c.parquet (24982 rows, 1.7 MB)
+2026-03-21T09:33:07.196747Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/c9884357-b22f-480b-9544-c0cfdf0277e4.parquet (25075 rows, 1.7 MB)
+2026-03-21T09:33:07.238148Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/6c2e4005-ba8c-46a4-871b-26969a7b11cc.parquet (24816 rows, 1.7 MB)
+2026-03-21T09:33:07.279113Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/6ba1306c-6aed-4519-8767-31ec7def4910.parquet (24782 rows, 1.7 MB)
+2026-03-21T09:33:07.320213Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/c5b4580c-be11-4b76-86e0-5774a6c5156b.parquet (25010 rows, 1.8 MB)
+2026-03-21T09:33:07.363443Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/c3a9e441-83c0-4389-a807-8da9a3fd0303.parquet (25124 rows, 1.7 MB)
+2026-03-21T09:33:07.405030Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/e84fb0c2-41eb-4814-b389-7051e15a9e04.parquet (25146 rows, 1.7 MB)
+2026-03-21T09:33:12.148106Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24921 rows)
+2026-03-21T09:33:13.968106Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24969 rows)
+2026-03-21T09:33:14.086681Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24982 rows)
+2026-03-21T09:33:14.100709Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24786 rows)
+2026-03-21T09:33:14.101330Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25201 rows)
+2026-03-21T09:33:14.275600Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24949 rows)
+2026-03-21T09:33:14.453129Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24816 rows)
+2026-03-21T09:33:14.599033Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (25010 rows)
+2026-03-21T09:33:14.739889Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (25146 rows)
+2026-03-21T09:33:14.779852Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24717 rows)
+2026-03-21T09:33:14.808033Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25075 rows)
+2026-03-21T09:33:14.867374Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24875 rows)
+2026-03-21T09:33:15.304610Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24782 rows)
+2026-03-21T09:33:15.313610Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24807 rows)
+2026-03-21T09:33:15.416419Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24990 rows)
+2026-03-21T09:33:15.479123Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25124 rows)
+2026-03-21T09:33:15.990366Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24921 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:16.839379Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24969 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:16.874692Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25201 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:16.927947Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24786 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:16.968436Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24949 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:17.594513Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24816 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:18.285740Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24717 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:18.792303Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24875 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:18.934598Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25075 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:19.144272Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24782 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:19.329613Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24982 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:19.392941Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24807 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:19.523932Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24990 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:19.640544Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25010 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:33:19.959417Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25124 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:20.136403Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25146 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:20.537988Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/1cc714cc-dd46-416c-b27e-94d301680eda.parquet (25023 rows, 1.7 MB)
+2026-03-21T09:33:20.580662Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/918b1281-750e-40b1-a4d4-c9025802ee57.parquet (24971 rows, 1.7 MB)
+2026-03-21T09:33:20.621224Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/09cc113f-ae06-4627-84f4-75d07d686b6d.parquet (24964 rows, 1.7 MB)
+2026-03-21T09:33:20.661963Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/cd90b4ae-b806-4610-af9e-378e95e57aa6.parquet (24904 rows, 1.7 MB)
+2026-03-21T09:33:20.703167Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/977b07cf-5982-438c-b189-f7f4a0e74c32.parquet (25052 rows, 1.7 MB)
+2026-03-21T09:33:20.744634Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/c4003089-7eca-4b82-978a-38530af0ae30.parquet (25031 rows, 1.7 MB)
+2026-03-21T09:33:20.786278Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/cd7ebe6a-caf8-4658-a77a-f4de6f22577c.parquet (25064 rows, 1.7 MB)
+2026-03-21T09:33:20.827748Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/443f5a8f-4d9d-4d05-a869-e630f990030b.parquet (25237 rows, 1.7 MB)
+2026-03-21T09:33:20.869771Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/af228a72-1a9d-4329-81ac-07bd8a7ba6fe.parquet (24875 rows, 1.7 MB)
+2026-03-21T09:33:20.911404Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/9f5cac60-7899-4ef2-99a5-44a0bb561d84.parquet (24927 rows, 1.7 MB)
+2026-03-21T09:33:20.954471Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_pause/31bb744e-d42f-4573-9cd5-78c1d709984d.parquet (24926 rows, 1.7 MB)
+2026-03-21T09:33:20.996091Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/10528945-7647-412e-ac8e-fa375c515ef9.parquet (25009 rows, 1.7 MB)
+2026-03-21T09:33:21.085752Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_start/9db9354b-067f-4eb2-9799-6fcbecfdfd0e.parquet (24794 rows, 1.8 MB)
+2026-03-21T09:33:21.129547Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/a2e874b8-1110-47e4-aac2-5e2f07969449.parquet (24853 rows, 1.7 MB)
+2026-03-21T09:33:21.170935Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_end/0e4aef94-7a35-42c6-b60b-ef0de543612f.parquet (25066 rows, 1.7 MB)
+2026-03-21T09:33:21.213124Z  INFO skippr::plugins::snowflake_output: Uploading Parquet to stage @~/trip_resume/8ecdd121-8067-4dde-9f32-649803e594c7.parquet (25169 rows, 1.7 MB)
+2026-03-21T09:33:26.445697Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24926 rows)
+2026-03-21T09:33:26.621389Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24964 rows)
+2026-03-21T09:33:26.750756Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24875 rows)
+2026-03-21T09:33:26.833754Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25009 rows)
+2026-03-21T09:33:26.924267Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25169 rows)
+2026-03-21T09:33:26.925115Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25237 rows)
+2026-03-21T09:33:27.011907Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25052 rows)
+2026-03-21T09:33:27.229028Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_START" (24794 rows)
+2026-03-21T09:33:28.528933Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25066 rows)
+2026-03-21T09:33:28.871756Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (24853 rows)
+2026-03-21T09:33:29.147511Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24927 rows)
+2026-03-21T09:33:29.982960Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_PAUSE" (24971 rows)
+2026-03-21T09:33:30.053532Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (25023 rows)
+2026-03-21T09:33:30.060731Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24964 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:30.165180Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_END" (24904 rows)
+2026-03-21T09:33:30.227667Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25031 rows)
+2026-03-21T09:33:30.251163Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO "ANALYTICS"."RAW"."TRIP_RESUME" (25064 rows)
+2026-03-21T09:33:30.426940Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25169 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:30.560229Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25052 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:30.562890Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25237 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:32.600752Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25066 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:32.871225Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24971 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:32.886996Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24927 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:32.925563Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24794 rows into "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:33:33.014146Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24853 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:33.196250Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25009 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:33.334912Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24926 rows into "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:33:33.825295Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25023 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:34.013378Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25064 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:34.046446Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 25031 rows into "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:33:34.054018Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24904 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:34.139493Z  INFO skippr::plugins::snowflake_output: Snowflake COPY INTO complete: 24875 rows into "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:33:34.144018Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T09:33:34.144260Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T09:33:34.144283Z  INFO skippr: Finalising: compaction+cleanup finished in 75.740418458s
+2026-03-21T09:33:34.144299Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T09:33:34.144320Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T09:33:34.144334Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T09:33:34.144893Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T09:33:34.144935Z  INFO skippr: Compactor: summary uploaded_rows=5100000 expected_msgs=5100000 expected_deadletters=0 expected_uploaded_rows=5100000 quarantined_parts=0
+2026-03-21T09:33:34.146380Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_093334_avFgbbw3lP5cxQwWOxvnu5ftjijKiDQL.json
+2026-03-21T09:33:34.146439Z  INFO skippr: Final metrics: msgs_total=5100000 src_bytes_total=4384606514 parquet_rows_total=5100000 parquet_bytes_total=371776848 parquet_objects_total=0
+2026-03-21T09:33:34.146455Z  INFO skippr: Pipeline sync complete
+2026-03-21T09:33:34.280927Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:33:34.280982Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:33:34.280993Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:33:34.281517Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_resume", "trip_start", "trip_end", "trip_pause"])
+2026-03-21T09:47:35.257137Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:47:35.257202Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:47:35.257221Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T09:47:35.257235Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:47:35.257544Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_resume", "trip_pause", "trip_end"])
+2026-03-21T09:47:35.257556Z  INFO skippr: Found existing Skippr metadata, will update with schema discovered from sampled data
+2026-03-21T09:47:35.279643Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T09:47:35.413063Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T09:47:35.413203Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:47:35.413215Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:47:35.413381Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:47:35.413393Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:47:35.684006Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T09:47:35.684103Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T09:47:35.684136Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:47:35.687656Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:47:35.996767Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP4GQF5F6F", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:47:35Z", account_id: "353855562591" }
+2026-03-21T09:47:36.110702Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:47:36.385690Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:47:36.385771Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:47:36.385788Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T09:47:36.386023Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T09:47:36.386039Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:47:36.386053Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:47:36.386112Z  INFO skippr: Reached end of source data, persisting discovered metadata
+2026-03-21T09:47:36.395261Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T09:47:36.412104Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:47:36.412159Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:47:36.412172Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:47:36.412499Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_end", "trip_resume", "trip_start"])
+2026-03-21T09:47:36.425918Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:47:36.425995Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:47:36.426514Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_094736_x7jGwQ164Zm6LeKPlI89xpHW9xiE845R.json
+2026-03-21T09:47:36.426538Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:47:36.427001Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_pause", "trip_resume", "trip_end"])
+2026-03-21T09:47:36.427023Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T09:47:36.427031Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T09:47:36.437014Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T09:47:36.437136Z  INFO skippr::buffer::ingest_buffer: Migration: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T09:47:36.437454Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T09:47:36.437493Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T09:47:36.437501Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T09:47:36.437508Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T09:47:36.437515Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T09:47:36.437530Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T09:47:36.588820Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T09:47:36.589068Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:47:36.589083Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:47:36.589238Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:47:36.589250Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:47:36.843894Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T09:47:36.843990Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T09:47:36.844025Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:47:36.847634Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:47:37.067293Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPUVCM5Y5Y", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:47:37Z", account_id: "353855562591" }
+2026-03-21T09:47:37.110661Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:47:37.360635Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:47:37.360808Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:47:37.360826Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T09:47:37.361750Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T09:47:37.361785Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:47:37.361801Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:47:37.361844Z  INFO skippr: Reached end of source data
+2026-03-21T09:47:37.361903Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T09:47:37.361926Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T09:47:37.361944Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T09:47:37.362140Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T09:47:37.364034Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T09:47:37.364108Z  INFO skippr: Finalising: compaction+cleanup finished in 2.161917ms
+2026-03-21T09:47:37.364126Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T09:47:37.364144Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T09:47:37.364159Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T09:47:39.944718Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:47:39.945158Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T09:47:40.347332Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T09:47:40.347468Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:47:42.055043Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:47:42.055089Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T09:47:42.457612Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T09:47:42.457985Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:47:43.765033Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:47:43.765126Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T09:47:44.167391Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T09:47:44.167550Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:47:45.273293Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:47:45.273400Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T09:47:45.273824Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T09:47:45.273864Z  INFO skippr: Compactor: summary uploaded_rows=0 expected_msgs=0 expected_deadletters=0 expected_uploaded_rows=0 quarantined_parts=0
+2026-03-21T09:47:45.275197Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_094745_x7jGwQ164Zm6LeKPlI89xpHW9xiE845R.json
+2026-03-21T09:47:45.275244Z  INFO skippr: Final metrics: msgs_total=0 src_bytes_total=0 parquet_rows_total=0 parquet_bytes_total=0 parquet_objects_total=0
+2026-03-21T09:47:45.275260Z  INFO skippr: Pipeline sync complete
+2026-03-21T09:47:45.310618Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:47:45.310705Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:47:45.310727Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:47:45.311369Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_resume", "trip_pause", "trip_end"])
+2026-03-21T09:52:34.008553Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:52:34.008601Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:52:34.008617Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T09:52:34.008630Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:52:34.008956Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_pause", "trip_resume", "trip_end"])
+2026-03-21T09:52:34.008966Z  INFO skippr: Found existing Skippr metadata, will update with schema discovered from sampled data
+2026-03-21T09:52:34.031581Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T09:52:34.175068Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T09:52:34.175213Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:52:34.175225Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:52:34.175391Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:52:34.175402Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:52:34.437355Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T09:52:34.437459Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T09:52:34.437487Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:52:34.440678Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:52:34.691862Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP4YMJC33G", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:52:34Z", account_id: "353855562591" }
+2026-03-21T09:52:34.710412Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:52:35.020787Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:52:35.020884Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:52:35.020916Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T09:52:35.021629Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T09:52:35.021676Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:52:35.021706Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:52:35.021755Z  INFO skippr: Reached end of source data, persisting discovered metadata
+2026-03-21T09:52:35.032218Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T09:52:35.051092Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:52:35.051141Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:52:35.051153Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:52:35.051464Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_resume", "trip_start", "trip_end"])
+2026-03-21T09:52:35.063726Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:52:35.063773Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:52:35.064112Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_095235_8drcj3eQp7kBRXjmA5MNyMh4llLPwA1n.json
+2026-03-21T09:52:35.064127Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:52:35.064415Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_end", "trip_pause", "trip_resume", "trip_start"])
+2026-03-21T09:52:35.064428Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T09:52:35.064432Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T09:52:35.073994Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T09:52:35.074046Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T09:52:35.074088Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T09:52:35.074095Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T09:52:35.074100Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T09:52:35.074105Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T09:52:35.074116Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T09:52:35.210692Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T09:52:35.210930Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T09:52:35.210945Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T09:52:35.211099Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T09:52:35.211110Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T09:52:35.480194Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T09:52:35.480276Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T09:52:35.480300Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T09:52:35.483803Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T09:52:35.663404Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:52:35.719313Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPXDFDWRUM", secret_access_key: "** redacted **", expires_after: "2026-03-21T10:52:35Z", account_id: "353855562591" }
+2026-03-21T09:52:36.036292Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:52:36.036479Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:52:36.036601Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T09:52:36.037130Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T09:52:36.037154Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T09:52:36.037168Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T09:52:36.037211Z  INFO skippr: Reached end of source data
+2026-03-21T09:52:36.037265Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T09:52:36.037288Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T09:52:36.037304Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T09:52:36.037414Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T09:52:36.037909Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T09:52:36.037930Z  INFO skippr: Finalising: compaction+cleanup finished in 625.042µs
+2026-03-21T09:52:36.037947Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T09:52:36.037962Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T09:52:36.037974Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T09:52:36.730874Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T09:52:36.731051Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T09:52:37.133448Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T09:52:37.133981Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:52:38.250071Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T09:52:38.250184Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T09:52:38.652830Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T09:52:38.654133Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:52:39.714167Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T09:52:39.714245Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T09:52:40.116188Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T09:52:40.116806Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T09:52:41.141700Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T09:52:41.141762Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T09:52:41.142230Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T09:52:41.142259Z  INFO skippr: Compactor: summary uploaded_rows=0 expected_msgs=0 expected_deadletters=0 expected_uploaded_rows=0 quarantined_parts=0
+2026-03-21T09:52:41.143095Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_095241_8drcj3eQp7kBRXjmA5MNyMh4llLPwA1n.json
+2026-03-21T09:52:41.143126Z  INFO skippr: Final metrics: msgs_total=0 src_bytes_total=0 parquet_rows_total=0 parquet_bytes_total=0 parquet_objects_total=0
+2026-03-21T09:52:41.143142Z  INFO skippr: Pipeline sync complete
+2026-03-21T09:52:41.172977Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T09:52:41.173064Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T09:52:41.173082Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T09:52:41.173604Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_end", "trip_resume", "trip_pause", "trip_start"])
+2026-03-21T10:02:41.667668Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T10:02:41.667715Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T10:02:41.667732Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T10:02:41.667746Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T10:02:41.668063Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_resume", "trip_end", "trip_start"])
+2026-03-21T10:02:41.668073Z  INFO skippr: Found existing Skippr metadata, will update with schema discovered from sampled data
+2026-03-21T10:02:41.685553Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T10:02:41.823403Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T10:02:41.823545Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T10:02:41.823558Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T10:02:41.823715Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T10:02:41.823727Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T10:02:42.089964Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T10:02:42.090054Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T10:02:42.090081Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T10:02:42.093640Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T10:02:42.267854Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP3GGCTDVX", secret_access_key: "** redacted **", expires_after: "2026-03-21T11:02:42Z", account_id: "353855562591" }
+2026-03-21T10:02:42.330256Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T10:02:42.594610Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T10:02:42.595203Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T10:02:42.595256Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T10:02:42.595775Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T10:02:42.595832Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T10:02:42.595878Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T10:02:42.595950Z  INFO skippr: Reached end of source data, persisting discovered metadata
+2026-03-21T10:02:42.619171Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T10:02:42.653348Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T10:02:42.653413Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T10:02:42.653432Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T10:02:42.653871Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_resume", "trip_end", "trip_start"])
+2026-03-21T10:02:42.683805Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T10:02:42.683870Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T10:02:42.684883Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_100242_9Tm9ze4hNfkn8Hx9T7w7gG6mozX2bt1G.json
+2026-03-21T10:02:42.684919Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T10:02:42.685421Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_resume", "trip_end", "trip_start", "trip_pause"])
+2026-03-21T10:02:42.685440Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T10:02:42.685449Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T10:02:42.696165Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T10:02:42.696227Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T10:02:42.696279Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T10:02:42.696287Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T10:02:42.696293Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T10:02:42.696298Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T10:02:42.696310Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T10:02:42.831091Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T10:02:42.831324Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T10:02:42.831335Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T10:02:42.831493Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T10:02:42.831506Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T10:02:43.102206Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T10:02:43.102335Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T10:02:43.102370Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T10:02:43.106344Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T10:02:43.321726Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T10:02:43.395581Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP7H34CVWA", secret_access_key: "** redacted **", expires_after: "2026-03-21T11:02:43Z", account_id: "353855562591" }
+2026-03-21T10:02:43.692891Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T10:02:43.693127Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T10:02:43.693165Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T10:02:43.693830Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T10:02:43.693864Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T10:02:43.693891Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T10:02:43.693998Z  INFO skippr: Reached end of source data
+2026-03-21T10:02:43.694293Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T10:02:43.694322Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T10:02:43.694339Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T10:02:43.695008Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T10:02:43.695543Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T10:02:43.695568Z  INFO skippr: Finalising: compaction+cleanup finished in 1.224167ms
+2026-03-21T10:02:43.695585Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T10:02:43.695604Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T10:02:43.695627Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T10:02:44.989899Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T10:02:44.990345Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T10:02:45.392213Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T10:02:45.392678Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T10:02:47.298807Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T10:02:47.298905Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T10:02:47.701278Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T10:02:47.701666Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T10:02:49.148977Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T10:02:49.149286Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T10:02:49.550606Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T10:02:49.551038Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T10:02:51.493859Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T10:02:51.494197Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T10:02:51.495378Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T10:02:51.495477Z  INFO skippr: Compactor: summary uploaded_rows=0 expected_msgs=0 expected_deadletters=0 expected_uploaded_rows=0 quarantined_parts=0
+2026-03-21T10:02:51.497774Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_100251_9Tm9ze4hNfkn8Hx9T7w7gG6mozX2bt1G.json
+2026-03-21T10:02:51.497868Z  INFO skippr: Final metrics: msgs_total=0 src_bytes_total=0 parquet_rows_total=0 parquet_bytes_total=0 parquet_objects_total=0
+2026-03-21T10:02:51.497890Z  INFO skippr: Pipeline sync complete
+2026-03-21T10:02:51.536299Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T10:02:51.536363Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T10:02:51.536380Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T10:02:51.536857Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_end", "trip_resume", "trip_start"])
+2026-03-21T11:01:49.884112Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:01:49.884607Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:01:49.884947Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T11:01:49.884962Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:01:49.887154Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_resume", "trip_pause", "trip_start", "trip_end"])
+2026-03-21T11:01:49.887320Z  INFO skippr: Found existing Skippr metadata, will update with schema discovered from sampled data
+2026-03-21T11:01:49.903923Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T11:01:50.069333Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T11:01:50.070755Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T11:01:50.070955Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T11:01:50.073942Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T11:01:50.073954Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T11:01:50.311194Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T11:01:50.311332Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T11:01:50.311780Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T11:01:50.316211Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T11:01:50.584276Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPTZUOJ57V", secret_access_key: "** redacted **", expires_after: "2026-03-21T12:01:50Z", account_id: "353855562591" }
+2026-03-21T11:01:50.912480Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:01:50.912523Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:01:50.912533Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T11:01:50.913111Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T11:01:50.913130Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:01:50.913139Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:01:50.913586Z  INFO skippr: Reached end of source data, persisting discovered metadata
+2026-03-21T11:01:50.928550Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T11:01:50.970106Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:01:50.970197Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:01:50.970211Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:01:50.970681Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_end", "trip_resume", "trip_start", "trip_pause"])
+2026-03-21T11:01:50.984544Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:01:50.984597Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:01:50.985464Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_110150_hkGmIDoEMepNCUeiJk4QBmahwYYKBHXx.json
+2026-03-21T11:01:50.985481Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:01:50.985801Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_resume", "trip_start", "trip_end", "trip_pause"])
+2026-03-21T11:01:50.985813Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T11:01:50.985818Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T11:01:50.994246Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T11:01:50.994574Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T11:01:50.995085Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T11:01:50.995093Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T11:01:50.995098Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T11:01:50.995106Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T11:01:50.995130Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T11:01:51.138223Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T11:01:51.138481Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T11:01:51.138497Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T11:01:51.138656Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T11:01:51.138667Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T11:01:51.401391Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T11:01:51.401470Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T11:01:51.401496Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T11:01:51.405116Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T11:01:51.623682Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNP5QXD7HB3", secret_access_key: "** redacted **", expires_after: "2026-03-21T12:01:51Z", account_id: "353855562591" }
+2026-03-21T11:01:51.719287Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:01:51.927878Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:01:51.927958Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:01:51.927974Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T11:01:51.928208Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T11:01:51.928225Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:01:51.928238Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:01:51.928263Z  INFO skippr: Reached end of source data
+2026-03-21T11:01:51.928300Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T11:01:51.928318Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T11:01:51.928332Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T11:01:51.928511Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T11:01:51.928844Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T11:01:51.928866Z  INFO skippr: Finalising: compaction+cleanup finished in 531.25µs
+2026-03-21T11:01:51.928884Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T11:01:51.928902Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T11:01:51.928917Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T11:01:53.104554Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T11:01:53.104872Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T11:01:53.507073Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T11:01:53.507618Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:01:54.620514Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T11:01:54.620654Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T11:01:55.023898Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T11:01:55.026127Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:01:56.064612Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T11:01:56.064694Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T11:01:56.466460Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T11:01:56.466730Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:01:57.623351Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T11:01:57.623536Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T11:01:57.624697Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T11:01:57.625194Z  INFO skippr: Compactor: summary uploaded_rows=0 expected_msgs=0 expected_deadletters=0 expected_uploaded_rows=0 quarantined_parts=0
+2026-03-21T11:01:57.626940Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_110157_hkGmIDoEMepNCUeiJk4QBmahwYYKBHXx.json
+2026-03-21T11:01:57.627001Z  INFO skippr: Final metrics: msgs_total=0 src_bytes_total=0 parquet_rows_total=0 parquet_bytes_total=0 parquet_objects_total=0
+2026-03-21T11:01:57.627031Z  INFO skippr: Pipeline sync complete
+2026-03-21T11:01:57.655933Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:01:57.655988Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:01:57.656000Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:01:57.656334Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_resume", "trip_end", "trip_pause", "trip_start"])
+2026-03-21T11:36:27.333022Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:36:27.333073Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:36:27.333092Z  INFO skippr: Analysing data and generating Skippr metadata for pipeline: bike_hire_snowflake
+2026-03-21T11:36:27.333106Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:36:27.333436Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_resume", "trip_end", "trip_pause"])
+2026-03-21T11:36:27.333446Z  INFO skippr: Found existing Skippr metadata, will update with schema discovered from sampled data
+2026-03-21T11:36:27.350217Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T11:36:27.483601Z  INFO skippr::ingest_work: Starting with 1 optimized threads for ingest
+2026-03-21T11:36:27.483740Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T11:36:27.483752Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T11:36:27.483912Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T11:36:27.483925Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T11:36:27.754232Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T11:36:27.754345Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T11:36:27.754372Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T11:36:27.757532Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T11:36:28.097990Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPXZ2EGNZG", secret_access_key: "** redacted **", expires_after: "2026-03-21T12:36:28Z", account_id: "353855562591" }
+2026-03-21T11:36:28.136748Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:36:28.567767Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:36:28.568047Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:36:28.568067Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T11:36:28.568303Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T11:36:28.568328Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:36:28.568343Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:36:28.568373Z  INFO skippr: Reached end of source data, persisting discovered metadata
+2026-03-21T11:36:28.583607Z  INFO skippr::helpers::configuration: Updated pipeline metadata: default/default/bike_hire_snowflake/metadata/metadata.json
+2026-03-21T11:36:28.603980Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:36:28.604054Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:36:28.604091Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:36:28.604751Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_pause", "trip_resume", "trip_start", "trip_end"])
+2026-03-21T11:36:28.618810Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:36:28.618873Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:36:28.619328Z  INFO skippr::metrics: Persisted config: default/default/bike_hire_snowflake/config/20260321_113628_vH1ZxlOJYpLqJaiAea4ABFxK1OdSKd9F.json
+2026-03-21T11:36:28.619348Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:36:28.619763Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_pause", "trip_end", "trip_resume"])
+2026-03-21T11:36:28.619781Z  INFO skippr: Found existing Skippr metadata
+2026-03-21T11:36:28.619787Z  INFO skippr: Syncing pipeline: bike_hire_snowflake
+2026-03-21T11:36:28.632213Z  INFO skippr::helpers::offsets: Offset DB size: 512.0 KB
+2026-03-21T11:36:28.632260Z  INFO skippr::buffer::ingest_buffer: Indexing commited WAL Segments
+2026-03-21T11:36:28.632307Z  INFO skippr::buffer::ingest_buffer: WAL scan examined 0 entries (commit_markers_seen=0, committed_seg_candidates=0, uncommitted_segs=0)
+2026-03-21T11:36:28.632315Z  INFO skippr::buffer::ingest_buffer: Indexed 0 of 0 Segment files for 0 namespaces
+2026-03-21T11:36:28.632323Z  INFO skippr::buffer::ingest_buffer: WAL indexing took 0.00s ~ 0 files/s, 0.0 B total bytes
+2026-03-21T11:36:28.632330Z  INFO skippr::buffer::ingest_buffer: Committed 0 offsets from .seg files
+2026-03-21T11:36:28.632342Z  INFO skippr: Output plugin: Snowflake
+2026-03-21T11:36:28.773646Z  INFO skippr::ingest_work: Starting with 10 optimized threads for ingest
+2026-03-21T11:36:28.773883Z  INFO skippr::plugins::s3_input: Syncing bucket: skippr-e2e-sample-data, prefix: bike-hire/
+2026-03-21T11:36:28.773898Z  INFO skippr::plugins::s3_input: Starting stream pipeline (cpus=10, dl_mem=4096 MiB, init_chunk=9.5 MB)
+2026-03-21T11:36:28.774058Z  INFO aws_config::profile::credentials: constructed abstract provider from config file chain=ProfileChain { base: AccessKey(Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }), chain: [RoleArn { role_arn: "arn:aws:iam::353855562591:role/OrganizationAccountAccessRole", external_id: None, session_name: None }] }
+2026-03-21T11:36:28.774070Z  INFO aws_config::profile::credentials: loaded base credentials creds=Credentials { provider_name: "ProfileFile", access_key_id: "AKIA4NNDKDD6NX2LVZAC", secret_access_key: "** redacted **", expires_after: "never" }
+2026-03-21T11:36:29.038669Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_start
+2026-03-21T11:36:29.038767Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE SCHEMA IF NOT EXISTS "ANALYTICS"."RAW"
+2026-03-21T11:36:29.038791Z  INFO snowflake: authenticating via key-pair: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+2026-03-21T11:36:29.042347Z  INFO snowflake: authenticated via key-pair JWT
+2026-03-21T11:36:29.743830Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_START" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:36:29.743861Z  INFO aws_config::profile::credentials: loaded assume role credentials creds=Credentials { provider_name: "AssumeRoleProvider", access_key_id: "ASIAVEY3PMNPSDQ5SG6O", secret_access_key: "** redacted **", expires_after: "2026-03-21T12:36:29Z", account_id: "353855562591" }
+2026-03-21T11:36:30.252742Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:36:30.252959Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:36:30.252996Z  INFO skippr::plugins::s3_input: S3 stream pipeline complete; ingest completed
+2026-03-21T11:36:30.253572Z  INFO skippr::ingest_work: Completing, waiting for 0 ingest tasks to finish
+2026-03-21T11:36:30.253608Z  INFO skippr::ingest_work: Waiting for 0 ingest tasks to finish, signaling shutdown...
+2026-03-21T11:36:30.253638Z  INFO skippr::ingest_work: All ingest tasks finished
+2026-03-21T11:36:30.253812Z  INFO skippr: Reached end of source data
+2026-03-21T11:36:30.253894Z  INFO skippr: Ingest completed, flushing remaining buffers to output plugin data_outputs.destination
+2026-03-21T11:36:30.253939Z  INFO skippr: All buffers flushed to output plugin
+2026-03-21T11:36:30.253972Z  INFO skippr: Finalising: draining and stopping compactor
+2026-03-21T11:36:30.254300Z  INFO skippr: Finalising: compactor drained and stopped
+2026-03-21T11:36:30.254722Z  INFO skippr: Finalising: orphan commit cleanup scanned=0 removed=0 errors=0
+2026-03-21T11:36:30.254743Z  INFO skippr: Finalising: compaction+cleanup finished in 772.042µs
+2026-03-21T11:36:30.254760Z  INFO skippr: Finalising: waiting for Athena partition tasks to drain
+2026-03-21T11:36:30.254778Z  INFO skippr: Finalising: Athena partition tasks drained
+2026-03-21T11:36:30.254792Z  INFO skippr: Finalising: draining schema sync worker
+2026-03-21T11:36:31.603040Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_START"
+2026-03-21T11:36:31.603322Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_start
+2026-03-21T11:36:32.005237Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_pause
+2026-03-21T11:36:32.005390Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_PAUSE" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" NUMBER(38,0), "ISBN_STRING" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:36:34.369347Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_PAUSE"
+2026-03-21T11:36:34.369429Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_pause
+2026-03-21T11:36:34.770353Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_end
+2026-03-21T11:36:34.770653Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_END" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:36:36.405681Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_END"
+2026-03-21T11:36:36.406182Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_end
+2026-03-21T11:36:36.807680Z  INFO skippr::helpers::configuration: Schema sync: updating schema for namespace trip_resume
+2026-03-21T11:36:36.808251Z  INFO skippr::plugins::snowflake_output: Snowflake DDL: CREATE TABLE IF NOT EXISTS "ANALYTICS"."RAW"."TRIP_RESUME" ("BIKE_ID" VARCHAR, "CRANK_TORQUES" VARIANT, "EVENT_DATE" VARCHAR, "EVENT_TYPE" VARCHAR, "HARDWARE" VARIANT, "ISBN" VARCHAR, "LAST_CRANK" VARIANT, "MESSAGE_TYPE" VARCHAR, "METADATA" VARIANT, "RIDER_ID" VARCHAR, "TRIP" VARIANT)
+2026-03-21T11:36:39.224299Z  INFO skippr::plugins::snowflake_output: Ensured table "ANALYTICS"."RAW"."TRIP_RESUME"
+2026-03-21T11:36:39.224556Z  INFO skippr::helpers::configuration: Schema sync: synced output schema for namespace trip_resume
+2026-03-21T11:36:39.225573Z  INFO skippr: Finalising: schema sync worker drained
+2026-03-21T11:36:39.225665Z  INFO skippr: Compactor: summary uploaded_rows=0 expected_msgs=0 expected_deadletters=0 expected_uploaded_rows=0 quarantined_parts=0
+2026-03-21T11:36:39.227729Z  INFO skippr::metrics: Persisted metrics: default/default/bike_hire_snowflake/metrics/20260321_113639_vH1ZxlOJYpLqJaiAea4ABFxK1OdSKd9F.json
+2026-03-21T11:36:39.227798Z  INFO skippr: Final metrics: msgs_total=0 src_bytes_total=0 parquet_rows_total=0 parquet_bytes_total=0 parquet_objects_total=0
+2026-03-21T11:36:39.227829Z  INFO skippr: Pipeline sync complete
+2026-03-21T11:36:39.264703Z  INFO skippr::helpers::configuration: Initializing data directories...
+2026-03-21T11:36:39.264813Z  INFO skippr::helpers::configuration: Initialized data directories at: /Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/default_bike_hire_snowflake
+2026-03-21T11:36:39.264834Z  INFO skippr::helpers::configuration: get_metadata: pipeline='bike_hire_snowflake' key='default/default/bike_hire_snowflake/metadata/metadata.json'
+2026-03-21T11:36:39.265401Z  INFO skippr::helpers::configuration: Loaded metadata (entries=4, keys=["trip_start", "trip_end", "trip_resume", "trip_pause"])

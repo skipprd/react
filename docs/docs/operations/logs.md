@@ -2,23 +2,22 @@
 
 ## Local artifacts
 
-All runtime artifacts are stored under `.skippr-dbt/` in the working directory:
+All runtime artifacts are stored under `.skippr/` in the working directory:
 
 ```
-.skippr-dbt/
+.skippr/
 └── local/
     └── dev/
         └── <project>/
             ├── logs/                   # Per-run log files
             │   └── <run-id>.log
-            ├── skippr/                 # Generated skippr pipeline config
-            │   └── skippr.yml
+            ├── pipeline/               # Generated pipeline config
             └── lancedb/               # Semantic search index (auto-managed)
 ```
 
 ## Log files
 
-Each pipeline run produces a log file under `.skippr-dbt/local/dev/<project>/logs/`.
+Each pipeline run produces a log file under `.skippr/local/dev/<project>/logs/`.
 
 ### Viewing logs
 
@@ -27,14 +26,14 @@ With the live terminal UI (default when `--log` is not specified), logs are disp
 For headless operation or CI, use structured logging:
 
 ```bash
-skippr-dbt run --log info     # standard output
-skippr-dbt run --log debug    # verbose
-skippr-dbt run --log trace    # most verbose
+skippr run --log info     # standard output
+skippr run --log debug    # verbose
+skippr run --log trace    # most verbose
 ```
 
 ### Daily rotating log
 
-A daily rotating log file is also written to `.skippr-dbt/local/dev/<project>/logs/react.YYYY-MM-DD.log` for debugging after the fact.
+A daily rotating log file is also written to `.skippr/local/dev/<project>/logs/react.YYYY-MM-DD.log` for debugging after the fact.
 
 ## dbt project files
 

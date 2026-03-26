@@ -1,13 +1,13 @@
-# Extract and Load: skippr-dbt + skippr
+# Extract and Load: skippr-el + skippr
 
 ## Architecture
 
-skippr-dbt orchestrates skippr for EL the same way it orchestrates dbt for modeling: generates configuration, invokes the CLI, reads structured output, reasons about results. No shared code between the two projects — only CLI invocation and config/env var passing.
+skippr orchestrates skippr for EL the same way it orchestrates dbt for modeling: generates configuration, invokes the CLI, reads structured output, reasons about results. No shared code between the two projects — only CLI invocation and config/env var passing.
 
-**Key principle:** skippr always owns source discovery; skippr-dbt always owns the mapping.
+**Key principle:** skippr always owns source discovery; skippr always owns the mapping.
 
 ```text
-source system -> [skippr discover] -> schemas -> [skippr-dbt LLM mapping] -> [skippr sync] -> destination warehouse -> [dbt]
+source system -> [skippr discover] -> schemas -> [skippr LLM mapping] -> [skippr sync] -> destination warehouse -> [dbt]
 ```
 
 ## How It Works
@@ -35,7 +35,7 @@ providers:
 ```
 
 - `providers.warehouse` is always the destination
-- `providers.el` is NOT a warehouse provider — skippr-dbt never connects to the source
+- `providers.el` is NOT a warehouse provider — skippr never connects to the source
 - `skippr_input` is opaque config passed through to skippr's `data_inputs` section
 
 ### 2. Workflow Phases
@@ -58,7 +58,7 @@ When `el` is absent, the workflow starts at `Preflight` with zero behavior chang
 
 ### 3. skippr Interaction
 
-skippr-dbt interacts with skippr through four interfaces:
+skippr interacts with skippr through four interfaces:
 
 1. **Config file** — `skippr.yml` written to the workspace data directory
 2. **Discover** — `skippr discover --pipeline <name> --output json`
@@ -92,4 +92,4 @@ All skippr invocations run with `SKIPPR_STORAGE_MODE=local`. Auth credentials ar
 - Replacing dbt
 - Real-time streaming (already handled by skippr for supported sources)
 - CDC, Kafka, or API source support
-- skippr-dbt connecting directly to source systems
+- skippr connecting directly to source systems

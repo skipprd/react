@@ -2,13 +2,13 @@
 
 ## Common issues
 
-### `skippr-dbt.yaml not found`
+### `skippr.yaml not found`
 
-Run `skippr-dbt init <project>` in the working directory first.
+Run `skippr init <project>` in the working directory first.
 
 ### `dbt: command not found`
 
-Activate the Python virtual environment before running `skippr-dbt`:
+Activate the Python virtual environment before running `skippr`:
 
 ```bash
 source .venv/bin/activate
@@ -20,10 +20,6 @@ If `dbt` is not installed:
 ```bash
 pip install dbt-core dbt-snowflake
 ```
-
-### `skippr: command not found`
-
-The `skippr` binary is not on PATH. Download it from the releases page and place it on your PATH.
 
 ### MFA error: `390197 -- Multi-factor authentication is required`
 
@@ -66,9 +62,9 @@ The extract-and-load step produced no output within the idle timeout. Common cau
 
 ### `dbt deps` needed
 
-After the first run, `skippr-dbt` generates a `packages.yml` in the dbt project. If dbt reports missing packages, run:
+After the first run, `skippr` generates a `packages.yml` in the dbt project. If dbt reports missing packages, run:
 
 ```bash
-cd .skippr-dbt/local/dev/<project>/dbt   # or the project root if models are there
+cd .skippr/local/dev/<project>/dbt   # or the project root if models are there
 dbt deps
 ```

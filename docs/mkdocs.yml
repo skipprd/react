@@ -1,4 +1,4 @@
-site_name: Skippr dbt
+site_name: Skippr
 site_description: Data pipeline CLI — extract, load, and model with dbt.
 theme:
   name: material

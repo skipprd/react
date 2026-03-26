@@ -24,7 +24,7 @@ impl SkipprCliProvider {
         data_dir: PathBuf,
     ) -> Self {
         let binary = if el_config.skippr_binary.is_empty() {
-            "skippr".to_string()
+            "skippr-el".to_string()
         } else {
             el_config.skippr_binary.clone()
         };

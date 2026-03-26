@@ -1,0 +1,88 @@
+{
+  "datetime": "2026-03-21T09:31:03Z",
+  "exit_code": null,
+  "metrics": {
+    "active_threads": 10,
+    "bytes_current": 1719542122,
+    "bytes_total": 2235175647,
+    "deadletters_current": 0,
+    "deadletters_total": 0,
+    "fixed_current": 0,
+    "fixed_total": 0,
+    "ingested_current": 2000000,
+    "ingested_total": 2600000,
+    "latest_timestamp": 0,
+    "lock_wait_times": {
+      "cli_mode": {
+        "nanos": 42,
+        "secs": 0
+      },
+      "config": {
+        "nanos": 7793,
+        "secs": 0
+      },
+      "default_message": {
+        "nanos": 242303564,
+        "secs": 0
+      },
+      "env_cache": {
+        "nanos": 993839482,
+        "secs": 0
+      },
+      "metrics": {
+        "nanos": 250,
+        "secs": 0
+      },
+      "now": {
+        "nanos": 125,
+        "secs": 0
+      },
+      "pipeline_name": {
+        "nanos": 145624,
+        "secs": 0
+      },
+      "running": {
+        "nanos": 417,
+        "secs": 0
+      }
+    },
+    "offset_db_size": 524287,
+    "parquet_persisted_bytes_current": 35220956,
+    "parquet_persisted_bytes_total": 35220956,
+    "parquet_persisted_objects_current": 0,
+    "parquet_persisted_objects_total": 0,
+    "parquet_persisted_rows_current": 475307,
+    "parquet_persisted_rows_total": 475307,
+    "queue_length": 20,
+    "run_time_seconds": 120,
+    "s3_download_concurrency_target": 208,
+    "upload_concurrency_target": 23,
+    "upload_latency_ns_total": 0,
+    "uploads_in_flight": 1,
+    "uploads_total": 19,
+    "wal_compacted_bytes_current": 0,
+    "wal_compacted_bytes_total": 0,
+    "wal_compacted_files_current": 0,
+    "wal_compacted_files_total": 0,
+    "wal_compaction_concurrency_target": 16,
+    "wal_index_bytes_total": 0,
+    "wal_index_files_total": 0,
+    "wal_index_metrics": {
+      "metrics": []
+    },
+    "wal_index_namespaces_total": 0,
+    "wal_index_partitions_total": 0,
+    "wal_write_bytes_current": 0,
+    "wal_write_bytes_total": 0,
+    "wal_write_rows_current": 0,
+    "wal_write_rows_total": 2275028
+  },
+  "pipeline_name": "bike_hire_snowflake",
+  "run_id": "avFgbbw3lP5cxQwWOxvnu5ftjijKiDQL",
+  "start_time": "2026-03-21T09:29:03Z",
+  "status": "Running",
+  "tenant": "default",
+  "type": "metric",
+  "version": "0.0.0-git",
+  "workspace_name": "default"
+}

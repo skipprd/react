@@ -20,11 +20,11 @@ All data transfer happens locally on your machine. No data leaves your network.
 ## Quick start
 
 ```bash
-skippr-dbt init my-project
-skippr-dbt connect warehouse snowflake
-skippr-dbt connect source mssql
-skippr-dbt doctor
-skippr-dbt run
+skippr init my-project
+skippr connect warehouse snowflake
+skippr connect source mssql
+skippr doctor
+skippr run
 ```
 
 See the [Install](getting-started/install.md) and [Quick Start](getting-started/quickstart.md) guides for a detailed walkthrough.
@@ -33,6 +33,5 @@ See the [Install](getting-started/install.md) and [Quick Start](getting-started/
 
 | Dependency | Why |
 |---|---|
-| `skippr` binary | Performs extract-and-load between source and warehouse |
 | Python 3.10+ | Required by dbt |
 | dbt-core + warehouse adapter | Model compilation and materialisation |

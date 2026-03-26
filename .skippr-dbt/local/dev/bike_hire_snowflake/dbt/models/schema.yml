@@ -1,0 +1,189 @@
+version: 2
+sources:
+- name: RAW
+  database: ANALYTICS
+  schema: RAW
+  tables:
+  - name: TRIP_END
+  - name: TRIP_PAUSE
+  - name: TRIP_RESUME
+  - name: TRIP_START
+models:
+- name: fct_trip_event
+  description: |
+    One row per recorded trip lifecycle event emitted from the start, pause, resume, and end raw event streams.
+    This model supports event-level operational analysis and troubleshooting of how trips progress through their lifecycle.
+    The time axis is `event_ts`, which represents when the source event occurred, and `event_date` is the calendar date derived from that event timestamp.
+  columns:
+  - name: event_key
+    description: Stable key for a single trip event record. Each value should identify one event instance across the unified event stream.
+    tests:
+    - unique
+    - not_null
+  - name: trip_id
+    description: Source trip identifier carried on the event when available. Multiple event records can share the same trip_id because a trip can have start, pause, resume, and end events. Some valid source events may not include a trip_id and should still be retained.
+  - name: event_ts
+    description: Timestamp when the trip event occurred in the source system. This is the primary timestamp for event sequencing and time-series analysis.
+    tests:
+    - not_null
+  - name: event_date
+    description: Calendar date derived from `event_ts`. Use this for daily rollups of event activity rather than as a trip completion date.
+    tests:
+    - not_null
+  - name: event_name
+    description: Normalized business event name describing the lifecycle step, using canonical values start, pause, resume, and end.
+  - name: source_event_model
+    description: Name of the upstream event model that produced the record. Useful for lineage and debugging source-specific behavior.
+  - name: rider_id
+    description: Rider identifier present on the event, when available.
+  - name: bike_id
+    description: Bike identifier present on the event, when available.
+  - name: event_payload_present_flag
+    description: Indicates whether the underlying source event included a payload. This helps distinguish missing event content from valid events with sparse attributes.
+  - name: event_type_raw
+    description: Raw event type value from the source feed before normalization.
+  - name: message_type
+    description: Latest source message classification carried on the event record.
+  - name: isbn
+    description: Source ISBN-like identifier associated with the bike message payload. Its business meaning depends on upstream device messaging conventions.
+- name: fct_trip
+  description: |
+    One row per trip_id representing the assembled trip lifecycle across its underlying events.
+    This model supports decisions about trip completion, trip quality, and rider or bike usage by summarizing each trip into business-ready metrics.
+    The primary time axes are `trip_start_ts` and `trip_end_ts`, while `trip_activity_date` is the activity date assigned to the trip for daily reporting.
+  columns:
+  - name: trip_key
+    description: Stable key for the trip fact row. Each value should identify one trip-level record.
+    tests:
+    - unique
+    - not_null
+  - name: trip_id
+    description: Source trip identifier used to assemble events into a trip. This should be present for every fact row.
+    tests:
+    - not_null
+  - name: rider_id
+    description: Rider associated with the trip. Use with care if upstream events can be incomplete or malformed.
+    tests:
+    - relationships:
+        to: ref('dim_rider')
+        field: rider_id
+  - name: bike_id
+    description: Bike used for the trip. This links the trip to bike-level lifecycle and utilization analysis.
+    tests:
+    - relationships:
+        to: ref('dim_bike')
+        field: bike_id
+  - name: trip_start_ts
+    description: Timestamp of the anchored trip start event. Null or unexpected values can indicate incomplete event capture.
+  - name: trip_end_ts
+    description: Timestamp of the anchored trip end event. Trips still in progress may not have a populated end timestamp.
+  - name: trip_activity_date
+    description: Reporting date assigned to the trip for daily analysis. This is the business date to use in aggregates, not necessarily the same as the end date in every edge case.
+    tests:
+    - not_null
+  - name: trip_status
+    description: Business status of the trip, such as completed or in progress, based on the available event pattern.
+  - name: trip_duration_seconds
+    description: Duration of the trip in seconds, typically measured from anchored start to anchored end. In-progress or low-quality trips may have null, zero, or non-final values.
+  - name: total_event_count
+    description: Count of all lifecycle events attached to the trip. Higher counts can reflect pauses and resumes, not necessarily duplicate trips.
+  - name: pause_event_count
+    description: Number of pause events observed for the trip.
+  - name: resume_event_count
+    description: Number of resume events observed for the trip.
+  - name: data_quality_flag
+    description: Indicator that the assembled trip has a known data quality concern, such as missing anchors or inconsistent event patterns.
+  - name: trip_grain_type
+    description: Label describing the trip record grain or assembly logic used to produce the row.
+  - name: anchor_start_event_key
+    description: Event key chosen as the canonical trip start anchor.
+  - name: anchor_end_event_key
+    description: Event key chosen as the canonical trip end anchor.
+- name: dim_bike
+  description: |
+    One row per bike_id describing the observed bike entity across trip events.
+    This model supports decisions about fleet coverage, bike recency, and bike-level reporting joins from trip facts.
+    The time axes `first_seen_ts` and `last_seen_ts` represent the earliest and latest event timestamps where the bike was observed, and the date columns are their calendar-date counterparts.
+  columns:
+  - name: bike_key
+    description: Stable surrogate key for the bike dimension row.
+    tests:
+    - unique
+    - not_null
+  - name: bike_id
+    description: Natural bike identifier observed in trip events. This is the primary business key for joining bike usage.
+    tests:
+    - unique
+    - not_null
+  - name: first_seen_ts
+    description: Earliest event timestamp at which the bike was seen in the trip event stream.
+  - name: last_seen_ts
+    description: Most recent event timestamp at which the bike was seen in the trip event stream.
+  - name: first_seen_date
+    description: Calendar date of the bike's first observed event.
+  - name: last_seen_date
+    description: Calendar date of the bike's most recent observed event.
+  - name: latest_message_type
+    description: Most recent source message type observed for the bike. This reflects the latest known message, not a long-term classification.
+  - name: latest_isbn
+    description: Most recent ISBN-like identifier observed for the bike from event payloads. Because it is taken from the latest event, historical values may differ.
+- name: dim_rider
+  description: |
+    One row per rider_id describing the observed rider entity across trip events.
+    This model supports rider-level segmentation, recency analysis, and consistent joins from trip facts and rider aggregates.
+    The time axes `first_seen_ts` and `last_seen_ts` represent the earliest and latest event timestamps where the rider was observed, and the date columns are their calendar-date counterparts.
+  columns:
+  - name: rider_key
+    description: Stable surrogate key for the rider dimension row.
+    tests:
+    - unique
+    - not_null
+  - name: rider_id
+    description: Natural rider identifier observed in trip events. This is the primary business key for rider-level joins.
+    tests:
+    - unique
+    - not_null
+  - name: first_seen_ts
+    description: Earliest event timestamp at which the rider was seen in the trip event stream.
+  - name: last_seen_ts
+    description: Most recent event timestamp at which the rider was seen in the trip event stream.
+  - name: first_seen_date
+    description: Calendar date of the rider's first observed event.
+  - name: last_seen_date
+    description: Calendar date of the rider's most recent observed event.
+- name: agg_rider_daily_trip_activity
+  description: |
+    One row per rider_id and activity_date summarizing that rider's trip activity for the day.
+    This model supports daily rider engagement, anomaly monitoring, and operational reporting on completed versus in-progress trip behavior.
+    The time axis is `activity_date`, which represents the reporting date assigned from trip activity rather than a rider signup or profile date.
+  columns:
+  - name: rider_id
+    description: Rider whose trip activity is being summarized for the day.
+    tests:
+    - not_null
+    - relationships:
+        to: ref('dim_rider')
+        field: rider_id
+  - name: activity_date
+    description: Reporting date for the rider's aggregated trip activity.
+    tests:
+    - not_null
+  - name: trip_count
+    description: Total number of business-valid trip fact rows attributed to the rider on the activity date, restricted to trips in completed or in_progress status.
+  - name: completed_trip_count
+    description: Number of trips on the activity date that were classified as completed.
+  - name: in_progress_trip_count
+    description: Number of trips on the activity date that remained in progress at reporting time.
+  - name: anomaly_trip_count
+    description: Number of trips with non-business statuses for the rider on the activity date. Interpret alongside data quality rules in the upstream trip fact.
+  - name: distinct_bike_count
+    description: Count of distinct bikes used by the rider on the activity date across business-valid trips in completed or in_progress status.
+  - name: total_trip_duration_seconds
+    description: Sum of trip duration seconds across the rider's business-valid trips for the activity date.
+  - name: avg_trip_duration_seconds
+    description: Average trip duration seconds across the rider's business-valid trips for the activity date.
+- name: agg_bike_daily_utilization
+  description: |
+    One row per bike and reporting date summarizing that bike's observed trip utilization for the day.
+    This model supports decisions about fleet usage, bike-level operational monitoring, and identifying bikes with unusually high, low, or anomalous daily activity.
+    The time axis is the model's daily reporting date, which represents the business activity date assigned from upstream trip activity rather than a maintenance date or a bike creation date.

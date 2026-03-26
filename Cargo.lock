@@ -7311,7 +7311,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "skippr-dbt"
+name = "skippr"
 version = "0.0.0-git"
 dependencies = [
  "clap",

@@ -1,0 +1,4 @@
+Patch required for three correctness defects in staging outputs:
+1. `models/staging/stg_raw_trip_pause.sql` computes `isbn_used_isbn_string` and `isbn_used_numeric_fallback` but does not project them in the final `SELECT`, so required output columns are missing.
+2. `models/staging/stg_raw_trip_resume.sql` sets `event_date_raw` from `NULLIF(TRIM(EVENT_DATE), '')` instead of retaining raw `EVENT_DATE` unchanged, which breaks the approved raw-value audit contract.
+3. `models/staging/stg_raw_trip_end.sql` and `models/staging/stg_raw_trip_resume.sql` parse/check trimmed `EVENT_DATE` values instead of the raw source field, which suppresses required parse-failure behavior for whitespace-populated timestamps and changes result correctness.

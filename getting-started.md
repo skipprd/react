@@ -1,6 +1,6 @@
 # Getting Started: MSSQL to Snowflake
 
-This guide walks you through **extracting data from MSSQL**, **loading it into Snowflake** as a bronze (raw) tier, and then **building silver/gold dbt models** on top — all driven by `skippr-dbt`.
+This guide walks you through **extracting data from MSSQL**, **loading it into Snowflake** as a bronze (raw) tier, and then **building silver/gold dbt models** on top — all driven by `skippr`.
 
 What you'll end up with:
 
@@ -12,19 +12,17 @@ What you'll end up with:
 
 ## Prerequisites
 
-### skippr-dbt binary
+### skippr binary
 
-Download the `skippr-dbt` binary for your platform and place it on your PATH:
+Download `skippr` for your platform and place it on your PATH:
 
 ```bash
-skippr-dbt --version
+skippr --version
 ```
-
-The `skippr` extract-and-load engine is downloaded automatically on first run. If you prefer to manage `skippr` yourself, place it on your PATH and `skippr-dbt` will use it instead of downloading its own copy.
 
 ### Python 3.10+ and dbt
 
-Python is required to run `dbt`, which `skippr-dbt` uses for model compilation and materialisation.
+Python is required to run `dbt`, which `skippr` uses for model compilation and materialisation.
 
 | Tool | Why | Install |
 |------|-----|---------|
@@ -91,7 +89,7 @@ You will reference the private key file path in the environment variables below.
 
 ## 1. Provide an MSSQL source
 
-`skippr-dbt` extracts data from MSSQL and loads it into Snowflake automatically. You just need a running MSSQL instance with the tables you want to migrate.
+`skippr` extracts data from MSSQL and loads it into Snowflake automatically. You just need a running MSSQL instance with the tables you want to migrate.
 
 ### Option A — Use an existing MSSQL server
 
@@ -125,7 +123,7 @@ docker compose -f test/el-integration/docker-compose.yml down -v
 
 ## 2. Set up the dbt environment
 
-`skippr-dbt` uses `dbt` for model compilation, validation, and materialisation. You need `dbt-core` and the Snowflake adapter installed in a Python virtual environment.
+`skippr` uses `dbt` for model compilation, validation, and materialisation. You need `dbt-core` and the Snowflake adapter installed in a Python virtual environment.
 
 ### Create a virtual environment
 
@@ -151,18 +149,18 @@ dbt --version
 
 You should see output listing `dbt-core` and `dbt-snowflake` with their versions.
 
-**Important:** The virtual environment must be activated whenever you run `skippr-dbt`, so that `dbt` is available on PATH.
+**Important:** The virtual environment must be activated whenever you run `skippr`, so that `dbt` is available on PATH.
 
 ---
 
 ## 3. Authenticate with Skippr
 
-`skippr-dbt` requires an authenticated session for cloud storage, server-provided LLM access, and usage metering.
+`skippr` requires an authenticated session for cloud storage, server-provided LLM access, and usage metering.
 
 ### Interactive login (recommended)
 
 ```bash
-skippr-dbt user login
+skippr user login
 ```
 
 This sends a one-time code to your email. Enter it when prompted and your session credentials are stored locally.
@@ -175,7 +173,7 @@ For headless environments, set an API key instead:
 export SKIPPR_API_KEY="sk-..."
 ```
 
-You can generate API keys from an authenticated session with `skippr-dbt user create-api-key`.
+You can generate API keys from an authenticated session with `skippr user create-api-key`.
 
 ---
 
@@ -219,10 +217,10 @@ Credentials are read from the environment at runtime and are **not** written to 
 ## 5. Initialise the project
 
 ```bash
-skippr-dbt init mssql-migration
+skippr init mssql-migration
 ```
 
-This creates `skippr-dbt.yaml` with your project name and a `.env.example` showing the required variables.
+This creates `skippr.yaml` with your project name and a `.env.example` showing the required variables.
 
 ---
 
@@ -231,7 +229,7 @@ This creates `skippr-dbt.yaml` with your project name and a `.env.example` showi
 ### Connect Snowflake
 
 ```bash
-skippr-dbt connect warehouse snowflake \
+skippr connect warehouse snowflake \
   --database ANALYTICS \
   --schema RAW \
   --warehouse COMPUTE_WH \
@@ -241,24 +239,24 @@ skippr-dbt connect warehouse snowflake \
 Or run without flags to be prompted interactively:
 
 ```bash
-skippr-dbt connect warehouse snowflake
+skippr connect warehouse snowflake
 ```
 
 ### Connect MSSQL
 
 ```bash
-skippr-dbt connect source mssql \
+skippr connect source mssql \
   --connection-string '${MSSQL_CONNECTION_STRING}'
 ```
 
-Using `${MSSQL_CONNECTION_STRING}` tells `skippr-dbt` to read the value from your environment at runtime, keeping secrets out of the config file.
+Using `${MSSQL_CONNECTION_STRING}` tells `skippr` to read the value from your environment at runtime, keeping secrets out of the config file.
 
 ---
 
 ## 7. Check prerequisites
 
 ```bash
-skippr-dbt doctor
+skippr doctor
 ```
 
 This verifies that all binaries, credentials, and config are in place. Fix anything marked `[FAIL]` before proceeding.
@@ -270,12 +268,12 @@ This verifies that all binaries, credentials, and config are in place. Fix anyth
 Make sure your virtual environment is activated, then:
 
 ```bash
-skippr-dbt run
+skippr run
 ```
 
 ### Log modes
 
-By default, `skippr-dbt run` renders a **live terminal UI** showing phases, tasks, and progress in real time.
+By default, `skippr run` renders a **live terminal UI** showing phases, tasks, and progress in real time.
 
 | Flag | Behavior |
 |------|----------|
@@ -289,7 +287,7 @@ If you see `"terminal mode not enabled: stdout is not a TTY"`, use `--log info` 
 **Example (headless / CI-friendly):**
 
 ```bash
-skippr-dbt run --log info
+skippr run --log info
 ```
 
 ### What happens when you run
@@ -308,7 +306,7 @@ skippr-dbt run --log info
 
 ### Your config file
 
-After `init` and `connect`, `skippr-dbt.yaml` looks like this:
+After `init` and `connect`, `skippr.yaml` looks like this:
 
 ```yaml
 project: mssql-migration
@@ -329,15 +327,15 @@ That's the entire config. Everything else is handled automatically.
 
 ### Local artifacts
 
-All pipeline artifacts are stored under `.skippr-dbt/` in your working directory:
+All pipeline artifacts are stored under `.skippr/` in your working directory:
 
 ```
-.skippr-dbt/
+.skippr/
 └── local/
     └── dev/
         └── mssql-migration/
             ├── logs/             # Per-run log files
-            └── skippr/           # Generated pipeline config
+            └── pipeline/         # Generated pipeline config
 ```
 
 ### dbt project files
@@ -385,7 +383,7 @@ This means your Snowflake account enforces MFA, so password auth cannot work for
 
 1. Generate an RSA key pair — see [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowflake)
 2. Replace `SNOWFLAKE_PASSWORD` with `SNOWFLAKE_PRIVATE_KEY_PATH` pointing to your `.p8` file
-3. Re-run `skippr-dbt run`
+3. Re-run `skippr run`
 
 ### Snowflake connection errors
 
@@ -412,12 +410,8 @@ pip install dbt-core dbt-snowflake
 
 ### LLM errors (401 / timeouts)
 
-- If you are authenticated (`skippr-dbt user login`), the server provides an LLM key automatically. A custom `LLM_API_KEY` is only needed if you want to use your own key.
+- If you are authenticated (`skippr user login`), the server provides an LLM key automatically. A custom `LLM_API_KEY` is only needed if you want to use your own key.
 - If requests timeout, set `LLM_HTTP_TIMEOUT_SECS=120` in the environment.
-
-### `skippr: command not found`
-
-`skippr-dbt` downloads `skippr` automatically to `~/.skippr-dbt/bin/` on first run. If the download fails (e.g. no internet), you can download `skippr` manually from the [releases page](https://github.com/skipprd/skipprd/releases) and place it on your PATH.
 
 ---
 
@@ -425,11 +419,11 @@ pip install dbt-core dbt-snowflake
 
 | What | Where |
 |------|-------|
-| Config file | `skippr-dbt.yaml` (working directory) |
-| Local artifacts | `.skippr-dbt/local/dev/mssql-migration/` |
+| Config file | `skippr.yaml` (working directory) |
+| Local artifacts | `.skippr/local/dev/mssql-migration/` |
 | dbt models | `models/staging/stg_*.sql` |
 | Source definitions | `models/schema.yml` |
-| Run logs | `.skippr-dbt/local/dev/mssql-migration/logs/` |
+| Run logs | `.skippr/local/dev/mssql-migration/logs/` |
 | Snowflake raw schema | `ANALYTICS.RAW` |
 | Snowflake silver schema | `ANALYTICS.MSSQL_MIGRATION_SILVER` |
 | Snowflake gold schema | `ANALYTICS.MSSQL_MIGRATION_GOLD` |

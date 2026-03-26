@@ -259,7 +259,7 @@ pub fn resolve_providers_from_yaml(
         },
         "el": {
             "enabled": el_f.enabled.unwrap_or(false),
-            "skippr_binary": el_f.skippr_binary.unwrap_or_else(|| "skippr".to_string()),
+            "skippr_binary": el_f.skippr_binary.unwrap_or_else(|| "skippr-el".to_string()),
             "skippr_input": el_f.skippr_input.unwrap_or(serde_json::Value::Null),
         },
     });

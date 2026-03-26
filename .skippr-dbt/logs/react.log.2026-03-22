@@ -1,0 +1,210 @@
+2026-03-22T10:33:56.159158Z  INFO snowflake: using key-pair authentication
+2026-03-22T10:34:11.380097Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-22T10:34:11.392335Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:30.404374Z  WARN react::llm::types: structured response contained 8 output text items; taking only the first
+2026-03-22T10:34:30.406155Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:35.991462Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:41.721636Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:46.837411Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:51.953259Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:34:57.309655Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:35:02.343234Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-22T10:35:04.562679Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=9 status="success"
+2026-03-22T10:35:04.601776Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=18 requests=18 bytes_read=92160 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-22T10:35:48.572622Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-22T10:36:12.750229Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:36:19.753382Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=7003
+2026-03-22T10:36:19.753481Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:36:21.746589Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1993
+2026-03-22T10:36:21.746662Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:36:25.246900Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3500
+2026-03-22T10:36:25.246984Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:36:30.548528Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5301
+2026-03-22T10:36:30.548614Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:37:19.666628Z  INFO dbt: \x1b[0m10:37:19  Done. PASS=31 WARN=0 ERROR=1 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-22T10:37:20.978808Z  INFO dbt: finished phase=build runner=host exit_code=1 ok=false duration_ms=50432
+2026-03-22T10:37:28.563982Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=9 status="success"
+2026-03-22T10:37:28.564839Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-22T10:37:28.569391Z  INFO lance::file_audit: mode="create" type="data" path="0001110111001001110000106032c34633a53973c538918551.lance"
+2026-03-22T10:37:28.572703Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-22T10:37:28.573907Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=9 committed_version=10 detached=false operation="Append"
+2026-03-22T10:37:56.132741Z  WARN react::llm::types: structured response contained 10 output text items; taking only the first
+2026-03-22T10:37:56.134648Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:38:17.125297Z  WARN react::llm::types: structured response contained 4 output text items; taking only the first
+2026-03-22T10:38:17.126463Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-22T10:38:19.232353Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=10 status="success"
+2026-03-22T10:38:19.249531Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=3 iops=20 requests=20 bytes_read=102400 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-22T10:38:26.878532Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:38:32.069330Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:40:21.150957Z  INFO snowflake: query_started sql_len=148
+2026-03-22T10:40:21.951981Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-22T10:40:21.952616Z  INFO snowflake: query_started sql_len=154
+2026-03-22T10:40:23.242181Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:40:23.242516Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:40:24.273841Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-22T10:40:24.274268Z  INFO snowflake: query_started sql_len=157
+2026-03-22T10:40:25.151212Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:40:25.151370Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:40:26.053337Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:40:26.115672Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:40:32.766687Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=6651
+2026-03-22T10:40:32.766769Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:40:34.927446Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2160
+2026-03-22T10:40:34.927528Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:40:38.431309Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3503
+2026-03-22T10:40:38.431391Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:40:43.686766Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5255
+2026-03-22T10:40:43.686852Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:41:32.342666Z  INFO dbt: \x1b[0m10:41:32  Done. PASS=31 WARN=0 ERROR=1 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-22T10:41:33.703433Z  INFO dbt: finished phase=build runner=host exit_code=1 ok=false duration_ms=50018
+2026-03-22T10:41:41.498117Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=10 status="success"
+2026-03-22T10:41:41.498842Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-22T10:41:41.503920Z  INFO lance::file_audit: mode="create" type="data" path="100001011010100111101000ec85cb49629b47ddd113667b1c.lance"
+2026-03-22T10:41:41.507399Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-22T10:41:41.509110Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=10 committed_version=11 detached=false operation="Append"
+2026-03-22T10:42:02.593183Z  WARN react::llm::types: structured response contained 10 output text items; taking only the first
+2026-03-22T10:42:02.596312Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-22T10:42:02.899552Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=11 status="success"
+2026-03-22T10:42:02.917284Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=22 requests=22 bytes_read=112640 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-22T10:42:08.329352Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:42:29.165722Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-22T10:42:29.167579Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:42:50.921097Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-22T10:42:50.924392Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:43:14.505411Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-22T10:43:14.509713Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:43:35.570243Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-22T10:43:35.571580Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:44:33.306958Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-22T10:45:17.077116Z  INFO snowflake: query_started sql_len=148
+2026-03-22T10:45:18.377479Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-22T10:45:18.377710Z  INFO snowflake: query_started sql_len=154
+2026-03-22T10:45:19.276896Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:45:19.277229Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:45:20.132819Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-22T10:45:20.133271Z  INFO snowflake: query_started sql_len=157
+2026-03-22T10:45:21.171548Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:45:21.171760Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:45:22.015107Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:45:22.062904Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:45:28.053099Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=5990
+2026-03-22T10:45:28.053177Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:45:30.221180Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2168
+2026-03-22T10:45:30.221266Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:45:33.785600Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3564
+2026-03-22T10:45:33.785681Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:45:38.933060Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5147
+2026-03-22T10:45:38.933200Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:46:51.775426Z  INFO dbt: \x1b[0m10:46:51  Done. PASS=35 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=35 phase=build runner=host stream="stdout"
+2026-03-22T10:46:53.152179Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=74222
+2026-03-22T10:46:53.353235Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=11 status="success"
+2026-03-22T10:46:53.353736Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-22T10:46:53.356119Z  INFO lance::file_audit: mode="create" type="data" path="0011011100100000000001117170c8485c9373315d90bec19c.lance"
+2026-03-22T10:46:53.357883Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-22T10:46:53.358833Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=11 committed_version=12 detached=false operation="Append"
+2026-03-22T10:46:53.425936Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:46:59.965360Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=6539
+2026-03-22T10:46:59.965438Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:47:01.899037Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1933
+2026-03-22T10:47:01.899110Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:47:05.325481Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3426
+2026-03-22T10:47:05.325565Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:47:10.655467Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5330
+2026-03-22T10:47:10.655552Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:48:23.937210Z  INFO dbt: \x1b[0m10:48:23  Done. PASS=35 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=35 phase=build runner=host stream="stdout"
+2026-03-22T10:48:25.628790Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=74976
+2026-03-22T10:48:42.475028Z  INFO snowflake: query_started sql_len=175
+2026-03-22T10:48:43.696246Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:48:43.698582Z  INFO snowflake: query_started sql_len=177
+2026-03-22T10:48:44.282515Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:48:44.283666Z  INFO snowflake: query_started sql_len=178
+2026-03-22T10:48:45.049730Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:48:45.051184Z  INFO snowflake: query_started sql_len=177
+2026-03-22T10:48:45.657477Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:48:45.729299Z  INFO snowflake: query_started sql_len=171
+2026-03-22T10:48:46.308695Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:48:46.452032Z  INFO snowflake: query_started sql_len=165
+2026-03-22T10:48:47.052189Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:50:18.747755Z  WARN react::llm::types: structured response contained 9 output text items; taking only the first
+2026-03-22T10:50:18.748866Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:50:23.849823Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:50:53.184610Z  WARN react::llm::types: structured response contained 10 output text items; taking only the first
+2026-03-22T10:50:53.185713Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:50:58.705670Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:51:15.328493Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-22T10:51:15.334386Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:51:22.542611Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:51:30.288049Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-22T10:51:35.421936Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-22T10:51:35.822937Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=12 status="success"
+2026-03-22T10:51:35.839223Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=24 requests=24 bytes_read=122880 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-22T10:52:54.562711Z  WARN react::llm::types: structured response contained 4 output text items; taking only the first
+2026-03-22T10:53:37.998523Z  INFO snowflake: query_started sql_len=148
+2026-03-22T10:53:41.136397Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-22T10:53:41.136564Z  INFO snowflake: query_started sql_len=154
+2026-03-22T10:53:42.005917Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:53:42.006129Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:53:42.862759Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-22T10:53:42.862999Z  INFO snowflake: query_started sql_len=157
+2026-03-22T10:53:43.748726Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:53:43.748955Z  INFO snowflake: query_started sql_len=156
+2026-03-22T10:53:44.667741Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-22T10:53:44.710322Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:53:52.606218Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=7896
+2026-03-22T10:53:52.606309Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:53:54.785378Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2179
+2026-03-22T10:53:54.785454Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:53:58.446108Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3660
+2026-03-22T10:53:58.446198Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:54:03.814148Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5368
+2026-03-22T10:54:03.814259Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:54:54.527292Z  INFO dbt: \x1b[0m10:54:54  Done. PASS=31 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=31 phase=build runner=host stream="stdout"
+2026-03-22T10:54:56.090680Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=52278
+2026-03-22T10:54:57.099399Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=12 status="success"
+2026-03-22T10:54:57.100012Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-22T10:54:57.101344Z  INFO lance::file_audit: mode="create" type="data" path="010101110101111111010000c38d5744e7ad4f9e82817bf5f8.lance"
+2026-03-22T10:54:57.102758Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-22T10:54:57.103359Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=12 committed_version=13 detached=false operation="Append"
+2026-03-22T10:54:57.167156Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:55:03.950446Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=6783
+2026-03-22T10:55:03.950521Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:55:06.232306Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2281
+2026-03-22T10:55:06.232393Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:55:09.849257Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3617
+2026-03-22T10:55:09.849341Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:55:15.177394Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5328
+2026-03-22T10:55:15.177485Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:56:05.766559Z  INFO dbt: \x1b[0m10:56:05  Done. PASS=31 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=31 phase=build runner=host stream="stdout"
+2026-03-22T10:56:07.298847Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=52123
+2026-03-22T10:56:21.352644Z  INFO snowflake: query_started sql_len=175
+2026-03-22T10:56:22.606538Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:56:22.607023Z  INFO snowflake: query_started sql_len=177
+2026-03-22T10:56:23.167695Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:56:23.168293Z  INFO snowflake: query_started sql_len=178
+2026-03-22T10:56:23.796243Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:56:23.797443Z  INFO snowflake: query_started sql_len=177
+2026-03-22T10:56:24.344512Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:56:24.380976Z  INFO snowflake: query_started sql_len=171
+2026-03-22T10:56:25.007656Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:56:25.128956Z  INFO snowflake: query_started sql_len=165
+2026-03-22T10:56:25.679853Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-22T10:57:44.252760Z  WARN react_suite_data_engineer::phase_review: data_engineer: review ReviewPatchImpl retry budget exhausted; forcing proceed phase=model_review tries=3
+2026-03-22T10:57:44.314407Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:57:50.716559Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=6402
+2026-03-22T10:57:50.716637Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:57:52.786036Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2069
+2026-03-22T10:57:52.786119Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:57:56.395602Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3609
+2026-03-22T10:57:56.395689Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:58:01.869124Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5473
+2026-03-22T10:58:01.909538Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-22T10:58:07.632648Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=5723
+2026-03-22T10:58:07.632731Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-22T10:58:09.740623Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2107
+2026-03-22T10:58:09.740698Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-22T10:58:13.243074Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3502
+2026-03-22T10:58:13.243162Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-22T10:58:18.468481Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5225
+2026-03-22T10:58:18.468571Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-22T10:59:08.270862Z  INFO dbt: \x1b[0m10:59:08  Done. PASS=31 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=31 phase=build runner=host stream="stdout"
+2026-03-22T10:59:09.596406Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=51129

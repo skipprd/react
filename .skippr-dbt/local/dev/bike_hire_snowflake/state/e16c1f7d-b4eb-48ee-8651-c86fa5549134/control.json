@@ -1,0 +1,49 @@
+{
+  "payload": {
+    "manifest": {
+      "cleanse_plan_bootstrapped": true,
+      "manifest_lookup": {
+        "canonical_success_count": 0,
+        "failure_signature": null,
+        "noncanonical_attempt_count": 0,
+        "repeated_failure_count": 0,
+        "retry_suppressed": false
+      },
+      "model_plan_bootstrapped": false
+    },
+    "phase": {
+      "current_phase": "cleanse_plan",
+      "pending_plan_revision": null,
+      "replan_backtracks": 0,
+      "transition": {
+        "dbt_project_key": "local/dev/bike_hire_snowflake/dbt/dbt_project.yml",
+        "has_dbt_provider": true,
+        "has_query_provider": true,
+        "transition": "preflight_ok"
+      }
+    },
+    "publish": {
+      "status": "not_requested"
+    },
+    "repair": {
+      "failure_context": null,
+      "infra_transient": false,
+      "mutated_since_fail": false,
+      "pending_patch_impl": null,
+      "status": {
+        "status": "idle"
+      }
+    },
+    "schema_version": 2,
+    "subjective_retries": {},
+    "telemetry": {
+      "artifact_focus": null,
+      "last_mutation_summary": null,
+      "probe": {
+        "status": "not_required"
+      }
+    }
+  },
+  "schema_version": 1,
+  "suite_id": "data_engineer"
+}

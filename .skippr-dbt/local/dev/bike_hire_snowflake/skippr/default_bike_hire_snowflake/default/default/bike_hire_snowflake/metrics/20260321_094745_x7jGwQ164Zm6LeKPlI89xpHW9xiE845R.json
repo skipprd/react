@@ -1,0 +1,80 @@
+{
+  "datetime": "2026-03-21T09:47:45Z",
+  "exit_code": 0,
+  "metrics": {
+    "active_threads": 0,
+    "bytes_current": 0,
+    "bytes_total": 0,
+    "deadletters_current": 0,
+    "deadletters_total": 0,
+    "fixed_current": 0,
+    "fixed_total": 0,
+    "ingested_current": 0,
+    "ingested_total": 0,
+    "latest_timestamp": 0,
+    "lock_wait_times": {
+      "cli_mode": {
+        "nanos": 83,
+        "secs": 0
+      },
+      "config": {
+        "nanos": 2788,
+        "secs": 0
+      },
+      "default_message": {
+        "nanos": 167,
+        "secs": 0
+      },
+      "env_cache": {
+        "nanos": 7295,
+        "secs": 0
+      },
+      "metrics": {
+        "nanos": 832,
+        "secs": 0
+      },
+      "pipeline_name": {
+        "nanos": 4540,
+        "secs": 0
+      }
+    },
+    "offset_db_size": 524287,
+    "parquet_persisted_bytes_current": 0,
+    "parquet_persisted_bytes_total": 0,
+    "parquet_persisted_objects_current": 0,
+    "parquet_persisted_objects_total": 0,
+    "parquet_persisted_rows_current": 0,
+    "parquet_persisted_rows_total": 0,
+    "queue_length": 0,
+    "run_time_seconds": 8,
+    "s3_download_concurrency_target": 256,
+    "upload_concurrency_target": 16,
+    "upload_latency_ns_total": 0,
+    "uploads_in_flight": 0,
+    "uploads_total": 0,
+    "wal_compacted_bytes_current": 0,
+    "wal_compacted_bytes_total": 0,
+    "wal_compacted_files_current": 0,
+    "wal_compacted_files_total": 0,
+    "wal_compaction_concurrency_target": 16,
+    "wal_index_bytes_total": 0,
+    "wal_index_files_total": 0,
+    "wal_index_metrics": {
+      "metrics": []
+    },
+    "wal_index_namespaces_total": 0,
+    "wal_index_partitions_total": 0,
+    "wal_write_bytes_current": 0,
+    "wal_write_bytes_total": 0,
+    "wal_write_rows_current": 0,
+    "wal_write_rows_total": 0
+  },
+  "pipeline_name": "bike_hire_snowflake",
+  "run_id": "x7jGwQ164Zm6LeKPlI89xpHW9xiE845R",
+  "start_time": "2026-03-21T09:47:36Z",
+  "status": "Completed",
+  "tenant": "default",
+  "type": "metric",
+  "version": "0.0.0-git",
+  "workspace_name": "default"
+}

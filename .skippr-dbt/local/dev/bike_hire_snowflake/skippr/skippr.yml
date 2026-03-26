@@ -1,0 +1,23 @@
+data_inputs:
+  source:
+    S3:
+      s3_bucket: skippr-e2e-sample-data
+      s3_prefix: bike-hire/
+data_outputs:
+  destination:
+    Snowflake:
+      account: RSSKNWT-KC53195
+      database: ANALYTICS
+      private_key_path: /Users/huders2000/Documents/sites/skippr/react/snowflake_key.p8
+      role: ACCOUNTADMIN
+      schema: RAW
+      user: paulhudson
+      warehouse: COMPUTE_WH
+pipelines:
+  bike_hire_snowflake:
+    input: data_inputs.source
+    output: data_outputs.destination
+    transform:
+      namespace_fields: event_type
+skippr:
+  storage_mode: local

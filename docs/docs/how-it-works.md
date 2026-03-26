@@ -1,11 +1,6 @@
 # How It Works
 
-Skippr dbt orchestrates two tools to build a complete data pipeline:
-
-- **skippr** -- a local CLI that handles extract-and-load (reading from sources, writing to warehouses)
-- **dbt** -- the industry-standard tool for SQL-based data transformation
-
-The orchestrator connects them with an AI-assisted schema mapping layer.
+Skippr dbt builds a complete data pipeline by combining extract-and-load with dbt-based transformation, connected by an AI-assisted schema mapping layer.
 
 ## Pipeline flow
 
@@ -54,11 +49,11 @@ The pipeline creates schemas in the warehouse using the project name:
 
 ## Incremental runs
 
-Re-running `skippr-dbt run` on an existing project is incremental:
+Re-running `skippr run` on an existing project is incremental:
 
-- **Extract-and-load**: `skippr` tracks offsets internally and only syncs new/changed rows.
+- **Extract-and-load**: offsets are tracked internally, so only new or changed rows are synced.
 - **dbt models**: existing models are preserved; the agent updates or adds new models as needed.
 
 ## Local artifacts
 
-Pipeline state, logs, and intermediate files are stored under `.skippr-dbt/` in the working directory. See [Logs and Artifacts](operations/logs.md) for details.
+Pipeline state, logs, and intermediate files are stored under `.skippr/` in the working directory. See [Logs and Artifacts](operations/logs.md) for details.

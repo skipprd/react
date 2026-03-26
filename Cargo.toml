@@ -19,5 +19,5 @@ members = [
   "src/suites/data_engineer/src/modules/provider-snowflake",
   "src/suites/data_engineer/src/modules/provider-mssql",
   "src/suites/data_engineer/src/modules/provider-skippr",
-  "src/bins/skippr-dbt",
+  "src/bins/skippr",
 ]

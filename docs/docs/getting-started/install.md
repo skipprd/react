@@ -1,18 +1,16 @@
 # Install
 
-## 1. Download skippr-dbt
+## 1. Download skippr
 
-Download `skippr-dbt` for your platform from the releases page and place it on your `PATH`:
+Download `skippr` for your platform from the releases page and place it on your `PATH`:
 
 ```bash
-skippr-dbt --version
+skippr --version
 ```
-
-The `skippr` extract-and-load engine is downloaded automatically on first run. To manage `skippr` yourself instead, place it on your `PATH` and `skippr-dbt` will use it.
 
 ## 2. Install Python and dbt
 
-Python 3.10+ is required to run `dbt`, which `skippr-dbt` uses for model compilation and materialisation.
+Python 3.10+ is required to run `dbt`, which `skippr` uses for model compilation and materialisation.
 
 ```bash
 python3 -m venv .venv
@@ -29,7 +27,7 @@ Verify:
 dbt --version
 ```
 
-The virtual environment must be activated whenever you run `skippr-dbt`.
+The virtual environment must be activated whenever you run `skippr`.
 
 ## 3. LLM API key (optional)
 

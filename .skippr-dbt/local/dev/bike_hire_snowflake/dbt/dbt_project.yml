@@ -1,0 +1,15 @@
+name: bike_hire_snowflake_project
+version: '1.0'
+profile: bike_hire_snowflake
+model-paths:
+- models
+seed-paths:
+- seeds
+macro-paths:
+- macros
+target-path: target
+models:
+  bike_hire_snowflake_project:
+    +schema: '{{ env_var(''DBT_GOLD_SUFFIX'', ''gold'') }}'
+    staging:
+      +schema: '{{ env_var(''DBT_SILVER_SUFFIX'', ''silver'') }}'

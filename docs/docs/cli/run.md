@@ -1,11 +1,11 @@
-# skippr-dbt run
+# skippr run
 
 Execute the full pipeline: extract, load, and model.
 
 ## Usage
 
 ```bash
-skippr-dbt run [--log <level>]
+skippr run [--log <level>]
 ```
 
 ## Flags
@@ -32,13 +32,13 @@ When `--log` is omitted, a live terminal UI is displayed showing phases, tasks, 
 
 ```bash
 source .venv/bin/activate
-skippr-dbt run
+skippr run
 ```
 
 With structured logging:
 
 ```bash
-skippr-dbt run --log info
+skippr run --log info
 ```
 
 ## Exit codes

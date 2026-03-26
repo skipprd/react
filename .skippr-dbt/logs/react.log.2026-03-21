@@ -1,0 +1,1041 @@
+2026-03-21T09:28:47.921507Z  INFO snowflake: using key-pair authentication
+2026-03-21T09:28:48.082772Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:28:48.082946Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:29:03.397018Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:29:03.411993Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T09:29:03.413708Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:29:03.413756Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T09:29:13.445117Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=10020
+2026-03-21T09:29:23.445197Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=20021
+2026-03-21T09:29:33.444982Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=30020
+2026-03-21T09:29:43.445333Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=40020
+2026-03-21T09:29:53.458570Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=50021
+2026-03-21T09:30:03.445796Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=600000 source_bytes=515633525 rows_written=0 uploads_in_flight=0 elapsed_ms=60021
+2026-03-21T09:30:13.450313Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=1000000 source_bytes=859193820 rows_written=100035 uploads_in_flight=2 elapsed_ms=70024
+2026-03-21T09:30:23.446489Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=1000000 source_bytes=859193820 rows_written=250451 uploads_in_flight=0 elapsed_ms=80021
+2026-03-21T09:30:33.447778Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=1600000 source_bytes=1374140576 rows_written=250451 uploads_in_flight=0 elapsed_ms=90021
+2026-03-21T09:30:43.447297Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=1600000 source_bytes=1374140576 rows_written=375602 uploads_in_flight=0 elapsed_ms=100021
+2026-03-21T09:30:53.446936Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=2000000 source_bytes=1717273306 rows_written=400475 uploads_in_flight=3 elapsed_ms=110021
+2026-03-21T09:31:03.446270Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=2600000 source_bytes=2235175647 rows_written=475307 uploads_in_flight=1 elapsed_ms=120020
+2026-03-21T09:31:13.447449Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=2600000 source_bytes=2235175647 rows_written=724767 uploads_in_flight=16 elapsed_ms=130021
+2026-03-21T09:31:23.447774Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=3000000 source_bytes=2578599083 rows_written=1324603 uploads_in_flight=5 elapsed_ms=140021
+2026-03-21T09:31:33.448887Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=3600000 source_bytes=3094372311 rows_written=1574540 uploads_in_flight=6 elapsed_ms=150022
+2026-03-21T09:31:43.449405Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=3600000 source_bytes=3094372311 rows_written=1749316 uploads_in_flight=15 elapsed_ms=160021
+2026-03-21T09:31:53.450562Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=4000000 source_bytes=3438584403 rows_written=2199551 uploads_in_flight=13 elapsed_ms=170021
+2026-03-21T09:32:03.447749Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=4600000 source_bytes=3955178389 rows_written=2524606 uploads_in_flight=16 elapsed_ms=180021
+2026-03-21T09:32:13.447287Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=4700000 source_bytes=4041020543 rows_written=2925482 uploads_in_flight=14 elapsed_ms=190020
+2026-03-21T09:32:23.448634Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=3276635 uploads_in_flight=16 elapsed_ms=200021
+2026-03-21T09:32:33.450429Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=3301562 uploads_in_flight=15 elapsed_ms=210022
+2026-03-21T09:32:43.448940Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=3676193 uploads_in_flight=16 elapsed_ms=220021
+2026-03-21T09:32:53.448208Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=3825993 uploads_in_flight=10 elapsed_ms=230020
+2026-03-21T09:33:03.449489Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=4076464 uploads_in_flight=9 elapsed_ms=240021
+2026-03-21T09:33:13.450245Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=4300985 uploads_in_flight=16 elapsed_ms=250022
+2026-03-21T09:33:23.448562Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=4700135 uploads_in_flight=16 elapsed_ms=260020
+2026-03-21T09:33:33.449137Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=5100000 source_bytes=4384606514 rows_written=4975103 uploads_in_flight=5 elapsed_ms=270020
+2026-03-21T09:33:34.268757Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T09:33:34.270538Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:33:34.282528Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T09:33:34.396945Z  INFO snowflake: query_started sql_len=53
+2026-03-21T09:33:34.522326Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:33:34.522458Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:33:34.678314Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:33:34.678444Z  INFO snowflake: query_started sql_len=50
+2026-03-21T09:33:34.755284Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:33:34.755420Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:33:34.854360Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:33:34.854487Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T09:33:34.875490Z  INFO snowflake: query_started sql_len=148
+2026-03-21T09:33:35.545541Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T09:33:35.551813Z  INFO snowflake: query_started sql_len=154
+2026-03-21T09:33:36.347903Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:33:36.360139Z  INFO snowflake: query_started sql_len=58
+2026-03-21T09:33:36.409375Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T09:33:36.409503Z  INFO snowflake: query_started sql_len=268
+2026-03-21T09:33:37.299413Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:37.300020Z  INFO snowflake: query_started sql_len=186
+2026-03-21T09:33:37.405218Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:37.405656Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:33:37.901871Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:37.902282Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:33:37.991783Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:37.992250Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:33:38.263753Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:38.264191Z  INFO snowflake: query_started sql_len=256
+2026-03-21T09:33:38.659177Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:38.660269Z  INFO snowflake: query_started sql_len=183
+2026-03-21T09:33:38.814415Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:38.814870Z  INFO snowflake: query_started sql_len=288
+2026-03-21T09:33:39.284816Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:39.285338Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:33:39.504396Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:39.504823Z  INFO snowflake: query_started sql_len=272
+2026-03-21T09:33:40.258172Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:40.258626Z  INFO snowflake: query_started sql_len=177
+2026-03-21T09:33:40.389693Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:33:40.397922Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T09:33:40.398294Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:33:41.332316Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T09:33:41.332758Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T09:33:41.333088Z  INFO snowflake: query_started sql_len=157
+2026-03-21T09:33:42.387223Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:33:42.387638Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T09:33:42.387826Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:33:43.207596Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:33:43.208026Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T09:33:43.208634Z  INFO react_suite_data_engineer::phase_plan: data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery
+2026-03-21T09:33:43.212995Z ERROR react_suite_data_engineer::agent_modes: phase execution error — recording guard block thread_id=518001d6-07c1-4af3-b7a5-1355ac1cccf1 phase=cleanse_plan error=expected value at line 1 column 2
+2026-03-21T09:33:43.220777Z ERROR react::run_engine: expected value at line 1 column 2
+2026-03-21T09:47:35.098670Z  INFO snowflake: using key-pair authentication
+2026-03-21T09:47:35.247133Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:47:35.247302Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:47:36.402142Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:47:36.413481Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T09:47:36.415247Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:47:36.415303Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T09:47:45.285546Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T09:47:45.289531Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:47:45.313757Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T09:47:45.446749Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:47:45.512694Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:47:45.512827Z  INFO snowflake: query_started sql_len=53
+2026-03-21T09:47:45.578034Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:47:45.578236Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:47:45.643198Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:47:45.643666Z  INFO snowflake: query_started sql_len=50
+2026-03-21T09:47:45.701202Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:47:45.701573Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T09:47:45.732079Z  INFO snowflake: query_started sql_len=148
+2026-03-21T09:47:46.812387Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T09:47:46.819775Z  INFO snowflake: query_started sql_len=154
+2026-03-21T09:47:47.842476Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:47:47.855297Z  INFO snowflake: query_started sql_len=58
+2026-03-21T09:47:47.908662Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T09:47:47.908795Z  INFO snowflake: query_started sql_len=268
+2026-03-21T09:47:47.967889Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:47.968247Z  INFO snowflake: query_started sql_len=186
+2026-03-21T09:47:48.019678Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.019888Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:47:48.082319Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.085844Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:47:48.135891Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.139591Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:47:48.195578Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.195732Z  INFO snowflake: query_started sql_len=256
+2026-03-21T09:47:48.246028Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.246220Z  INFO snowflake: query_started sql_len=183
+2026-03-21T09:47:48.314015Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.314378Z  INFO snowflake: query_started sql_len=288
+2026-03-21T09:47:48.389014Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.389800Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:47:48.463917Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.464346Z  INFO snowflake: query_started sql_len=272
+2026-03-21T09:47:48.516765Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.516927Z  INFO snowflake: query_started sql_len=177
+2026-03-21T09:47:48.571464Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:47:48.576949Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T09:47:48.577467Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:47:49.451309Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T09:47:49.451461Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T09:47:49.451649Z  INFO snowflake: query_started sql_len=157
+2026-03-21T09:47:50.295500Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:47:50.296018Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T09:47:50.296257Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:47:51.151020Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:47:51.151513Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T09:47:51.152536Z  INFO react_suite_data_engineer::phase_plan: data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery
+2026-03-21T09:47:51.158913Z ERROR react_suite_data_engineer::agent_modes: phase execution error — recording guard block thread_id=9d1ddeca-c08c-4d19-8f5a-d454c1ef8956 phase=cleanse_plan error=expected value at line 1 column 2
+2026-03-21T09:47:51.167837Z ERROR react::run_engine: expected value at line 1 column 2
+2026-03-21T09:52:33.843773Z  INFO snowflake: using key-pair authentication
+2026-03-21T09:52:33.998104Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:52:33.998267Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:52:35.040272Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:52:35.052556Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T09:52:35.054343Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T09:52:35.054406Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T09:52:41.152583Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T09:52:41.158083Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T09:52:41.175203Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T09:52:41.299690Z  INFO snowflake: query_started sql_len=50
+2026-03-21T09:52:41.350213Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:52:41.350537Z  INFO snowflake: query_started sql_len=53
+2026-03-21T09:52:41.399152Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:52:41.399311Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:52:41.442217Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:52:41.442558Z  INFO snowflake: query_started sql_len=52
+2026-03-21T09:52:41.494741Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T09:52:41.494973Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T09:52:41.516269Z  INFO snowflake: query_started sql_len=148
+2026-03-21T09:52:42.122791Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T09:52:42.130695Z  INFO snowflake: query_started sql_len=154
+2026-03-21T09:52:42.990021Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:52:42.998228Z  INFO snowflake: query_started sql_len=58
+2026-03-21T09:52:43.047918Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T09:52:43.048100Z  INFO snowflake: query_started sql_len=268
+2026-03-21T09:52:43.098417Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.098629Z  INFO snowflake: query_started sql_len=186
+2026-03-21T09:52:43.146775Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.146997Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:52:43.211428Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.211609Z  INFO snowflake: query_started sql_len=280
+2026-03-21T09:52:43.254450Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.254678Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:52:43.302622Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.302789Z  INFO snowflake: query_started sql_len=256
+2026-03-21T09:52:43.350053Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.350396Z  INFO snowflake: query_started sql_len=183
+2026-03-21T09:52:43.400840Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.401045Z  INFO snowflake: query_started sql_len=288
+2026-03-21T09:52:43.446215Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.446431Z  INFO snowflake: query_started sql_len=181
+2026-03-21T09:52:43.499998Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.500107Z  INFO snowflake: query_started sql_len=272
+2026-03-21T09:52:43.546090Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.546267Z  INFO snowflake: query_started sql_len=177
+2026-03-21T09:52:43.602813Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T09:52:43.609732Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T09:52:43.610036Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:52:44.498730Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T09:52:44.498957Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T09:52:44.499151Z  INFO snowflake: query_started sql_len=157
+2026-03-21T09:52:45.321258Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:52:45.321670Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T09:52:45.321880Z  INFO snowflake: query_started sql_len=156
+2026-03-21T09:52:46.143441Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T09:52:46.143850Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T09:52:46.144324Z  INFO react_suite_data_engineer::phase_plan: data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery
+2026-03-21T09:52:46.147424Z ERROR react_suite_data_engineer: parse_json_object_strict failed: expected value at line 1 column 2 raw_len=5473 raw_preview=[local-llm-disabled]
+system: You are a pragmatic design reviewer for cleanse_plan planning.
+Return JSON only matching the schema.
+Your goal is PRAGMATIC PROGRESS — only flag issues that would PREVENT execution.
+Rules:
+- blockers: only structural issues that make the plan impossible to execute (max 3)
+- Do NOT flag stylistic, theoretical, or 'nice to have' concerns.
+- Do NOT flag performance optimizations or alternative approaches.
+- A plan that can compile and execute is GOOD ENOUGH even if impe
+2026-03-21T09:52:46.147683Z ERROR react_suite_data_engineer::agent_modes: phase execution error — recording guard block thread_id=90f49f43-73a3-4d75-a6be-d654250e88c5 phase=cleanse_plan error=expected value at line 1 column 2
+2026-03-21T09:52:46.153243Z ERROR react::run_engine: expected value at line 1 column 2
+2026-03-21T10:02:41.505782Z  INFO snowflake: using key-pair authentication
+2026-03-21T10:02:41.657583Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T10:02:41.657757Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T10:02:42.631737Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T10:02:42.655161Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T10:02:42.671606Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T10:02:42.671809Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T10:02:51.509538Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T10:02:51.513801Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T10:02:51.538092Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T10:02:51.858346Z  INFO snowflake: query_started sql_len=52
+2026-03-21T10:02:51.959819Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T10:02:51.960021Z  INFO snowflake: query_started sql_len=50
+2026-03-21T10:02:52.116941Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T10:02:52.117082Z  INFO snowflake: query_started sql_len=53
+2026-03-21T10:02:52.199899Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T10:02:52.199969Z  INFO snowflake: query_started sql_len=52
+2026-03-21T10:02:52.262566Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T10:02:52.262755Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T10:02:52.275204Z  INFO snowflake: query_started sql_len=148
+2026-03-21T10:02:54.798179Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T10:02:54.804149Z  INFO snowflake: query_started sql_len=154
+2026-03-21T10:02:55.999727Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:02:56.007068Z  INFO snowflake: query_started sql_len=58
+2026-03-21T10:02:56.190518Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T10:02:56.190734Z  INFO snowflake: query_started sql_len=268
+2026-03-21T10:02:56.237381Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.237581Z  INFO snowflake: query_started sql_len=186
+2026-03-21T10:02:56.419566Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.419818Z  INFO snowflake: query_started sql_len=280
+2026-03-21T10:02:56.477261Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.477633Z  INFO snowflake: query_started sql_len=280
+2026-03-21T10:02:56.613577Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.613849Z  INFO snowflake: query_started sql_len=181
+2026-03-21T10:02:56.747294Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.747680Z  INFO snowflake: query_started sql_len=256
+2026-03-21T10:02:56.802675Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.803120Z  INFO snowflake: query_started sql_len=183
+2026-03-21T10:02:56.947127Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.947392Z  INFO snowflake: query_started sql_len=288
+2026-03-21T10:02:56.996424Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:56.996657Z  INFO snowflake: query_started sql_len=181
+2026-03-21T10:02:57.129484Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:57.129957Z  INFO snowflake: query_started sql_len=272
+2026-03-21T10:02:57.197641Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:57.197975Z  INFO snowflake: query_started sql_len=177
+2026-03-21T10:02:57.307850Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T10:02:57.313574Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T10:02:57.313979Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:02:58.152857Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T10:02:58.153087Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T10:02:58.153369Z  INFO snowflake: query_started sql_len=157
+2026-03-21T10:02:59.448122Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:02:59.448375Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T10:02:59.448534Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:03:00.432237Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:03:00.432570Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T10:03:00.433127Z  INFO react_suite_data_engineer::phase_plan: data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery
+2026-03-21T10:05:09.473152Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets
+2026-03-21T10:05:09.475077Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] grounding plan against warehouse schema
+2026-03-21T10:05:09.475242Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 candidate dataset(s) before schema validation: ["ANALYTICS.RAW.TRIP_END", "ANALYTICS.RAW.TRIP_PAUSE", "ANALYTICS.RAW.TRIP_RESUME", "ANALYTICS.RAW.TRIP_START"]
+2026-03-21T10:05:09.475389Z  INFO react_suite_data_engineer::dataset_truth: grounding: configured container=Some("ANALYTICS"), namespace=Some("RAW"), 4 unique candidate(s)
+2026-03-21T10:05:09.475588Z  INFO snowflake: query_started sql_len=154
+2026-03-21T10:05:10.487237Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:05:10.487561Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:05:11.623502Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T10:05:11.623900Z  INFO snowflake: query_started sql_len=157
+2026-03-21T10:05:12.680849Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:05:12.681414Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:05:13.630543Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:05:13.630891Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 allowed, 0 rejected
+2026-03-21T10:06:46.023507Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_END: (missing) -> models/staging/stg_raw_trip_end.sql
+2026-03-21T10:06:46.023570Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_PAUSE: (missing) -> models/staging/stg_raw_trip_pause.sql
+2026-03-21T10:06:46.023597Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_RESUME: (missing) -> models/staging/stg_raw_trip_resume.sql
+2026-03-21T10:06:46.023613Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_START: (missing) -> models/staging/stg_raw_trip_start.sql
+2026-03-21T10:06:46.030663Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] validating plan semantics
+2026-03-21T10:06:46.041645Z  INFO react_suite_data_engineer::dataset_truth: grounding: configured container=Some("ANALYTICS"), namespace=Some("RAW"), 4 unique candidate(s)
+2026-03-21T10:06:52.771754Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:06:52.804038Z  INFO react_core::agent::run_loop: agent action: apply_next_cleanse_batch
+2026-03-21T10:06:52.818121Z  INFO snowflake: query_started sql_len=148
+2026-03-21T10:06:53.608041Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T10:07:13.853832Z  INFO snowflake: query_started sql_len=1745
+2026-03-21T10:07:28.023083Z  INFO snowflake: query_started sql_len=2220
+2026-03-21T10:07:28.275668Z  INFO snowflake: query_succeeded rows=1 cols=23
+2026-03-21T10:07:40.276641Z  INFO snowflake: query_started sql_len=2001
+2026-03-21T10:07:52.312758Z  INFO snowflake: query_started sql_len=2040
+2026-03-21T10:08:08.374149Z  INFO snowflake: query_started sql_len=2543
+2026-03-21T10:08:08.807127Z  INFO snowflake: query_succeeded rows=1 cols=24
+2026-03-21T10:08:27.020405Z  INFO snowflake: query_started sql_len=1608
+2026-03-21T10:08:27.326659Z  INFO snowflake: query_succeeded rows=1 cols=21
+2026-03-21T10:08:45.946959Z  INFO snowflake: query_started sql_len=2011
+2026-03-21T10:08:46.313773Z  INFO snowflake: query_succeeded rows=1 cols=28
+2026-03-21T10:08:46.318912Z  INFO staging_model: staging_model finished datasets=4 written=2
+2026-03-21T10:08:56.693483Z  WARN react::llm::types: structured response contained 4 output text items; taking only the first
+2026-03-21T10:08:56.700664Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:09:01.632101Z  INFO react_core::agent::run_loop: agent action: artifacts
+2026-03-21T10:09:06.784497Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:09:09.521180Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:09:14.763190Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:09:40.305026Z  WARN react::llm::types: structured response contained 4 output text items; taking only the first
+2026-03-21T10:09:40.310234Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:10:01.126869Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:10:19.828145Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:10:24.998493Z  INFO react_core::agent::run_loop: agent action: apply_next_cleanse_batch
+2026-03-21T10:10:25.016620Z  INFO snowflake: query_started sql_len=154
+2026-03-21T10:10:25.947089Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:10:25.947378Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:10:26.781120Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T10:10:26.799042Z  INFO snowflake: query_started sql_len=148
+2026-03-21T10:10:27.416053Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T10:10:27.416311Z  INFO snowflake: query_started sql_len=157
+2026-03-21T10:10:28.292241Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:10:28.292373Z  INFO snowflake: query_started sql_len=156
+2026-03-21T10:10:29.131007Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T10:10:45.635128Z  INFO snowflake: query_started sql_len=1602
+2026-03-21T10:10:45.763944Z  INFO snowflake: query_succeeded rows=1 cols=21
+2026-03-21T10:11:01.901668Z  INFO snowflake: query_started sql_len=1974
+2026-03-21T10:11:02.030052Z  INFO snowflake: query_succeeded rows=1 cols=23
+2026-03-21T10:11:02.038337Z  INFO staging_model: staging_model finished datasets=2 written=2
+2026-03-21T10:11:09.377772Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:11:09.380112Z  INFO react_core::agent::run_loop: agent action: apply_next_cleanse_schema_batch
+2026-03-21T10:11:47.837959Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T10:11:51.918686Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=4080
+2026-03-21T10:11:51.918770Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T10:11:53.495713Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1576
+2026-03-21T10:11:53.495785Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T10:11:56.402438Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2906
+2026-03-21T10:11:56.402520Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T10:11:59.966365Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3563
+2026-03-21T10:11:59.966460Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T10:12:03.044745Z  INFO dbt: \x1b[0m10:12:03  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T10:12:03.728027Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=3761
+2026-03-21T10:13:19.514724Z  WARN react::llm::types: structured response contained 12 output text items; taking only the first
+2026-03-21T10:13:19.516721Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:13:24.560562Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:13:24.563814Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:13:29.893472Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:13:39.362407Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:13:39.365340Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T10:13:41.896532Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None status="error"
+2026-03-21T10:14:05.962113Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:14:25.005478Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T10:14:27.754572Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=2749
+2026-03-21T10:14:27.754651Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T10:14:29.194699Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1440
+2026-03-21T10:14:29.194774Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T10:14:31.991196Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2796
+2026-03-21T10:14:31.991286Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T10:14:35.538156Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3546
+2026-03-21T10:14:35.538242Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T10:14:38.646897Z  INFO dbt: \x1b[0m10:14:38  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T10:14:39.308528Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=3770
+2026-03-21T10:14:41.493935Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None status="error"
+2026-03-21T10:14:41.498554Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None status="error"
+2026-03-21T10:14:41.498748Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Create
+2026-03-21T10:14:41.512448Z  INFO lance::file_audit: mode="create" type="data" path="010100110011010111110001af68364f96a69d3d062a7ae4b1.lance"
+2026-03-21T10:14:41.513531Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None status="error"
+2026-03-21T10:14:41.517132Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T10:14:41.519746Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=0 committed_version=1 detached=false operation="Overwrite"
+2026-03-21T10:14:41.520504Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T10:14:41.523174Z  INFO lance::file_audit: mode="create" type="data" path="01100100101101000101010055f5f34574895831c5207dc6b4.lance"
+2026-03-21T10:14:41.526858Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T10:14:41.527860Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=1 committed_version=2 detached=false operation="Append"
+2026-03-21T10:14:48.974690Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T10:14:48.987909Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:15:00.703333Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:15:00.705031Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T10:15:00.842666Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=2 status="success"
+2026-03-21T10:15:00.880207Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=2 iops=4 requests=4 bytes_read=20480 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T10:15:26.970771Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T10:15:41.070773Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T10:15:43.271217Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=2200
+2026-03-21T10:15:43.271291Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T10:15:44.594175Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1322
+2026-03-21T10:15:44.594250Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T10:15:47.225279Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2630
+2026-03-21T10:15:47.225367Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T10:15:50.437817Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3212
+2026-03-21T10:15:50.437901Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T10:15:53.299581Z  INFO dbt: \x1b[0m10:15:53  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T10:15:53.937141Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=3499
+2026-03-21T10:15:54.122417Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=2 status="success"
+2026-03-21T10:15:54.123111Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T10:15:54.126062Z  INFO lance::file_audit: mode="create" type="data" path="010100100110010111001100663a72451c88ab5ba000a84019.lance"
+2026-03-21T10:15:54.127977Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T10:15:54.129216Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=2 committed_version=3 detached=false operation="Append"
+2026-03-21T10:15:54.159372Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T10:15:54.163368Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T10:15:54.383672Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=3 status="success"
+2026-03-21T10:15:54.391452Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=3 iops=6 requests=6 bytes_read=30720 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T10:16:03.915844Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T10:16:06.203124Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=2287
+2026-03-21T10:16:06.203197Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T10:16:07.512921Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1309
+2026-03-21T10:16:07.512995Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T10:16:10.113301Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2600
+2026-03-21T10:16:10.113386Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T10:16:13.320950Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3207
+2026-03-21T10:16:13.321036Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T10:16:16.433338Z  INFO dbt: \x1b[0m10:16:16  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T10:16:17.089584Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=3768
+2026-03-21T10:16:17.267139Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=3 status="success"
+2026-03-21T10:16:17.267443Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T10:16:17.268996Z  INFO lance::file_audit: mode="create" type="data" path="0010100001000010111101114722ca4d819d18a6e9436d74df.lance"
+2026-03-21T10:16:17.269999Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T10:16:17.270676Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=3 committed_version=4 detached=false operation="Append"
+2026-03-21T10:16:17.286636Z ERROR react_suite_data_engineer::agent_modes: phase execution error — recording guard block thread_id=eb81bfd5-c11c-49a5-b4ca-cd5406b42255 phase=cleanse_validate error=pre-validation repair did not converge after 3 attempts; manual implementation fix required before re-validating.
+
+Pre-validation failed; fix DBT YAML artifacts before re-validating.
+
+staging schema references unknown columns for model 'stg_raw_trip_end'.
+File: models/staging/stg_raw_trip_end.yml
+Staging SQL: models/staging/stg_raw_trip_end.sql
+Unknown columns:
+- bike_id_raw
+- event_date_source_raw
+- event_type_raw
+- isbn
+- message_type_raw
+- rider_id_raw
+
+Fix: update staging SQL outputs or remove/rename these YAML columns before dbt_validate.
+2026-03-21T10:16:17.292045Z ERROR react::run_engine: pre-validation repair did not converge after 3 attempts; manual implementation fix required before re-validating.
+
+Pre-validation failed; fix DBT YAML artifacts before re-validating.
+
+staging schema references unknown columns for model 'stg_raw_trip_end'.
+File: models/staging/stg_raw_trip_end.yml
+Staging SQL: models/staging/stg_raw_trip_end.sql
+Unknown columns:
+- bike_id_raw
+- event_date_source_raw
+- event_type_raw
+- isbn
+- message_type_raw
+- rider_id_raw
+
+Fix: update staging SQL outputs or remove/rename these YAML columns before dbt_validate.
+2026-03-21T11:01:49.686167Z  INFO snowflake: using key-pair authentication
+2026-03-21T11:01:49.845239Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T11:01:49.845462Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:01:50.937674Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:01:50.974076Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T11:01:50.976011Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T11:01:50.976097Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T11:01:57.638781Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T11:01:57.646515Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:01:57.657445Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T11:01:57.779193Z  INFO snowflake: query_started sql_len=53
+2026-03-21T11:01:57.852360Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:01:57.852489Z  INFO snowflake: query_started sql_len=50
+2026-03-21T11:01:57.907471Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:01:57.907613Z  INFO snowflake: query_started sql_len=52
+2026-03-21T11:01:57.990586Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:01:57.990784Z  INFO snowflake: query_started sql_len=52
+2026-03-21T11:01:58.049710Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:01:58.049922Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T11:01:58.073457Z  INFO snowflake: query_started sql_len=148
+2026-03-21T11:01:59.177430Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T11:01:59.185244Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:02:00.283336Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:02:00.295086Z  INFO snowflake: query_started sql_len=58
+2026-03-21T11:02:00.352980Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T11:02:00.353233Z  INFO snowflake: query_started sql_len=268
+2026-03-21T11:02:00.431459Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.431632Z  INFO snowflake: query_started sql_len=186
+2026-03-21T11:02:00.502296Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.502909Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:02:00.568146Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.568507Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:02:00.628352Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.628619Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:02:00.693586Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.693810Z  INFO snowflake: query_started sql_len=256
+2026-03-21T11:02:00.763397Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.763781Z  INFO snowflake: query_started sql_len=183
+2026-03-21T11:02:00.819613Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.821925Z  INFO snowflake: query_started sql_len=288
+2026-03-21T11:02:00.880578Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.880819Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:02:00.952008Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:00.952495Z  INFO snowflake: query_started sql_len=272
+2026-03-21T11:02:01.015006Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:01.015422Z  INFO snowflake: query_started sql_len=177
+2026-03-21T11:02:01.093463Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:02:01.106485Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T11:02:01.106724Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:02:02.057412Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:02:02.057568Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T11:02:02.058789Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:02:03.981100Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:02:03.981572Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T11:02:03.981796Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:02:04.829372Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:02:04.829529Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T11:02:04.830314Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery step budget = 27 (source_count=4)
+2026-03-21T11:02:16.833337Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery complete for cleanse, beginning deterministic plan compilation
+2026-03-21T11:04:17.576735Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets
+2026-03-21T11:04:17.578237Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] grounding plan against warehouse schema
+2026-03-21T11:04:17.578416Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 candidate dataset(s) before schema validation: ["ANALYTICS.RAW.TRIP_END", "ANALYTICS.RAW.TRIP_PAUSE", "ANALYTICS.RAW.TRIP_RESUME", "ANALYTICS.RAW.TRIP_START"]
+2026-03-21T11:04:17.578609Z  INFO react_suite_data_engineer::dataset_truth: grounding: configured container=Some("ANALYTICS"), namespace=Some("RAW"), 4 unique candidate(s)
+2026-03-21T11:04:17.578790Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:04:19.233782Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:04:19.234107Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:04:20.481568Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:04:20.481916Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:04:21.326963Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:04:21.327368Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:04:22.141148Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:04:22.141484Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 allowed, 0 rejected
+2026-03-21T11:36:27.173974Z  INFO snowflake: using key-pair authentication
+2026-03-21T11:36:27.325643Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T11:36:27.325803Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["discover", "--pipeline", "bike_hire_snowflake", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:36:28.591845Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:36:28.606431Z  INFO react_suite_data_engineer::phase_el_discover: EL discover complete namespaces=4 pipeline="bike_hire_snowflake"
+2026-03-21T11:36:28.608963Z  INFO react_module_provider_skippr::skippr_impl: wrote skippr.yml path=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr/skippr.yml
+2026-03-21T11:36:28.609053Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr (streaming) binary=skippr args=["sync", "--pipeline", "bike_hire_snowflake", "--once", "--output", "json"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr idle_timeout_secs=120
+2026-03-21T11:36:38.639144Z  INFO react_module_provider_skippr::skippr_impl: skippr sync heartbeat messages=0 source_bytes=0 rows_written=0 uploads_in_flight=0 elapsed_ms=10020
+2026-03-21T11:36:39.242240Z  INFO react_suite_data_engineer::phase_el_sync: EL sync complete tables_synced=1
+2026-03-21T11:36:39.246273Z  INFO react_module_provider_skippr::skippr_impl: spawning skippr binary=skippr args=["query", "--plain", "--sql", "SHOW PIPELINE bike_hire_snowflake"] data_dir=/Users/huders2000/Documents/sites/skippr/react/./.skippr-dbt/local/dev/bike_hire_snowflake/skippr timeout_secs=120
+2026-03-21T11:36:39.267108Z  INFO react_suite_data_engineer::phase_el_verify: skippr pipeline status during verify status=active namespaces=4
+2026-03-21T11:36:40.081903Z  INFO snowflake: query_started sql_len=52
+2026-03-21T11:36:40.184910Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:36:40.185219Z  INFO snowflake: query_started sql_len=50
+2026-03-21T11:36:40.284743Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:36:40.285178Z  INFO snowflake: query_started sql_len=53
+2026-03-21T11:36:40.375040Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:36:40.375285Z  INFO snowflake: query_started sql_len=52
+2026-03-21T11:36:40.472956Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:36:40.473194Z  INFO react_suite_data_engineer::phase_el_verify: EL verify complete — all destination tables confirmed tables_verified=4
+2026-03-21T11:36:40.492421Z  INFO snowflake: query_started sql_len=148
+2026-03-21T11:36:41.515257Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T11:36:41.523159Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:36:42.621527Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:36:42.627687Z  INFO snowflake: query_started sql_len=58
+2026-03-21T11:36:42.988619Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T11:36:42.988994Z  INFO snowflake: query_started sql_len=268
+2026-03-21T11:36:43.108366Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.108649Z  INFO snowflake: query_started sql_len=186
+2026-03-21T11:36:43.194720Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.195063Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:36:43.279715Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.280004Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:36:43.370979Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.371431Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:36:43.459899Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.460263Z  INFO snowflake: query_started sql_len=256
+2026-03-21T11:36:43.578069Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.578478Z  INFO snowflake: query_started sql_len=183
+2026-03-21T11:36:43.660092Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.660333Z  INFO snowflake: query_started sql_len=288
+2026-03-21T11:36:43.746796Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.747528Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:36:43.841087Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.841260Z  INFO snowflake: query_started sql_len=272
+2026-03-21T11:36:43.934143Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:43.938226Z  INFO snowflake: query_started sql_len=177
+2026-03-21T11:36:44.022679Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:36:44.031336Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T11:36:44.031650Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:36:44.879473Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:36:44.880024Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T11:36:44.880691Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:36:45.727580Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:36:45.728018Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T11:36:45.728164Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:36:46.597345Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:36:46.597595Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T11:36:46.598647Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery step budget = 27 (source_count=4)
+2026-03-21T11:36:54.555154Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery complete for cleanse, beginning deterministic plan compilation
+2026-03-21T11:39:39.103574Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] compiling plan skeleton from discovered raw datasets
+2026-03-21T11:39:39.105084Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] grounding plan against warehouse schema
+2026-03-21T11:39:39.105165Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 candidate dataset(s) before schema validation: ["ANALYTICS.RAW.TRIP_END", "ANALYTICS.RAW.TRIP_PAUSE", "ANALYTICS.RAW.TRIP_RESUME", "ANALYTICS.RAW.TRIP_START"]
+2026-03-21T11:39:39.105255Z  INFO react_suite_data_engineer::dataset_truth: grounding: configured container=Some("ANALYTICS"), namespace=Some("RAW"), 4 unique candidate(s)
+2026-03-21T11:39:39.105392Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:39:40.228085Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:39:40.228488Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:39:41.110709Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:39:41.111568Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:39:41.964932Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:39:41.965294Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:39:42.889770Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:39:42.890277Z  INFO react_suite_data_engineer::phase_plan: cleanse plan grounding: 4 allowed, 0 rejected
+2026-03-21T11:41:25.785201Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_END: (missing) -> models/staging/stg_raw_trip_end.sql
+2026-03-21T11:41:25.785330Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_PAUSE: (missing) -> models/staging/stg_raw_trip_pause.sql
+2026-03-21T11:41:25.785381Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_RESUME: (missing) -> models/staging/stg_raw_trip_resume.sql
+2026-03-21T11:41:25.785431Z  WARN react_suite_data_engineer::plan_grounding: canonicalized cleanse expected_model_path for ANALYTICS.RAW.TRIP_START: (missing) -> models/staging/stg_raw_trip_start.sql
+2026-03-21T11:41:25.794990Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [cleanse] validating plan semantics
+2026-03-21T11:41:25.799353Z  INFO react_suite_data_engineer::dataset_truth: grounding: configured container=Some("ANALYTICS"), namespace=Some("RAW"), 4 unique candidate(s)
+2026-03-21T11:41:29.551336Z  INFO react_core::agent::run_loop: agent action: apply_next_cleanse_batch
+2026-03-21T11:41:29.587534Z  INFO snowflake: query_started sql_len=148
+2026-03-21T11:41:30.414186Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T11:41:43.959275Z  INFO snowflake: query_started sql_len=1717
+2026-03-21T11:42:03.199467Z  INFO snowflake: query_started sql_len=1479
+2026-03-21T11:42:03.521808Z  INFO snowflake: query_succeeded rows=1 cols=20
+2026-03-21T11:42:17.395790Z  INFO snowflake: query_started sql_len=2050
+2026-03-21T11:42:17.728117Z  INFO snowflake: query_succeeded rows=1 cols=23
+2026-03-21T11:42:28.005960Z  INFO snowflake: query_started sql_len=1557
+2026-03-21T11:42:41.606165Z  INFO snowflake: query_started sql_len=1749
+2026-03-21T11:42:41.918164Z  INFO snowflake: query_succeeded rows=1 cols=21
+2026-03-21T11:43:04.827805Z  INFO snowflake: query_started sql_len=1723
+2026-03-21T11:43:05.176445Z  INFO snowflake: query_succeeded rows=1 cols=25
+2026-03-21T11:43:05.183530Z  INFO staging_model: staging_model finished datasets=4 written=4
+2026-03-21T11:43:11.811764Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:43:12.980683Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:43:12.981353Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:43:14.143588Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:43:14.144160Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:43:15.197697Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:43:15.197927Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:43:16.300119Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:43:21.731894Z  INFO react_core::agent::run_loop: agent action: apply_next_cleanse_schema_batch
+2026-03-21T11:44:16.159109Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T11:44:21.077693Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=4918
+2026-03-21T11:44:21.077772Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T11:44:22.675024Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1597
+2026-03-21T11:44:22.675098Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T11:44:26.359186Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3684
+2026-03-21T11:44:26.359263Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T11:44:31.075210Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4715
+2026-03-21T11:44:31.075284Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T11:44:34.935659Z  INFO dbt: \x1b[0m11:44:34  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T11:44:35.717678Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=4642
+2026-03-21T11:45:51.172678Z  WARN react::llm::types: structured response contained 12 output text items; taking only the first
+2026-03-21T11:45:51.173573Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:46:15.214480Z  WARN react::llm::types: structured response contained 10 output text items; taking only the first
+2026-03-21T11:46:15.225401Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:46:21.145792Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:46:48.574866Z  WARN react::llm::types: structured response contained 8 output text items; taking only the first
+2026-03-21T11:46:48.577213Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:47:11.558407Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-21T11:47:11.565855Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:48:00.691859Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T11:48:04.351931Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3660
+2026-03-21T11:48:04.352004Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T11:48:05.964720Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1612
+2026-03-21T11:48:05.964795Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T11:48:08.826815Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2862
+2026-03-21T11:48:08.826892Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T11:48:13.360087Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4533
+2026-03-21T11:48:13.360169Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T11:48:17.234457Z  INFO dbt: \x1b[0m11:48:17  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T11:48:17.934092Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=4573
+2026-03-21T11:48:21.268388Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=4 status="success"
+2026-03-21T11:48:21.272033Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T11:48:21.283844Z  INFO lance::file_audit: mode="create" type="data" path="1011000111000001110010102646cd4a79bed856af568e5230.lance"
+2026-03-21T11:48:21.289977Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T11:48:21.291325Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=4 committed_version=5 detached=false operation="Append"
+2026-03-21T11:48:21.312570Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T11:48:25.602441Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=4289
+2026-03-21T11:48:25.602515Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T11:48:28.113686Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2511
+2026-03-21T11:48:28.113758Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T11:48:32.228951Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=4115
+2026-03-21T11:48:32.229036Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T11:48:37.473021Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5243
+2026-03-21T11:48:37.473113Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T11:48:41.291459Z  INFO dbt: \x1b[0m11:48:41  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T11:48:42.054571Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=4581
+2026-03-21T11:49:54.770715Z  WARN react::llm::types: structured response contained 9 output text items; taking only the first
+2026-03-21T11:49:54.785439Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:50:17.369773Z  WARN react::llm::types: structured response contained 8 output text items; taking only the first
+2026-03-21T11:50:17.372392Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:50:39.134672Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-21T11:50:39.140143Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:51:05.721555Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T11:51:05.731797Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:51:15.118336Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:51:20.369420Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:51:25.854355Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T11:51:26.102871Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=5 status="success"
+2026-03-21T11:51:26.138987Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=10 requests=10 bytes_read=51200 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T11:52:08.700055Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T11:52:11.937744Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3237
+2026-03-21T11:52:11.937821Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T11:52:14.028479Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2090
+2026-03-21T11:52:14.028560Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T11:52:17.019628Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2991
+2026-03-21T11:52:17.019719Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T11:52:20.808869Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3789
+2026-03-21T11:52:20.808956Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T11:52:25.165237Z  INFO dbt: \x1b[0m11:52:25  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T11:52:25.963246Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=5154
+2026-03-21T11:52:26.207868Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=5 status="success"
+2026-03-21T11:52:26.209670Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T11:52:26.214204Z  INFO lance::file_audit: mode="create" type="data" path="101110100111100110011100114dbb4dde9d873698078708ab.lance"
+2026-03-21T11:52:26.217107Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T11:52:26.218830Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=5 committed_version=6 detached=false operation="Append"
+2026-03-21T11:52:26.254992Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T11:52:29.882100Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3627
+2026-03-21T11:52:29.882175Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T11:52:31.934216Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2052
+2026-03-21T11:52:31.934290Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T11:52:36.414705Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=4480
+2026-03-21T11:52:36.414786Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T11:52:40.139696Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=3724
+2026-03-21T11:52:40.139776Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T11:52:44.065200Z  INFO dbt: \x1b[0m11:52:44  Done. PASS=4 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=4 phase=build runner=host stream="stdout"
+2026-03-21T11:52:44.808683Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=4668
+2026-03-21T11:53:33.302356Z  WARN react_suite_data_engineer::phase_review: data_engineer: review ReviewPatchImpl retry budget exhausted; forcing proceed phase=cleanse_review tries=3
+2026-03-21T11:53:33.344513Z  INFO snowflake: query_started sql_len=148
+2026-03-21T11:53:35.773179Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T11:53:35.788860Z  INFO snowflake: query_started sql_len=154
+2026-03-21T11:53:36.831485Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:53:36.847319Z  INFO snowflake: query_started sql_len=58
+2026-03-21T11:53:36.923203Z  INFO snowflake: query_succeeded rows=1 cols=1
+2026-03-21T11:53:36.923342Z  INFO snowflake: query_started sql_len=268
+2026-03-21T11:53:37.006776Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.006865Z  INFO snowflake: query_started sql_len=186
+2026-03-21T11:53:37.095845Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.095971Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:53:37.181089Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.181239Z  INFO snowflake: query_started sql_len=280
+2026-03-21T11:53:37.263204Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.263704Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:53:37.342542Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.342729Z  INFO snowflake: query_started sql_len=256
+2026-03-21T11:53:37.418993Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.419108Z  INFO snowflake: query_started sql_len=183
+2026-03-21T11:53:37.494167Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.494319Z  INFO snowflake: query_started sql_len=288
+2026-03-21T11:53:37.576538Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.576746Z  INFO snowflake: query_started sql_len=181
+2026-03-21T11:53:37.659307Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.659535Z  INFO snowflake: query_started sql_len=272
+2026-03-21T11:53:37.741014Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.741118Z  INFO snowflake: query_started sql_len=177
+2026-03-21T11:53:37.841403Z  INFO snowflake: query_succeeded rows=1 cols=5
+2026-03-21T11:53:37.850192Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_END (11 cols)
+2026-03-21T11:53:37.850289Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:53:38.774682Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T11:53:38.775032Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_PAUSE (12 cols)
+2026-03-21T11:53:38.775179Z  INFO snowflake: query_started sql_len=157
+2026-03-21T11:53:39.601665Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:53:39.601899Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_RESUME (11 cols)
+2026-03-21T11:53:39.601994Z  INFO snowflake: query_started sql_len=156
+2026-03-21T11:53:40.524631Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T11:53:40.525112Z  INFO react_suite_data_engineer::dataset_truth: build_catalog_column_context: warehouse fallback for ANALYTICS.RAW.TRIP_START (11 cols)
+2026-03-21T11:53:40.527144Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery step budget = 27 (source_count=4)
+2026-03-21T11:54:03.105519Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T11:54:03.108175Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:54:15.338587Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T11:54:15.340444Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:54:25.629262Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:54:35.564451Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T11:54:35.566602Z  INFO react_core::agent::run_loop: agent action: json_file
+2026-03-21T11:54:45.114057Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T11:54:45.116001Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:54:51.108522Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T11:54:59.780636Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T11:54:59.782904Z  INFO react_core::agent::run_loop: agent action: sql_schema
+2026-03-21T11:54:59.789889Z  INFO snowflake: query_started sql_len=177
+2026-03-21T11:55:00.372838Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:55:09.126696Z  INFO react_core::agent::run_loop: agent action: sql_schema
+2026-03-21T11:55:09.141804Z  INFO snowflake: query_started sql_len=175
+2026-03-21T11:55:09.748429Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:55:15.113433Z  INFO react_core::agent::run_loop: agent action: sql_schema
+2026-03-21T11:55:15.126863Z  INFO snowflake: query_started sql_len=177
+2026-03-21T11:55:15.698597Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:55:23.575528Z  INFO react_core::agent::run_loop: agent action: sql_schema
+2026-03-21T11:55:23.592245Z  INFO snowflake: query_started sql_len=178
+2026-03-21T11:55:24.202942Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T11:55:29.592898Z  INFO react_suite_data_engineer::phase_plan: data_engineer: plan discovery complete for model, beginning deterministic plan compilation
+2026-03-21T11:59:31.856868Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [model] compiling plan from candidate models
+2026-03-21T12:02:25.983216Z  INFO snowflake: query_started sql_len=175
+2026-03-21T12:02:27.317162Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:02:27.317688Z  INFO snowflake: query_started sql_len=177
+2026-03-21T12:02:28.395917Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:02:28.396170Z  INFO snowflake: query_started sql_len=178
+2026-03-21T12:02:29.244598Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:02:29.245191Z  INFO snowflake: query_started sql_len=177
+2026-03-21T12:02:29.930093Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:02:29.930377Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [model] grounding plan against existing staging models
+2026-03-21T12:02:29.938487Z  INFO react_suite_data_engineer::phase_plan: data_engineer: [model] validating plan semantics
+2026-03-21T12:02:29.939065Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_start].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939124Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_pause].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939172Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_resume].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939219Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_end].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939282Z  WARN react_suite_data_engineer::plan_validation: fct_trip: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939344Z  WARN react_suite_data_engineer::plan_validation: dim_bike: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939402Z  WARN react_suite_data_engineer::plan_validation: dim_rider: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939462Z  WARN react_suite_data_engineer::plan_validation: agg_rider_daily_trip_activity: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.939529Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.976862Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_start].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.976939Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_pause].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.976957Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_resume].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.976974Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_end].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.976999Z  WARN react_suite_data_engineer::plan_validation: fct_trip: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.977248Z  WARN react_suite_data_engineer::plan_validation: dim_bike: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.977274Z  WARN react_suite_data_engineer::plan_validation: dim_rider: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.977294Z  WARN react_suite_data_engineer::plan_validation: agg_rider_daily_trip_activity: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:29.977316Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:35.980351Z  INFO react_core::agent::run_loop: agent action: apply_next_model_batch
+2026-03-21T12:02:36.039546Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_start].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039677Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_pause].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039693Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_resume].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039709Z  WARN react_suite_data_engineer::plan_validation: fct_trip_event: grounded_inputs[stg_raw_trip_end].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039737Z  WARN react_suite_data_engineer::plan_validation: fct_trip: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039800Z  WARN react_suite_data_engineer::plan_validation: dim_bike: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039827Z  WARN react_suite_data_engineer::plan_validation: dim_rider: grounded_inputs[fct_trip_event].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039846Z  WARN react_suite_data_engineer::plan_validation: agg_rider_daily_trip_activity: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:02:36.039866Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:03:05.572652Z  INFO snowflake: query_started sql_len=2566
+2026-03-21T12:03:05.973596Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:03:19.900199Z  INFO react_suite_data_engineer::tools::model_authoring_engine: fct_trip: skipping warehouse validation (unmaterialized intra-plan deps)
+2026-03-21T12:03:33.936386Z  INFO react_suite_data_engineer::tools::model_authoring_engine: dim_bike: skipping warehouse validation (unmaterialized intra-plan deps)
+2026-03-21T12:03:47.471143Z  INFO react_suite_data_engineer::tools::model_authoring_engine: dim_rider: skipping warehouse validation (unmaterialized intra-plan deps)
+2026-03-21T12:04:05.547460Z  INFO react_suite_data_engineer::tools::model_authoring_engine: agg_rider_daily_trip_activity: skipping warehouse validation (unmaterialized intra-plan deps)
+2026-03-21T12:04:05.550098Z  INFO gold_model: gold_model finished items=5 written=5 ok=true
+2026-03-21T12:04:11.541679Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:04:15.819856Z  INFO react_core::agent::run_loop: agent action: artifacts
+2026-03-21T12:04:18.811963Z  INFO react_core::agent::run_loop: agent action: artifacts
+2026-03-21T12:04:24.850545Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:04:32.004544Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:04:37.950754Z  INFO react_core::agent::run_loop: agent action: apply_next_model_batch
+2026-03-21T12:04:37.991662Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:04:53.507190Z  INFO react_core::agent::run_loop: agent action: apply_next_model_schema_batch
+2026-03-21T12:04:53.548927Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:05:29.755136Z  INFO snowflake: query_started sql_len=148
+2026-03-21T12:05:32.168249Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T12:05:32.168504Z  INFO snowflake: query_started sql_len=154
+2026-03-21T12:05:33.130247Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:05:33.130557Z  INFO snowflake: query_started sql_len=156
+2026-03-21T12:05:34.058920Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T12:05:34.059585Z  INFO snowflake: query_started sql_len=157
+2026-03-21T12:05:35.075326Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:05:35.075658Z  INFO snowflake: query_started sql_len=156
+2026-03-21T12:05:36.263253Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:05:47.607857Z  INFO react_core::agent::run_loop: agent action: apply_next_model_batch
+2026-03-21T12:05:47.658019Z  WARN react_suite_data_engineer::plan_validation: agg_bike_daily_utilization: grounded_inputs[fct_trip].source_schema is empty (warehouse schema not yet available)
+2026-03-21T12:06:05.555951Z  INFO react_suite_data_engineer::tools::model_authoring_engine: agg_bike_daily_utilization: skipping warehouse validation (unmaterialized intra-plan deps)
+2026-03-21T12:06:05.556975Z  WARN react_suite_data_engineer::authoring_ir: authoring_ir: column extraction failed (staging SQL uses '*' in final SELECT; cannot safely validate schema YAML (use an explicit select list); staging SQL uses '*' in final SELECT; cannot safely validate schema YAML (use an explicit select list)), falling back to plan_output_fields (9 columns)
+2026-03-21T12:06:05.560031Z  INFO gold_model: gold_model finished items=1 written=1 ok=true
+2026-03-21T12:06:11.673538Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:16.934836Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:24.852273Z  INFO react_core::agent::run_loop: agent action: artifacts
+2026-03-21T12:06:29.707146Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:35.700271Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:41.681044Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T12:06:41.690336Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:47.694377Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:50.792570Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:06:59.774339Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-21T12:06:59.783967Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:07:05.781949Z  INFO react_core::agent::run_loop: agent action: apply_next_model_schema_batch
+2026-03-21T12:07:21.909662Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:07:25.040937Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3131
+2026-03-21T12:07:25.041012Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:07:26.668254Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1627
+2026-03-21T12:07:26.668327Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:07:29.855363Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3187
+2026-03-21T12:07:29.855441Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:07:34.658114Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4802
+2026-03-21T12:07:34.658203Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:07:40.337790Z  INFO dbt: \x1b[0m12:07:40  Done. PASS=4 WARN=0 ERROR=1 SKIP=27 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:07:41.133252Z  INFO dbt: finished phase=build runner=host exit_code=1 ok=false duration_ms=6475
+2026-03-21T12:07:53.624080Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T12:07:53.626155Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:08:03.162938Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T12:08:03.164895Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:08:17.552451Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T12:08:17.554431Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:08:38.356839Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T12:08:38.358624Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T12:08:39.306412Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=6 status="success"
+2026-03-21T12:08:39.321715Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=12 requests=12 bytes_read=61440 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T12:08:57.331150Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-21T12:08:57.341531Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:03.246340Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:11.728972Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:17.348629Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:52.828927Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:52.841955Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:52.848179Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:52.856125Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T12:09:54.974917Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=6 status="success"
+2026-03-21T12:09:54.991572Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=12 requests=12 bytes_read=61440 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T12:09:54.998356Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:55.004722Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:55.010814Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:09:55.016835Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:10:21.286380Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:10:25.195001Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3908
+2026-03-21T12:10:25.195075Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:10:26.683475Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1488
+2026-03-21T12:10:26.683548Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:10:30.029181Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=3345
+2026-03-21T12:10:30.029267Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:10:34.790177Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4760
+2026-03-21T12:10:34.790260Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:10:45.441307Z  INFO dbt: \x1b[0m12:10:45  Done. PASS=32 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:10:46.271505Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=11481
+2026-03-21T12:10:46.477138Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=6 status="success"
+2026-03-21T12:10:46.477727Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T12:10:46.480612Z  INFO lance::file_audit: mode="create" type="data" path="000000011101010000010000a78f28451cbf7a7cd05e50a4b7.lance"
+2026-03-21T12:10:46.482749Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T12:10:46.484105Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=6 committed_version=7 detached=false operation="Append"
+2026-03-21T12:10:46.769180Z ERROR react::run_engine: agent task failed: task 21 panicked with message "invalid execution state: Err(\"execution_state invariant violation(s): probe status can only be active while last_validate_failed is true\")"
+2026-03-21T12:32:18.137695Z  INFO snowflake: using key-pair authentication
+2026-03-21T12:32:44.261132Z  WARN react::llm::types: structured response contained 9 output text items; taking only the first
+2026-03-21T12:32:44.286385Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:32:53.234376Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:33:10.246030Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-21T12:33:10.248377Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:33:33.208579Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T12:33:33.210839Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:33:49.803486Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-21T12:33:49.805588Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:33:59.265454Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:34:04.620322Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:34:12.058401Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T12:34:13.012098Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=7 status="success"
+2026-03-21T12:34:13.056693Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=3 iops=14 requests=14 bytes_read=71680 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T12:35:13.775235Z  WARN react::llm::types: structured response contained 10 output text items; taking only the first
+2026-03-21T12:35:13.777770Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:35:19.536905Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:35:28.184655Z  WARN react::llm::types: structured response contained 5 output text items; taking only the first
+2026-03-21T12:35:28.186527Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:35:55.108306Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T12:35:55.110288Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:36:03.358203Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:36:08.761378Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:36:56.738187Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:37:00.507447Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3769
+2026-03-21T12:37:00.507535Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:37:01.990985Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1483
+2026-03-21T12:37:01.991061Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:37:04.751304Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2760
+2026-03-21T12:37:04.751386Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:37:11.458594Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=6707
+2026-03-21T12:37:11.458680Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:37:20.970071Z  INFO dbt: \x1b[0m12:37:20  Done. PASS=32 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:37:21.754211Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=10295
+2026-03-21T12:37:21.997401Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=7 status="success"
+2026-03-21T12:37:21.998482Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T12:37:22.003812Z  INFO lance::file_audit: mode="create" type="data" path="110111111001101100101111a825954c5b81b4c987a1cd5c03.lance"
+2026-03-21T12:37:22.006777Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T12:37:22.008009Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=7 committed_version=8 detached=false operation="Append"
+2026-03-21T12:37:22.072921Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:37:25.426332Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3353
+2026-03-21T12:37:25.426406Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:37:27.180965Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1754
+2026-03-21T12:37:27.181036Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:37:29.964978Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2783
+2026-03-21T12:37:29.965059Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:37:34.709190Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4744
+2026-03-21T12:37:34.709278Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:37:43.698996Z  INFO dbt: \x1b[0m12:37:43  Done. PASS=32 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:37:44.822515Z  INFO dbt: finished phase=build runner=host exit_code=0 ok=true duration_ms=10113
+2026-03-21T12:37:55.710348Z  INFO snowflake: query_started sql_len=175
+2026-03-21T12:37:56.316185Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:37:56.317185Z  INFO snowflake: query_started sql_len=177
+2026-03-21T12:37:56.998993Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:37:57.001095Z  INFO snowflake: query_started sql_len=178
+2026-03-21T12:37:57.589232Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:37:57.589705Z  INFO snowflake: query_started sql_len=177
+2026-03-21T12:37:58.421183Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:37:58.458285Z  INFO snowflake: query_started sql_len=171
+2026-03-21T12:37:59.078624Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:37:59.204364Z  INFO snowflake: query_started sql_len=165
+2026-03-21T12:38:00.157906Z  INFO snowflake: query_succeeded rows=0 cols=0
+2026-03-21T12:39:16.928739Z  WARN react::llm::types: structured response contained 8 output text items; taking only the first
+2026-03-21T12:39:16.932396Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:39:41.562809Z  WARN react::llm::types: structured response contained 8 output text items; taking only the first
+2026-03-21T12:39:41.564975Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:03.283890Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-21T12:40:03.292524Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:09.100611Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:14.644597Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:19.795114Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:25.893869Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:40:31.174036Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T12:40:32.008532Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=8 status="success"
+2026-03-21T12:40:32.026550Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=16 requests=16 bytes_read=81920 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T12:41:37.367183Z  WARN react::llm::types: structured response contained 3 output text items; taking only the first
+2026-03-21T12:42:41.607439Z  INFO snowflake: query_started sql_len=148
+2026-03-21T12:42:42.497588Z  INFO snowflake: query_succeeded rows=4 cols=1
+2026-03-21T12:42:42.498108Z  INFO snowflake: query_started sql_len=154
+2026-03-21T12:42:43.724548Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:42:43.725038Z  INFO snowflake: query_started sql_len=156
+2026-03-21T12:42:45.137544Z  INFO snowflake: query_succeeded rows=12 cols=2
+2026-03-21T12:42:45.137825Z  INFO snowflake: query_started sql_len=157
+2026-03-21T12:42:46.394454Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:42:46.394648Z  INFO snowflake: query_started sql_len=156
+2026-03-21T12:42:47.303778Z  INFO snowflake: query_succeeded rows=11 cols=2
+2026-03-21T12:42:47.335743Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:42:50.243281Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=2907
+2026-03-21T12:42:50.243353Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:42:51.702501Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=1459
+2026-03-21T12:42:51.702576Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:42:54.511848Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2809
+2026-03-21T12:42:54.511929Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:42:58.886230Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=4374
+2026-03-21T12:42:58.886315Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:43:04.103385Z  INFO dbt: \x1b[0m12:43:04  Done. PASS=4 WARN=0 ERROR=1 SKIP=27 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:43:04.840075Z  INFO dbt: finished phase=build runner=host exit_code=1 ok=false duration_ms=5953
+2026-03-21T12:43:13.894657Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=8 status="success"
+2026-03-21T12:43:13.895338Z  INFO lance::dataset_events: event="writing" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" mode=Append
+2026-03-21T12:43:13.898351Z  INFO lance::file_audit: mode="create" type="data" path="0001000111001010100101019542ec4a5589be259a510bb346.lance"
+2026-03-21T12:43:13.900890Z  INFO lance::file_audit: mode="create" type="manifest" path="dummy"
+2026-03-21T12:43:13.902025Z  INFO lance::dataset_events: event="committed" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" read_version=8 committed_version=9 detached=false operation="Append"
+2026-03-21T12:43:52.593354Z  WARN react::llm::types: structured response contained 14 output text items; taking only the first
+2026-03-21T12:43:52.595912Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:44:19.712952Z  WARN react::llm::types: structured response contained 7 output text items; taking only the first
+2026-03-21T12:44:19.715259Z  INFO react_core::agent::run_loop: agent action: vect_query
+2026-03-21T12:44:19.935448Z  INFO load: lance::dataset_events: event="loading" uri="file:///Users/huders2000/Documents/sites/skippr/react/.skippr-dbt/local/dev/bike_hire_snowflake/lancedb/embeddings.lance?" target_ref=None version=9 status="success"
+2026-03-21T12:44:19.950892Z  INFO DatasetRecordBatchStream: lance::execution: type="plan_run" plan_summary="Projection(Take(CoalesceBatches(GlobalLimit(LanceFilter(SortExec(TopK)(KNNVectorDistance(FilteredRead)))))))" output_rows=5 iops=18 requests=18 bytes_read=92160 indices_loaded=0 parts_loaded=0 index_comparisons=0
+2026-03-21T12:44:53.062700Z  WARN react::llm::types: structured response contained 12 output text items; taking only the first
+2026-03-21T12:44:53.064891Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:45:00.462042Z  WARN react::llm::types: structured response contained 2 output text items; taking only the first
+2026-03-21T12:45:00.465267Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:45:33.487348Z  WARN react::llm::types: structured response contained 6 output text items; taking only the first
+2026-03-21T12:45:33.489022Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:45:39.266491Z  INFO react_core::agent::run_loop: agent action: file
+2026-03-21T12:47:11.736254Z  INFO dbt: starting phase=version runner=host cmd=dbt args=--version
+2026-03-21T12:47:15.565290Z  INFO dbt: finished phase=version runner=host exit_code=0 ok=true duration_ms=3829
+2026-03-21T12:47:15.565364Z  INFO dbt: starting phase=deps runner=host cmd=dbt args=deps
+2026-03-21T12:47:17.988541Z  INFO dbt: finished phase=deps runner=host exit_code=0 ok=true duration_ms=2423
+2026-03-21T12:47:17.988615Z  INFO dbt: starting phase=parse runner=host cmd=dbt args=parse
+2026-03-21T12:47:20.939510Z  INFO dbt: finished phase=parse runner=host exit_code=0 ok=true duration_ms=2950
+2026-03-21T12:47:20.939593Z  INFO dbt: starting phase=compile runner=host cmd=dbt args=compile --target snowflake
+2026-03-21T12:47:26.400107Z  INFO dbt: finished phase=compile runner=host exit_code=0 ok=true duration_ms=5460
+2026-03-21T12:47:26.400199Z  INFO dbt: starting phase=build runner=host cmd=dbt args=build --target snowflake
+2026-03-21T12:48:23.871333Z  INFO dbt: \x1b[0m12:48:23  Done. PASS=31 WARN=0 ERROR=1 SKIP=0 NO-OP=0 TOTAL=32 phase=build runner=host stream="stdout"
+2026-03-21T12:48:24.619392Z  INFO dbt: finished phase=build runner=host exit_code=1 ok=false duration_ms=58219

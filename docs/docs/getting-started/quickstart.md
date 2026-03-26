@@ -4,9 +4,9 @@ This guide walks through setting up a project that extracts data from MSSQL, loa
 
 ## Prerequisites
 
-- `skippr-dbt` on PATH ([Install](install.md)) — the `skippr` engine is downloaded automatically
+- `skippr` on PATH ([Install](install.md))
 - Python venv with `dbt-core` and `dbt-snowflake` installed
-- Authenticated session (`skippr-dbt user login`) or `SKIPPR_API_KEY` set
+- Authenticated session (`skippr user login`) or `SKIPPR_API_KEY` set
 - Environment variables set: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_PATH`
 - An accessible MSSQL instance (or Docker for local dev)
 
@@ -14,15 +14,15 @@ This guide walks through setting up a project that extracts data from MSSQL, loa
 
 ```bash
 mkdir my-workspace && cd my-workspace
-skippr-dbt init mssql-migration
+skippr init mssql-migration
 ```
 
-This creates `skippr-dbt.yaml` with your project name and a `.env.example` showing the required environment variables.
+This creates `skippr.yaml` with your project name and a `.env.example` showing the required environment variables.
 
 ## 2. Connect the warehouse
 
 ```bash
-skippr-dbt connect warehouse snowflake \
+skippr connect warehouse snowflake \
   --database ANALYTICS \
   --schema RAW \
   --warehouse COMPUTE_WH \
@@ -34,7 +34,7 @@ Or run without flags to be prompted interactively.
 ## 3. Connect the source
 
 ```bash
-skippr-dbt connect source mssql \
+skippr connect source mssql \
   --connection-string '${MSSQL_CONNECTION_STRING}'
 ```
 
@@ -47,7 +47,7 @@ export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user i
 ## 4. Check prerequisites
 
 ```bash
-skippr-dbt doctor
+skippr doctor
 ```
 
 This verifies that all binaries, credentials, and config are in place.
@@ -55,7 +55,7 @@ This verifies that all binaries, credentials, and config are in place.
 ## 5. Run the pipeline
 
 ```bash
-skippr-dbt run
+skippr run
 ```
 
 The pipeline will:
@@ -72,18 +72,18 @@ The pipeline will:
 ### Generated config
 
 ```
-skippr-dbt.yaml          # your project config
+skippr.yaml          # your project config
 ```
 
 ### Local artifacts
 
 ```
-.skippr-dbt/
+.skippr/
 └── local/
     └── dev/
         └── mssql_migration/
             ├── logs/        # run logs
-            └── skippr/      # generated skippr pipeline config
+            └── pipeline/    # generated pipeline config
 ```
 
 ### dbt models
@@ -104,7 +104,7 @@ models/
 | `ANALYTICS.MSSQL_MIGRATION_SILVER` | Silver -- staged and cleansed |
 | `ANALYTICS.MSSQL_MIGRATION_GOLD` | Gold -- mart-ready models |
 
-## What's in skippr-dbt.yaml
+## What's in skippr.yaml
 
 After running `init` and `connect`, your config looks like this:
 

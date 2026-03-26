@@ -52,7 +52,7 @@ react (workspace root)
 │   └── src/workflow/                     Workflow runner: PhaseOutcome, PhaseExecutor trait, run()
 ├── src/transport       (react-transport) WS protocol/server + headless transport
 ├── src/runtime         (react)           CLI/bootstrap + concrete provider wiring (all suites)
-├── src/bins/skippr-dbt (skippr-dbt)      Customer-facing binary (data_engineer suite only)
+├── src/bins/skippr (skippr)      Customer-facing binary (data_engineer suite only)
 ├── src/suites          (react-suites)    Suite implementations
 │   └── lib.rs + one directory per suite (data_engineer/, kb/)
 │       └── data_engineer/

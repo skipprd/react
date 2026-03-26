@@ -1,0 +1,1210 @@
+{
+  "plan_key": "local/dev/bike_hire_snowflake/threads/plans/eb81bfd5-c11c-49a5-b4ca-cd5406b42255/20260321T100509Z_cleanse.json",
+  "status": "completed",
+  "project_snapshot": {
+    "pruned_task_count": null,
+    "validate_fail_facts": [],
+    "dbt_prefix": "local/dev/bike_hire_snowflake/dbt/",
+    "dbt_project_yml_etag": "fs-etag-105dba761583a711-340",
+    "plan_design_critique": {
+      "blockers": [],
+      "disposition": "accepted",
+      "fixes": [],
+      "ok": true
+    },
+    "plan_design_memo": "Cleanse Plan Memo — SILVER/Staging for Trip Lifecycle Raw Events\n\nGoal\n\nBuild the silver/cleanse layer for the four discovered raw event tables by authoring one staging model per raw source table:\n\n- ANALYTICS.RAW.TRIP_START\n- ANALYTICS.RAW.TRIP_PAUSE\n- ANALYTICS.RAW.TRIP_RESUME\n- ANALYTICS.RAW.TRIP_END\n\nThis phase is limited to cleansing, casting, and normalizing raw records into typed staging tables. It does not include any dimensions, facts, event unions, aggregates, or gold-layer business models.\n\nScope\n\nIn scope:\n- 1 stg_* model per raw table\n- column renaming to a consistent convention\n- safe type casting\n- normalization of text fields\n- preservation of semi-structured payloads as VARIANT where source semantics are not yet proven\n- schema contracts and model-level validation\n\nOut of scope:\n- dim_*, fct_*, agg_* models\n- cross-event business logic\n- trip session reconstruction\n- deduplication based on inferred keys\n- extraction of nested fields from VARIANT payloads beyond simple pass-through\n\nSource entities and observed patterns\n\nThe source set represents trip lifecycle events for bikes/riders:\n- TRIP_START\n- TRIP_PAUSE\n- TRIP_RESUME\n- TRIP_END\n\nCommon entities/attributes observed across sources:\n- BIKE_ID\n- RIDER_ID\n- EVENT_DATE\n- EVENT_TYPE\n- MESSAGE_TYPE\n- ISBN\n- TRIP\n- METADATA\n- HARDWARE\n- LAST_CRANK\n- CRANK_TORQUES\n\nImportant schema note:\n- TRIP_PAUSE is the only source with ISBN as NUMBER and an additional ISBN_STRING field.\n- The other three sources expose ISBN as TEXT.\n- This is the main source-level inconsistency that the cleanse layer should normalize.\n\nCleansing design principles\n\n1. One raw table maps to one staging model.\n2. Preserve row cardinality: no filtering, deduping, or explosion of rows in staging.\n3. Standardize shared columns across all four models so later gold/model planning can build on a predictable contract.\n4. Use safe casts with raw-value preservation for fields that may be malformed, especially EVENT_DATE.\n5. Keep VARIANT payloads intact at this layer unless there is explicit evidence for stable nested fields.\n6. Normalize ISBN to a single text representation across all models.\n\nProposed staging model set\n\n1. stg_trip_start\n   Source: ANALYTICS.RAW.TRIP_START\n   Purpose: Cleanse trip start events into typed, consistently named staging columns.\n\n2. stg_trip_pause\n   Source: ANALYTICS.RAW.TRIP_PAUSE\n   Purpose: Cleanse trip pause events and resolve the ISBN NUMBER/TEXT inconsistency.\n\n3. stg_trip_resume\n   Source: ANALYTICS.RAW.TRIP_RESUME\n   Purpose: Cleanse trip resume events into the same canonical staging shape.\n\n4. stg_trip_end\n   Source: ANALYTICS.RAW.TRIP_END\n   Purpose: Cleanse trip end events into the same canonical staging shape.\n\nRecommended canonical column pattern for all four models\n\nUse a shared output shape wherever the source permits:\n\n- bike_id            STRING\n- rider_id           STRING\n- isbn_text          STRING\n- event_date_raw     STRING\n- event_ts           TIMESTAMP_NTZ\n- event_type         STRING\n- message_type       STRING\n- crank_torques      VARIANT\n- hardware           VARIANT\n- last_crank         VARIANT\n- metadata           VARIANT\n- trip               VARIANT\n- source_relation    STRING\n\nColumn handling intent:\n- BIKE_ID, RIDER_ID, EVENT_TYPE, MESSAGE_TYPE, ISBN/ISBN_STRING: trim whitespace and convert blank strings to null.\n- EVENT_DATE: preserve original text as event_date_raw and derive event_ts with a safe try-cast.\n- VARIANT columns: pass through unchanged as typed VARIANT.\n- source_relation: hardcoded literal of the upstream table name for traceability.\n\nISBN normalization rule:\n- For TRIP_START, TRIP_RESUME, TRIP_END:\n  isbn_text = cleaned ISBN\n- For TRIP_PAUSE:\n  isbn_text = coalesce(cleaned ISBN_STRING, to_varchar(ISBN))\n\nTask inventory — what will be authored\n\n1. SQL staging models\n   - models/silver/stg_trip_start.sql\n   - models/silver/stg_trip_pause.sql\n   - models/silver/stg_trip_resume.sql\n   - models/silver/stg_trip_end.sql\n\n2. Schema contracts\n   - Contract definitions for all four staging models\n   - These can be authored in a single schema YAML file or split per model, but each model must have its own explicit contract block and tests\n\n3. Validation assets\n   - Model-level validation tests tied to each stg_* model\n   - Source-to-staging audit queries for row counts, null/parse checks, and ISBN normalization checks\n   - Cross-model conformance check to ensure the shared canonical columns are present with matching types\n\nChecklist requirements per task\n\nTask 1 — stg_trip_start\n\nsql_model\n- Read only from ANALYTICS.RAW.TRIP_START.\n- Reference only authoritative source columns:\n  BIKE_ID, CRANK_TORQUES, EVENT_DATE, EVENT_TYPE, HARDWARE, ISBN, LAST_CRANK, MESSAGE_TYPE, METADATA, RIDER_ID, TRIP.\n- Rename columns to lower_snake_case.\n- Normalize text fields with trim/nullif logic.\n- Derive:\n  - isbn_text from ISBN\n  - event_date_raw from EVENT_DATE\n  - event_ts via safe timestamp cast from EVENT_DATE\n  - source_relation as 'ANALYTICS.RAW.TRIP_START'\n- Preserve CRANK_TORQUES, HARDWARE, LAST_CRANK, METADATA, TRIP as VARIANT.\n- Do not deduplicate, filter, or flatten VARIANT payloads.\n\nschema_contract\n- Enforce the canonical columns and their types.\n- Require source_relation as STRING and not null.\n- Keep column names aligned with the other trip event staging models.\n- Document that event_ts is derived and event_date_raw is the raw preserved value.\n- No uniqueness constraint should be added because no natural key is proven.\n\nvalidate\n- Row count in stg_trip_start equals row count in ANALYTICS.RAW.TRIP_START.\n- No rows are dropped because of cast failures.\n- event_ts is populated where EVENT_DATE is parseable; unparsable values remain visible in event_date_raw.\n- isbn_text matches cleaned ISBN population logic.\n- Contract tests pass.\n\nTask 2 — stg_trip_pause\n\nsql_model\n- Read only from ANALYTICS.RAW.TRIP_PAUSE.\n- Reference only authoritative source columns:\n  BIKE_ID, CRANK_TORQUES, EVENT_DATE, EVENT_TYPE, HARDWARE, ISBN, LAST_CRANK, MESSAGE_TYPE, METADATA, RIDER_ID, TRIP, ISBN_STRING.\n- Rename columns to lower_snake_case.\n- Normalize text fields with trim/nullif logic.\n- Derive:\n  - isbn_text using coalesce(cleaned ISBN_STRING, to_varchar(ISBN))\n  - event_date_raw from EVENT_DATE\n  - event_ts via safe timestamp cast from EVENT_DATE\n  - source_relation as 'ANALYTICS.RAW.TRIP_PAUSE'\n- Preserve CRANK_TORQUES, HARDWARE, LAST_CRANK, METADATA, TRIP as VARIANT.\n- Do not expose raw ISBN as the canonical ISBN output; standardize on isbn_text.\n- Do not deduplicate, filter, or flatten VARIANT payloads.\n\nschema_contract\n- Enforce the same canonical column set and types used by the other three staging models.\n- Require source_relation as STRING and not null.\n- Explicitly document the source-specific ISBN normalization rule for pause records.\n- No uniqueness constraint should be added.\n\nvalidate\n- Row count in stg_trip_pause equals row count in ANALYTICS.RAW.TRIP_PAUSE.\n- isbn_text is non-null whenever either ISBN_STRING or ISBN is present.\n- ISBN_STRING takes precedence when present; numeric ISBN is stringified only as fallback.\n- event_ts is populated where EVENT_DATE is parseable; raw value retained in event_date_raw otherwise.\n- Contract tests pass.\n\nTask 3 — stg_trip_resume\n\nsql_model\n- Read only from ANALYTICS.RAW.TRIP_RESUME.\n- Reference only authoritative source columns:\n  BIKE_ID, CRANK_TORQUES, EVENT_DATE, EVENT_TYPE, HARDWARE, ISBN, LAST_CRANK, MESSAGE_TYPE, METADATA, RIDER_ID, TRIP.\n- Rename columns to lower_snake_case.\n- Normalize text fields with trim/nullif logic.\n- Derive:\n  - isbn_text from ISBN\n  - event_date_raw from EVENT_DATE\n  - event_ts via safe timestamp cast from EVENT_DATE\n  - source_relation as 'ANALYTICS.RAW.TRIP_RESUME'\n- Preserve VARIANT columns as-is.\n- Do not deduplicate, filter, or flatten payloads.\n\nschema_contract\n- Enforce the canonical columns and types.\n- Require source_relation as STRING and not null.\n- Keep contract aligned exactly with start/end/pause on shared columns.\n- No uniqueness constraint should be added.\n\nvalidate\n- Row count in stg_trip_resume equals row count in ANALYTICS.RAW.TRIP_RESUME.\n- isbn_text matches cleaned ISBN logic.\n- event_ts parse behavior is audited against EVENT_DATE.\n- Contract tests pass.\n\nTask 4 — stg_trip_end\n\nsql_model\n- Read only from ANALYTICS.RAW.TRIP_END.\n- Reference only authoritative source columns:\n  BIKE_ID, CRANK_TORQUES, EVENT_DATE, EVENT_TYPE, HARDWARE, ISBN, LAST_CRANK, MESSAGE_TYPE, METADATA, RIDER_ID, TRIP.\n- Rename columns to lower_snake_case.\n- Normalize text fields with trim/nullif logic.\n- Derive:\n  - isbn_text from ISBN\n  - event_date_raw from EVENT_DATE\n  - event_ts via safe timestamp cast from EVENT_DATE\n  - source_relation as 'ANALYTICS.RAW.TRIP_END'\n- Preserve VARIANT columns as-is.\n- Do not deduplicate, filter, or flatten payloads.\n\nschema_contract\n- Enforce the canonical columns and types.\n- Require source_relation as STRING and not null.\n- Keep contract aligned exactly with start/pause/resume on shared columns.\n- No uniqueness constraint should be added.\n\nvalidate\n- Row count in stg_trip_end equals row count in ANALYTICS.RAW.TRIP_END.\n- isbn_text matches cleaned ISBN logic.\n- event_ts parse behavior is audited against EVENT_DATE.\n- Contract tests pass.\n\nWork-group sequencing and dependencies\n\nBecause there are four staging models total, the executable batching fits in a single work-group of up to five models. There are no model-to-model data dependencies, but there is a strong dependency on agreeing the shared canonical contract before implementation.\n\nWork-Group 0 — shared design alignment\nPurpose:\n- Lock the common staging schema\n- Lock text normalization rules\n- Lock timestamp parsing approach\n- Lock ISBN normalization rules, especially for TRIP_PAUSE\n\nDependencies:\n- None\n\nOutputs:\n- Final agreed canonical column list\n- Final cast/cleaning conventions to be used uniformly in all four SQL models and schema contracts\n\nWork-Group 1 — model authoring batch\nModels:\n- stg_trip_start\n- stg_trip_pause\n- stg_trip_resume\n- stg_trip_end\n\nDependencies:\n- Requires Work-Group 0 decisions\n- Models can then be built in parallel because each reads directly from its own raw table\n\nOutputs:\n- Four SQL model files\n- Four schema contract entries\n\nWork-Group 2 — validation and sign-off\nPurpose:\n- Execute model-level validation\n- Run source-to-staging parity checks\n- Confirm cross-model schema conformance\n\nDependencies:\n- All four staging models from Work-Group 1 must compile and build successfully\n\nOutputs:\n- Validation results by model\n- Exception log for any EVENT_DATE parse failures or ISBN anomalies\n- Final cleanse-layer completion sign-off\n\nValidation strategy\n\n1. Static validation\n- Confirm each SQL model references only the authoritative source columns for its table.\n- Confirm each model produces the agreed canonical column names.\n- Confirm schema contracts align across all four models.\n\n2. Runtime validation\n- Build each staging model.\n- Verify row-count parity with the raw source.\n- Verify no model errors caused by invalid casts by using safe try-cast patterns.\n- Verify source_relation is fully populated and correct.\n\n3. Data quality validation\n- Audit blank-to-null normalization for BIKE_ID, RIDER_ID, EVENT_TYPE, MESSAGE_TYPE, ISBN-derived fields.\n- Audit EVENT_DATE parseability:\n  - count non-null EVENT_DATE\n  - count non-null event_ts\n  - identify rows where EVENT_DATE is present but event_ts is null\n- Audit TRIP_PAUSE ISBN logic:\n  - count rows with ISBN_STRING\n  - count rows with numeric ISBN only\n  - verify isbn_text outcome in both cases\n\n4. Cross-model conformance validation\n- All four staging models must expose the same shared column names and types for the canonical fields.\n- ISBN must be available as isbn_text in all four models.\n- event_date_raw and event_ts must exist in all four models.\n- source_relation must be present in all four models.\n\nValidation criteria and invariants for completion\n\nA staging mo\n... (truncated)",
+    "review": {
+      "batches": [
+        {
+          "batch_idx": 0,
+          "batch_items": [
+            "ANALYTICS.RAW.TRIP_END",
+            "ANALYTICS.RAW.TRIP_PAUSE",
+            "ANALYTICS.RAW.TRIP_RESUME",
+            "ANALYTICS.RAW.TRIP_START"
+          ],
+          "findings": [
+            "models/staging/stg_raw_trip_end.sql, models/staging/stg_raw_trip_pause.sql, models/staging/stg_raw_trip_resume.sql, and models/staging/stg_raw_trip_start.sql all project extra helper/raw columns that are not in the approved implementation_spec output_fields, e.g. stg_raw_trip_end.sql selects bike_id_raw/event_date_source_raw/isbn, stg_raw_trip_pause.sql selects bike_id_raw/isbn_raw/isbn_string_raw, stg_raw_trip_resume.sql selects bike_id_raw/event_date_source/isbn_raw, and stg_raw_trip_start.sql selects bike_id_raw/crank_torques_raw/trip_raw. This changes the silver model contract away from the approved cleanse schema and, for TRIP_PAUSE, leaves raw ISBN fields exposed alongside the canonical isbn_text path. Smallest next action: restrict each model’s final projection to only the spec-approved output fields for that dataset."
+          ],
+          "ts": "2026-03-21T10:12:47.112833+00:00"
+        }
+      ],
+      "phase": "cleanse_review",
+      "project_notes": [
+        "The dbt project is named `bike_hire_snowflake_project` and uses the Snowflake adapter with dbt version 1.11.7.",
+        "Model configuration sets the project default schema via `DBT_GOLD_SUFFIX` (default `gold`), with the `staging` subdirectory overridden to use `DBT_SILVER_SUFFIX` (default `silver`).",
+        "A single source definition is present in `models/schema.yml`: source `RAW` in database `ANALYTICS`, schema `RAW`.",
+        "The `RAW` source includes four tables: `TRIP_START`, `TRIP_PAUSE`, `TRIP_RESUME`, and `TRIP_END`.",
+        "The project snapshot contains four staging models, all under `models/staging`: `stg_raw_trip_start`, `stg_raw_trip_pause`, `stg_raw_trip_resume`, and `stg_raw_trip_end`.",
+        "Model naming in the staging layer follows a `stg_raw_<table>` convention aligned to the declared RAW source tables."
+      ],
+      "result": {
+        "dataset_ids": [
+          "stg_raw_trip_end",
+          "stg_raw_trip_pause",
+          "stg_raw_trip_resume",
+          "stg_raw_trip_start"
+        ],
+        "decision": "patch_impl",
+        "text": "Patch required: the four staging models currently expose non-spec helper/raw columns in their final projections, which breaks the approved silver-layer contract. Specifically, stg_raw_trip_end includes fields such as bike_id_raw/event_date_source_raw/isbn; stg_raw_trip_pause includes bike_id_raw/isbn_raw/isbn_string_raw; stg_raw_trip_resume includes bike_id_raw/event_date_source/isbn_raw; and stg_raw_trip_start includes bike_id_raw/crank_torques_raw/trip_raw. Restrict each model’s final SELECT to only the implementation_spec-approved output fields for that dataset.",
+        "tier": "silver",
+        "ts": "2026-03-21T10:12:58.874774+00:00"
+      },
+      "review_version": 1,
+      "ts": "2026-03-21T10:12:11.127467+00:00"
+    }
+  },
+  "tasks": [
+    {
+      "dataset_id": "ANALYTICS.RAW.TRIP_END",
+      "expected_model_path": "models/staging/stg_raw_trip_end.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "row_preserving": true,
+        "output_fields": [
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "trim BIKE_ID; convert empty string to NULL; alias as bike_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned bike identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "trim RIDER_ID; convert empty string to NULL; alias as rider_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned rider identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "isbn_text",
+            "kind": "clean",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "trim ISBN; convert empty string to NULL; alias as isbn_text",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Canonical ISBN text for trip end events."
+          },
+          {
+            "name": "event_date_raw",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "trim EVENT_DATE; convert empty string to NULL; alias as event_date_raw",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Preserved cleaned raw event date text before timestamp parsing."
+          },
+          {
+            "name": "event_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "safe timestamp parse from trimmed EVENT_DATE; return NULL when unparsable; alias as event_ts",
+            "data_type": "TIMESTAMP_NTZ",
+            "nullable": true,
+            "description": "Safely parsed event timestamp from event_date_raw."
+          },
+          {
+            "name": "event_type",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "trim EVENT_TYPE; convert empty string to NULL; alias as event_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned event type."
+          },
+          {
+            "name": "message_type",
+            "kind": "clean",
+            "source_columns": [
+              "MESSAGE_TYPE"
+            ],
+            "expression": "trim MESSAGE_TYPE; convert empty string to NULL; alias as message_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned message type."
+          },
+          {
+            "name": "crank_torques",
+            "kind": "raw",
+            "source_columns": [
+              "CRANK_TORQUES"
+            ],
+            "expression": "pass through CRANK_TORQUES unchanged as crank_torques",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured crank torque payload."
+          },
+          {
+            "name": "hardware",
+            "kind": "raw",
+            "source_columns": [
+              "HARDWARE"
+            ],
+            "expression": "pass through HARDWARE unchanged as hardware",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured hardware payload."
+          },
+          {
+            "name": "last_crank",
+            "kind": "raw",
+            "source_columns": [
+              "LAST_CRANK"
+            ],
+            "expression": "pass through LAST_CRANK unchanged as last_crank",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured last crank payload."
+          },
+          {
+            "name": "metadata",
+            "kind": "raw",
+            "source_columns": [
+              "METADATA"
+            ],
+            "expression": "pass through METADATA unchanged as metadata",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured metadata payload."
+          },
+          {
+            "name": "trip",
+            "kind": "raw",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "pass through TRIP unchanged as trip",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured trip payload."
+          },
+          {
+            "name": "source_relation",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "set source_relation to literal 'ANALYTICS.RAW.TRIP_END'",
+            "data_type": "STRING",
+            "nullable": false,
+            "description": "Literal upstream relation for lineage."
+          },
+          {
+            "name": "event_ts_parse_failed",
+            "kind": "quality_flag",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "flag TRUE when trimmed EVENT_DATE is not NULL/blank and safe timestamp parse from EVENT_DATE returns NULL; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when cleaned event_date_raw is non-null and event_ts is NULL."
+          },
+          {
+            "name": "isbn_text_present",
+            "kind": "quality_flag",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "flag TRUE when trimmed ISBN is not NULL/blank; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when cleaned ISBN is populated after normalization."
+          }
+        ],
+        "prohibited_ops": [
+          "no filtering",
+          "no dedup",
+          "no joins",
+          "no unions",
+          "no flattening",
+          "no inferred keys"
+        ]
+      },
+      "source_schema": [
+        {
+          "name": "BIKE_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "CRANK_TORQUES",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "EVENT_DATE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "EVENT_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "HARDWARE",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "ISBN",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "LAST_CRANK",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "MESSAGE_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "METADATA",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "RIDER_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "TRIP",
+          "data_type": "VARIANT"
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author staging SQL",
+          "details": "ANALYTICS.RAW.TRIP_END: authoring_ir: duplicate output column 'bike_id'",
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "dataset_id": "ANALYTICS.RAW.TRIP_PAUSE",
+      "expected_model_path": "models/staging/stg_raw_trip_pause.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "row_preserving": true,
+        "output_fields": [
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "trim BIKE_ID; convert empty string to NULL; alias as bike_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned bike identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "trim RIDER_ID; convert empty string to NULL; alias as rider_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned rider identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "isbn_text",
+            "kind": "clean",
+            "source_columns": [
+              "ISBN_STRING",
+              "ISBN"
+            ],
+            "expression": "trim ISBN_STRING; convert empty string to NULL; if result is not NULL use it, otherwise convert ISBN to varchar; alias as isbn_text",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Canonical ISBN text for trip pause events, preferring ISBN_STRING over numeric ISBN."
+          },
+          {
+            "name": "event_date_raw",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "trim EVENT_DATE; convert empty string to NULL; alias as event_date_raw",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Preserved cleaned raw event date text before timestamp parsing."
+          },
+          {
+            "name": "event_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "safe timestamp parse from trimmed EVENT_DATE; return NULL when unparsable; alias as event_ts",
+            "data_type": "TIMESTAMP_NTZ",
+            "nullable": true,
+            "description": "Safely parsed event timestamp from event_date_raw."
+          },
+          {
+            "name": "event_type",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "trim EVENT_TYPE; convert empty string to NULL; alias as event_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned event type."
+          },
+          {
+            "name": "message_type",
+            "kind": "clean",
+            "source_columns": [
+              "MESSAGE_TYPE"
+            ],
+            "expression": "trim MESSAGE_TYPE; convert empty string to NULL; alias as message_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned message type."
+          },
+          {
+            "name": "crank_torques",
+            "kind": "raw",
+            "source_columns": [
+              "CRANK_TORQUES"
+            ],
+            "expression": "pass through CRANK_TORQUES unchanged as crank_torques",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured crank torque payload."
+          },
+          {
+            "name": "hardware",
+            "kind": "raw",
+            "source_columns": [
+              "HARDWARE"
+            ],
+            "expression": "pass through HARDWARE unchanged as hardware",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured hardware payload."
+          },
+          {
+            "name": "last_crank",
+            "kind": "raw",
+            "source_columns": [
+              "LAST_CRANK"
+            ],
+            "expression": "pass through LAST_CRANK unchanged as last_crank",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured last crank payload."
+          },
+          {
+            "name": "metadata",
+            "kind": "raw",
+            "source_columns": [
+              "METADATA"
+            ],
+            "expression": "pass through METADATA unchanged as metadata",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured metadata payload."
+          },
+          {
+            "name": "trip",
+            "kind": "raw",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "pass through TRIP unchanged as trip",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured trip payload."
+          },
+          {
+            "name": "source_relation",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "set source_relation to literal 'ANALYTICS.RAW.TRIP_PAUSE'",
+            "data_type": "STRING",
+            "nullable": false,
+            "description": "Literal upstream relation for lineage."
+          },
+          {
+            "name": "event_ts_parse_failed",
+            "kind": "quality_flag",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "flag TRUE when trimmed EVENT_DATE is not NULL/blank and safe timestamp parse from EVENT_DATE returns NULL; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when cleaned event_date_raw is non-null and event_ts is NULL."
+          },
+          {
+            "name": "isbn_text_present",
+            "kind": "quality_flag",
+            "source_columns": [
+              "ISBN_STRING",
+              "ISBN"
+            ],
+            "expression": "flag TRUE when trimmed ISBN_STRING is not NULL/blank or ISBN is not NULL; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when isbn_text is populated from either ISBN_STRING or fallback numeric ISBN."
+          },
+          {
+            "name": "isbn_string_preferred",
+            "kind": "quality_flag",
+            "source_columns": [
+              "ISBN_STRING"
+            ],
+            "expression": "flag TRUE when trimmed ISBN_STRING is not NULL/blank; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when non-blank ISBN_STRING is present and therefore should take precedence over numeric ISBN."
+          }
+        ],
+        "prohibited_ops": [
+          "no filtering",
+          "no dedup",
+          "no joins",
+          "no unions",
+          "no flattening",
+          "do not expose raw ISBN as canonical output",
+          "no inferred keys"
+        ]
+      },
+      "source_schema": [
+        {
+          "name": "BIKE_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "CRANK_TORQUES",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "EVENT_DATE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "EVENT_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "HARDWARE",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "ISBN",
+          "data_type": "NUMBER"
+        },
+        {
+          "name": "LAST_CRANK",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "MESSAGE_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "METADATA",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "RIDER_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "TRIP",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "ISBN_STRING",
+          "data_type": "TEXT"
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author staging SQL",
+          "details": "ANALYTICS.RAW.TRIP_END: authoring_ir: duplicate output column 'bike_id'",
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "dataset_id": "ANALYTICS.RAW.TRIP_RESUME",
+      "expected_model_path": "models/staging/stg_raw_trip_resume.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "row_preserving": true,
+        "output_fields": [
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "trim BIKE_ID; convert empty string to NULL; alias as bike_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned bike identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "trim RIDER_ID; convert empty string to NULL; alias as rider_id",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned rider identifier with surrounding whitespace removed and blank strings converted to NULL."
+          },
+          {
+            "name": "isbn_text",
+            "kind": "clean",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "trim ISBN; convert empty string to NULL; alias as isbn_text",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Canonical ISBN text for trip resume events."
+          },
+          {
+            "name": "event_date_raw",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "trim EVENT_DATE; convert empty string to NULL; alias as event_date_raw",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Preserved cleaned raw event date text before timestamp parsing."
+          },
+          {
+            "name": "event_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "safe timestamp parse from trimmed EVENT_DATE; return NULL when unparsable; alias as event_ts",
+            "data_type": "TIMESTAMP_NTZ",
+            "nullable": true,
+            "description": "Safely parsed event timestamp from event_date_raw."
+          },
+          {
+            "name": "event_type",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "trim EVENT_TYPE; convert empty string to NULL; alias as event_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned event type."
+          },
+          {
+            "name": "message_type",
+            "kind": "clean",
+            "source_columns": [
+              "MESSAGE_TYPE"
+            ],
+            "expression": "trim MESSAGE_TYPE; convert empty string to NULL; alias as message_type",
+            "data_type": "STRING",
+            "nullable": true,
+            "description": "Cleaned message type."
+          },
+          {
+            "name": "crank_torques",
+            "kind": "raw",
+            "source_columns": [
+              "CRANK_TORQUES"
+            ],
+            "expression": "pass through CRANK_TORQUES unchanged as crank_torques",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured crank torque payload."
+          },
+          {
+            "name": "hardware",
+            "kind": "raw",
+            "source_columns": [
+              "HARDWARE"
+            ],
+            "expression": "pass through HARDWARE unchanged as hardware",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured hardware payload."
+          },
+          {
+            "name": "last_crank",
+            "kind": "raw",
+            "source_columns": [
+              "LAST_CRANK"
+            ],
+            "expression": "pass through LAST_CRANK unchanged as last_crank",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured last crank payload."
+          },
+          {
+            "name": "metadata",
+            "kind": "raw",
+            "source_columns": [
+              "METADATA"
+            ],
+            "expression": "pass through METADATA unchanged as metadata",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured metadata payload."
+          },
+          {
+            "name": "trip",
+            "kind": "raw",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "pass through TRIP unchanged as trip",
+            "data_type": "VARIANT",
+            "nullable": true,
+            "description": "Pass-through semi-structured trip payload."
+          },
+          {
+            "name": "source_relation",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "set source_relation to literal 'ANALYTICS.RAW.TRIP_RESUME'",
+            "data_type": "STRING",
+            "nullable": false,
+            "description": "Literal upstream relation for lineage."
+          },
+          {
+            "name": "event_ts_parse_failed",
+            "kind": "quality_flag",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "flag TRUE when trimmed EVENT_DATE is not NULL/blank and safe timestamp parse from EVENT_DATE returns NULL; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when cleaned event_date_raw is non-null and event_ts is NULL."
+          },
+          {
+            "name": "isbn_text_present",
+            "kind": "quality_flag",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "flag TRUE when trimmed ISBN is not NULL/blank; else FALSE",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "True when cleaned ISBN is populated after normalization."
+          }
+        ],
+        "prohibited_ops": [
+          "no filtering",
+          "no dedup",
+          "no joins",
+          "no unions",
+          "no flattening",
+          "no inferred keys"
+        ]
+      },
+      "source_schema": [
+        {
+          "name": "BIKE_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "CRANK_TORQUES",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "EVENT_DATE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "EVENT_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "HARDWARE",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "ISBN",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "LAST_CRANK",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "MESSAGE_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "METADATA",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "RIDER_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "TRIP",
+          "data_type": "VARIANT"
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author staging SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "dataset_id": "ANALYTICS.RAW.TRIP_START",
+      "expected_model_path": "models/staging/stg_raw_trip_start.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "row_preserving": true,
+        "output_fields": [
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "nullif(trim(BIKE_ID), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Trimmed bike identifier with blank strings normalized to null."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "nullif(trim(RIDER_ID), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Trimmed rider identifier with blank strings normalized to null."
+          },
+          {
+            "name": "isbn_text",
+            "kind": "clean",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "nullif(trim(ISBN), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Normalized ISBN text for trip start events."
+          },
+          {
+            "name": "event_date_raw",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "nullif(trim(EVENT_DATE), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Preserved cleaned raw event date text for inspection of malformed values."
+          },
+          {
+            "name": "event_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "try_to_timestamp_ntz(nullif(trim(EVENT_DATE), ''))",
+            "data_type": "timestamp_ntz",
+            "nullable": true,
+            "description": "Safely parsed event timestamp derived from cleaned EVENT_DATE text."
+          },
+          {
+            "name": "event_type",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "nullif(trim(EVENT_TYPE), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Trimmed event type with blank strings normalized to null."
+          },
+          {
+            "name": "message_type",
+            "kind": "clean",
+            "source_columns": [
+              "MESSAGE_TYPE"
+            ],
+            "expression": "nullif(trim(MESSAGE_TYPE), '')",
+            "data_type": "string",
+            "nullable": true,
+            "description": "Trimmed message type with blank strings normalized to null."
+          },
+          {
+            "name": "crank_torques",
+            "kind": "raw",
+            "source_columns": [
+              "CRANK_TORQUES"
+            ],
+            "expression": "CRANK_TORQUES",
+            "data_type": "variant",
+            "nullable": true,
+            "description": "Semi-structured crank torque payload preserved unchanged."
+          },
+          {
+            "name": "hardware",
+            "kind": "raw",
+            "source_columns": [
+              "HARDWARE"
+            ],
+            "expression": "HARDWARE",
+            "data_type": "variant",
+            "nullable": true,
+            "description": "Semi-structured hardware payload preserved unchanged."
+          },
+          {
+            "name": "last_crank",
+            "kind": "raw",
+            "source_columns": [
+              "LAST_CRANK"
+            ],
+            "expression": "LAST_CRANK",
+            "data_type": "variant",
+            "nullable": true,
+            "description": "Semi-structured last crank payload preserved unchanged."
+          },
+          {
+            "name": "metadata",
+            "kind": "raw",
+            "source_columns": [
+              "METADATA"
+            ],
+            "expression": "METADATA",
+            "data_type": "variant",
+            "nullable": true,
+            "description": "Semi-structured metadata payload preserved unchanged."
+          },
+          {
+            "name": "trip",
+            "kind": "raw",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "TRIP",
+            "data_type": "variant",
+            "nullable": true,
+            "description": "Semi-structured trip payload preserved unchanged."
+          },
+          {
+            "name": "source_relation",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "'ANALYTICS.RAW.TRIP_START'",
+            "data_type": "string",
+            "nullable": false,
+            "description": "Literal source relation for lineage and auditability."
+          },
+          {
+            "name": "event_ts_parse_failed",
+            "kind": "quality_flag",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "event_date_raw is not null and event_ts is null",
+            "data_type": "boolean",
+            "nullable": false,
+            "description": "True when cleaned EVENT_DATE text is non-null but safe timestamp parsing fails."
+          },
+          {
+            "name": "bike_id_was_normalized",
+            "kind": "quality_flag",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "BIKE_ID is not null and (trim(BIKE_ID) <> BIKE_ID or trim(BIKE_ID) = '')",
+            "data_type": "boolean",
+            "nullable": false,
+            "description": "True when original BIKE_ID contains surrounding whitespace or is blank."
+          },
+          {
+            "name": "rider_id_was_normalized",
+            "kind": "quality_flag",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "RIDER_ID is not null and (trim(RIDER_ID) <> RIDER_ID or trim(RIDER_ID) = '')",
+            "data_type": "boolean",
+            "nullable": false,
+            "description": "True when original RIDER_ID contains surrounding whitespace or is blank."
+          },
+          {
+            "name": "isbn_text_was_normalized",
+            "kind": "quality_flag",
+            "source_columns": [
+              "ISBN"
+            ],
+            "expression": "ISBN is not null and (trim(ISBN) <> ISBN or trim(ISBN) = '')",
+            "data_type": "boolean",
+            "nullable": false,
+            "description": "True when original ISBN contains surrounding whitespace or is blank."
+          }
+        ],
+        "prohibited_ops": [
+          "no filtering",
+          "no dedup",
+          "no flatten",
+          "no inferred nested field extraction"
+        ]
+      },
+      "source_schema": [
+        {
+          "name": "BIKE_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "CRANK_TORQUES",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "EVENT_DATE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "EVENT_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "HARDWARE",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "ISBN",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "LAST_CRANK",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "MESSAGE_TYPE",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "METADATA",
+          "data_type": "VARIANT"
+        },
+        {
+          "name": "RIDER_ID",
+          "data_type": "TEXT"
+        },
+        {
+          "name": "TRIP",
+          "data_type": "VARIANT"
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author staging SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "batches": [
+    [
+      "ANALYTICS.RAW.TRIP_END",
+      "ANALYTICS.RAW.TRIP_PAUSE",
+      "ANALYTICS.RAW.TRIP_RESUME",
+      "ANALYTICS.RAW.TRIP_START"
+    ]
+  ],
+  "work_groups": [
+    {
+      "group_id": "cleanse_author_sql_001",
+      "label": "Author SQL batch 1",
+      "kind": "author_sql",
+      "items": [
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_END",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_PAUSE",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_RESUME",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_START",
+          "checklist_item_id": "sql_model"
+        }
+      ],
+      "depends_on_group_ids": null
+    },
+    {
+      "group_id": "cleanse_author_schema_001",
+      "label": "Author schema batch 1",
+      "kind": "author_schema",
+      "items": [
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_END",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_PAUSE",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_RESUME",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_START",
+          "checklist_item_id": "schema_contract"
+        }
+      ],
+      "depends_on_group_ids": [
+        "cleanse_author_sql_001"
+      ]
+    },
+    {
+      "group_id": "cleanse_validate_001",
+      "label": "Validate batch 1",
+      "kind": "validate",
+      "items": [
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_END",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_PAUSE",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_RESUME",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "ANALYTICS.RAW.TRIP_START",
+          "checklist_item_id": "validate"
+        }
+      ],
+      "depends_on_group_ids": [
+        "cleanse_author_schema_001"
+      ]
+    }
+  ],
+  "mutations": [],
+  "progress": {
+    "last_applied_step_idx": 8,
+    "consecutive_batch_failures": 0,
+    "total_batch_failures": 1,
+    "consecutive_infra_transient_failures": 0
+  }
+}

@@ -1,0 +1,1659 @@
+{
+  "plan_key": "local/dev/bike_hire_snowflake/threads/plans/90690909-78b9-4115-a5e0-11ce825a1b23/20260321T115941Z_model.json",
+  "status": "completed",
+  "project_snapshot": {
+    "pruned_task_count": null,
+    "validate_fail_facts": [
+      {
+        "scope": "validate_fail",
+        "dialect": "Snowflake SQL",
+        "relations": [],
+        "tool_contracts": {
+          "file": {
+            "ops": {
+              "mv": {
+                "example": {
+                  "action": "file",
+                  "args": {
+                    "from": "models/staging/foo.sql",
+                    "op": "mv",
+                    "to": "models/staging/stg_test_raw_raw_customers.sql"
+                  }
+                },
+                "rules": [
+                  "args.op MUST equal \"mv\"",
+                  "args.from and args.to MUST be project-relative paths (no absolute paths, no '..')",
+                  "Destination MUST NOT already exist (no implicit overwrite)",
+                  "If expected_sha256 is provided, it MUST match the current source file sha256"
+                ],
+                "top_level_args": {
+                  "expected_sha256": "optional string (checked against the source file content)",
+                  "from": "string (project-relative path)",
+                  "op": "mv",
+                  "to": "string (project-relative path)"
+                }
+              },
+              "patch": {
+                "example": {
+                  "op": "patch",
+                  "patch_text": "@@ ... @@\n- select old_col from {{ source('raw','events') }}\n+ select new_col from {{ source('raw','events') }}\n",
+                  "path": "models/staging/stg_example.sql"
+                },
+                "rules": [
+                  "args.op MUST equal \"patch\"",
+                  "Provide patch_text only (other patch primitives are not allowed)",
+                  "args.path MUST be provided and patch_text MUST target exactly that one path",
+                  "patch_text MUST start with '@@' and MUST NOT include git file headers (---/+++), diff --git preamble, or diffy-style headers (--- original / +++ modified)",
+                  "Hunk headers MUST be Cursor/Aider style: '@@ ... @@' (no line numbers; never '@@ -a,b +c,d @@')"
+                ],
+                "top_level_args": {
+                  "op": "patch",
+                  "patch_text": "string (Cursor/Aider hunks-only unified diff; starts with '@@'; no file headers)",
+                  "path": "string (single target file; required)"
+                }
+              },
+              "rm": {
+                "example": {
+                  "action": "file",
+                  "args": {
+                    "op": "rm",
+                    "path": "models/staging/staging.sql"
+                  }
+                },
+                "rules": [
+                  "args.op MUST equal \"rm\"",
+                  "args.path MUST be a project-relative path (no absolute paths, no '..')",
+                  "If expected_sha256 is provided and the file exists, it MUST match the current file content sha256"
+                ],
+                "top_level_args": {
+                  "expected_sha256": "optional string (only checked if the file exists)",
+                  "op": "rm",
+                  "path": "string (project-relative path)"
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "dbt_prefix": "local/dev/bike_hire_snowflake/dbt/",
+    "dbt_project_yml_etag": "fs-etag-105dba761583a711-340",
+    "plan_design_critique": {
+      "blockers": [],
+      "disposition": "accepted",
+      "fixes": [],
+      "ok": true
+    },
+    "plan_design_memo": "GOLD / Model Execution Plan Memo\n\nGoal\n\nBuild a compact, executable gold layer for trip lifecycle analytics from the available staged models:\n\n- ref('stg_raw_trip_start')\n- ref('stg_raw_trip_pause')\n- ref('stg_raw_trip_resume')\n- ref('stg_raw_trip_end')\n\nThe gold layer should answer the highest-value questions the data can support now:\n\n- What trip lifecycle events occurred, and when?\n- Which bikes and riders are active in the system?\n- How many trips are being taken, including completed and in-progress trips?\n- How active are riders by day?\n- How utilized are bikes by day?\n\nThis plan intentionally favors a small canonical set of models over many thin wrappers. The proposed gold layer is:\n\n- fct_trip_event\n- dim_bike\n- dim_rider\n- fct_trip\n- agg_rider_daily_trip_activity\n- agg_bike_daily_utilization\n\nSource reality and modeling implications\n\nAvailable event domains are trip_start, trip_pause, trip_resume, and trip_end. Across sources, the stable root columns are:\n\n- BIKE_ID\n- RIDER_ID\n- EVENT_DATE\n- EVENT_TYPE\n- MESSAGE_TYPE\n- ISBN / ISBN_STRING\n- TRIP\n- HARDWARE\n- METADATA\n- LAST_CRANK\n- CRANK_TORQUES\n\nImportant implications:\n\n1. The data is event-oriented, not trip-grained.\n2. EVENT_DATE is text and must be parsed into canonical timestamps.\n3. ISBN is inconsistent across sources and must be normalized to text.\n4. TRIP is semi-structured and may contain a usable trip identifier, but the gold plan cannot depend on that being universally present.\n5. The plan must therefore define an explicit fallback trip-building rule that is executable even when trip_id extraction from TRIP is incomplete.\n\nCanonical business entities and process\n\nEntities\n- Bike\n- Rider\n\nBusiness process\n- Trip lifecycle progression from start through pause/resume to end\n\nCanonical analytical grains\n- Event grain: one row per lifecycle event\n- Entity grain: one row per bike, one row per rider\n- Trip grain: one row per trip candidate, using a preferred payload trip_id when available and a deterministic start-anchored fallback when not\n- Summary grain: one row per rider per day; one row per bike per day\n\nTask inventory\n\nTask 1: Author gold model fct_trip_event\n\nPurpose\nCreate the canonical normalized event stream across all four lifecycle sources. This is the foundation for all downstream trip and entity analytics.\n\nGrain\nOne row per event record from the staged sources.\n\nDependencies\n- ref('stg_raw_trip_start')\n- ref('stg_raw_trip_pause')\n- ref('stg_raw_trip_resume')\n- ref('stg_raw_trip_end')\n\nChecklist requirements\n\nsql_model\n- Union all four staged models into one common schema.\n- Derive normalized event_name with accepted values: start, pause, resume, end.\n- Parse EVENT_DATE into event_ts and event_date.\n- Normalize ISBN to a single text isbn column using ISBN where available, otherwise ISBN_STRING, otherwise cast numeric ISBN to text.\n- Carry bike_id, rider_id, message_type.\n- Attempt to extract trip_id from TRIP when a stable scalar identifier is present; otherwise leave trip_id null.\n- Retain source_event_model for lineage.\n- Create deterministic event_key from source_event_model, normalized event_name, bike_id, rider_id, event_ts, normalized isbn, and extracted trip_id when present.\n- Do not promote unstable deep fields from HARDWARE or METADATA into the contract.\n\nschema_contract\nRequired columns\n- event_key\n- event_name\n- event_ts\n- event_date\n- bike_id\n- rider_id\n- isbn\n- message_type\n- trip_id\n- source_event_model\n\nOptional columns\n- event_type_raw\n- event_payload_present_flag\n\nExpected lineage from authoritative source columns\n- BIKE_ID\n- RIDER_ID\n- EVENT_DATE\n- EVENT_TYPE\n- MESSAGE_TYPE\n- ISBN\n- ISBN_STRING\n- TRIP\n\nvalidate\n- event_key is unique and not null.\n- event_name is restricted to start, pause, resume, end.\n- event_ts is not null for retained rows.\n- event_date = cast(event_ts as date).\n- Row counts reconcile to the four staged sources overall and by event_name.\n- bike_id and rider_id null rates are profiled and documented.\n- trip_id extraction success rate is measured by event_name and source_event_model.\n- ISBN normalization produces a single text field with documented null rate.\n\nTask 2: Author gold model dim_bike\n\nPurpose\nCreate the canonical bike dimension for joins and bike-centric analysis.\n\nGrain\nOne row per non-null bike_id.\n\nDependencies\n- ref('fct_trip_event')\n\nChecklist requirements\n\nsql_model\n- Select distinct non-null bike_id from fct_trip_event.\n- Derive first_seen_ts and last_seen_ts from event_ts.\n- Derive first_seen_date and last_seen_date.\n- Optionally carry latest_isbn if it is operationally useful and deterministically derived from the latest event.\n- Generate bike_key as a deterministic surrogate from bike_id.\n\nschema_contract\nRequired columns\n- bike_key\n- bike_id\n- first_seen_ts\n- last_seen_ts\n- first_seen_date\n- last_seen_date\n\nOptional columns\n- latest_isbn\n- latest_message_type\n\nExpected lineage from authoritative source columns\n- BIKE_ID\n- EVENT_DATE\n- ISBN\n- ISBN_STRING\n- MESSAGE_TYPE\n\nvalidate\n- bike_id is unique and not null.\n- bike_key is unique and not null.\n- first_seen_ts <= last_seen_ts.\n- Every non-null bike_id in fct_trip_event appears in dim_bike.\n- Row count equals count(distinct bike_id) from fct_trip_event over non-null bike_id.\n\nTask 3: Author gold model dim_rider\n\nPurpose\nCreate the canonical rider dimension for joins and rider-centric analysis.\n\nGrain\nOne row per non-null rider_id.\n\nDependencies\n- ref('fct_trip_event')\n\nChecklist requirements\n\nsql_model\n- Select distinct non-null rider_id from fct_trip_event.\n- Derive first_seen_ts and last_seen_ts.\n- Derive first_seen_date and last_seen_date.\n- Generate rider_key as a deterministic surrogate from rider_id.\n\nschema_contract\nRequired columns\n- rider_key\n- rider_id\n- first_seen_ts\n- last_seen_ts\n- first_seen_date\n- last_seen_date\n\nExpected lineage from authoritative source columns\n- RIDER_ID\n- EVENT_DATE\n\nvalidate\n- rider_id is unique and not null.\n- rider_key is unique and not null.\n- first_seen_ts <= last_seen_ts.\n- Every non-null rider_id in fct_trip_event appears in dim_rider.\n- Row count equals count(distinct rider_id) from fct_trip_event over non-null rider_id.\n\nTask 4: Author gold model fct_trip\n\nPurpose\nCreate the canonical trip fact. This model must be executable regardless of whether trip_id can be extracted reliably from TRIP.\n\nGrain\nOne row per trip candidate.\n\nTrip candidate build rule\nThis model will use a two-path deterministic construction:\n\nPath A: payload-identified trips\n- For events where trip_id is non-null in fct_trip_event, group by trip_id.\n- These rows receive trip_grain_type = 'payload_trip_id'.\n\nPath B: start-anchored fallback trips\n- For events where trip_id is null, create one trip candidate per start event.\n- Partition null-trip_id start events by bike_id and rider_id, ordered by event_ts and event_key.\n- For each null-trip_id start event, define its session window as:\n  - start at the start event timestamp\n  - end before the next null-trip_id start event for the same bike_id and rider_id\n- Assign null-trip_id pause, resume, and end events for the same bike_id and rider_id into that window.\n- Use the earliest end event in the window as trip_end_ts.\n- Additional end events in the same window are counted and flagged as anomalies.\n- These rows receive trip_grain_type = 'start_anchored'.\n\nOrphan end fallback\n- A null-trip_id end event with no eligible prior null-trip_id start in the same bike_id and rider_id partition becomes its own trip candidate.\n- These rows receive trip_grain_type = 'orphan_end'.\n\nThis rule is fully executable and removes the prior blocker: fct_trip does not depend on perfect trip_id extraction to be built.\n\nDependencies\n- ref('fct_trip_event')\n\nChecklist requirements\n\nsql_model\n- Build payload_trip_id rows from grouped non-null trip_id events.\n- Build start_anchored rows from null-trip_id start events and their window-assigned null-trip_id pause/resume/end events.\n- Build orphan_end rows for unmatched null-trip_id end events.\n- Generate deterministic trip_key:\n  - payload_trip_id rows: hash of trip_grain_type and trip_id\n  - start_anchored rows: hash of trip_grain_type and anchor_start_event_key\n  - orphan_end rows: hash of trip_grain_type and anchor_end_event_key\n- Derive:\n  - trip_key\n  - trip_grain_type\n  - trip_id\n  - bike_id\n  - rider_id\n  - trip_start_ts\n  - trip_end_ts\n  - trip_activity_date\n  - trip_status\n  - pause_event_count\n  - resume_event_count\n  - total_event_count\n  - trip_duration_seconds\n  - anchor_start_event_key\n  - anchor_end_event_key\n  - data_quality_flag\n- trip_activity_date rule:\n  - use cast(trip_start_ts as date) when trip_start_ts is present\n  - otherwise use cast(trip_end_ts as date) for orphan_end rows\n- trip_status values:\n  - completed\n  - in_progress\n  - end_without_start\n  - invalid_multi_end\n  - invalid_missing_keys when bike_id or rider_id are missing on fallback rows\n- bike_id and rider_id attribution:\n  - payload_trip_id rows: use consistent value if unique within trip_id group; if conflicting, choose a deterministic value and flag data_quality_flag\n  - start_anchored rows: inherit from anchor start event\n  - orphan_end rows: inherit from orphan end event\n\nschema_contract\nRequired columns\n- trip_key\n- trip_grain_type\n- trip_id\n- bike_id\n- rider_id\n- trip_start_ts\n- trip_end_ts\n- trip_activity_date\n- trip_status\n- pause_event_count\n- resume_event_count\n- total_event_count\n- trip_duration_seconds\n- anchor_start_event_key\n- anchor_end_event_key\n- data_quality_flag\n\nExpected lineage from authoritative source columns\n- TRIP\n- BIKE_ID\n- RIDER_ID\n- EVENT_DATE\n- EVENT_TYPE\n\nvalidate\n- trip_key is unique and not null.\n- trip_grain_type is restricted to payload_trip_id, start_anchored, orphan_end.\n- For trip_grain_type = payload_trip_id, trip_id is not null.\n- For trip_grain_type = start_anchored, anchor_start_event_key is not null.\n- For trip_grain_type = orphan_end, anchor_end_event_key is not null and trip_status = end_without_start unless multi-end anomaly logic applies.\n- trip_duration_seconds >= 0 when populated.\n- trip_end_ts >= trip_start_ts when both exist.\n- completed rows have both start and end timestamps.\n- in_progress rows have a start timestamp and null end timestamp.\n- Each eligible null-trip_id event is assigned to at most one start_anchored trip.\n- Reconciliation is reported separately by trip_grain_type:\n  - payload_trip_id events reconcile to fct_trip_event rows with non-null trip_id\n  - start_anchored and orphan_end rows reconcile to the null-trip_id event population, with any excluded orphan pause/resume events counted explicitly\n- Conflicting bike_id or rider_id within a payload trip group are counted and flagged.\n\nTask 5: Author gold model agg_rider_daily_trip_activity\n\nPurpose\nCreate the highest-value rider daily summary for product and retention analysis.\n\nGrain\nOne row per rider_id per activity_date.\n\nDependencies\n- ref('fct_trip')\n\nChecklist requirements\n\nsql_model\n- Aggregate fct_trip by rider_id and trip_activity_date as activity_date.\n- Define business trip metrics using rows with trip_status in ('completed', 'in_progress').\n- Include anomaly visibility without mixing anomalies into core metrics.\n- Recommended measures:\n  - trip_count\n  - completed_trip_count\n  - in_progress_trip_count\n  - total_trip_duration_seconds\n  - avg_trip_duration_seconds\n  - distinct_bike_count\n  - anomaly_trip_count\n\nschema_contract\nRequired columns\n- rider_id\n- activity_date\n- trip_count\n- completed_trip_count\n- in_progress_trip_count\n- total_trip_duration_seconds\n- avg_trip_duration_seconds\n- distinct_bike_count\n- anomaly_trip_count\n\nExpected lineage from authoritative source columns\n- RIDER_ID\n- TRIP\n- EVENT_DATE\n- BIKE_ID\n\nvalidate\n- (rider_id, activity_date) is unique.\n- activity_date is not null.\n- All count metrics are non-negative integers.\n- total_trip_duration_seconds >= 0.\n- sum(trip_count) reconciles to fct_trip rows with status completed or in_progress over the same filter.\n- sum(anomaly_trip_cou\n... (truncated)",
+    "review": {
+      "batches": [
+        {
+          "batch_idx": 0,
+          "batch_items": [
+            "fct_trip_event",
+            "fct_trip",
+            "dim_bike",
+            "dim_rider",
+            "agg_rider_daily_trip_activity"
+          ],
+          "findings": [
+            "models/marts/fct_trip_event.sql does not implement the approved event normalization contract: each branch reads its source with `WHERE 1 = 0`, and the final projection is entirely `CAST(NULL ...)` for `event_key`, `event_name`, `event_ts`, `event_date`, `source_event_model`, and the other required fields. This means the model will return no retained lifecycle events at all, so the specified `event_count`, `trip_id_extraction_rate`, and `isbn_null_rate` are all incorrect/undefined. Smallest next action: replace the placeholder zero-row union with the spec-required union of the four staged sources, defensive `EVENT_DATE` parsing/filtering, source-based `event_name`, source-aware `isbn` normalization, top-level `trip_id` extraction, and deterministic `event_key` derivation.",
+            "models/marts/fct_trip.sql is a placeholder that selects only `CAST(NULL ...)` columns from `{{ ref('fct_trip_event') }}` with `WHERE 1 = 0`, so it produces zero trip candidates and never applies any of the required payload-trip, start-anchored, or orphan-end construction logic. That breaks the declared grain and makes `trip_count`, `trip_duration_seconds`, and `anomaly_trip_count` unusable for trip-level decisions. Smallest next action: implement the spec-defined trip construction paths from `fct_trip_event` and derive `trip_key`, `trip_grain_type`, `trip_status`, event counts, anchors, duration, and `data_quality_flag` instead of the zero-row stub.",
+            "models/marts/dim_bike.sql, models/marts/dim_rider.sql, and models/marts/agg_rider_daily_trip_activity.sql are all zero-row stubs (`CAST(NULL ...)` projections with `WHERE 1 = 0` on their refs), so they do not satisfy their declared grains of 1 row per non-null `bike_id`, 1 row per non-null `rider_id`, and 1 row per `rider_id`/`activity_date`. As written, `bike_count`, `rider_count`, and all rider daily activity KPIs (`trip_count`, `completed_trip_count`, `in_progress_trip_count`, etc.) will always be empty. Smallest next action: replace each placeholder select with the required aggregation over its specified upstream model, including the deterministic latest-row ordering in `dim_bike` and the `trip_status` scoping in `agg_rider_daily_trip_activity`."
+          ],
+          "ts": "2026-03-21T12:38:20.809802+00:00"
+        },
+        {
+          "batch_idx": 1,
+          "batch_items": [
+            "agg_bike_daily_utilization"
+          ],
+          "findings": [
+            "models/marts/agg_bike_daily_utilization.sql is still a placeholder: `SELECT * FROM {{ ref('fct_trip') }} WHERE 1 = 0` guarantees an empty result set, so any downstream utilization reporting would show no bike/day activity instead of the required aggregates. Smallest next action: replace the `WHERE 1 = 0` stub with the specified aggregation over `fct_trip`.",
+            "models/marts/agg_bike_daily_utilization.sql does not implement the approved output contract or grain: the visible SQL uses `SELECT *` from `fct_trip` and has no `GROUP BY bike_id, trip_activity_date`, no `bike_id is not null` filter, and no metric expressions for `trip_count`, `completed_trip_count`, `in_progress_trip_count`, `total_trip_duration_seconds`, `avg_trip_duration_seconds`, `distinct_rider_count`, or `anomaly_trip_count`. This would make the model unusable for daily bike-level decisions because it exposes trip-level columns rather than one row per `bike_id` per `activity_date`. Smallest next action: project only the specified output fields and aggregate by `bike_id` and `trip_activity_date` per the implementation spec."
+          ],
+          "ts": "2026-03-21T12:38:33.318703+00:00"
+        },
+        {
+          "batch_idx": 0,
+          "batch_items": [
+            "fct_trip_event",
+            "fct_trip",
+            "dim_bike",
+            "dim_rider",
+            "agg_rider_daily_trip_activity"
+          ],
+          "findings": [
+            "models/marts/fct_trip_event.sql excludes every source row where `trip IS NOT NULL` is false in all four branch CTEs (`trip_end_events`, `trip_pause_events`, `trip_resume_events`, `trip_start_events`). The approved spec for `fct_trip_event` allows `trip_id` to be null and `fct_trip` explicitly depends on those null-`trip_id` events for `start_anchored` and `orphan_end` trip construction, so this will undercount events and make fallback trip/session decisions impossible. Smallest next action: remove the `trip IS NOT NULL` filters while still retaining the `event_at IS NOT NULL` timestamp filter.",
+            "models/marts/fct_trip.sql does not conform to the required trip-construction contract: it only builds grouped `trip_id` rows (`trip_rollup GROUP BY trip_id`) and hard-codes `trip_grain_type` as `'trip_id'`, with no visible `start_anchored` or `orphan_end` path. In the same file, event logic keys off `event_name = 'trip_start'/'trip_end'/'trip_pause'/'trip_resume'`, but the `fct_trip_event` spec defines canonical `event_name` values as exactly `start`, `end`, `pause`, and `resume`. This will produce incorrect trip rows, pause/resume counts, and status assignment relative to the approved model semantics. Smallest next action: implement the three required construction paths and align all `event_name` predicates and `trip_grain_type` values to the spec.",
+            "models/marts/agg_rider_daily_trip_activity.sql aggregates all `fct_trip` rows after only filtering `rider_id IS NOT NULL` and `trip_activity_date IS NOT NULL`; the business KPI fields `trip_count` (`COUNT(*)`), `distinct_bike_count` (`COUNT(DISTINCT bike_id)`), `total_trip_duration_seconds` (`SUM(trip_duration_seconds)`), and `avg_trip_duration_seconds` (`AVG(trip_duration_seconds)`) are not restricted to `trip_status IN ('completed','in_progress')` as required by the spec. This will mix anomalous trips into rider-day KPI reporting. Smallest next action: apply the `trip_status IN ('completed','in_progress')` condition to the business metrics and leave `anomaly_trip_count` as the only non-business-status count."
+          ],
+          "ts": "2026-03-22T10:49:14.670704+00:00"
+        },
+        {
+          "batch_idx": 1,
+          "batch_items": [
+            "agg_bike_daily_utilization"
+          ],
+          "findings": [
+            "models/marts/agg_bike_daily_utilization.sql computes several core business KPIs over all rows in `bike_trips`, not just `trip_status in ('completed','in_progress')` as required by the spec: `COUNT(*) AS trip_count`, `COUNT(DISTINCT rider_id) AS distinct_rider_count`, `SUM(trip_duration_seconds) AS total_trip_duration_seconds`, and `AVG(trip_duration_seconds) AS avg_trip_duration_seconds` have no status filter. This will overstate daily bike utilization whenever anomalous/non-business statuses exist. Smallest next action: make these aggregates conditional on `trip_status in ('completed','in_progress')` (or filter the input rows for those metrics only).",
+            "models/marts/agg_bike_daily_utilization.sql defines `anomaly_trip_count` as `COUNT_IF(data_quality_flag <> 'ok')`, but the approved spec defines this metric as count of rows where `trip_status not in ('completed','in_progress')`. These are not equivalent business rules, so anomaly counts can disagree with the contract and mislead monitoring decisions. Smallest next action: derive `anomaly_trip_count` from `trip_status`, not `data_quality_flag`.",
+            "models/marts/agg_bike_daily_utilization.sql uses `SUM(trip_duration_seconds) AS total_trip_duration_seconds` without `COALESCE`, while the spec explicitly requires null `trip_duration_seconds` values to contribute 0 and declares the output non-null. If a bike/day group has only null durations, `SUM(...)` will return null instead of 0, producing incorrect totals. Smallest next action: coalesce the summed duration to 0 in the final select."
+          ],
+          "ts": "2026-03-22T10:49:32.999108+00:00"
+        },
+        {
+          "batch_idx": 0,
+          "batch_items": [
+            "fct_trip_event",
+            "fct_trip",
+            "dim_bike",
+            "dim_rider",
+            "agg_rider_daily_trip_activity"
+          ],
+          "findings": [
+            "models/marts/fct_trip_event.sql: every union branch sets `CAST(trip AS TEXT) AS trip_id`. The approved spec says `trip_id` must be extracted only from a stable top-level scalar in `TRIP`, otherwise null. Casting the whole `TRIP` payload to text can create false trip IDs from structured payloads, which would distort `trip_id_extraction_rate` and downstream `fct_trip` grouping. Next action: replace the direct `CAST(trip AS TEXT)` with the spec-defined top-level scalar extraction/null fallback before emitting `trip_id`.",
+            "models/marts/fct_trip.sql: `trip_rollup`, `start_anchor`, and `end_anchor` compare `event_name` to `'trip_pause'`, `'trip_resume'`, `'trip_start'`, and `'trip_end'`, but models/marts/fct_trip_event.sql emits canonical values `'pause'`, `'resume'`, `'start'`, and `'end'`. As written, `pause_event_count`/`resume_event_count` will be 0 and `trip_start_ts`/`trip_end_ts` will stay null, which in turn makes trip status and duration incorrect. Next action: align all `event_name` predicates in `fct_trip.sql` to the canonical values produced by `fct_trip_event`.",
+            "models/marts/fct_trip.sql: the model only builds `trip_rollup` with `GROUP BY trip_id`, outputs a constant `'trip_id' AS trip_grain_type`, and hashes `MD5(COALESCE(tr.trip_id, '')) AS trip_key`. The approved spec requires three construction paths (`payload_trip_id`, `start_anchored`, `orphan_end`); grouping solely by `trip_id` means all null-`trip_id` events collapse together instead of being sessionized or treated as orphan ends. This makes fallback trip counts and statuses incorrect. Next action: implement separate payload (`trip_id IS NOT NULL`) and null-`trip_id` fallback/orphan-end paths, and derive `trip_grain_type`/`trip_key` per spec."
+          ],
+          "ts": "2026-03-22T10:57:13.856592+00:00"
+        },
+        {
+          "batch_idx": 1,
+          "batch_items": [
+            "agg_bike_daily_utilization"
+          ],
+          "findings": [
+            "models/marts/agg_bike_daily_utilization.sql computes several business KPIs over all rows instead of only trip_status in ('completed','in_progress'): `COUNT(*) AS trip_count`, `COUNT(DISTINCT rider_id) AS distinct_rider_count`, `SUM(trip_duration_seconds)`, and `AVG(trip_duration_seconds)` are applied after only filtering `bike_id`/`trip_activity_date`, with no status predicate. This will overstate daily utilization for bikes/dates that include anomalous statuses. Smallest next action: restrict those metric expressions to the approved business-status scope from the spec.",
+            "models/marts/agg_bike_daily_utilization.sql defines `anomaly_trip_count` as `COUNT_IF(data_quality_flag <> 'ok')`, but the spec defines this metric as count of rows where `trip_status not in ('completed','in_progress')`. These are not equivalent, so anomaly monitoring could disagree with the approved status-based definition. Smallest next action: derive `anomaly_trip_count` from `trip_status` as specified.",
+            "models/marts/agg_bike_daily_utilization.sql uses `SUM(trip_duration_seconds) AS total_trip_duration_seconds` without a `COALESCE`. Per the spec, null `trip_duration_seconds` values must contribute 0 and the output field is non-nullable; as written, groups whose in-scope rows all have null duration will return NULL, breaking the metric. Smallest next action: coalesce duration values (or the aggregate result) so the total is 0 when all contributing durations are null."
+          ],
+          "ts": "2026-03-22T10:57:30.380015+00:00"
+        }
+      ],
+      "phase": "model_review",
+      "project_notes": [
+        "The project is a Snowflake dbt project named `bike_hire_snowflake_project` running on dbt `1.11.7`.",
+        "Model material is organized under `models/staging` and `models/marts`, with no models in `models/core`.",
+        "The default project schema is configured from the `DBT_GOLD_SUFFIX` environment variable, and the `staging` subdirectory is configured to use `DBT_SILVER_SUFFIX`.",
+        "A single source named `RAW` is defined in database `ANALYTICS`, schema `RAW`, with four raw event tables: `TRIP_START`, `TRIP_PAUSE`, `TRIP_RESUME`, and `TRIP_END`.",
+        "The staging layer contains four source-aligned models named `stg_raw_trip_start`, `stg_raw_trip_pause`, `stg_raw_trip_resume`, and `stg_raw_trip_end`.",
+        "The marts layer contains two fact models (`fct_trip_event`, `fct_trip`), two dimensions (`dim_bike`, `dim_rider`), and two daily aggregate models (`agg_rider_daily_trip_activity`, `agg_bike_daily_utilization`).",
+        "Model naming follows a warehouse-style convention using `stg_`, `fct_`, `dim_`, and `agg_` prefixes.",
+        "`fct_trip_event` is documented as a unified trip lifecycle event stream with canonical event names `start`, `pause`, `resume`, and `end`.",
+        "`fct_trip` is documented as one row per `trip_id` assembled from lifecycle events, with trip-level metrics and anchor event keys.",
+        "Relationship tests are defined from `fct_trip.rider_id` to `dim_rider.rider_id`, from `fct_trip.bike_id` to `dim_bike.bike_id`, and from `agg_rider_daily_trip_activity.rider_id` to `dim_rider.rider_id`.",
+        "Primary key-style columns such as `event_key`, `trip_key`, `bike_key`, and `rider_key` are documented with `unique` and `not_null` tests.",
+        "The dimension models are documented as observed-entity dimensions derived from trip events, tracking first-seen and last-seen timestamps and dates for bikes and riders."
+      ],
+      "result": {
+        "dataset_ids": [
+          "agg_bike_daily_utilization",
+          "fct_trip",
+          "fct_trip_event"
+        ],
+        "decision": "patch_impl",
+        "text": "Blocking correctness issues remain:\n\n1. `models/marts/fct_trip_event.sql` emits `trip_id` as `CAST(trip AS TEXT)` in every union branch. The approved spec requires extracting `trip_id` only from a stable top-level scalar in `TRIP`, else null. Casting the full payload can fabricate trip IDs from structured values and corrupt downstream grouping/extraction-rate metrics.\n\n2. `models/marts/fct_trip.sql` is incorrect in two concrete ways: it predicates on non-existent event names (`trip_start`/`trip_end`/`trip_pause`/`trip_resume` instead of the canonical `start`/`end`/`pause`/`resume` emitted by `fct_trip_event`), and it groups only by `trip_id` with a constant `trip_grain_type='trip_id'`. This causes pause/resume counts to be zero, start/end timestamps to stay null, and all null-`trip_id` events to collapse together instead of using the spec-required `payload_trip_id` / `start_anchored` / `orphan_end` construction paths.\n\n3. `models/marts/agg_bike_daily_utilization.sql` computes business KPIs over all rows instead of only `trip_status in ('completed','in_progress')`, defines `anomaly_trip_count` from `data_quality_flag <> 'ok'` instead of status, and can return null `total_trip_duration_seconds` when all contributing durations are null. These deviations will overstate utilization/anomaly metrics and violate the non-null total-duration requirement.",
+        "tier": "gold",
+        "ts": "2026-03-22T10:57:44.248594+00:00"
+      },
+      "review_version": 1,
+      "ts": "2026-03-22T10:56:21.327804+00:00"
+    }
+  },
+  "tasks": [
+    {
+      "name": "fct_trip_event",
+      "folder": "marts",
+      "goal": "Build fct_trip_event from grounded staging inputs.",
+      "inputs": [
+        "stg_raw_trip_end",
+        "stg_raw_trip_pause",
+        "stg_raw_trip_resume",
+        "stg_raw_trip_start"
+      ],
+      "expected_model_path": "models/marts/fct_trip_event.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per retained lifecycle event record from the union of staged trip start, pause, resume, and end sources.",
+        "inputs": [
+          "stg_raw_trip_start",
+          "stg_raw_trip_pause",
+          "stg_raw_trip_resume",
+          "stg_raw_trip_end"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "event_count",
+            "definition": "Count of retained event rows by canonical event_name after union and normalization.",
+            "caveats": [
+              "Counts exclude rows whose EVENT_DATE cannot be parsed into event_ts."
+            ]
+          },
+          {
+            "name": "trip_id_extraction_rate",
+            "definition": "Share of retained events where trip_id is non-null after top-level scalar extraction from TRIP.",
+            "caveats": [
+              "Success depends on stable top-level scalar availability in TRIP and may vary by source model."
+            ]
+          },
+          {
+            "name": "isbn_null_rate",
+            "definition": "Share of retained events where normalized isbn is null after source-aware normalization.",
+            "caveats": [
+              "TRIP_PAUSE may use ISBN_STRING when present; other sources use ISBN cast to text."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "event_key",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "RIDER_ID",
+              "EVENT_DATE",
+              "ISBN",
+              "ISBN_STRING",
+              "TRIP"
+            ],
+            "expression": "hash(source_event_model, event_name, bike_id, rider_id, event_ts, isbn, trip_id)",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Deterministic surrogate for the normalized event row."
+          },
+          {
+            "name": "event_name",
+            "kind": "clean",
+            "source_columns": [],
+            "expression": "assign constant event_name by input source model: stg_raw_trip_start -> 'start', stg_raw_trip_pause -> 'pause', stg_raw_trip_resume -> 'resume', stg_raw_trip_end -> 'end'",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Canonical lifecycle event label."
+          },
+          {
+            "name": "event_ts",
+            "kind": "clean",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "parse EVENT_DATE with defensive timestamp conversion; retain only rows where parsed timestamp is not null",
+            "data_type": "TIMESTAMP",
+            "nullable": false,
+            "description": "Parsed event timestamp from raw EVENT_DATE text."
+          },
+          {
+            "name": "event_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "cast(event_ts as date)",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Calendar date derived from event_ts."
+          },
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "cast(BIKE_ID as text)",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Bike identifier carried from source."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "cast(RIDER_ID as text)",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Rider identifier carried from source."
+          },
+          {
+            "name": "isbn",
+            "kind": "clean",
+            "source_columns": [
+              "ISBN",
+              "ISBN_STRING"
+            ],
+            "expression": "for pause events use coalesce(ISBN_STRING, cast(ISBN as text)); for start, resume, and end events use cast(ISBN as text)",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Normalized ISBN across source variants."
+          },
+          {
+            "name": "message_type",
+            "kind": "raw",
+            "source_columns": [
+              "MESSAGE_TYPE"
+            ],
+            "expression": "cast(MESSAGE_TYPE as text)",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Message type from source event."
+          },
+          {
+            "name": "trip_id",
+            "kind": "derived",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "extract only stable top-level scalar candidate from TRIP; otherwise return null",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Top-level scalar trip identifier when confidently extractable from TRIP."
+          },
+          {
+            "name": "source_event_model",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "assign constant model name for each union branch: stg_raw_trip_start, stg_raw_trip_pause, stg_raw_trip_resume, or stg_raw_trip_end",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Staged source model that produced the event row."
+          },
+          {
+            "name": "event_type_raw",
+            "kind": "raw",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "cast(EVENT_TYPE as text)",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Observed raw event type for lineage and observability."
+          },
+          {
+            "name": "event_payload_present_flag",
+            "kind": "derived",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "TRIP is not null",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "description": "Indicates whether TRIP payload was present on the source row."
+          }
+        ],
+        "assumptions": [
+          "Rows with unparseable EVENT_DATE are excluded from the output so event_ts is always populated for retained rows.",
+          "Canonical event_name is assigned from source model identity, not EVENT_TYPE values, so accepted values are exactly start, pause, resume, end.",
+          "trip_id extraction from TRIP is limited to stable top-level scalar candidates; deep-path or non-scalar extraction is intentionally not attempted.",
+          "ISBN_STRING is only available on TRIP_PAUSE records; isbn normalization is therefore source-conditional.",
+          "event_key uniqueness depends on the chosen deterministic hash over the normalized contract columns after timestamp parsing and isbn normalization."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "stg_raw_trip_start",
+          "model_rel_path": "models/staging/stg_raw_trip_start.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_silver.stg_raw_trip_start",
+          "source_schema": []
+        },
+        {
+          "input_name": "stg_raw_trip_pause",
+          "model_rel_path": "models/staging/stg_raw_trip_pause.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_silver.stg_raw_trip_pause",
+          "source_schema": []
+        },
+        {
+          "input_name": "stg_raw_trip_resume",
+          "model_rel_path": "models/staging/stg_raw_trip_resume.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_silver.stg_raw_trip_resume",
+          "source_schema": []
+        },
+        {
+          "input_name": "stg_raw_trip_end",
+          "model_rel_path": "models/staging/stg_raw_trip_end.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_silver.stg_raw_trip_end",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "fct_trip",
+      "folder": "marts",
+      "goal": "Build fct_trip from grounded staging inputs.",
+      "inputs": [
+        "fct_trip_event"
+      ],
+      "expected_model_path": "models/marts/fct_trip.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per trip candidate built from either payload trip_id grouping, start-anchored null-trip_id sessioning, or orphan null-trip_id end fallback.",
+        "inputs": [
+          "fct_trip_event"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "trip_count",
+            "definition": "Count of trip candidate rows by trip_grain_type and trip_status.",
+            "caveats": [
+              "Includes only rows with trip_status in completed or in_progress when used as a business trip count."
+            ]
+          },
+          {
+            "name": "trip_duration_seconds",
+            "definition": "Elapsed seconds between trip_start_ts and trip_end_ts for valid completed trips.",
+            "caveats": [
+              "Populated only when both trip_start_ts and trip_end_ts exist and trip_end_ts >= trip_start_ts."
+            ]
+          },
+          {
+            "name": "anomaly_trip_count",
+            "definition": "Count of trip rows carrying one or more anomaly conditions in data_quality_flag or invalid trip_status.",
+            "caveats": [
+              "Compact categorical or delimited values are expected; excluded orphan pause/resume events are not represented as trip rows."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "trip_key",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "for payload_trip_id rows hash('payload_trip_id', trip_id); for start_anchored rows hash('start_anchored', anchor_start_event_key); for orphan_end rows hash('orphan_end', anchor_end_event_key)",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Deterministic surrogate key for the trip candidate."
+          },
+          {
+            "name": "trip_grain_type",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "assign 'payload_trip_id' for grouped non-null trip_id events, 'start_anchored' for null-trip_id start-window sessions, or 'orphan_end' for unmatched null-trip_id end events",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Construction path used for the trip candidate."
+          },
+          {
+            "name": "trip_id",
+            "kind": "derived",
+            "source_columns": [
+              "TRIP"
+            ],
+            "expression": "for payload_trip_id rows use grouped trip_id; for start_anchored and orphan_end rows set null",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Payload trip identifier when available."
+          },
+          {
+            "name": "bike_id",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "for payload_trip_id rows choose the unique non-null bike_id if present else deterministic min non-null bike_id and flag conflicts; for start_anchored rows inherit anchor start bike_id; for orphan_end rows inherit orphan end bike_id",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Bike identifier attributed to the trip candidate."
+          },
+          {
+            "name": "rider_id",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "for payload_trip_id rows choose the unique non-null rider_id if present else deterministic min non-null rider_id and flag conflicts; for start_anchored rows inherit anchor start rider_id; for orphan_end rows inherit orphan end rider_id",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Rider identifier attributed to the trip candidate."
+          },
+          {
+            "name": "trip_start_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "EVENT_TYPE"
+            ],
+            "expression": "for payload_trip_id rows take min event_ts where event_name = 'start'; for start_anchored rows use anchor start event_ts; for orphan_end rows set null",
+            "data_type": "TIMESTAMP",
+            "nullable": true,
+            "description": "Trip start timestamp when a start event exists."
+          },
+          {
+            "name": "trip_end_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "EVENT_TYPE"
+            ],
+            "expression": "for payload_trip_id rows take min event_ts where event_name = 'end'; for start_anchored rows take earliest assigned end event_ts in the anchor window; for orphan_end rows use orphan end event_ts",
+            "data_type": "TIMESTAMP",
+            "nullable": true,
+            "description": "Trip end timestamp when an end event exists."
+          },
+          {
+            "name": "trip_activity_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "cast(trip_start_ts as date) when trip_start_ts is not null else cast(trip_end_ts as date)",
+            "data_type": "DATE",
+            "nullable": true,
+            "description": "Primary activity date for trip-level reporting."
+          },
+          {
+            "name": "trip_status",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "RIDER_ID",
+              "EVENT_DATE",
+              "EVENT_TYPE"
+            ],
+            "expression": "set to 'completed' when start and end both exist and trip_end_ts >= trip_start_ts; 'in_progress' when start exists and no end; 'end_without_start' for orphan_end rows unless overridden by anomaly logic; 'invalid_multi_end' when more than one end applies; 'invalid_missing_keys' for fallback rows with null bike_id or rider_id",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Trip lifecycle status after deterministic construction and anomaly checks."
+          },
+          {
+            "name": "pause_event_count",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "count assigned events where event_name = 'pause'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Number of pause events assigned to the trip candidate."
+          },
+          {
+            "name": "resume_event_count",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "count assigned events where event_name = 'resume'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Number of resume events assigned to the trip candidate."
+          },
+          {
+            "name": "total_event_count",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_TYPE"
+            ],
+            "expression": "count all events assigned to the trip candidate",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Total number of events assigned to the trip candidate."
+          },
+          {
+            "name": "trip_duration_seconds",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "datediff('second', trip_start_ts, trip_end_ts) when trip_start_ts and trip_end_ts are both not null and trip_end_ts >= trip_start_ts else null",
+            "data_type": "NUMBER",
+            "nullable": true,
+            "description": "Duration of the trip in seconds when both endpoints are valid."
+          },
+          {
+            "name": "anchor_start_event_key",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "for start_anchored rows use the anchor start event_key; otherwise null",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Event key of the anchor start event for start_anchored trips."
+          },
+          {
+            "name": "anchor_end_event_key",
+            "kind": "derived",
+            "source_columns": [],
+            "expression": "for orphan_end rows use the orphan end event_key; for other rows use the earliest end event_key only if implemented for traceability else null",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Event key of the anchor end event for orphan_end trips or earliest assigned end event where needed for traceability."
+          },
+          {
+            "name": "data_quality_flag",
+            "kind": "quality_flag",
+            "source_columns": [
+              "BIKE_ID",
+              "RIDER_ID",
+              "EVENT_DATE",
+              "TRIP"
+            ],
+            "expression": "emit null when no issues; otherwise emit compact categorical or delimited values drawn from conflicting_bike_id, conflicting_rider_id, invalid_multi_end, invalid_missing_keys, no_start_for_payload",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Compact anomaly indicator field for conflicting attribution or invalid session conditions."
+          }
+        ],
+        "assumptions": [
+          "fct_trip_event provides stable event_name, event_ts, event_key, bike_id, rider_id, isbn, and trip_id definitions and is the only allowed input.",
+          "Payload and fallback populations are mutually exclusive because Path A uses rows where trip_id is not null and fallback logic uses rows where trip_id is null.",
+          "For null-trip_id fallback sessioning, event ordering is deterministic on (event_ts, event_key) within each bike_id and rider_id partition.",
+          "Orphan pause and resume events with null trip_id and no eligible start anchor are excluded from trip rows and must be counted separately in reconciliation.",
+          "For payload-trip attribution, if multiple non-null bike_id or rider_id values exist within a trip_id group, a deterministic value is chosen and the conflict is surfaced in data_quality_flag."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "fct_trip_event",
+          "model_rel_path": "models/marts/fct_trip_event.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_gold.fct_trip_event",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "dim_bike",
+      "folder": "marts",
+      "goal": "Build dim_bike from grounded staging inputs.",
+      "inputs": [
+        "fct_trip_event"
+      ],
+      "expected_model_path": "models/marts/dim_bike.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per non-null bike_id.",
+        "inputs": [
+          "fct_trip_event"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "bike_count",
+            "definition": "Count of distinct non-null bike_id values represented in the dimension.",
+            "caveats": [
+              "Null bike_id events are excluded from the dimension."
+            ]
+          },
+          {
+            "name": "first_seen_ts",
+            "definition": "Earliest observed event_ts for each bike_id.",
+            "caveats": [
+              "Based on retained normalized event timestamps from fct_trip_event."
+            ]
+          },
+          {
+            "name": "last_seen_ts",
+            "definition": "Latest observed event_ts for each bike_id.",
+            "caveats": [
+              "Based on retained normalized event timestamps from fct_trip_event."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "bike_key",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "hash(bike_id)",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Deterministic surrogate key for the bike entity."
+          },
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "bike_id",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Canonical bike identifier."
+          },
+          {
+            "name": "first_seen_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "BIKE_ID"
+            ],
+            "expression": "min(event_ts) over all fct_trip_event rows for the bike_id",
+            "data_type": "TIMESTAMP",
+            "nullable": false,
+            "description": "Earliest retained event timestamp observed for the bike."
+          },
+          {
+            "name": "last_seen_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "BIKE_ID"
+            ],
+            "expression": "max(event_ts) over all fct_trip_event rows for the bike_id",
+            "data_type": "TIMESTAMP",
+            "nullable": false,
+            "description": "Latest retained event timestamp observed for the bike."
+          },
+          {
+            "name": "first_seen_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "BIKE_ID"
+            ],
+            "expression": "cast(first_seen_ts as date)",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Date of the first retained event observed for the bike."
+          },
+          {
+            "name": "last_seen_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "BIKE_ID"
+            ],
+            "expression": "cast(last_seen_ts as date)",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Date of the last retained event observed for the bike."
+          },
+          {
+            "name": "latest_isbn",
+            "kind": "derived",
+            "source_columns": [
+              "ISBN",
+              "ISBN_STRING",
+              "BIKE_ID",
+              "EVENT_DATE"
+            ],
+            "expression": "take isbn from the latest fct_trip_event row for the bike ordered by event_ts desc, event_key desc",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "ISBN from the most recent event for the bike when deterministically available."
+          },
+          {
+            "name": "latest_message_type",
+            "kind": "derived",
+            "source_columns": [
+              "MESSAGE_TYPE",
+              "BIKE_ID",
+              "EVENT_DATE"
+            ],
+            "expression": "take message_type from the latest fct_trip_event row for the bike ordered by event_ts desc, event_key desc",
+            "data_type": "TEXT",
+            "nullable": true,
+            "description": "Message type from the most recent event for the bike when deterministically available."
+          }
+        ],
+        "assumptions": [
+          "fct_trip_event is the sole source and already excludes unparseable EVENT_DATE rows, so first_seen_ts and last_seen_ts are based only on retained events.",
+          "The dimension intentionally keeps only non-null bike_id values so every row represents a joinable bike entity.",
+          "latest_isbn and latest_message_type are optional observability attributes and should be selected deterministically from the latest event ordered by event_ts desc, event_key desc.",
+          "If multiple events share the latest timestamp for a bike, event_key is used as the deterministic tiebreaker."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "fct_trip_event",
+          "model_rel_path": "models/marts/fct_trip_event.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_gold.fct_trip_event",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "dim_rider",
+      "folder": "marts",
+      "goal": "Build dim_rider from grounded staging inputs.",
+      "inputs": [
+        "fct_trip_event"
+      ],
+      "expected_model_path": "models/marts/dim_rider.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per non-null rider_id.",
+        "inputs": [
+          "fct_trip_event"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "rider_count",
+            "definition": "Count of distinct non-null rider_id values represented in the dimension.",
+            "caveats": [
+              "Excludes rows where rider_id is null."
+            ]
+          },
+          {
+            "name": "first_seen_ts",
+            "definition": "For each rider_id, first_seen_ts = min(event_ts) across all events for that rider.",
+            "caveats": [
+              "Computed from normalized event timestamps in fct_trip_event after excluding null rider_id rows."
+            ]
+          },
+          {
+            "name": "last_seen_ts",
+            "definition": "For each rider_id, last_seen_ts = max(event_ts) across all events for that rider.",
+            "caveats": [
+              "Computed from normalized event timestamps in fct_trip_event after excluding null rider_id rows."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "rider_key",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "generate deterministic hash from rider_id",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Deterministic surrogate key for the rider entity."
+          },
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "group by rider_id from fct_trip_event where rider_id is not null",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Canonical rider identifier from trip lifecycle events."
+          },
+          {
+            "name": "first_seen_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "RIDER_ID"
+            ],
+            "expression": "min(event_ts) over rows in each rider_id group",
+            "data_type": "TIMESTAMP",
+            "nullable": false,
+            "description": "Earliest normalized event timestamp observed for the rider."
+          },
+          {
+            "name": "last_seen_ts",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "RIDER_ID"
+            ],
+            "expression": "max(event_ts) over rows in each rider_id group",
+            "data_type": "TIMESTAMP",
+            "nullable": false,
+            "description": "Latest normalized event timestamp observed for the rider."
+          },
+          {
+            "name": "first_seen_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "RIDER_ID"
+            ],
+            "expression": "cast(first_seen_ts as date)",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Calendar date of the rider's first observed event."
+          },
+          {
+            "name": "last_seen_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE",
+              "RIDER_ID"
+            ],
+            "expression": "cast(last_seen_ts as date)",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Calendar date of the rider's last observed event."
+          }
+        ],
+        "assumptions": [
+          "fct_trip_event provides one retained row per canonical lifecycle event with event_ts already parsed and event_key already deduplicated enough for downstream rider-level aggregation.",
+          "fct_trip_event exposes rider_id, event_ts, and event_date with semantics inherited from normalized event processing.",
+          "Rows with null rider_id are excluded from dim_rider and are not represented as an unknown rider member."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "fct_trip_event",
+          "model_rel_path": "models/marts/fct_trip_event.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_gold.fct_trip_event",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "agg_rider_daily_trip_activity",
+      "folder": "marts",
+      "goal": "Build agg_rider_daily_trip_activity from grounded staging inputs.",
+      "inputs": [
+        "fct_trip"
+      ],
+      "expected_model_path": "models/marts/agg_rider_daily_trip_activity.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per rider_id per activity_date.",
+        "inputs": [
+          "fct_trip"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "trip_count",
+            "definition": "trip_count = count(*) of fct_trip rows grouped by rider_id and trip_activity_date where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Includes only rows where trip_status in ('completed','in_progress').",
+              "Excludes rows with null rider_id from the final aggregate population."
+            ]
+          },
+          {
+            "name": "completed_trip_count",
+            "definition": "completed_trip_count = count(*) where trip_status = 'completed'.",
+            "caveats": [
+              "Subset of business trips only."
+            ]
+          },
+          {
+            "name": "in_progress_trip_count",
+            "definition": "in_progress_trip_count = count(*) where trip_status = 'in_progress'.",
+            "caveats": [
+              "Subset of business trips only."
+            ]
+          },
+          {
+            "name": "total_trip_duration_seconds",
+            "definition": "total_trip_duration_seconds = sum(trip_duration_seconds) for rows where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Business trips only.",
+              "Null trip_duration_seconds values contribute 0 to the sum."
+            ]
+          },
+          {
+            "name": "avg_trip_duration_seconds",
+            "definition": "avg_trip_duration_seconds = avg(trip_duration_seconds) for rows where trip_status in ('completed','in_progress') and trip_duration_seconds is not null.",
+            "caveats": [
+              "Business trips only.",
+              "Average uses only rows with non-null trip_duration_seconds."
+            ]
+          },
+          {
+            "name": "distinct_bike_count",
+            "definition": "distinct_bike_count = count(distinct bike_id) for rows where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Business trips only.",
+              "Distinct count is evaluated over bike_id values present in scope."
+            ]
+          },
+          {
+            "name": "anomaly_trip_count",
+            "definition": "anomaly_trip_count = count(*) where trip_status not in ('completed','in_progress').",
+            "caveats": [
+              "Anomaly visibility metric only; excluded from core KPI counts and duration metrics."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "rider_id",
+            "kind": "clean",
+            "source_columns": [
+              "RIDER_ID"
+            ],
+            "expression": "group by rider_id from fct_trip where rider_id is not null",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Rider identifier for the daily activity aggregate."
+          },
+          {
+            "name": "activity_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "use trip_activity_date as activity_date",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Canonical daily bucket taken directly from fct_trip.trip_activity_date."
+          },
+          {
+            "name": "trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of in-scope business trips for the rider on the activity date."
+          },
+          {
+            "name": "completed_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status = 'completed'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of completed trips for the rider on the activity date."
+          },
+          {
+            "name": "in_progress_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status = 'in_progress'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of in-progress trips for the rider on the activity date."
+          },
+          {
+            "name": "total_trip_duration_seconds",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "sum coalesced trip_duration_seconds over rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Total duration in seconds across business trips for the rider on the activity date."
+          },
+          {
+            "name": "avg_trip_duration_seconds",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "average trip_duration_seconds over rows where trip_status in ('completed','in_progress') and trip_duration_seconds is not null",
+            "data_type": "NUMBER",
+            "nullable": true,
+            "description": "Average duration in seconds across business trips with non-null duration."
+          },
+          {
+            "name": "distinct_bike_count",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count distinct bike_id over rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Distinct bikes used by the rider across business trips on the activity date."
+          },
+          {
+            "name": "anomaly_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status not in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of anomalous or non-business-status trip rows for the rider on the activity date."
+          }
+        ],
+        "assumptions": [
+          "fct_trip is the canonical trip-grain model and already centralizes trip construction, status assignment, anomaly handling, and trip_activity_date derivation.",
+          "trip_activity_date in fct_trip is the required daily bucket and should be used directly rather than recomputed from timestamps downstream.",
+          "Rows with null rider_id are excluded from the aggregate to preserve the declared grain of one row per rider_id per activity_date."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "fct_trip",
+          "model_rel_path": "models/marts/fct_trip.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_gold.fct_trip",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "agg_bike_daily_utilization",
+      "folder": "marts",
+      "goal": "Build agg_bike_daily_utilization from grounded staging inputs.",
+      "inputs": [
+        "fct_trip"
+      ],
+      "expected_model_path": "models/marts/agg_bike_daily_utilization.sql",
+      "invariants": [],
+      "implementation_spec": {
+        "spec_version": 1,
+        "grain": "1 row per bike_id per activity_date.",
+        "inputs": [
+          "fct_trip"
+        ],
+        "joins": [],
+        "metrics": [
+          {
+            "name": "trip_count",
+            "definition": "trip_count = count(*) of fct_trip rows grouped by bike_id and trip_activity_date where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Includes only rows where trip_status in ('completed','in_progress').",
+              "Excludes rows with null bike_id from the final aggregate population."
+            ]
+          },
+          {
+            "name": "completed_trip_count",
+            "definition": "completed_trip_count = count(*) where trip_status = 'completed'.",
+            "caveats": [
+              "Subset of business trips only."
+            ]
+          },
+          {
+            "name": "in_progress_trip_count",
+            "definition": "in_progress_trip_count = count(*) where trip_status = 'in_progress'.",
+            "caveats": [
+              "Subset of business trips only."
+            ]
+          },
+          {
+            "name": "total_trip_duration_seconds",
+            "definition": "total_trip_duration_seconds = sum(trip_duration_seconds) for rows where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Business trips only.",
+              "Null trip_duration_seconds values contribute 0 to the sum."
+            ]
+          },
+          {
+            "name": "avg_trip_duration_seconds",
+            "definition": "avg_trip_duration_seconds = avg(trip_duration_seconds) for rows where trip_status in ('completed','in_progress') and trip_duration_seconds is not null.",
+            "caveats": [
+              "Business trips only.",
+              "Average uses only rows with non-null trip_duration_seconds."
+            ]
+          },
+          {
+            "name": "distinct_rider_count",
+            "definition": "distinct_rider_count = count(distinct rider_id) for rows where trip_status in ('completed','in_progress').",
+            "caveats": [
+              "Business trips only.",
+              "Distinct count is evaluated over rider_id values present in scope."
+            ]
+          },
+          {
+            "name": "anomaly_trip_count",
+            "definition": "anomaly_trip_count = count(*) where trip_status not in ('completed','in_progress').",
+            "caveats": [
+              "Anomaly visibility metric only; excluded from core KPI counts and duration metrics."
+            ]
+          }
+        ],
+        "output_fields": [
+          {
+            "name": "bike_id",
+            "kind": "clean",
+            "source_columns": [
+              "BIKE_ID"
+            ],
+            "expression": "group by bike_id from fct_trip where bike_id is not null",
+            "data_type": "TEXT",
+            "nullable": false,
+            "description": "Bike identifier for the daily utilization aggregate."
+          },
+          {
+            "name": "activity_date",
+            "kind": "derived",
+            "source_columns": [
+              "EVENT_DATE"
+            ],
+            "expression": "use trip_activity_date as activity_date",
+            "data_type": "DATE",
+            "nullable": false,
+            "description": "Canonical daily bucket taken directly from fct_trip.trip_activity_date."
+          },
+          {
+            "name": "trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of in-scope business trips for the bike on the activity date."
+          },
+          {
+            "name": "completed_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status = 'completed'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of completed trips for the bike on the activity date."
+          },
+          {
+            "name": "in_progress_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status = 'in_progress'",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of in-progress trips for the bike on the activity date."
+          },
+          {
+            "name": "total_trip_duration_seconds",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "sum coalesced trip_duration_seconds over rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Total duration in seconds across business trips for the bike on the activity date."
+          },
+          {
+            "name": "avg_trip_duration_seconds",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "average trip_duration_seconds over rows where trip_status in ('completed','in_progress') and trip_duration_seconds is not null",
+            "data_type": "NUMBER",
+            "nullable": true,
+            "description": "Average duration in seconds across business trips with non-null duration."
+          },
+          {
+            "name": "distinct_rider_count",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "RIDER_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count distinct rider_id over rows where trip_status in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Distinct riders observed on the bike across business trips on the activity date."
+          },
+          {
+            "name": "anomaly_trip_count",
+            "kind": "derived",
+            "source_columns": [
+              "BIKE_ID",
+              "TRIP",
+              "EVENT_DATE"
+            ],
+            "expression": "count rows where trip_status not in ('completed','in_progress')",
+            "data_type": "NUMBER",
+            "nullable": false,
+            "description": "Count of anomalous or non-business-status trip rows for the bike on the activity date."
+          }
+        ],
+        "assumptions": [
+          "fct_trip is the canonical trip-grain model and already centralizes trip construction, status assignment, anomaly handling, and trip_activity_date derivation.",
+          "trip_activity_date in fct_trip is the required daily bucket and should be used directly rather than recomputed from timestamps downstream.",
+          "Rows with null bike_id are excluded from the aggregate to preserve the declared grain of one row per bike_id per activity_date."
+        ]
+      },
+      "source_schema": [],
+      "grounded_inputs": [
+        {
+          "input_name": "fct_trip",
+          "model_rel_path": "models/marts/fct_trip.sql",
+          "relation_fqn": "ANALYTICS.bike_hire_gold.fct_trip",
+          "source_schema": []
+        }
+      ],
+      "status": "done",
+      "checklist": [
+        {
+          "checklist_item_id": "sql_model",
+          "label": "Author gold SQL",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "schema_contract",
+          "label": "Author schema contract",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        },
+        {
+          "checklist_item_id": "validate",
+          "label": "Validate",
+          "details": null,
+          "status": "done",
+          "origin": "initial",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "batches": [
+    [
+      "fct_trip_event",
+      "fct_trip",
+      "dim_bike",
+      "dim_rider",
+      "agg_rider_daily_trip_activity"
+    ],
+    [
+      "agg_bike_daily_utilization"
+    ]
+  ],
+  "work_groups": [
+    {
+      "group_id": "model_author_sql_001",
+      "label": "Author SQL batch 1",
+      "kind": "author_sql",
+      "items": [
+        {
+          "task_id": "fct_trip_event",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "fct_trip",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "dim_bike",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "dim_rider",
+          "checklist_item_id": "sql_model"
+        },
+        {
+          "task_id": "agg_rider_daily_trip_activity",
+          "checklist_item_id": "sql_model"
+        }
+      ],
+      "depends_on_group_ids": null
+    },
+    {
+      "group_id": "model_author_schema_001",
+      "label": "Author schema batch 1",
+      "kind": "author_schema",
+      "items": [
+        {
+          "task_id": "fct_trip_event",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "fct_trip",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "dim_bike",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "dim_rider",
+          "checklist_item_id": "schema_contract"
+        },
+        {
+          "task_id": "agg_rider_daily_trip_activity",
+          "checklist_item_id": "schema_contract"
+        }
+      ],
+      "depends_on_group_ids": [
+        "model_author_sql_001"
+      ]
+    },
+    {
+      "group_id": "model_author_sql_002",
+      "label": "Author SQL batch 2",
+      "kind": "author_sql",
+      "items": [
+        {
+          "task_id": "agg_bike_daily_utilization",
+          "checklist_item_id": "sql_model"
+        }
+      ],
+      "depends_on_group_ids": null
+    },
+    {
+      "group_id": "model_author_schema_002",
+      "label": "Author schema batch 2",
+      "kind": "author_schema",
+      "items": [
+        {
+          "task_id": "agg_bike_daily_utilization",
+          "checklist_item_id": "schema_contract"
+        }
+      ],
+      "depends_on_group_ids": [
+        "model_author_sql_002"
+      ]
+    },
+    {
+      "group_id": "model_validate_001",
+      "label": "Validate batch 1",
+      "kind": "validate",
+      "items": [
+        {
+          "task_id": "fct_trip_event",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "fct_trip",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "dim_bike",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "dim_rider",
+          "checklist_item_id": "validate"
+        },
+        {
+          "task_id": "agg_rider_daily_trip_activity",
+          "checklist_item_id": "validate"
+        }
+      ],
+      "depends_on_group_ids": [
+        "model_author_schema_001",
+        "model_author_schema_002"
+      ]
+    },
+    {
+      "group_id": "model_validate_002",
+      "label": "Validate batch 2",
+      "kind": "validate",
+      "items": [
+        {
+          "task_id": "agg_bike_daily_utilization",
+          "checklist_item_id": "validate"
+        }
+      ],
+      "depends_on_group_ids": [
+        "model_author_schema_001",
+        "model_author_schema_002"
+      ]
+    }
+  ],
+  "mutations": [],
+  "progress": {
+    "last_applied_step_idx": 54,
+    "consecutive_batch_failures": 0,
+    "total_batch_failures": 0,
+    "consecutive_infra_transient_failures": 0
+  }
+}

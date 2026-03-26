@@ -38,10 +38,10 @@ jobs:
         run: cargo test -p react --lib --tests
 
   # ---------------------------------------------------------------------------
-  # skippr-dbt: build + unit tests
+  # skippr: build + unit tests
   # ---------------------------------------------------------------------------
-  skippr_dbt_test:
-    name: skippr-dbt build + test
+  skippr_test:
+    name: skippr build + test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -57,7 +57,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-skippr-dbt-test
+          prefix-key: v1-skippr-test
   
       - name: Check OpenAPI generated artifact drift (data_engineer suite)
         run: bash scripts/check-openapi-drift-suite-data-engineer.sh
@@ -65,20 +65,20 @@ jobs:
       - name: Enforce control-state log-read guardrails
         run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
   
-      - name: Build skippr-dbt
-        run: cargo build -p skippr-dbt
+      - name: Build skippr
+        run: cargo build -p skippr
   
-      - name: Test skippr-dbt
-        run: cargo test -p skippr-dbt
+      - name: Test skippr
+        run: cargo test -p skippr
 
   # ---------------------------------------------------------------------------
-  # skippr-dbt: release binaries (macOS, Linux, Windows)
+  # skippr: release binaries (macOS, Linux, Windows)
   # ---------------------------------------------------------------------------
-  skippr_dbt_binary_build:
-    name: skippr-dbt release (${{ matrix.name }})
+  skippr_binary_build:
+    name: skippr release (${{ matrix.name }})
     needs:
       - react_core
-      - skippr_dbt_test
+      - skippr_test
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -118,28 +118,28 @@ jobs:
           prefix-key: v1-release
           key: ${{ matrix.target }}
   
-      - name: Build skippr-dbt release binary
-        run: cargo build --release -p skippr-dbt --target ${{ matrix.target }}
+      - name: Build skippr release binary
+        run: cargo build --release -p skippr --target ${{ matrix.target }}
   
-      - name: Upload skippr-dbt artifact (unix)
+      - name: Upload skippr artifact (unix)
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: skippr-dbt-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/skippr-dbt${{ matrix.bin_ext }}
+          name: skippr-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/skippr${{ matrix.bin_ext }}
   
-      - name: Upload skippr-dbt artifact (windows)
+      - name: Upload skippr artifact (windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: skippr-dbt-${{ matrix.target }}
-          path: target\${{ matrix.target }}\release\skippr-dbt${{ matrix.bin_ext }}
+          name: skippr-${{ matrix.target }}
+          path: target\${{ matrix.target }}\release\skippr${{ matrix.bin_ext }}
 
   # ---------------------------------------------------------------------------
-  # skippr-dbt: Windows MSSQL -> Snowflake end-to-end
+  # skippr: Windows MSSQL -> Snowflake end-to-end
   # ---------------------------------------------------------------------------
-  skippr_dbt_el_windows_e2e:
-    name: Windows MSSQL -> Snowflake E2E (skippr-dbt)
+  skippr_el_windows_e2e:
+    name: Windows MSSQL -> Snowflake E2E (skippr)
     needs:
       - publish
     if: "!startsWith(github.ref, 'refs/tags/test')"
@@ -149,22 +149,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download skippr-dbt from GitHub Release
+      - name: Download skippr from GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          gh release download ${{ github.ref_name }} --pattern "skippr-dbt-x86_64-pc-windows-msvc.tar.gz" --dir .
-          tar -xzf skippr-dbt-x86_64-pc-windows-msvc.tar.gz
-          Copy-Item skippr-dbt-x86_64-pc-windows-msvc\skippr-dbt.exe bin\skippr-dbt.exe
+          gh release download ${{ github.ref_name }} --pattern "skippr-x86_64-pc-windows-msvc.tar.gz" --dir .
+          tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
+          Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
 
-      - name: Download skippr 6.15.0 for Windows
+      - name: Download skippr-el 6.15.0 for Windows
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr.tar.gz
-          tar -xzf skippr.tar.gz
-          Copy-Item skippr-windows_x86\skippr.exe bin\skippr.exe
+          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
+          tar -xzf skippr-el.tar.gz
+          Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -191,7 +191,6 @@ jobs:
           sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
-          # Enable Mixed Mode authentication (SQL + Windows) — required for SA login
           $mssqlServerPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SQLEXPRESS\MSSQLServer" -and $_.PSPath -notlike "*SuperSocketNetLib*" -and $_.PSPath -notlike "*Parameters*" }
           foreach ($path in $mssqlServerPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "LoginMode" -Value 2 -ErrorAction SilentlyContinue
@@ -207,7 +206,6 @@ jobs:
             Set-ItemProperty -Path $path.PSPath -Name "TcpDynamicPorts" -Value "" -ErrorAction SilentlyContinue
           }
           Restart-Service -Name 'MSSQL$SQLEXPRESS' -Force
-          # Wait for TCP to be ready
           $timeout = 30; $elapsed = 0
           while ($elapsed -lt $timeout) {
             try {
@@ -250,7 +248,7 @@ jobs:
         run: |
           python scripts/snowflake-ci-db.py create CI_E2E_${{ github.run_id }}
 
-      - name: Run skippr-dbt EL + modeling pipeline
+      - name: Run skippr EL + modeling pipeline
         shell: pwsh
         env:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
@@ -261,7 +259,7 @@ jobs:
           MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-el-windows-snowflake.yaml
+          .\bin\skippr.exe --log info run --config .\skippr-el-windows-snowflake.yaml
 
       - name: Drop ephemeral Snowflake CI database
         if: always()
@@ -274,10 +272,10 @@ jobs:
           python scripts/snowflake-ci-db.py drop CI_E2E_${{ github.run_id }}
 
   # ---------------------------------------------------------------------------
-  # skippr-dbt: Windows MSSQL -> Postgres end-to-end (no cloud deps)
+  # skippr: Windows MSSQL -> Postgres end-to-end (no cloud deps)
   # ---------------------------------------------------------------------------
-  skippr_dbt_el_windows_postgres_e2e:
-    name: Windows MSSQL -> Postgres E2E (skippr-dbt)
+  skippr_el_windows_postgres_e2e:
+    name: Windows MSSQL -> Postgres E2E (skippr)
     needs:
       - publish
     if: "!startsWith(github.ref, 'refs/tags/test')"
@@ -287,22 +285,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download skippr-dbt from GitHub Release
+      - name: Download skippr from GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          gh release download ${{ github.ref_name }} --pattern "skippr-dbt-x86_64-pc-windows-msvc.tar.gz" --dir .
-          tar -xzf skippr-dbt-x86_64-pc-windows-msvc.tar.gz
-          Copy-Item skippr-dbt-x86_64-pc-windows-msvc\skippr-dbt.exe bin\skippr-dbt.exe
+          gh release download ${{ github.ref_name }} --pattern "skippr-x86_64-pc-windows-msvc.tar.gz" --dir .
+          tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
+          Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
 
-      - name: Download skippr 6.15.0 for Windows
+      - name: Download skippr-el 6.15.0 for Windows
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr.tar.gz
-          tar -xzf skippr.tar.gz
-          Copy-Item skippr-windows_x86\skippr.exe bin\skippr.exe
+          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
+          tar -xzf skippr-el.tar.gz
+          Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -402,7 +400,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install dbt-core dbt-postgres
 
-      - name: Run skippr-dbt EL + modeling pipeline
+      - name: Run skippr EL + modeling pipeline
         shell: pwsh
         env:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
@@ -419,38 +417,38 @@ jobs:
           POSTGRES_DATABASE: testdb
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\skippr-dbt.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
+          .\bin\skippr.exe --log info run --config .\skippr-e2e-mssql-postgres.yaml
 
   # ---------------------------------------------------------------------------
-  # Publish skippr-dbt release
+  # Publish skippr release
   # ---------------------------------------------------------------------------
   publish:
-    name: Publish skippr-dbt Release
+    name: Publish skippr Release
     if: "!startsWith(github.ref, 'refs/tags/test')"
     needs:
-      - skippr_dbt_binary_build
+      - skippr_binary_build
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v4
   
-      - name: Download skippr-dbt Artifacts
+      - name: Download skippr Artifacts
         uses: actions/download-artifact@v4
   
       - name: Compress Artifacts
         run: |
           shopt -s nullglob
-          for d in skippr-dbt-*; do
+          for d in skippr-*; do
             if [ -d "$d" ]; then
               tar -czvf "${d}.tar.gz" "$d"
             fi
           done
-          ls -la skippr-dbt-*.tar.gz || true
+          ls -la skippr-*.tar.gz || true
   
       - name: Upload assets to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ./skippr-dbt-*.tar.gz
+          files: ./skippr-*.tar.gz
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
         env:

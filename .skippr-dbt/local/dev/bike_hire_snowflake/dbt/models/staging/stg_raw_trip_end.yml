@@ -1,0 +1,48 @@
+version: 2
+models:
+- name: stg_raw_trip_end
+  description: Staged trip end events from RAW.TRIP_END with preserved raw fields and cleaned typed derivatives.
+  columns:
+  - name: bike_id
+    description: Trimmed BIKE_ID with blank strings converted to null.
+  - name: bike_id_raw
+    description: Raw BIKE_ID value from the source feed.
+  - name: crank_torques
+    description: Raw CRANK_TORQUES payload from the source feed.
+  - name: event_at
+    description: EVENT_DATE parsed to TIMESTAMP_NTZ when valid.
+  - name: event_at_parse_failed
+    description: True when EVENT_DATE is present but cannot be parsed to TIMESTAMP_NTZ.
+  - name: event_date_raw
+    description: Trimmed EVENT_DATE with blank strings converted to null.
+  - name: event_name
+    description: Normalized event name for the trip end event record.
+  - name: event_type
+    description: Trimmed EVENT_TYPE with blank strings converted to null.
+  - name: event_type_raw
+    description: Raw EVENT_TYPE value from the source feed.
+  - name: hardware
+    description: Raw HARDWARE payload from the source feed.
+  - name: isbn
+    description: Trimmed ISBN with blank strings converted to null.
+  - name: isbn_raw
+    description: Raw ISBN value from the source feed.
+  - name: last_crank
+    description: Raw LAST_CRANK payload from the source feed.
+  - name: message_type
+    description: Trimmed MESSAGE_TYPE with blank strings converted to null.
+  - name: message_type_raw
+    description: Raw MESSAGE_TYPE value from the source feed.
+  - name: metadata
+    description: Raw METADATA payload from the source feed.
+  - name: rider_id
+    description: Trimmed RIDER_ID with blank strings converted to null.
+  - name: rider_id_raw
+    description: Raw RIDER_ID value from the source feed.
+  - name: source_relation
+    description: Constant identifier for the upstream source relation.
+  - name: trip
+    description: Raw TRIP payload from the source feed.
+  config:
+    contract:
+      enforced: false

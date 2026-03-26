@@ -6,7 +6,7 @@ A **ReAct agent runtime** with WebSocket and headless CLI interfaces. Clients se
 
 | Guide | Source → Destination | Notes |
 |-------|---------------------|-------|
-| [`getting-started.md`](getting-started.md) | MSSQL → Snowflake | Bronze tier manually loaded, then dbt modeling via `skippr-dbt` |
+| [`getting-started.md`](getting-started.md) | MSSQL → Snowflake | Bronze tier manually loaded, then dbt modeling via `skippr` |
 | [`GETTING_STARTED_WINDOWS_BIGQUERY.md`](GETTING_STARTED_WINDOWS_BIGQUERY.md) | BigQuery | Windows-specific, local storage |
 | [`extract-and-load.md`](extract-and-load.md) | Any → Any (via skippr) | EL architecture and phase reference |
 
@@ -39,11 +39,11 @@ pip install --upgrade pip
 pip install dbt-core dbt-snowflake     # swap adapter as needed: dbt-bigquery, dbt-postgres, dbt-athena-community
 ```
 
-Make sure the venv is activated (`source .venv/bin/activate`) whenever you run `skippr-dbt` or the WebSocket server.
+Make sure the venv is activated (`source .venv/bin/activate`) whenever you run `skippr` or the WebSocket server.
 
 #### skippr binary (required for EL workflows)
 
-When `providers.el` is enabled in a config, `skippr-dbt` spawns the **`skippr`** binary (from the [`skipprd`](../skipprd) repo) as a subprocess for data extraction and loading. The binary must be on `PATH` (or configured via `providers.el.skippr_binary`).
+When `providers.el` is enabled in a config, `skippr` spawns the **`skippr`** binary (from the [`skipprd`](../skipprd) repo) as a subprocess for data extraction and loading. The binary must be on `PATH` (or configured via `providers.el.skippr_binary`).
 
 **Build from the skipprd repo (release mode recommended):**
 
@@ -65,7 +65,7 @@ skippr --version
 # skippr 0.0.0-git
 ```
 
-> **Why release mode?** The `skippr sync` command can process large datasets and write to remote warehouses. A debug build is significantly slower and may stall under load, causing `skippr-dbt` to hit its idle timeout (default 120 s). Always use a release build for actual data movement.
+> **Why release mode?** The `skippr sync` command can process large datasets and write to remote warehouses. A debug build is significantly slower and may stall under load, causing `skippr` to hit its idle timeout (default 120 s). Always use a release build for actual data movement.
 
 **Alternative — custom path instead of PATH:**
 
@@ -85,14 +85,14 @@ providers:
 
 ### Running
 
-#### Headless CLI (`skippr-dbt`)
+#### Headless CLI (`skippr`)
 
-The `skippr-dbt` binary runs the `data_engineer` suite in headless (non-interactive) mode. This is the primary way to run EL + dbt workflows end-to-end.
+The `skippr` binary runs the `data_engineer` suite in headless (non-interactive) mode. This is the primary way to run EL + dbt workflows end-to-end.
 
 ```bash
 source .venv/bin/activate
 
-cargo run -p skippr-dbt -- --log info run \
+cargo run -p skippr -- --log info run \
   --config ./react-bikehire-snow.yaml \
   --agent agent
 ```
@@ -168,7 +168,7 @@ providers:
       s3_prefix: data/
 ```
 
-The destination is always `providers.warehouse` — `skippr-dbt` generates `skippr.yml` with the warehouse credentials mapped to skippr's `data_outputs` format.
+The destination is always `providers.warehouse` — `skippr` generates `skippr.yml` with the warehouse credentials mapped to skippr's `data_outputs` format.
 
 | Input kind | Required fields | Auth |
 |-----------|----------------|------|
@@ -192,9 +192,9 @@ The destination is always `providers.warehouse` — `skippr-dbt` generates `skip
 
 #### Authentication
 
-Authentication is required to run `skippr-dbt`. Two modes are supported:
+Authentication is required to run `skippr`. Two modes are supported:
 
-1. **Interactive login** — `skippr-dbt user login` (phone OTP, stores tokens in `~/.skippr-dbt/credentials.json`)
+1. **Interactive login** — `skippr user login` (phone OTP, stores tokens in `~/.skippr/credentials.json`)
 2. **API key** — set `SKIPPR_API_KEY=sk_live_...` env var (recommended for CI/CD)
 
 Authentication provides cloud S3 storage for pipeline artifacts, a server-provided LLM API key, and usage metering with credit-based billing. You may optionally set `LLM_API_KEY` to override the server-provided key with your own.
@@ -226,7 +226,7 @@ cd .react/local/dev/<project_id>/skippr
 skippr --log debug sync --pipeline el_pipeline --once --output json
 ```
 
-This runs the same command `skippr-dbt` would invoke and shows full output including stderr.
+This runs the same command `skippr` would invoke and shows full output including stderr.
 
 #### `failed to spawn skippr: No such file or directory`
 
@@ -242,7 +242,7 @@ Increase `llm.max_tokens` in the config or set `LLM_MAX_TOKENS=8192` as an env v
 
 #### `dbt: command not found`
 
-Activate the Python virtual environment before running `skippr-dbt`:
+Activate the Python virtual environment before running `skippr`:
 
 ```bash
 source .venv/bin/activate

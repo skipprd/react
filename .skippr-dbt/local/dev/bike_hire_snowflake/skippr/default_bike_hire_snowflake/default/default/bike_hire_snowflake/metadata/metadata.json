@@ -1,0 +1,2051 @@
+{
+  "enabled": true,
+  "flattened": false,
+  "metadata": {
+    "trip_end": {
+      "count": 0,
+      "date_candidate": null,
+      "date_parser_kind": null,
+      "determined_type": "unknown",
+      "determined_type_values": "",
+      "enabled": true,
+      "evolution": {},
+      "fields": {
+        "bike_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "bike_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 251
+          }
+        },
+        "crank_torques": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "array",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "crank_torques",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 251
+          }
+        },
+        "event_date": {
+          "count": 0,
+          "date_candidate": {
+            "check_count": 100,
+            "field": "event_date",
+            "format": "Iso8601_3",
+            "valid_count": 0
+          },
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_date",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "date": 100,
+            "string": 151
+          }
+        },
+        "event_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 251
+          }
+        },
+        "hardware": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "maintenance": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "record",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "last_rebuild": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_rebuild",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_rebuild",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 151
+                  }
+                },
+                "last_service": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_service",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_service",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 151
+                  }
+                }
+              },
+              "out_field_name": "maintenance",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "record": 251
+              }
+            },
+            "manufacturer": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "manufacturer",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 251
+              }
+            },
+            "model": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "model",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 251
+              }
+            }
+          },
+          "out_field_name": "hardware",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 251
+          }
+        },
+        "isbn": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "isbn",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "integer": 113,
+            "string": 138
+          }
+        },
+        "last_crank": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "integer",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "last_crank",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 251
+          }
+        },
+        "message_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "message_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 251
+          }
+        },
+        "metadata": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "event_date": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 100,
+                "field": "event_date",
+                "format": "Iso8601_3",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "event_date",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "date": 100,
+                "string": 151
+              }
+            },
+            "prcd_micro_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 251,
+                "field": "prcd_micro_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp_milli",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "prcd_micro_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp_milli": 251
+              }
+            },
+            "rcvd_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 251,
+                "field": "rcvd_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "rcvd_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 251
+              }
+            },
+            "sent_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 251,
+                "field": "sent_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "sent_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 251
+              }
+            },
+            "tags": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "array",
+              "determined_type_values": "record",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "0": {
+                  "count": 0,
+                  "date_candidate": null,
+                  "date_parser_kind": null,
+                  "determined_type": "record",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {
+                    "name": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "name",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "string": 502
+                      }
+                    },
+                    "value": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "boolean",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "value",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "boolean": 251,
+                        "string": 251
+                      }
+                    }
+                  },
+                  "out_field_name": "item_0",
+                  "parent_type": "array",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "record": 1004
+                  }
+                }
+              },
+              "out_field_name": "tags",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "array": 251
+              }
+            }
+          },
+          "out_field_name": "metadata",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 251
+          }
+        },
+        "rider_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "rider_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 251
+          }
+        },
+        "trip": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "end_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "end_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 251
+              }
+            },
+            "start_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "start_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 251
+              }
+            }
+          },
+          "out_field_name": "trip",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 251
+          }
+        }
+      },
+      "out_field_name": "",
+      "parent_type": "",
+      "repetition_count": 5,
+      "timezone": false,
+      "types": {}
+    },
+    "trip_pause": {
+      "count": 0,
+      "date_candidate": null,
+      "date_parser_kind": null,
+      "determined_type": "unknown",
+      "determined_type_values": "",
+      "enabled": true,
+      "evolution": {},
+      "fields": {
+        "bike_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "bike_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 219
+          }
+        },
+        "crank_torques": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "array",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "crank_torques",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 219
+          }
+        },
+        "event_date": {
+          "count": 0,
+          "date_candidate": {
+            "check_count": 100,
+            "field": "event_date",
+            "format": "Iso8601_3",
+            "valid_count": 0
+          },
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_date",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "date": 100,
+            "string": 119
+          }
+        },
+        "event_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 219
+          }
+        },
+        "hardware": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "maintenance": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "record",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "last_rebuild": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_rebuild",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_rebuild",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 119
+                  }
+                },
+                "last_service": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_service",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_service",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 119
+                  }
+                }
+              },
+              "out_field_name": "maintenance",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "record": 219
+              }
+            },
+            "manufacturer": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "manufacturer",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 219
+              }
+            },
+            "model": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "model",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 219
+              }
+            }
+          },
+          "out_field_name": "hardware",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 219
+          }
+        },
+        "isbn": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "integer",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {
+            "isbn_string": {
+              "new_field": "isbn_string",
+              "sovled": true,
+              "type_string": "string"
+            }
+          },
+          "fields": {},
+          "out_field_name": "isbn",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "integer": 114,
+            "string": 105
+          }
+        },
+        "isbn_string": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "isbn_string",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 1
+          }
+        },
+        "last_crank": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "integer",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "last_crank",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 219
+          }
+        },
+        "message_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "message_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 219
+          }
+        },
+        "metadata": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "event_date": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 100,
+                "field": "event_date",
+                "format": "Iso8601_3",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "event_date",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "date": 100,
+                "string": 119
+              }
+            },
+            "prcd_micro_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 219,
+                "field": "prcd_micro_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp_milli",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "prcd_micro_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp_milli": 219
+              }
+            },
+            "rcvd_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 219,
+                "field": "rcvd_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "rcvd_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 219
+              }
+            },
+            "sent_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 219,
+                "field": "sent_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "sent_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 219
+              }
+            },
+            "tags": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "array",
+              "determined_type_values": "record",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "0": {
+                  "count": 0,
+                  "date_candidate": null,
+                  "date_parser_kind": null,
+                  "determined_type": "record",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {
+                    "name": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "name",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "string": 438
+                      }
+                    },
+                    "value": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "value",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "boolean": 219,
+                        "string": 219
+                      }
+                    }
+                  },
+                  "out_field_name": "item_0",
+                  "parent_type": "array",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "record": 876
+                  }
+                }
+              },
+              "out_field_name": "tags",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "array": 219
+              }
+            }
+          },
+          "out_field_name": "metadata",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 219
+          }
+        },
+        "rider_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "rider_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 219
+          }
+        },
+        "trip": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "end_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "end_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 219
+              }
+            },
+            "start_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "start_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 219
+              }
+            }
+          },
+          "out_field_name": "trip",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 219
+          }
+        }
+      },
+      "out_field_name": "",
+      "parent_type": "",
+      "repetition_count": 5,
+      "timezone": false,
+      "types": {}
+    },
+    "trip_resume": {
+      "count": 0,
+      "date_candidate": null,
+      "date_parser_kind": null,
+      "determined_type": "unknown",
+      "determined_type_values": "",
+      "enabled": true,
+      "evolution": {},
+      "fields": {
+        "bike_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "bike_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 264
+          }
+        },
+        "crank_torques": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "array",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "crank_torques",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 264
+          }
+        },
+        "event_date": {
+          "count": 0,
+          "date_candidate": {
+            "check_count": 100,
+            "field": "event_date",
+            "format": "Iso8601_3",
+            "valid_count": 0
+          },
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_date",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "date": 100,
+            "string": 164
+          }
+        },
+        "event_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 264
+          }
+        },
+        "hardware": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "maintenance": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "record",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "last_rebuild": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_rebuild",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_rebuild",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 164
+                  }
+                },
+                "last_service": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_service",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_service",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 164
+                  }
+                }
+              },
+              "out_field_name": "maintenance",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "record": 264
+              }
+            },
+            "manufacturer": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "manufacturer",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 264
+              }
+            },
+            "model": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "model",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 264
+              }
+            }
+          },
+          "out_field_name": "hardware",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 264
+          }
+        },
+        "isbn": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "isbn",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "integer": 105,
+            "string": 159
+          }
+        },
+        "last_crank": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "integer",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "last_crank",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 264
+          }
+        },
+        "message_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "message_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 264
+          }
+        },
+        "metadata": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "event_date": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 100,
+                "field": "event_date",
+                "format": "Iso8601_3",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "event_date",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "date": 100,
+                "string": 164
+              }
+            },
+            "prcd_micro_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 264,
+                "field": "prcd_micro_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp_milli",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "prcd_micro_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp_milli": 264
+              }
+            },
+            "rcvd_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 264,
+                "field": "rcvd_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "rcvd_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 264
+              }
+            },
+            "sent_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 264,
+                "field": "sent_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "sent_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 264
+              }
+            },
+            "tags": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "array",
+              "determined_type_values": "record",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "0": {
+                  "count": 0,
+                  "date_candidate": null,
+                  "date_parser_kind": null,
+                  "determined_type": "record",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {
+                    "name": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "name",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "string": 528
+                      }
+                    },
+                    "value": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "boolean",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "value",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "boolean": 264,
+                        "string": 264
+                      }
+                    }
+                  },
+                  "out_field_name": "item_0",
+                  "parent_type": "array",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "record": 1056
+                  }
+                }
+              },
+              "out_field_name": "tags",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "array": 264
+              }
+            }
+          },
+          "out_field_name": "metadata",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 264
+          }
+        },
+        "rider_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "rider_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 264
+          }
+        },
+        "trip": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "end_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "end_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 264
+              }
+            },
+            "start_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "start_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 264
+              }
+            }
+          },
+          "out_field_name": "trip",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 264
+          }
+        }
+      },
+      "out_field_name": "",
+      "parent_type": "",
+      "repetition_count": 5,
+      "timezone": false,
+      "types": {}
+    },
+    "trip_start": {
+      "count": 0,
+      "date_candidate": null,
+      "date_parser_kind": null,
+      "determined_type": "unknown",
+      "determined_type_values": "",
+      "enabled": true,
+      "evolution": {},
+      "fields": {
+        "bike_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "bike_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 266
+          }
+        },
+        "crank_torques": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "array",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "crank_torques",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 266
+          }
+        },
+        "event_date": {
+          "count": 0,
+          "date_candidate": {
+            "check_count": 100,
+            "field": "event_date",
+            "format": "Iso8601_3",
+            "valid_count": 0
+          },
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_date",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "date": 100,
+            "string": 166
+          }
+        },
+        "event_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "event_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 266
+          }
+        },
+        "hardware": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "maintenance": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "record",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "last_rebuild": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_rebuild",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_rebuild",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 166
+                  }
+                },
+                "last_service": {
+                  "count": 0,
+                  "date_candidate": {
+                    "check_count": 100,
+                    "field": "last_service",
+                    "format": "Iso8601_3",
+                    "valid_count": 0
+                  },
+                  "date_parser_kind": null,
+                  "determined_type": "string",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {},
+                  "out_field_name": "last_service",
+                  "parent_type": "record",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "date": 100,
+                    "string": 166
+                  }
+                }
+              },
+              "out_field_name": "maintenance",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "record": 266
+              }
+            },
+            "manufacturer": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "manufacturer",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 266
+              }
+            },
+            "model": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "model",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "string": 266
+              }
+            }
+          },
+          "out_field_name": "hardware",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 266
+          }
+        },
+        "isbn": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "isbn",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "integer": 102,
+            "string": 164
+          }
+        },
+        "last_crank": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "array",
+          "determined_type_values": "integer",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "last_crank",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "array": 266
+          }
+        },
+        "message_type": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "message_type",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 266
+          }
+        },
+        "metadata": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "event_date": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 100,
+                "field": "event_date",
+                "format": "Iso8601_3",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "string",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "event_date",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "date": 100,
+                "string": 166
+              }
+            },
+            "prcd_micro_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 266,
+                "field": "prcd_micro_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp_milli",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "prcd_micro_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp_milli": 266
+              }
+            },
+            "rcvd_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 266,
+                "field": "rcvd_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "rcvd_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 266
+              }
+            },
+            "sent_time": {
+              "count": 0,
+              "date_candidate": {
+                "check_count": 266,
+                "field": "sent_time",
+                "format": "",
+                "valid_count": 0
+              },
+              "date_parser_kind": null,
+              "determined_type": "timestamp",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "sent_time",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "timestamp": 266
+              }
+            },
+            "tags": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "array",
+              "determined_type_values": "record",
+              "enabled": true,
+              "evolution": {},
+              "fields": {
+                "0": {
+                  "count": 0,
+                  "date_candidate": null,
+                  "date_parser_kind": null,
+                  "determined_type": "record",
+                  "determined_type_values": "",
+                  "enabled": true,
+                  "evolution": {},
+                  "fields": {
+                    "name": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "name",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "string": 532
+                      }
+                    },
+                    "value": {
+                      "count": 0,
+                      "date_candidate": null,
+                      "date_parser_kind": null,
+                      "determined_type": "string",
+                      "determined_type_values": "",
+                      "enabled": true,
+                      "evolution": {},
+                      "fields": {},
+                      "out_field_name": "value",
+                      "parent_type": "record",
+                      "repetition_count": 5,
+                      "timezone": false,
+                      "types": {
+                        "boolean": 266,
+                        "string": 266
+                      }
+                    }
+                  },
+                  "out_field_name": "item_0",
+                  "parent_type": "array",
+                  "repetition_count": 5,
+                  "timezone": false,
+                  "types": {
+                    "record": 1064
+                  }
+                }
+              },
+              "out_field_name": "tags",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "array": 266
+              }
+            }
+          },
+          "out_field_name": "metadata",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 266
+          }
+        },
+        "rider_id": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "string",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {},
+          "out_field_name": "rider_id",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "string": 266
+          }
+        },
+        "trip": {
+          "count": 0,
+          "date_candidate": null,
+          "date_parser_kind": null,
+          "determined_type": "record",
+          "determined_type_values": "",
+          "enabled": true,
+          "evolution": {},
+          "fields": {
+            "end_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "end_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 266
+              }
+            },
+            "start_temprature": {
+              "count": 0,
+              "date_candidate": null,
+              "date_parser_kind": null,
+              "determined_type": "integer",
+              "determined_type_values": "",
+              "enabled": true,
+              "evolution": {},
+              "fields": {},
+              "out_field_name": "start_temprature",
+              "parent_type": "record",
+              "repetition_count": 5,
+              "timezone": false,
+              "types": {
+                "integer": 266
+              }
+            }
+          },
+          "out_field_name": "trip",
+          "parent_type": "",
+          "repetition_count": 5,
+          "timezone": false,
+          "types": {
+            "record": 266
+          }
+        }
+      },
+      "out_field_name": "",
+      "parent_type": "",
+      "repetition_count": 5,
+      "timezone": false,
+      "types": {}
+    }
+  },
+  "name": "bike_hire_snowflake",
+  "sql": null
+}

@@ -1,6 +1,6 @@
 # Config File
 
-Skippr dbt is configured via `skippr-dbt.yaml` in the working directory.
+Skippr dbt is configured via `skippr.yaml` in the working directory.
 
 ## Format
 

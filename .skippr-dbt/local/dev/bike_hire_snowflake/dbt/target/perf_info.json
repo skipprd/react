@@ -1,0 +1,51 @@
+{
+    "path_count": 168,
+    "parsed_path_count": 168,
+    "static_analysis_path_count": 10,
+    "static_analysis_parsed_path_count": 10,
+    "is_partial_parse_enabled": true,
+    "is_static_analysis_enabled": true,
+    "read_files_elapsed": 0.015524416001426289,
+    "load_macros_elapsed": 0.3742485830007354,
+    "parse_project_elapsed": 0.27674887499961187,
+    "patch_sources_elapsed": 0.011140292001073249,
+    "process_manifest_elapsed": 0.02208908399916254,
+    "load_all_elapsed": 0.7982057089975569,
+    "projects": [
+        {
+            "project_name": "bike_hire_snowflake_project",
+            "elapsed": 0.27100458199856803,
+            "parsers": [
+                {
+                    "parser": "model",
+                    "elapsed": 0.11013112500222633,
+                    "parsed_path_count": 10
+                },
+                {
+                    "parser": "test",
+                    "elapsed": 0.1587318329984555,
+                    "parsed_path_count": 5
+                }
+            ],
+            "parsed_path_count": 15
+        },
+        {
+            "project_name": "dbt_snowflake",
+            "elapsed": 0.003745916001207661,
+            "parsers": [],
+            "parsed_path_count": 0
+        },
+        {
+            "project_name": "dbt",
+            "elapsed": 0.0018940830050269142,
+            "parsers": [
+                {
+                    "parser": "doc",
+                    "elapsed": 0.00014195800031302497,
+                    "parsed_path_count": 1
+                }
+            ],
+            "parsed_path_count": 1
+        }
+    ]
+}
