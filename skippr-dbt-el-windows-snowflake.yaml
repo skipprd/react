@@ -2,7 +2,7 @@ project: el_windows_e2e
 
 warehouse:
   kind: snowflake
-  database: ANALYTICS
+  database: ${SNOWFLAKE_DATABASE}
   schema: RAW
   warehouse: COMPUTE_WH
   role: ACCOUNTADMIN
