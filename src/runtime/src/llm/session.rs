@@ -63,6 +63,8 @@ fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
 
 impl LargeLanguageModel for RouterModel {
     fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String> {
+        super::check_llm_pre_call()?;
+
         let model = options
             .model
             .clone()

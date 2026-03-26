@@ -113,3 +113,17 @@ pub(crate) fn report_llm_usage(usage: LlmUsage) {
         handler(usage);
     }
 }
+
+type LlmPreCallGuard = Box<dyn Fn() -> Result<(), String> + Send + Sync>;
+static LLM_PRE_CALL_GUARD: OnceCell<LlmPreCallGuard> = OnceCell::new();
+
+pub fn set_llm_pre_call_guard(f: LlmPreCallGuard) {
+    let _ = LLM_PRE_CALL_GUARD.set(f);
+}
+
+pub(crate) fn check_llm_pre_call() -> Result<(), String> {
+    match LLM_PRE_CALL_GUARD.get() {
+        Some(guard) => guard(),
+        None => Ok(()),
+    }
+}

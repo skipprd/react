@@ -63,6 +63,12 @@ struct DataEngineerExecutor<'a> {
 #[async_trait::async_trait]
 impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
     async fn execute_turn(&self, out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
+        let metering = crate::metering::global_metering();
+        if let Err(e) = metering.budget.check_and_refresh().await {
+            tracing::error!(error = %e, "credit budget exhausted at phase boundary");
+            return PhaseOutcome::Failed { reason: e };
+        }
+
         let execution_state = match crate::progress_controller::ExecutionState::load_strict(
             &self.thread_store.control_store(),
             self.thread_id,

@@ -579,19 +579,8 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
 
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
-    match client.get_credentials(&creds.access_token).await {
-        Ok(srv_creds) => {
-            translate::apply_authenticated_overlay(&mut internal_file, &srv_creds, &creds.access_token);
-            eprintln!("[skippr-dbt] cloud storage + metering active");
-        }
-        Err(e) => {
-            eprintln!("[skippr-dbt] ERROR: Failed to fetch server credentials: {}", e);
-            eprintln!("[skippr-dbt]   Check your connection and login status.");
-            std::process::exit(1);
-        }
-    }
 
-    match client.get_account(&creds.access_token).await {
+    let initial_balance = match client.get_account(&creds.access_token).await {
         Ok(account) => {
             let remaining = account.balance.credits_remaining;
             if remaining <= 0.0 {
@@ -603,13 +592,38 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
             } else {
                 eprintln!("[skippr-dbt] credits: {:.1} remaining", remaining);
             }
+            remaining
         }
         Err(e) => {
             eprintln!("[skippr-dbt] ERROR: Could not verify account balance ({}). Refusing to run.", e);
             eprintln!("[skippr-dbt]   Check your connection and login status (skippr-dbt user login).");
             std::process::exit(1);
         }
+    };
+
+    match client.get_credentials(&creds.access_token).await {
+        Ok(srv_creds) => {
+            translate::apply_authenticated_overlay(
+                &mut internal_file,
+                &srv_creds,
+                &creds.access_token,
+                initial_balance,
+            );
+            eprintln!("[skippr-dbt] cloud storage + metering active");
+        }
+        Err(e) => {
+            eprintln!("[skippr-dbt] ERROR: Failed to fetch server credentials: {}", e);
+            eprintln!("[skippr-dbt]   Check your connection and login status.");
+            std::process::exit(1);
+        }
     }
+
+    let metering = react_suite_data_engineer::metering::global_metering();
+    let _ = metering
+        .record_batch(&[react_suite_data_engineer::metering::UsageEvent::PipelineRun {
+            project_id: cfg.project.clone(),
+        }])
+        .await;
 
     let resolved = match react::config::resolve_config(
         internal_file,

@@ -53,7 +53,17 @@ pub async fn commit_metered_decision(
     usage: Vec<crate::metering::UsageEvent>,
     metering: &crate::metering::MeteringClient,
 ) -> Result<(), String> {
-    metering.record_batch(&usage).await;
+    if let Err(e) = metering.record_batch(&usage).await {
+        let _ = commit_guard_block(
+            thread_store,
+            thread_id,
+            decision.to,
+            GuardBlockKind::PrecheckFailed,
+            format!("Credits exhausted: {e}"),
+        )
+        .await;
+        return Err(e);
+    }
     commit_phase_decision(thread_store, thread_id, from_phase, decision).await
 }
 
