@@ -36,6 +36,7 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
         let storage = if let Some(creds) = &cfg.storage.s3_credentials {
             Arc::new(S3StorageAdapter::from_credentials(
                 b.clone(),
+                creds.key_prefix.clone(),
                 &creds.access_key_id,
                 &creds.secret_access_key,
                 creds.session_token.as_deref(),

@@ -8,6 +8,7 @@ use react_core::CoreError;
 #[derive(Clone)]
 pub struct S3StorageAdapter {
     pub bucket: String,
+    key_prefix: String,
     client: aws_sdk_s3::Client,
 }
 
@@ -17,11 +18,12 @@ impl S3StorageAdapter {
             .load()
             .await;
         let client = aws_sdk_s3::Client::new(&aws_cfg);
-        Self { bucket, client }
+        Self { bucket, key_prefix: String::new(), client }
     }
 
     pub async fn from_credentials(
         bucket: String,
+        key_prefix: String,
         access_key_id: &str,
         secret_access_key: &str,
         session_token: Option<&str>,
@@ -40,7 +42,15 @@ impl S3StorageAdapter {
             .credentials_provider(creds)
             .build();
         let client = aws_sdk_s3::Client::from_conf(s3_config);
-        Self { bucket, client }
+        Self { bucket, key_prefix, client }
+    }
+
+    fn full_key(&self, key: &str) -> String {
+        if self.key_prefix.is_empty() {
+            key.to_string()
+        } else {
+            format!("{}{}", self.key_prefix, key)
+        }
     }
 }
 
@@ -62,12 +72,13 @@ impl StorageAdapter for S3StorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
+        let fk = self.full_key(key);
         let bytes = serde_json::to_vec(value).map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut req = self
             .client
             .put_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&fk)
             .content_type("application/json")
             .body(aws_sdk_s3::primitives::ByteStream::from(bytes));
         req = match expected_etag {
@@ -88,11 +99,12 @@ impl StorageAdapter for S3StorageAdapter {
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+        let fk = self.full_key(key);
         let resp = self
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&fk)
             .send()
             .await
             .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
@@ -111,10 +123,11 @@ impl StorageAdapter for S3StorageAdapter {
         bytes: &[u8],
         content_type: &str,
     ) -> Result<(), CoreError> {
+        let fk = self.full_key(key);
         self.client
             .put_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&fk)
             .content_type(content_type)
             .body(aws_sdk_s3::primitives::ByteStream::from(bytes.to_vec()))
             .send()
@@ -124,10 +137,11 @@ impl StorageAdapter for S3StorageAdapter {
     }
 
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+        let fk = self.full_key(key);
         self.client
             .delete_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&fk)
             .send()
             .await
             .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
@@ -135,11 +149,12 @@ impl StorageAdapter for S3StorageAdapter {
     }
 
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+        let fk = self.full_key(key);
         let resp = self
             .client
             .head_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&fk)
             .send()
             .await;
         match resp {
@@ -155,6 +170,7 @@ impl StorageAdapter for S3StorageAdapter {
     }
 
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+        let fp = self.full_key(prefix);
         let mut token: Option<String> = None;
         let mut out: Vec<String> = Vec::new();
         loop {
@@ -162,7 +178,7 @@ impl StorageAdapter for S3StorageAdapter {
                 .client
                 .list_objects_v2()
                 .bucket(&self.bucket)
-                .prefix(prefix)
+                .prefix(&fp)
                 .max_keys(1000);
             if let Some(t) = token.as_ref() {
                 req = req.continuation_token(t);
@@ -173,7 +189,12 @@ impl StorageAdapter for S3StorageAdapter {
                 .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
             for obj in resp.contents() {
                 if let Some(k) = obj.key() {
-                    out.push(k.to_string());
+                    let stripped = if !self.key_prefix.is_empty() && k.starts_with(&self.key_prefix) {
+                        &k[self.key_prefix.len()..]
+                    } else {
+                        k
+                    };
+                    out.push(stripped.to_string());
                 }
             }
             token = resp.next_continuation_token().map(|s| s.to_string());

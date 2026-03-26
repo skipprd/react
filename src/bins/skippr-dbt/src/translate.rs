@@ -197,6 +197,7 @@ pub fn apply_authenticated_overlay(
             secret_access_key: creds.credentials.secret_access_key.clone(),
             session_token: Some(creds.credentials.session_token.clone()),
             region: "us-east-1".to_string(),
+            key_prefix: creds.key_prefix.clone(),
         }),
     });
 

@@ -114,6 +114,7 @@ pub struct S3Credentials {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub region: String,
+    pub key_prefix: String,
 }
 
 #[derive(Clone, Debug)]
