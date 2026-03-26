@@ -259,7 +259,7 @@ jobs:
           MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\skippr.exe --log info run --config .\skippr-el-windows-snowflake.yaml
+          .\bin\skippr.exe --log info run --config .\skippr-dbt-el-windows-snowflake.yaml
 
       - name: Drop ephemeral Snowflake CI database
         if: always()
@@ -417,7 +417,7 @@ jobs:
           POSTGRES_DATABASE: testdb
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\skippr.exe --log info run --config .\skippr-e2e-mssql-postgres.yaml
+          .\bin\skippr.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
 
   # ---------------------------------------------------------------------------
   # Publish skippr release
