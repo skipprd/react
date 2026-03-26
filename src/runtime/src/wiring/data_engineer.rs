@@ -200,6 +200,7 @@ pub(crate) async fn wire_providers(
     sctx: &mut SuiteCtx,
     keyspace: &Arc<dyn Keyspace>,
     lance_uri_prefix: &str,
+    lance_storage_opts: Vec<(String, String)>,
 ) -> Result<(), String> {
     let cfg = sctx
         .resolved_config()
@@ -311,9 +312,9 @@ pub(crate) async fn wire_providers(
     }
 
     if providers.vector.enabled {
-        sctx.set_vector(Some(Arc::new(LanceVectorStore::new(
-            lance_uri_prefix.to_string(),
-        ))));
+        let lance = LanceVectorStore::new(lance_uri_prefix.to_string())
+            .with_storage_options(lance_storage_opts);
+        sctx.set_vector(Some(Arc::new(lance)));
     }
 
     if providers.dbt.enabled {

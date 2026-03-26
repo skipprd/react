@@ -31,13 +31,28 @@ pub struct ScoredChunk {
 // VectorChunk vs Chunk types).
 pub struct LanceDbStore {
     uri: String,
+    storage_options: Vec<(String, String)>,
 }
 
 impl LanceDbStore {
     pub fn new(uri: &str) -> Self {
         Self {
             uri: uri.to_string(),
+            storage_options: Vec::new(),
         }
+    }
+
+    pub fn with_storage_options(mut self, opts: Vec<(String, String)>) -> Self {
+        self.storage_options = opts;
+        self
+    }
+
+    fn connect_builder(&self) -> lancedb::connection::ConnectBuilder {
+        let mut builder = lancedb::connect(&self.uri);
+        for (k, v) in &self.storage_options {
+            builder = builder.storage_option(k.clone(), v.clone());
+        }
+        builder
     }
 
     pub async fn upsert(&self, items: &[Chunk]) -> Result<(), String> {
@@ -116,7 +131,7 @@ impl LanceDbStore {
             ],
         )
         .map_err(|e| e.to_string())?;
-        let db = lancedb::connect(&self.uri)
+        let db = self.connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -153,7 +168,7 @@ impl LanceDbStore {
         scope: Option<&str>,
     ) -> Result<Vec<ScoredChunk>, String> {
         use lancedb::query::{ExecutableQuery, QueryBase};
-        let db = lancedb::connect(&self.uri)
+        let db = self.connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -226,7 +241,7 @@ impl LanceDbStore {
     }
 
     pub async fn delete_thread_embeddings(&self, thread_id: &str) -> Result<(), String> {
-        let db = lancedb::connect(&self.uri)
+        let db = self.connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -242,7 +257,7 @@ impl LanceDbStore {
     }
 
     pub async fn delete_pipeline_embeddings(&self) -> Result<(), String> {
-        let db = lancedb::connect(&self.uri)
+        let db = self.connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;

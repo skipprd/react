@@ -8,11 +8,17 @@ use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 pub struct LanceVectorStore {
     /// URI scheme + root for LanceDB paths (e.g. `s3://bucket` or `file:///data/root`).
     pub uri_prefix: String,
+    storage_options: Vec<(String, String)>,
 }
 
 impl LanceVectorStore {
     pub fn new(uri_prefix: String) -> Self {
-        Self { uri_prefix }
+        Self { uri_prefix, storage_options: Vec::new() }
+    }
+
+    pub fn with_storage_options(mut self, opts: Vec<(String, String)>) -> Self {
+        self.storage_options = opts;
+        self
     }
 
     fn store_for(&self, scope: &RequestScope) -> LanceDbStore {
@@ -20,7 +26,7 @@ impl LanceVectorStore {
             "{}/{}/{}/{}/lancedb",
             self.uri_prefix, scope.tenant, scope.workspace, scope.project_id
         );
-        LanceDbStore::new(&uri)
+        LanceDbStore::new(&uri).with_storage_options(self.storage_options.clone())
     }
 }
 
