@@ -742,28 +742,28 @@ async fn cmd_user_login() {
         std::process::exit(1);
     }
 
-    println!("Enter your phone number (e.g. +1234567890):");
-    let mut phone = String::new();
-    std::io::stdin().read_line(&mut phone).unwrap();
-    let phone = phone.trim();
+    println!("Enter your email address:");
+    let mut email = String::new();
+    std::io::stdin().read_line(&mut email).unwrap();
+    let email = email.trim();
 
-    if phone.is_empty() || !phone.starts_with('+') {
-        eprintln!("Invalid phone number. Must start with + and country code (e.g. +1234567890).");
+    if email.is_empty() || !email.contains('@') {
+        eprintln!("Invalid email address.");
         std::process::exit(1);
     }
 
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
 
-    match client.sign_in(phone).await {
+    match client.sign_in(email).await {
         Ok(_) => {
-            println!("Verification code sent to {}.", phone);
+            println!("Verification code sent to {}.", email);
             println!("Enter the 6-digit code:");
             let mut code = String::new();
             std::io::stdin().read_line(&mut code).unwrap();
             let code = code.trim();
 
-            match client.confirm(phone, code).await {
+            match client.confirm(email, code).await {
                 Ok(tokens) => {
                     auth::save_credentials(&tokens);
                     println!();

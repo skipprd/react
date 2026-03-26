@@ -158,7 +158,7 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             s3_credentials: None,
         }),
         scope: Some(ScopeFile {
-            tenant: Some("local".into()),
+            tenant: Some("_".into()),
             workspace: Some("dev".into()),
             project_id: Some(project.to_string()),
         }),

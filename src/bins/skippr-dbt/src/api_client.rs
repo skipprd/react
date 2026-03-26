@@ -72,9 +72,9 @@ impl ApiClient {
         }
     }
 
-    pub async fn sign_in(&self, phone: &str) -> Result<(), String> {
+    pub async fn sign_in(&self, email: &str) -> Result<(), String> {
         let url = format!("{}/auth/sign-in", self.base_url);
-        let body = serde_json::json!({ "phone": phone });
+        let body = serde_json::json!({ "email": email });
         let resp = self.http.post(&url)
             .json(&body)
             .send()
@@ -88,9 +88,9 @@ impl ApiClient {
         Ok(())
     }
 
-    pub async fn confirm(&self, phone: &str, code: &str) -> Result<StoredCredentials, String> {
+    pub async fn confirm(&self, email: &str, code: &str) -> Result<StoredCredentials, String> {
         let url = format!("{}/auth/confirm", self.base_url);
-        let body = serde_json::json!({ "phone": phone, "code": code });
+        let body = serde_json::json!({ "email": email, "code": code });
         let resp = self.http.post(&url)
             .json(&body)
             .send()
@@ -241,6 +241,8 @@ pub struct CredentialsResponse {
     pub credentials: StsCreds,
     pub bucket: String,
     pub key_prefix: String,
+    #[serde(default)]
+    pub tenant_id: String,
     pub llm_api_key: String,
     pub accounting_url: String,
 }
