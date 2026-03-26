@@ -127,9 +127,9 @@ impl ApiClient {
         resp.json().await.map_err(|e| format!("Parse error: {}", e))
     }
 
-    pub async fn buy_credits(&self, token: &str, pack: &str) -> Result<String, String> {
+    pub async fn buy_credits(&self, token: &str, amount: f64) -> Result<String, String> {
         let url = format!("{}/account/buy-credits", self.base_url);
-        let body = serde_json::json!({ "credit_pack": pack });
+        let body = serde_json::json!({ "amount": amount });
         let resp = self.http.post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .json(&body)

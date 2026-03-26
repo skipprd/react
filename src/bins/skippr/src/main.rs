@@ -60,11 +60,11 @@ enum UserAction {
     Logout,
     /// Show account balance and recent usage.
     Account,
-    /// Purchase a credit pack.
+    /// Add credit balance to your account.
     BuyCredits {
-        /// Credit pack: starter (500), growth (2000), scale (10000).
+        /// Dollar amount to add (e.g. 25 for $25). Minimum $5.
         #[arg(long)]
-        pack: String,
+        amount: Option<f64>,
     },
     /// Show detailed usage log.
     Usage,
@@ -747,7 +747,7 @@ async fn main() {
             UserAction::Login => cmd_user_login().await,
             UserAction::Logout => cmd_user_logout(),
             UserAction::Account => cmd_user_account().await,
-            UserAction::BuyCredits { pack } => cmd_user_buy_credits(&pack).await,
+            UserAction::BuyCredits { amount } => cmd_user_buy_credits(amount).await,
             UserAction::Usage => cmd_user_usage().await,
             UserAction::CreateApiKey { name } => cmd_user_create_api_key(&name).await,
             UserAction::RevokeApiKey { key_id } => cmd_user_revoke_api_key(&key_id).await,
@@ -860,30 +860,51 @@ async fn cmd_user_account() {
     }
 }
 
-async fn cmd_user_buy_credits(pack: &str) {
-    let valid_packs = ["starter", "growth", "scale"];
-    if !valid_packs.contains(&pack) {
-        eprintln!("Invalid credit pack '{}'. Choose one of:", pack);
-        eprintln!("  starter  — 500 credits   ($50)");
-        eprintln!("  growth   — 2,000 credits ($180)");
-        eprintln!("  scale    — 10,000 credits ($800)");
-        std::process::exit(1);
-    }
-
+async fn cmd_user_buy_credits(amount: Option<f64>) {
     let creds = auth::load_credentials();
     let Some(creds) = creds else {
         eprintln!("Not logged in. Run: skippr user login");
         std::process::exit(1);
     };
+
+    let amount = match amount {
+        Some(a) => a,
+        None => {
+            println!("Add credit balance to your Skippr account.");
+            println!();
+            println!("Usage:");
+            println!("  skippr user buy-credits --amount <DOLLARS>");
+            println!();
+            println!("Examples:");
+            println!("  skippr user buy-credits --amount 25     # add $25");
+            println!("  skippr user buy-credits --amount 100    # add $100");
+            println!("  skippr user buy-credits --amount 500    # add $500");
+            println!();
+            println!("Minimum $5, maximum $10,000 per transaction.");
+            println!("1 credit = $0.10. Your balance is visible via: skippr user account");
+            return;
+        }
+    };
+
+    if amount < 5.0 {
+        eprintln!("Minimum top-up is $5.");
+        std::process::exit(1);
+    }
+    if amount > 10_000.0 {
+        eprintln!("Maximum top-up is $10,000 per transaction.");
+        std::process::exit(1);
+    }
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
-    match client.buy_credits(&creds.access_token, pack).await {
+    match client.buy_credits(&creds.access_token, amount).await {
         Ok(url) => {
+            println!();
+            println!("  Adding ${:.2} to your account.", amount);
             println!();
             println!("  Open this URL to complete your purchase:");
             println!("  {}", url);
             println!();
-            println!("  Credits will be added to your account once payment completes.");
+            println!("  Credits will appear in your balance once payment completes.");
             println!();
         }
         Err(e) => {
