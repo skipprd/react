@@ -1,9 +1,43 @@
 use crate::auth::StoredCredentials;
+use reqwest::StatusCode;
 use serde::Deserialize;
+use std::fmt;
 
 pub struct ApiClient {
     base_url: String,
     http: reqwest::Client,
+}
+
+#[derive(Debug)]
+pub struct ApiError {
+    context: String,
+    body: String,
+}
+
+impl ApiError {
+    fn network(context: &str, err: reqwest::Error) -> Self {
+        Self {
+            context: context.to_string(),
+            body: format!("Network error: {}", err),
+        }
+    }
+
+    fn response(context: &str, _status: StatusCode, body: String) -> Self {
+        Self {
+            context: context.to_string(),
+            body,
+        }
+    }
+}
+
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.body.is_empty() {
+            write!(f, "{}", self.context)
+        } else {
+            write!(f, "{}: {}", self.context, self.body)
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,7 +88,7 @@ struct SignInResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct ConfirmResponse {
+struct TokenResponse {
     pub token: Option<String>,
     pub refresh_token: Option<String>,
 }
@@ -102,7 +136,7 @@ impl ApiClient {
             return Err(format!("Confirm failed: {}", text));
         }
 
-        let data: ConfirmResponse = resp.json().await
+        let data: TokenResponse = resp.json().await
             .map_err(|e| format!("Parse error: {}", e))?;
 
         Ok(StoredCredentials {
@@ -111,23 +145,44 @@ impl ApiClient {
         })
     }
 
-    pub async fn get_account(&self, token: &str) -> Result<AccountResponse, String> {
+    pub async fn refresh(&self, refresh_token: &str) -> Result<StoredCredentials, ApiError> {
+        let url = format!("{}/auth/refresh", self.base_url);
+        let body = serde_json::json!({ "refresh_token": refresh_token });
+        let resp = self.http.post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ApiError::network("Token refresh failed", e))?;
+
+        if !resp.status().is_success() {
+            return Err(response_error("Token refresh failed", resp).await);
+        }
+
+        let data: TokenResponse = resp.json().await
+            .map_err(|e| ApiError::network("Token refresh parse failed", e))?;
+
+        Ok(StoredCredentials {
+            access_token: data.token.unwrap_or_default(),
+            refresh_token: data.refresh_token.unwrap_or_default(),
+        })
+    }
+
+    pub async fn get_account(&self, token: &str) -> Result<AccountResponse, ApiError> {
         let url = format!("{}/account", self.base_url);
         let resp = self.http.get(&url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("Account fetch failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Account fetch failed: {}", text));
+            return Err(response_error("Account fetch failed", resp).await);
         }
 
-        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+        resp.json().await.map_err(|e| ApiError::network("Account parse failed", e))
     }
 
-    pub async fn buy_credits(&self, token: &str, amount: f64) -> Result<String, String> {
+    pub async fn buy_credits(&self, token: &str, amount: f64) -> Result<String, ApiError> {
         let url = format!("{}/account/buy-credits", self.base_url);
         let body = serde_json::json!({ "amount": amount });
         let resp = self.http.post(&url)
@@ -135,15 +190,14 @@ impl ApiClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("Buy credits failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Buy credits failed: {}", text));
+            return Err(response_error("Buy credits failed", resp).await);
         }
 
         let data: BuyCreditsResponse = resp.json().await
-            .map_err(|e| format!("Parse error: {}", e))?;
+            .map_err(|e| ApiError::network("Buy credits parse failed", e))?;
         Ok(data.checkout_url)
     }
 
@@ -169,7 +223,7 @@ impl ApiClient {
         })
     }
 
-    pub async fn create_api_key(&self, token: &str, name: &str) -> Result<CreateApiKeyResponse, String> {
+    pub async fn create_api_key(&self, token: &str, name: &str) -> Result<CreateApiKeyResponse, ApiError> {
         let url = format!("{}/auth/api-keys", self.base_url);
         let body = serde_json::json!({ "name": name });
         let resp = self.http.post(&url)
@@ -177,63 +231,65 @@ impl ApiClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("Create API key failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Create API key failed: {}", text));
+            return Err(response_error("Create API key failed", resp).await);
         }
 
-        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+        resp.json().await.map_err(|e| ApiError::network("Create API key parse failed", e))
     }
 
-    pub async fn list_api_keys(&self, token: &str) -> Result<Vec<ApiKeyInfo>, String> {
+    pub async fn list_api_keys(&self, token: &str) -> Result<Vec<ApiKeyInfo>, ApiError> {
         let url = format!("{}/auth/api-keys", self.base_url);
         let resp = self.http.get(&url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("List API keys failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("List API keys failed: {}", text));
+            return Err(response_error("List API keys failed", resp).await);
         }
 
-        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+        resp.json().await.map_err(|e| ApiError::network("List API keys parse failed", e))
     }
 
-    pub async fn revoke_api_key(&self, token: &str, key_id: &str) -> Result<(), String> {
+    pub async fn revoke_api_key(&self, token: &str, key_id: &str) -> Result<(), ApiError> {
         let url = format!("{}/auth/api-keys/{}", self.base_url, key_id);
         let resp = self.http.delete(&url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("Revoke API key failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Revoke API key failed: {}", text));
+            return Err(response_error("Revoke API key failed", resp).await);
         }
 
         Ok(())
     }
 
-    pub async fn get_credentials(&self, token: &str) -> Result<CredentialsResponse, String> {
+    pub async fn get_credentials(&self, token: &str) -> Result<CredentialsResponse, ApiError> {
         let url = format!("{}/auth/credentials", self.base_url);
         let resp = self.http.post(&url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await
-            .map_err(|e| format!("Network error: {}", e))?;
+            .map_err(|e| ApiError::network("Credentials fetch failed", e))?;
 
         if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Credentials fetch failed: {}", text));
+            return Err(response_error("Credentials fetch failed", resp).await);
         }
 
-        resp.json().await.map_err(|e| format!("Parse error: {}", e))
+        resp.json().await.map_err(|e| ApiError::network("Credentials parse failed", e))
     }
+}
+
+async fn response_error(context: &str, resp: reqwest::Response) -> ApiError {
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    ApiError::response(context, status, body)
 }
 
 #[derive(Debug, Deserialize)]

@@ -4,7 +4,7 @@ mod public_config;
 mod skippr_bin;
 mod translate;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, process::Command};
 
 use clap::{Parser, Subcommand};
 
@@ -589,7 +589,7 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     } else if let Some(creds) = auth::load_credentials() {
         eprintln!("[skippr] authenticated via stored credentials");
-        creds
+        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds).await
     } else {
         eprintln!("[skippr] ERROR: Authentication required.");
         eprintln!("[skippr]   Run 'skippr user login' to authenticate interactively,");
@@ -813,14 +813,46 @@ fn cmd_user_logout() {
     println!("Logged out. Local credentials removed.");
 }
 
+fn load_stored_credentials_or_exit() -> auth::StoredCredentials {
+    match auth::load_credentials() {
+        Some(creds) => creds,
+        None => {
+            eprintln!("Not logged in. Run: skippr user login");
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn refresh_user_credentials_or_exit(
+    client: &api_client::ApiClient,
+    creds: auth::StoredCredentials,
+) -> auth::StoredCredentials {
+    if creds.refresh_token.trim().is_empty() {
+        return creds;
+    }
+
+    match client.refresh(&creds.refresh_token).await {
+        Ok(refreshed) => {
+            auth::save_credentials(&refreshed);
+            refreshed
+        }
+        Err(e) => {
+            eprintln!("Session refresh failed: {}", e);
+            eprintln!("Run: skippr user login");
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn load_authenticated_user_credentials(client: &api_client::ApiClient) -> auth::StoredCredentials {
+    let creds = load_stored_credentials_or_exit();
+    refresh_user_credentials_or_exit(client, creds).await
+}
+
 async fn cmd_user_account() {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.get_account(&creds.access_token).await {
         Ok(account) => {
             println!();
@@ -861,12 +893,6 @@ async fn cmd_user_account() {
 }
 
 async fn cmd_user_buy_credits(amount: Option<f64>) {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
-
     let amount = match amount {
         Some(a) => a,
         None => {
@@ -896,15 +922,22 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
     }
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.buy_credits(&creds.access_token, amount).await {
         Ok(url) => {
+            let browser_result = open_in_default_browser(&url);
             println!();
             println!("  Adding ${:.2} to your account.", amount);
+            println!();
+            match browser_result {
+                Ok(()) => println!("  Opened your default browser to complete your purchase."),
+                Err(err) => println!("  Could not open your default browser automatically: {}", err),
+            }
             println!();
             println!("  Open this URL to complete your purchase:");
             println!("  {}", url);
             println!();
-            println!("  Credits will appear in your balance once payment completes.");
+            println!("  Credits will appear in your balance as soon as payment completes.");
             println!();
         }
         Err(e) => {
@@ -914,14 +947,39 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
     }
 }
 
+fn open_in_default_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("open failed: {}", e))
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("explorer failed: {}", e))
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("xdg-open failed: {}", e))
+    }
+}
+
 async fn cmd_user_usage() {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.get_account(&creds.access_token).await {
         Ok(account) => {
             println!();
@@ -959,13 +1017,9 @@ async fn cmd_user_usage() {
 }
 
 async fn cmd_user_create_api_key(name: &str) {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.create_api_key(&creds.access_token, name).await {
         Ok(key) => {
             println!();
@@ -985,13 +1039,9 @@ async fn cmd_user_create_api_key(name: &str) {
 }
 
 async fn cmd_user_revoke_api_key(key_id: &str) {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.revoke_api_key(&creds.access_token, key_id).await {
         Ok(()) => {
             println!("API key {} revoked.", key_id);
@@ -1004,13 +1054,9 @@ async fn cmd_user_revoke_api_key(key_id: &str) {
 }
 
 async fn cmd_user_list_api_keys() {
-    let creds = auth::load_credentials();
-    let Some(creds) = creds else {
-        eprintln!("Not logged in. Run: skippr user login");
-        std::process::exit(1);
-    };
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&client).await;
     match client.list_api_keys(&creds.access_token).await {
         Ok(keys) => {
             println!();
