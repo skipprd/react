@@ -1,6 +1,7 @@
 mod auth;
 mod api_client;
 mod public_config;
+mod skippr_bin;
 mod translate;
 
 use std::path::PathBuf;
@@ -397,10 +398,20 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
     }
 
     if which("skippr") {
-        check_pass("skippr binary found on PATH");
+        check_pass("skippr binary found on PATH (user-managed)");
+    } else if skippr_bin::managed_binary_path()
+        .map(|p| p.is_file())
+        .unwrap_or(false)
+    {
+        check_pass(&format!(
+            "skippr v{} installed (managed by skippr-dbt)",
+            skippr_bin::SKIPPR_VERSION
+        ));
     } else {
-        check_fail("skippr binary not found on PATH");
-        ok = false;
+        check_pass(&format!(
+            "skippr not found — v{} will be downloaded automatically on first run",
+            skippr_bin::SKIPPR_VERSION
+        ));
     }
 
     if which("dbt") {
@@ -548,6 +559,15 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
             std::process::exit(1);
         }
     };
+
+    let skippr_binary = match skippr_bin::resolve_skippr_binary().await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[skippr-dbt] ERROR: {}", e);
+            std::process::exit(1);
+        }
+    };
+    translate::set_skippr_binary(&mut internal_file, &skippr_binary);
 
     // Authentication is mandatory. SKIPPR_API_KEY env var takes priority, then credentials.json.
     let creds = if let Ok(api_key) = std::env::var("SKIPPR_API_KEY") {

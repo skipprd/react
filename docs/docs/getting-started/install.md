@@ -1,20 +1,14 @@
 # Install
 
-## 1. Download binaries
+## 1. Download skippr-dbt
 
-Download `skippr-dbt` and `skippr` for your platform from the releases page.
-
-| Binary | Purpose |
-|---|---|
-| `skippr-dbt` | Pipeline orchestrator -- the main CLI you interact with |
-| `skippr` | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
-
-Place both on your `PATH` and verify:
+Download `skippr-dbt` for your platform from the releases page and place it on your `PATH`:
 
 ```bash
 skippr-dbt --version
-skippr --version
 ```
+
+The `skippr` extract-and-load engine is downloaded automatically on first run. To manage `skippr` yourself instead, place it on your `PATH` and `skippr-dbt` will use it.
 
 ## 2. Install Python and dbt
 

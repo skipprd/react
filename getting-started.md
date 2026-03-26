@@ -12,21 +12,15 @@ What you'll end up with:
 
 ## Prerequisites
 
-### skippr-dbt and skippr binaries
+### skippr-dbt binary
 
-Download both binaries for your platform:
-
-| Binary | Purpose |
-|--------|---------|
-| `skippr-dbt` | Pipeline orchestrator — the main CLI you interact with |
-| `skippr` | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
-
-Place both on your PATH and verify:
+Download the `skippr-dbt` binary for your platform and place it on your PATH:
 
 ```bash
 skippr-dbt --version
-skippr --version
 ```
+
+The `skippr` extract-and-load engine is downloaded automatically on first run. If you prefer to manage `skippr` yourself, place it on your PATH and `skippr-dbt` will use it instead of downloading its own copy.
 
 ### Python 3.10+ and dbt
 
@@ -423,7 +417,7 @@ pip install dbt-core dbt-snowflake
 
 ### `skippr: command not found`
 
-The `skippr` binary is not on PATH. Download it from the releases page and place it on your PATH, or run `skippr-dbt doctor` to see all missing prerequisites.
+`skippr-dbt` downloads `skippr` automatically to `~/.skippr-dbt/bin/` on first run. If the download fails (e.g. no internet), you can download `skippr` manually from the [releases page](https://github.com/skipprd/skipprd/releases) and place it on your PATH.
 
 ---
 

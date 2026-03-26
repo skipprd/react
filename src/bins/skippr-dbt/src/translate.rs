@@ -179,6 +179,15 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
     })
 }
 
+/// Set the skippr binary path in the EL provider config.
+pub fn set_skippr_binary(cfg: &mut ReactConfigFile, binary_path: &str) {
+    if let Some(ref mut providers) = cfg.providers {
+        if let Some(el) = providers.get_mut("el") {
+            el["skippr_binary"] = serde_json::Value::String(binary_path.to_string());
+        }
+    }
+}
+
 /// Overlay authenticated mode onto an existing config:
 /// - Switch storage to S3 with STS credentials
 /// - Set server-provided LLM API key (if user hasn't set their own)
