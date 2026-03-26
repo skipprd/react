@@ -4,7 +4,7 @@ This guide walks through setting up a project that extracts data from MSSQL, loa
 
 ## Prerequisites
 
-- `skippr-dbt` and `skippr` on PATH ([Install](install.md))
+- `skippr-dbt` and `skippr` binaries on PATH ([Install](install.md))
 - Python venv with `dbt-core` and `dbt-snowflake` installed
 - Environment variables set: `LLM_API_KEY`, `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_PATH`
 - An accessible MSSQL instance (or Docker for local dev)

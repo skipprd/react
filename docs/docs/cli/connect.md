@@ -49,6 +49,21 @@ skippr-dbt connect warehouse bigquery \
 | `--dataset` | BigQuery dataset |
 | `--location` | Dataset location (e.g. `US`, `EU`) |
 
+### Postgres
+
+```bash
+skippr-dbt connect warehouse postgres \
+  --database analytics \
+  --schema public
+```
+
+| Flag | Description |
+|---|---|
+| `--database` | PostgreSQL database name |
+| `--schema` | Target schema (default: `public`) |
+
+Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`). See [Environment Variables](../configuration/environment-variables.md).
+
 ---
 
 ## connect source

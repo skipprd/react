@@ -19,7 +19,7 @@ Download the Windows binaries:
 | Binary | Purpose |
 |--------|---------|
 | `skippr-dbt.exe` | Pipeline orchestrator — the main CLI you interact with |
-| `skippr.exe` (v6.15.0+) | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
+| `skippr.exe` | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
 
 Place both in a directory on your PATH and verify (from PowerShell):
 
@@ -171,17 +171,45 @@ You should see output listing `dbt-core` and `dbt-snowflake` with their versions
 
 ---
 
-## 3. Set environment variables
+## 3. Authenticate with Skippr
+
+`skippr-dbt` requires an authenticated session for cloud storage, server-provided LLM access, and usage metering.
+
+### Interactive login (recommended)
+
+```powershell
+skippr-dbt user login
+```
+
+This sends a one-time code to your email. Enter it when prompted and your session credentials are stored locally.
+
+### CI / non-interactive
+
+For headless environments, set an API key instead:
+
+```powershell
+$env:SKIPPR_API_KEY = "sk-..."
+```
+
+You can generate API keys from an authenticated session with `skippr-dbt user create-api-key`.
+
+---
+
+## 4. Set environment variables
 
 ### Required
 
 ```powershell
-$env:LLM_API_KEY = "sk-..."
-
 $env:SNOWFLAKE_ACCOUNT = "RSSKNWT-KC12345"
 $env:SNOWFLAKE_USER = "YOURUSERNAME"
 
 $env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
+```
+
+### Optional
+
+```powershell
+$env:LLM_API_KEY = "sk-..."   # Optional — the server provides a key after authentication
 ```
 
 ### Snowflake authentication
@@ -204,7 +232,7 @@ Credentials are read from the environment at runtime and are **not** written to 
 
 ---
 
-## 4. Initialise the project
+## 5. Initialise the project
 
 ```powershell
 skippr-dbt init mssql-migration
@@ -214,7 +242,7 @@ This creates `skippr-dbt.yaml` with your project name and a `.env.example` showi
 
 ---
 
-## 5. Connect the warehouse and source
+## 6. Connect the warehouse and source
 
 ### Connect Snowflake
 
@@ -243,7 +271,7 @@ Using `${MSSQL_CONNECTION_STRING}` tells `skippr-dbt` to read the value from you
 
 ---
 
-## 6. Check prerequisites
+## 7. Check prerequisites
 
 ```powershell
 skippr-dbt doctor
@@ -253,7 +281,7 @@ This verifies that all binaries, credentials, and config are in place. Fix anyth
 
 ---
 
-## 7. Run the pipeline
+## 8. Run the pipeline
 
 Make sure your virtual environment is activated, then:
 
@@ -286,7 +314,7 @@ If you see `"terminal mode not enabled: stdout is not a TTY"`, use `--log info`.
 
 ---
 
-## 8. Verify outputs
+## 9. Verify outputs
 
 ### Your config file
 
@@ -404,7 +432,7 @@ pip install dbt-core dbt-snowflake
 
 ### LLM errors (401 / timeouts)
 
-- Confirm `$env:LLM_API_KEY` is set and valid.
+- If you are authenticated (`skippr-dbt user login`), the server provides an LLM key automatically. A custom `LLM_API_KEY` is only needed if you want to use your own key.
 - If requests timeout, set `$env:LLM_HTTP_TIMEOUT_SECS = "120"` in the environment.
 
 ### MSSQL connection errors

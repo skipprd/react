@@ -10,9 +10,9 @@ The orchestrator connects them with an AI-assisted schema mapping layer.
 ## Pipeline flow
 
 ```
-Source (MSSQL, S3, ...)
+Source (MSSQL, S3)
   |
-  |  skippr discover -- reads source schemas
+  |  discover -- reads source schemas
   v
 Schema Discovery
   |
@@ -20,9 +20,9 @@ Schema Discovery
   v
 Schema Mapping
   |
-  |  skippr sync -- extracts rows, loads into warehouse
+  |  sync -- extracts rows, loads into warehouse
   v
-Bronze Tables (warehouse raw schema)
+Bronze Tables (Snowflake, BigQuery, or Postgres)
   |
   |  dbt -- generates and runs silver/gold models
   v
@@ -36,8 +36,8 @@ Gold Models (marts: business-ready aggregations)
 
 All data transfer is local:
 
-- Source data is read by `skippr` running on your machine.
-- Data is written directly to the warehouse over the network (Snowflake REST API, BigQuery API, etc.).
+- Source data is read on your machine.
+- Data is written directly to the warehouse over the network (Snowflake REST API, BigQuery API, Postgres wire protocol, etc.).
 - No data passes through any third-party service.
 
 The LLM is used only for schema mapping decisions (column naming, type inference, model structure). It receives table names and column metadata, not row-level data.

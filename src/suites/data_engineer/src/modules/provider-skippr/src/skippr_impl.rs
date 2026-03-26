@@ -354,8 +354,8 @@ impl SkipprCliProvider {
         let output_config = self.build_output_config();
 
         let mut pipeline_block = serde_json::json!({
-            "input": "data_inputs.source",
-            "output": "data_outputs.destination"
+            "data_source": "data_sources.source",
+            "data_sink": "data_sinks.destination"
         });
 
         if let Some(t) = transform_block {
@@ -371,12 +371,12 @@ impl SkipprCliProvider {
             "pipelines": {
                 &config.pipeline_name: pipeline_block
             },
-            "data_inputs": {
+            "data_sources": {
                 "source": {
                     capitalized_kind: input_config
                 }
             },
-            "data_outputs": {
+            "data_sinks": {
                 "destination": {
                     output_kind: output_config
                 }

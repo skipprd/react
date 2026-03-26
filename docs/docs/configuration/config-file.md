@@ -58,6 +58,16 @@ Authentication is via environment variables, not the config file.
 | `dataset` | BigQuery dataset |
 | `location` | Dataset location |
 
+#### Postgres
+
+| Field | Description |
+|---|---|
+| `kind` | `postgres` |
+| `database` | PostgreSQL database name |
+| `schema` | Target schema (default: `public`) |
+
+Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, etc.), not the config file.
+
 ### source (optional)
 
 The data source for extraction. When absent, the pipeline skips extraction and starts at the modeling phase.

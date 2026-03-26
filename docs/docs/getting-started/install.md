@@ -7,7 +7,7 @@ Download `skippr-dbt` and `skippr` for your platform from the releases page.
 | Binary | Purpose |
 |---|---|
 | `skippr-dbt` | Pipeline orchestrator -- the main CLI you interact with |
-| `skippr` (v6.15.0+) | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
+| `skippr` | Extract-and-load engine (invoked automatically by `skippr-dbt`) |
 
 Place both on your `PATH` and verify:
 
@@ -26,7 +26,7 @@ source .venv/bin/activate        # macOS / Linux
 # .\.venv\Scripts\Activate.ps1   # Windows PowerShell
 
 pip install --upgrade pip
-pip install dbt-core dbt-snowflake   # or dbt-bigquery, etc.
+pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres
 ```
 
 Verify:
@@ -37,9 +37,9 @@ dbt --version
 
 The virtual environment must be activated whenever you run `skippr-dbt`.
 
-## 3. Set up your LLM API key
+## 3. LLM API key (optional)
 
-Skippr dbt uses an LLM to assist with schema mapping and model generation. Set your API key:
+Skippr dbt includes a server-provided LLM key when you authenticate. To use your own key instead:
 
 ```bash
 export LLM_API_KEY="sk-..."
@@ -74,6 +74,14 @@ ALTER USER myuser SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
 
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+```
+
+### Postgres
+
+```bash
+export POSTGRES_HOST="localhost"
+export POSTGRES_USER="myuser"
+export POSTGRES_PASSWORD="mypassword"
 ```
 
 ## Next steps

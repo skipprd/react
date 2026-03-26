@@ -2,12 +2,6 @@
 
 All secrets and authentication credentials are configured via environment variables. They are never stored in the config file.
 
-## Required
-
-| Variable | When | Description |
-|---|---|---|
-| `LLM_API_KEY` | Always | API key for the LLM provider (e.g. OpenAI) |
-
 ## Snowflake
 
 | Variable | Description |
@@ -25,6 +19,18 @@ Key-pair auth is recommended and required when MFA is enabled on the Snowflake a
 |---|---|
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to a GCP service account JSON key file |
 
+## Postgres
+
+| Variable | Default | Description |
+|---|---|---|
+| `POSTGRES_HOST` | `localhost` | PostgreSQL host |
+| `POSTGRES_PORT` | `5432` | PostgreSQL port |
+| `POSTGRES_USER` | | Database user |
+| `POSTGRES_PASSWORD` | | Database password |
+| `POSTGRES_DATABASE` | | Database name (overrides config file) |
+| `POSTGRES_SCHEMA` | `public` | Target schema (overrides config file) |
+| `POSTGRES_SSLMODE` | | SSL mode (e.g. `disable`, `require`, `prefer`) |
+
 ## Source credentials
 
 | Variable | Description |
@@ -37,6 +43,7 @@ Key-pair auth is recommended and required when MFA is enabled on the Snowflake a
 
 | Variable | Default | Description |
 |---|---|---|
+| `LLM_API_KEY` | | Override the server-provided LLM key with your own |
 | `LLM_BASE_URL` | `https://api.openai.com` | Override the LLM API endpoint |
 | `LLM_MAX_TOKENS` | `8192` | Max output tokens per LLM call |
 | `DBT_TARGET_SCHEMA` | Same as project | Override the dbt base schema name |

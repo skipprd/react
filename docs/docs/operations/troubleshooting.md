@@ -46,13 +46,21 @@ Your Snowflake account enforces MFA, so password auth cannot work for headless t
 - If requests timeout, set `LLM_HTTP_TIMEOUT_SECS=120` in the environment.
 - If output is truncated, set `LLM_MAX_TOKENS=8192`.
 
+### Postgres connection errors
+
+| Symptom | Fix |
+|---|---|
+| `connection refused` | Check `POSTGRES_HOST` and `POSTGRES_PORT` are correct and the server is running |
+| `password authentication failed` | Verify `POSTGRES_USER` and `POSTGRES_PASSWORD` |
+| `database "..." does not exist` | Create the database first, or check the `database` field in config |
+| SSL errors | Set `POSTGRES_SSLMODE=disable` for local development |
+
 ### Sync stalls with no output
 
 The extract-and-load step produced no output within the idle timeout. Common causes:
 
 | Cause | Fix |
 |---|---|
-| Debug build of `skippr` | Rebuild `skippr` in release mode |
 | Warehouse connection hanging | Check credentials and network access |
 | AWS credentials missing | Set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for S3 sources |
 

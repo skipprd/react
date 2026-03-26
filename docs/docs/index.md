@@ -1,14 +1,21 @@
 # Skippr dbt
 
-Skippr dbt is a data pipeline CLI that extracts data from sources (MSSQL, S3), loads it into a cloud warehouse (Snowflake, BigQuery), and automatically generates and validates dbt models on top.
+Skippr dbt is a data pipeline CLI that extracts data from sources (MSSQL, S3), loads it into a cloud warehouse (Snowflake, BigQuery, Postgres), and automatically generates and validates dbt models on top.
 
 ## What it does
 
-1. **Extract** -- reads tables from your source system.
+1. **Extract** -- reads tables or files from your source system.
 2. **Load** -- writes raw data into a bronze schema in your warehouse.
 3. **Model** -- generates, compiles, and materialises silver and gold dbt models using AI-assisted schema mapping.
 
 All data transfer happens locally on your machine. No data leaves your network.
+
+## Supported connectors
+
+| Direction | Connectors |
+|---|---|
+| **Sources** | MSSQL, S3 |
+| **Warehouses** | Snowflake, BigQuery, Postgres |
 
 ## Quick start
 
@@ -26,7 +33,6 @@ See the [Install](getting-started/install.md) and [Quick Start](getting-started/
 
 | Dependency | Why |
 |---|---|
-| `skippr` binary (v6.15.0+) | Performs extract-and-load between source and warehouse |
+| `skippr` binary | Performs extract-and-load between source and warehouse |
 | Python 3.10+ | Required by dbt |
 | dbt-core + warehouse adapter | Model compilation and materialisation |
-| An LLM API key | Powers AI-assisted schema mapping |
