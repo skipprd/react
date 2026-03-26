@@ -60,7 +60,7 @@ enum UserAction {
     Logout,
     /// Show account balance and recent usage.
     Account,
-    /// Add credit balance to your account.
+    /// Add funds to your account.
     BuyCredits {
         /// Dollar amount to add (e.g. 25 for $25). Minimum $5.
         #[arg(long)]
@@ -602,17 +602,17 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
 
     let initial_balance = match client.get_account(&creds.access_token).await {
         Ok(account) => {
-            let remaining = account.balance.credits_remaining;
-            if remaining <= 0.0 {
-                eprintln!("[skippr] ERROR: No credits remaining. Purchase credits to continue.");
-                eprintln!("[skippr]   skippr user buy-credits --pack starter");
+            let bal = account.balance.balance;
+            if bal <= 0.0 {
+                eprintln!("[skippr] ERROR: Balance is $0.00. Add funds to continue.");
+                eprintln!("[skippr]   skippr user buy-credits --amount 25");
                 std::process::exit(1);
-            } else if remaining < LOW_BALANCE_THRESHOLD {
-                eprintln!("[skippr] WARNING: Low balance ({:.1} credits). The run may exhaust your credits.", remaining);
+            } else if bal < LOW_BALANCE_USD_THRESHOLD {
+                eprintln!("[skippr] WARNING: Low balance (${:.2}). The run may exhaust your balance.", bal);
             } else {
-                eprintln!("[skippr] credits: {:.1} remaining", remaining);
+                eprintln!("[skippr] balance: ${:.2}", bal);
             }
-            remaining
+            bal
         }
         Err(e) => {
             eprintln!("[skippr] ERROR: Could not verify account balance ({}). Refusing to run.", e);
@@ -791,7 +791,7 @@ async fn cmd_user_login() {
                     println!();
                     println!("  Next steps:");
                     println!("    skippr user account       — view balance");
-                    println!("    skippr user buy-credits   — purchase credits");
+                    println!("    skippr user buy-credits   — add funds");
                     println!("    skippr run                — start a pipeline");
                     println!();
                 }
@@ -858,27 +858,29 @@ async fn cmd_user_account() {
             println!();
             println!("  Account");
             println!("  {}", "-".repeat(50));
-            println!("  Plan:              {}", account.profile.plan);
-            println!("  Credits remaining: {:.1}", account.balance.credits_remaining);
-            println!("  Credits purchased: {:.1}", account.balance.credits_purchased);
-            println!("  Credits used:      {:.1}", account.balance.credits_used);
-            println!("  Period:            {}", account.balance.period);
+            let plan_label = match account.profile.plan.as_str() {
+                "free" => "Pay as you go",
+                "pro" => "Pro",
+                other => other,
+            };
+            println!("  Plan:              {}", plan_label);
+            println!("  Balance:           ${:.2}", account.balance.balance);
             if let Some(ref sub) = account.subscription {
                 println!("  Subscription:      {} ({})", sub.status, sub.price_id);
             }
             println!();
 
-            print_low_balance_warning(account.balance.credits_remaining);
+            print_low_balance_warning(&account.balance);
 
             if !account.recent_usage.is_empty() {
                 println!("  Recent usage (last 10):");
-                println!("  {:<22} {:<22} {:>8}  {}", "Timestamp", "Event", "Credits", "Project");
+                println!("  {:<22} {:<22} {:>8}  {}", "Timestamp", "Event", "Cost", "Project");
                 println!("  {}", "-".repeat(70));
                 for u in account.recent_usage.iter().take(10) {
-                    println!("  {:<22} {:<22} {:>8.1}  {}",
+                    println!("  {:<22} {:<22} {:>8}  {}",
                         &u.timestamp[..std::cmp::min(22, u.timestamp.len())],
-                        u.event_type,
-                        u.credits_charged,
+                        u.billing_unit,
+                        format!("${:.2}", u.amount),
                         u.project_id.as_deref().unwrap_or("-"),
                     );
                 }
@@ -896,7 +898,7 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
     let amount = match amount {
         Some(a) => a,
         None => {
-            println!("Add credit balance to your Skippr account.");
+            println!("Add funds to your Skippr account.");
             println!();
             println!("Usage:");
             println!("  skippr user buy-credits --amount <DOLLARS>");
@@ -907,7 +909,7 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
             println!("  skippr user buy-credits --amount 500    # add $500");
             println!();
             println!("Minimum $5, maximum $10,000 per transaction.");
-            println!("1 credit = $0.10. Your balance is visible via: skippr user account");
+            println!("Your balance is visible via: skippr user account");
             return;
         }
     };
@@ -923,7 +925,7 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
     let creds = load_authenticated_user_credentials(&client).await;
-    match client.buy_credits(&creds.access_token, amount).await {
+    match client.add_funds(&creds.access_token, amount).await {
         Ok(url) => {
             let browser_result = open_in_default_browser(&url);
             println!();
@@ -937,7 +939,7 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
             println!("  Open this URL to complete your purchase:");
             println!("  {}", url);
             println!();
-            println!("  Credits will appear in your balance as soon as payment completes.");
+            println!("  Funds will appear in your balance as soon as payment completes.");
             println!();
         }
         Err(e) => {
@@ -977,37 +979,50 @@ fn open_in_default_browser(url: &str) -> Result<(), String> {
 }
 
 async fn cmd_user_usage() {
+    use chrono::{NaiveDate, Utc};
+    use std::collections::BTreeMap;
+
     let base_url = auth::auth_base_url();
     let client = api_client::ApiClient::new(&base_url);
     let creds = load_authenticated_user_credentials(&client).await;
     match client.get_account(&creds.access_token).await {
         Ok(account) => {
+            let today = Utc::now().date_naive();
+            let month_label = today.format("%B %Y");
+
             println!();
-            println!("  Usage log ({:.1} credits remaining)", account.balance.credits_remaining);
+            println!("  Usage — {}", month_label);
+            println!("  {}", "-".repeat(50));
+            println!("  Balance:  ${:.2}", account.balance.balance);
             println!();
+
             if account.recent_usage.is_empty() {
                 println!("  No usage recorded yet.");
             } else {
-                println!("  {:<22} {:<22} {:>8}  {:<10}  {}",
-                    "Timestamp", "Event", "Credits", "Qty", "Project");
-                println!("  {}", "-".repeat(78));
-                let mut total = 0.0_f64;
+                let mut daily: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+                let mut month_total = 0.0_f64;
+
                 for u in &account.recent_usage {
-                    total += u.credits_charged;
-                    println!("  {:<22} {:<22} {:>8.1}  {:<10.0}  {}",
-                        &u.timestamp[..std::cmp::min(22, u.timestamp.len())],
-                        u.event_type,
-                        u.credits_charged,
-                        u.quantity,
-                        u.project_id.as_deref().unwrap_or("-"),
-                    );
+                    if let Some(date) = u.timestamp.get(..10).and_then(|s| s.parse::<NaiveDate>().ok()) {
+                        *daily.entry(date).or_default() += u.amount;
+                        month_total += u.amount;
+                    }
                 }
-                println!("  {}", "-".repeat(78));
-                println!("  {:>52.1}  total shown", total);
+
+                println!("  Last 7 days:");
+                println!("  {:<12} {:>8}", "Date", "Cost");
+                println!("  {}", "-".repeat(22));
+                for i in (0..7).rev() {
+                    let day = today - chrono::Duration::days(i);
+                    let cost = daily.get(&day).copied().unwrap_or(0.0);
+                    println!("  {:<12} {:>8}", day.format("%Y-%m-%d"), format!("${:.2}", cost));
+                }
+                println!("  {}", "-".repeat(22));
+                println!("  {:<12} {:>8}", "This month", format!("${:.2}", month_total));
             }
             println!();
 
-            print_low_balance_warning(account.balance.credits_remaining);
+            print_low_balance_warning(&account.balance);
         }
         Err(e) => {
             eprintln!("Failed to fetch usage: {}", e);
@@ -1084,16 +1099,16 @@ async fn cmd_user_list_api_keys() {
     }
 }
 
-const LOW_BALANCE_THRESHOLD: f64 = 50.0;
+const LOW_BALANCE_USD_THRESHOLD: f64 = 5.0;
 
-fn print_low_balance_warning(credits_remaining: f64) {
-    if credits_remaining <= 0.0 {
-        eprintln!("  WARNING: You have no credits remaining. Billable operations will fail.");
-        eprintln!("  Run: skippr user buy-credits --pack starter");
+fn print_low_balance_warning(balance: &api_client::Balance) {
+    if balance.balance <= 0.0 {
+        eprintln!("  WARNING: Your balance is $0.00. Billable operations will fail.");
+        eprintln!("  Run: skippr user buy-credits --amount 25");
         eprintln!();
-    } else if credits_remaining < LOW_BALANCE_THRESHOLD {
-        eprintln!("  WARNING: Low balance ({:.1} credits). Consider purchasing more credits.", credits_remaining);
-        eprintln!("  Run: skippr user buy-credits --pack starter");
+    } else if balance.balance < LOW_BALANCE_USD_THRESHOLD {
+        eprintln!("  WARNING: Low balance (${:.2}). Consider adding funds.", balance.balance);
+        eprintln!("  Run: skippr user buy-credits --amount 25");
         eprintln!();
     }
 }

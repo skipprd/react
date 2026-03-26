@@ -33,3 +33,4 @@ react-module-provider-dbt = { path = "../../suites/data_engineer/src/modules/pro
 react-module-provider-catalog = { path = "../../suites/data_engineer/src/modules/provider-catalog" }
 react-module-provider-snowflake = { path = "../../suites/data_engineer/src/modules/provider-snowflake" }
 react-module-provider-mssql = { path = "../../suites/data_engineer/src/modules/provider-mssql" }
+chrono = "0.4.42"

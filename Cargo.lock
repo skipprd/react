@@ -7314,6 +7314,7 @@ dependencies = [
 name = "skippr"
 version = "0.0.0-git"
 dependencies = [
+ "chrono",
  "clap",
  "console",
  "dialoguer",

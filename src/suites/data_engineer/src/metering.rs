@@ -2,19 +2,19 @@ use once_cell::sync::OnceCell;
 use serde::Serialize;
 use std::sync::Mutex;
 
-const LOW_CREDIT_THRESHOLD: f64 = 20.0;
+const LOW_BALANCE_THRESHOLD: f64 = 2.0;
 
 static METERING_CLIENT: OnceCell<MeteringClient> = OnceCell::new();
 
 pub fn init_metering(
     accounting_url: Option<String>,
     auth_token: Option<String>,
-    initial_credit_balance: f64,
+    initial_balance: f64,
 ) {
     let _ = METERING_CLIENT.set(MeteringClient::new(
         accounting_url,
         auth_token,
-        initial_credit_balance,
+        initial_balance,
     ));
 }
 
@@ -24,7 +24,7 @@ pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
     if !client.is_enabled() {
         return;
     }
-    client.budget.deduct(event.credits());
+    client.budget.deduct(event.cost());
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         handle.spawn(async move {
             let client = global_metering();
@@ -33,8 +33,7 @@ pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
     }
 }
 
-/// Sync check of the in-memory credit budget. Returns Err if exhausted.
-pub fn check_credit_budget() -> Result<(), String> {
+pub fn check_budget() -> Result<(), String> {
     global_metering().budget.check_local()
 }
 
@@ -56,25 +55,24 @@ pub enum UsageEvent {
 }
 
 impl UsageEvent {
-    pub fn credits(&self) -> f64 {
+    pub fn cost(&self) -> f64 {
         match self {
-            Self::FieldsDiscovered { count, .. } => *count as f64 * 0.2,
-            Self::TablesSynced { count, .. } => *count as f64 * 5.0,
+            Self::FieldsDiscovered { count, .. } => *count as f64 * 0.02,
+            Self::TablesSynced { count, .. } => *count as f64 * 0.50,
             Self::ModelsAuthored { silver, gold, .. } => {
-                *silver as f64 * 10.0 + *gold as f64 * 15.0
+                *silver as f64 * 1.00 + *gold as f64 * 1.50
             }
             Self::PlanApproved { .. } => 0.0,
             Self::RepairCycle { .. } => 0.0,
-            Self::PipelineRun { .. } => 3.0,
+            Self::PipelineRun { .. } => 0.30,
             Self::LlmRequest { input_tokens, output_tokens, .. } => {
-                (*input_tokens + *output_tokens) as f64 * 0.001
+                (*input_tokens as f64 / 1000.0) * 0.05
+                    + (*output_tokens as f64 / 1000.0) * 0.20
             }
         }
     }
 
-    /// Returns server-compatible (event_type, raw_quantity) tuples.
-    /// Compound events are expanded into multiple records that match
-    /// the server's `credits_for_event` vocabulary.
+    /// Returns (billing_unit, raw_quantity) tuples for the server API.
     pub fn to_server_records(&self) -> Vec<(&str, f64)> {
         match self {
             Self::FieldsDiscovered { count, .. } => vec![("fields_discovered", *count as f64)],
@@ -113,17 +111,17 @@ impl UsageEvent {
 }
 
 // ---------------------------------------------------------------------------
-// CreditBudget — in-memory tracker with API-backed verification
+// Budget — in-memory tracker with API-backed verification
 // ---------------------------------------------------------------------------
 
-pub struct CreditBudget {
+pub struct Budget {
     estimate: Mutex<f64>,
     accounting_url: Option<String>,
     auth_token: Option<String>,
     http: Option<reqwest::Client>,
 }
 
-impl CreditBudget {
+impl Budget {
     pub fn new(
         initial: f64,
         accounting_url: Option<String>,
@@ -147,36 +145,33 @@ impl CreditBudget {
         }
     }
 
-    pub fn deduct(&self, credits: f64) {
+    pub fn deduct(&self, amount: f64) {
         let mut est = self.estimate.lock().unwrap();
-        *est -= credits;
+        *est -= amount;
     }
 
     pub fn local_estimate(&self) -> f64 {
         *self.estimate.lock().unwrap()
     }
 
-    /// Sync check: returns Err if local estimate says we're out of credits.
     pub fn check_local(&self) -> Result<(), String> {
         if self.local_estimate() <= 0.0 {
-            Err("credit budget exhausted".to_string())
+            Err("budget exhausted".to_string())
         } else {
             Ok(())
         }
     }
 
-    /// Async check: if local estimate is low, verify with the API.
-    /// Returns Err if truly out of credits.
     pub async fn check_and_refresh(&self) -> Result<f64, String> {
         let est = self.local_estimate();
-        if est > LOW_CREDIT_THRESHOLD {
+        if est > LOW_BALANCE_THRESHOLD {
             return Ok(est);
         }
         let real = self.fetch_remote_balance().await?;
         *self.estimate.lock().unwrap() = real;
         if real <= 0.0 {
             Err(format!(
-                "No credits remaining ({:.1}). Purchase credits to continue.",
+                "No balance remaining (${:.2}). Add funds to continue.",
                 real
             ))
         } else {
@@ -199,12 +194,12 @@ impl CreditBudget {
         let resp = req
             .send()
             .await
-            .map_err(|e| format!("credit check failed: {e}"))?;
+            .map_err(|e| format!("balance check failed: {e}"))?;
         let data: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| format!("credit check parse: {e}"))?;
-        Ok(data["credits_remaining"].as_f64().unwrap_or(0.0))
+            .map_err(|e| format!("balance check parse: {e}"))?;
+        Ok(data["balance"].as_f64().unwrap_or(0.0))
     }
 }
 
@@ -216,7 +211,7 @@ pub struct MeteringClient {
     accounting_url: Option<String>,
     auth_token: Option<String>,
     http: Option<reqwest::Client>,
-    pub budget: CreditBudget,
+    pub budget: Budget,
 }
 
 impl MeteringClient {
@@ -226,7 +221,7 @@ impl MeteringClient {
         initial_balance: f64,
     ) -> Self {
         let http = accounting_url.as_ref().map(|_| reqwest::Client::new());
-        let budget = CreditBudget::new(
+        let budget = Budget::new(
             initial_balance,
             accounting_url.clone(),
             auth_token.clone(),
@@ -239,7 +234,7 @@ impl MeteringClient {
             accounting_url: None,
             auth_token: None,
             http: None,
-            budget: CreditBudget::noop(),
+            budget: Budget::noop(),
         }
     }
 
@@ -247,8 +242,6 @@ impl MeteringClient {
         self.accounting_url.is_some()
     }
 
-    /// Posts usage events to the accounting API and deducts from the local
-    /// credit budget. Returns Err if the budget is exhausted after deductions.
     pub async fn record_batch(&self, events: &[UsageEvent]) -> Result<(), String> {
         let Some(base_url) = &self.accounting_url else {
             return Ok(());
@@ -259,17 +252,16 @@ impl MeteringClient {
         let record_url = format!("{}/usage/record", base_url);
 
         for event in events {
-            self.budget.deduct(event.credits());
+            self.budget.deduct(event.cost());
 
-            for (event_type, quantity) in event.to_server_records() {
+            for (billing_unit, quantity) in event.to_server_records() {
                 let payload = serde_json::json!({
                     "user_id": "",
-                    "event_type": event_type,
+                    "billing_unit": billing_unit,
                     "quantity": quantity,
-                    "unit": event_type,
                     "metadata": serde_json::to_value(event).ok(),
                     "project_id": event.project_id(),
-                    "phase": event_type,
+                    "phase": billing_unit,
                 });
 
                 let mut req = client.post(&record_url).json(&payload);
@@ -278,7 +270,7 @@ impl MeteringClient {
                 }
 
                 if let Err(e) = req.send().await {
-                    tracing::warn!(event_type = event_type, error = ?e, "Failed to record usage event");
+                    tracing::warn!(billing_unit = billing_unit, error = ?e, "Failed to record usage event");
                 }
             }
         }
@@ -293,7 +285,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn credits_no_wildcard_arm() {
+    fn cost_calculations() {
         let events = vec![
             UsageEvent::FieldsDiscovered { count: 100, project_id: "test".into() },
             UsageEvent::TablesSynced { count: 10, project_id: "test".into() },
@@ -303,14 +295,14 @@ mod tests {
             UsageEvent::PipelineRun { project_id: "test".into() },
             UsageEvent::LlmRequest { input_tokens: 1000, output_tokens: 500, model: "gpt-4o".into() },
         ];
-        let credits: Vec<f64> = events.iter().map(|e| e.credits()).collect();
-        assert!((credits[0] - 20.0).abs() < f64::EPSILON);
-        assert!((credits[1] - 50.0).abs() < f64::EPSILON);
-        assert!((credits[2] - 95.0).abs() < f64::EPSILON);
-        assert!((credits[3] - 0.0).abs() < f64::EPSILON);
-        assert!((credits[4] - 0.0).abs() < f64::EPSILON);
-        assert!((credits[5] - 3.0).abs() < f64::EPSILON);
-        assert!((credits[6] - 1.5).abs() < f64::EPSILON);
+        let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
+        assert!((costs[0] - 2.0).abs() < f64::EPSILON);     // 100 fields * $0.02
+        assert!((costs[1] - 5.0).abs() < f64::EPSILON);     // 10 tables * $0.50
+        assert!((costs[2] - 9.50).abs() < f64::EPSILON);    // 5*$1.00 + 3*$1.50
+        assert!((costs[3] - 0.0).abs() < f64::EPSILON);
+        assert!((costs[4] - 0.0).abs() < f64::EPSILON);
+        assert!((costs[5] - 0.30).abs() < f64::EPSILON);
+        assert!((costs[6] - 0.15).abs() < f64::EPSILON);    // 1K*$0.05 + 0.5K*$0.20
     }
 
     #[test]
@@ -341,16 +333,16 @@ mod tests {
     }
 
     #[test]
-    fn credit_budget_deduct_and_check() {
-        let budget = CreditBudget::new(100.0, None, None);
+    fn budget_deduct_and_check() {
+        let budget = Budget::new(10.0, None, None);
         assert!(budget.check_local().is_ok());
-        assert!((budget.local_estimate() - 100.0).abs() < f64::EPSILON);
+        assert!((budget.local_estimate() - 10.0).abs() < f64::EPSILON);
 
-        budget.deduct(80.0);
+        budget.deduct(8.0);
         assert!(budget.check_local().is_ok());
-        assert!((budget.local_estimate() - 20.0).abs() < f64::EPSILON);
+        assert!((budget.local_estimate() - 2.0).abs() < f64::EPSILON);
 
-        budget.deduct(25.0);
+        budget.deduct(3.0);
         assert!(budget.check_local().is_err());
         assert!(budget.local_estimate() < 0.0);
     }

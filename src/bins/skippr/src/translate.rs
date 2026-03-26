@@ -196,7 +196,7 @@ pub fn apply_authenticated_overlay(
     cfg: &mut ReactConfigFile,
     creds: &crate::api_client::CredentialsResponse,
     auth_token: &str,
-    initial_credit_balance: f64,
+    initial_balance: f64,
 ) {
     cfg.storage = Some(StorageFile {
         mode: Some("s3".into()),
@@ -227,7 +227,7 @@ pub fn apply_authenticated_overlay(
     react_suite_data_engineer::metering::init_metering(
         accounting_url,
         Some(auth_token.to_string()),
-        initial_credit_balance,
+        initial_balance,
     );
 
     react::llm::set_llm_usage_handler(Box::new(|usage: react::llm::LlmUsage| {
@@ -239,7 +239,7 @@ pub fn apply_authenticated_overlay(
     }));
 
     react::llm::set_llm_pre_call_guard(Box::new(|| {
-        react_suite_data_engineer::metering::check_credit_budget()
+        react_suite_data_engineer::metering::check_budget()
     }));
 }
 

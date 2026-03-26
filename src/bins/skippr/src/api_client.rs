@@ -63,11 +63,12 @@ pub struct AccountProfile {
 
 #[derive(Debug, Deserialize)]
 pub struct Balance {
-    pub credits_remaining: f64,
     #[serde(default)]
-    pub credits_purchased: f64,
+    pub purchased: f64,
     #[serde(default)]
-    pub credits_used: f64,
+    pub used: f64,
+    #[serde(default)]
+    pub balance: f64,
     #[serde(default)]
     pub period: String,
 }
@@ -75,10 +76,14 @@ pub struct Balance {
 #[derive(Debug, Deserialize)]
 pub struct UsageRecord {
     pub timestamp: String,
-    pub event_type: String,
-    pub credits_charged: f64,
+    #[serde(default)]
+    pub billing_unit: String,
     #[serde(default)]
     pub quantity: f64,
+    #[serde(default)]
+    pub unit_price: f64,
+    #[serde(default)]
+    pub amount: f64,
     pub project_id: Option<String>,
 }
 
@@ -94,7 +99,7 @@ struct TokenResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct BuyCreditsResponse {
+struct AddFundsResponse {
     pub checkout_url: String,
 }
 
@@ -182,7 +187,7 @@ impl ApiClient {
         resp.json().await.map_err(|e| ApiError::network("Account parse failed", e))
     }
 
-    pub async fn buy_credits(&self, token: &str, amount: f64) -> Result<String, ApiError> {
+    pub async fn add_funds(&self, token: &str, amount: f64) -> Result<String, ApiError> {
         let url = format!("{}/account/buy-credits", self.base_url);
         let body = serde_json::json!({ "amount": amount });
         let resp = self.http.post(&url)
@@ -190,14 +195,14 @@ impl ApiClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::network("Buy credits failed", e))?;
+            .map_err(|e| ApiError::network("Add funds failed", e))?;
 
         if !resp.status().is_success() {
-            return Err(response_error("Buy credits failed", resp).await);
+            return Err(response_error("Add funds failed", resp).await);
         }
 
-        let data: BuyCreditsResponse = resp.json().await
-            .map_err(|e| ApiError::network("Buy credits parse failed", e))?;
+        let data: AddFundsResponse = resp.json().await
+            .map_err(|e| ApiError::network("Add funds parse failed", e))?;
         Ok(data.checkout_url)
     }
 
