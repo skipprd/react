@@ -103,7 +103,7 @@ pub(crate) struct VectorFile {
 // resolve_providers_from_yaml – builds the normalised suite_config JSON
 // ---------------------------------------------------------------------------
 
-use super::env_util::{env_keys, getenv_nonempty};
+use super::env_util::{env_keys, getenv_nonempty, resolve_env_ref};
 
 fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
     match w {
@@ -117,8 +117,8 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             discovery_cache_ttl_secs,
         } => WarehouseResolved {
             kind: WarehouseKind::Athena,
-            container: catalog.unwrap_or_else(|| "AwsDataCatalog".to_string()),
-            namespace: schema.unwrap_or_default(),
+            container: resolve_env_ref(&catalog.unwrap_or_else(|| "AwsDataCatalog".to_string())),
+            namespace: resolve_env_ref(&schema.unwrap_or_default()),
             extras: serde_json::json!({
                 "workgroup": workgroup,
                 "region": region,
@@ -129,8 +129,8 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
         },
         WarehouseFile::Postgres { database, schema } => WarehouseResolved {
             kind: WarehouseKind::Postgres,
-            container: database.unwrap_or_default(),
-            namespace: schema.unwrap_or_default(),
+            container: resolve_env_ref(&database.unwrap_or_default()),
+            namespace: resolve_env_ref(&schema.unwrap_or_default()),
             extras: serde_json::json!({}),
         },
         WarehouseFile::Mssql {
@@ -140,8 +140,8 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             discovery_cache_ttl_secs,
         } => WarehouseResolved {
             kind: WarehouseKind::Mssql,
-            container: database.unwrap_or_default(),
-            namespace: schema.unwrap_or_default(),
+            container: resolve_env_ref(&database.unwrap_or_default()),
+            namespace: resolve_env_ref(&schema.unwrap_or_default()),
             extras: serde_json::json!({
                 "max_concurrency": max_concurrency,
                 "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
@@ -160,8 +160,8 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             discovery_cache_ttl_secs,
         } => WarehouseResolved {
             kind: WarehouseKind::Snowflake,
-            container: database.unwrap_or_default(),
-            namespace: schema.unwrap_or_default(),
+            container: resolve_env_ref(&database.unwrap_or_default()),
+            namespace: resolve_env_ref(&schema.unwrap_or_default()),
             extras: serde_json::json!({
                 "account": account,
                 "user": user,
@@ -181,8 +181,8 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
             discovery_cache_ttl_secs,
         } => WarehouseResolved {
             kind: WarehouseKind::Bigquery,
-            container: project.unwrap_or_default(),
-            namespace: dataset.unwrap_or_default(),
+            container: resolve_env_ref(&project.unwrap_or_default()),
+            namespace: resolve_env_ref(&dataset.unwrap_or_default()),
             extras: serde_json::json!({
                 "location": location,
                 "max_concurrency": max_concurrency,

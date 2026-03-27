@@ -1,3 +1,17 @@
+/// Resolve a `${VAR_NAME}` env-var reference.
+///
+/// If the entire string is `${…}`, returns the env-var value (or the
+/// original string when the variable is unset).  Non-ref strings pass
+/// through unchanged.
+pub fn resolve_env_ref(value: &str) -> String {
+    if value.starts_with("${") && value.ends_with('}') {
+        let var_name = &value[2..value.len() - 1];
+        std::env::var(var_name).unwrap_or_else(|_| value.to_string())
+    } else {
+        value.to_string()
+    }
+}
+
 pub fn getenv_nonempty(key: &str) -> Option<String> {
     std::env::var(key).ok().and_then(|v| {
         let t = v.trim();
