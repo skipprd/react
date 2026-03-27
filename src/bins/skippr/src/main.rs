@@ -257,7 +257,7 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             role,
         } => {
             let database = database.or_else(|| prompt("Snowflake database"));
-            let schema = schema.or_else(|| prompt("Snowflake schema (bronze/raw)"));
+            let schema = schema.or_else(|| prompt("Snowflake schema"));
             let warehouse = warehouse.or_else(|| prompt("Snowflake compute warehouse"));
             let role = role.or_else(|| prompt("Snowflake role"));
             WarehouseConfig::Snowflake {
