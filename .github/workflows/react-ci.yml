@@ -159,12 +159,12 @@ jobs:
           tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
           Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
 
-      - name: Download skippr-el 6.15.0 for Windows
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
-          tar -xzf skippr-el.tar.gz
-          Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
+      # - name: Download skippr-el 7.0.0 for Windows
+      #   shell: pwsh
+      #   run: |
+      #     Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/7.0.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
+      #     tar -xzf skippr-el.tar.gz
+      #     Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -295,12 +295,12 @@ jobs:
           tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
           Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
 
-      - name: Download skippr-el 6.15.0 for Windows
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/6.15.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
-          tar -xzf skippr-el.tar.gz
-          Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
+      # - name: Download skippr-el 7.0.0 for Windows
+      #   shell: pwsh
+      #   run: |
+      #     Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/7.0.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
+      #     tar -xzf skippr-el.tar.gz
+      #     Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
 
       - name: Install SQL Server Express
         shell: pwsh
