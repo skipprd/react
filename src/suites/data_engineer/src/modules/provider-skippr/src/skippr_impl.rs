@@ -85,11 +85,15 @@ impl SkipprCliProvider {
             }
             WarehouseKind::Bigquery => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Bigquery".into());
-                if !self.warehouse.container.is_empty() {
-                    env.insert("BIGQUERY_PROJECT".into(), self.warehouse.container.clone());
+                if let Some(v) = std::env::var("BIGQUERY_PROJECT").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("BIGQUERY_PROJECT".into(), v);
+                } else if !self.warehouse.container.is_empty() {
+                    env.insert("BIGQUERY_PROJECT".into(), resolve_env_ref(&self.warehouse.container));
                 }
-                if !self.warehouse.namespace.is_empty() {
-                    env.insert("BIGQUERY_DATASET".into(), self.warehouse.namespace.clone());
+                if let Some(v) = std::env::var("BIGQUERY_DATASET").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("BIGQUERY_DATASET".into(), v);
+                } else if !self.warehouse.namespace.is_empty() {
+                    env.insert("BIGQUERY_DATASET".into(), resolve_env_ref(&self.warehouse.namespace));
                 }
                 if let Some(loc) = self.warehouse.extras.get("location").and_then(|v| v.as_str()) {
                     env.insert("BIGQUERY_LOCATION".into(), loc.to_string());
@@ -97,11 +101,15 @@ impl SkipprCliProvider {
             }
             WarehouseKind::Postgres => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Postgres".into());
-                if !self.warehouse.container.is_empty() {
-                    env.insert("POSTGRES_DATABASE".into(), self.warehouse.container.clone());
+                if let Some(v) = std::env::var("POSTGRES_DATABASE").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_DATABASE".into(), v);
+                } else if !self.warehouse.container.is_empty() {
+                    env.insert("POSTGRES_DATABASE".into(), resolve_env_ref(&self.warehouse.container));
                 }
-                if !self.warehouse.namespace.is_empty() {
-                    env.insert("POSTGRES_SCHEMA".into(), self.warehouse.namespace.clone());
+                if let Some(v) = std::env::var("POSTGRES_SCHEMA").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_SCHEMA".into(), v);
+                } else if !self.warehouse.namespace.is_empty() {
+                    env.insert("POSTGRES_SCHEMA".into(), resolve_env_ref(&self.warehouse.namespace));
                 }
             }
             _ => {}
@@ -428,16 +436,20 @@ impl SkipprCliProvider {
                 {
                     cfg.insert("role".into(), serde_json::Value::String(v));
                 }
-                if !self.warehouse.container.is_empty() {
+                if let Some(v) = getenv("SNOWFLAKE_DATABASE") {
+                    cfg.insert("database".into(), serde_json::Value::String(v));
+                } else if !self.warehouse.container.is_empty() {
                     cfg.insert(
                         "database".into(),
-                        serde_json::Value::String(self.warehouse.container.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
                     );
                 }
-                if !self.warehouse.namespace.is_empty() {
+                if let Some(v) = getenv("SNOWFLAKE_SCHEMA") {
+                    cfg.insert("schema".into(), serde_json::Value::String(v));
+                } else if !self.warehouse.namespace.is_empty() {
                     cfg.insert(
                         "schema".into(),
-                        serde_json::Value::String(self.warehouse.namespace.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
                     );
                 }
                 if let Some(v) = getenv("SNOWFLAKE_PRIVATE_KEY_PATH")
@@ -458,7 +470,7 @@ impl SkipprCliProvider {
                 } else if !self.warehouse.container.is_empty() {
                     cfg.insert(
                         "project".into(),
-                        serde_json::Value::String(self.warehouse.container.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
                     );
                 }
                 if let Some(v) = getenv("BIGQUERY_DATASET") {
@@ -466,7 +478,7 @@ impl SkipprCliProvider {
                 } else if !self.warehouse.namespace.is_empty() {
                     cfg.insert(
                         "dataset".into(),
-                        serde_json::Value::String(self.warehouse.namespace.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
                     );
                 }
                 if let Some(v) = getenv("BIGQUERY_LOCATION")
@@ -503,7 +515,7 @@ impl SkipprCliProvider {
                 } else if !self.warehouse.container.is_empty() {
                     cfg.insert(
                         "database".into(),
-                        serde_json::Value::String(self.warehouse.container.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
                     );
                 }
                 if let Some(v) = getenv("POSTGRES_SCHEMA") {
@@ -511,7 +523,7 @@ impl SkipprCliProvider {
                 } else if !self.warehouse.namespace.is_empty() {
                     cfg.insert(
                         "schema".into(),
-                        serde_json::Value::String(self.warehouse.namespace.clone()),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
                     );
                 }
                 if let Some(v) = getenv("POSTGRES_SSLMODE") {
@@ -610,11 +622,15 @@ fn insert_snowflake_env(wh: &WarehouseResolved, env: &mut HashMap<String, String
     if let Some(v) = getenv("SNOWFLAKE_ROLE").or_else(|| extra_str(&wh.extras, "role")) {
         env.insert("SNOWFLAKE_ROLE".into(), v);
     }
-    if !wh.container.is_empty() {
-        env.insert("SNOWFLAKE_DATABASE".into(), wh.container.clone());
+    if let Some(v) = getenv("SNOWFLAKE_DATABASE") {
+        env.insert("SNOWFLAKE_DATABASE".into(), v);
+    } else if !wh.container.is_empty() {
+        env.insert("SNOWFLAKE_DATABASE".into(), resolve_env_ref(&wh.container));
     }
-    if !wh.namespace.is_empty() {
-        env.insert("SNOWFLAKE_SCHEMA".into(), wh.namespace.clone());
+    if let Some(v) = getenv("SNOWFLAKE_SCHEMA") {
+        env.insert("SNOWFLAKE_SCHEMA".into(), v);
+    } else if !wh.namespace.is_empty() {
+        env.insert("SNOWFLAKE_SCHEMA".into(), resolve_env_ref(&wh.namespace));
     }
 }
 
