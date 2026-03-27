@@ -4,3 +4,4 @@ snowflake_key.p8
 snowflake_key.pub
 .skippr
 skippr.yaml
+.env.example
