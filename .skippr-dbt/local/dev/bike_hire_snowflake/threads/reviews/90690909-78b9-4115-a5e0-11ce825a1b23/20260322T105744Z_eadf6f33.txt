@@ -1,7 +1,0 @@
-Blocking correctness issues remain:
-
-1. `models/marts/fct_trip_event.sql` emits `trip_id` as `CAST(trip AS TEXT)` in every union branch. The approved spec requires extracting `trip_id` only from a stable top-level scalar in `TRIP`, else null. Casting the full payload can fabricate trip IDs from structured values and corrupt downstream grouping/extraction-rate metrics.
-
-2. `models/marts/fct_trip.sql` is incorrect in two concrete ways: it predicates on non-existent event names (`trip_start`/`trip_end`/`trip_pause`/`trip_resume` instead of the canonical `start`/`end`/`pause`/`resume` emitted by `fct_trip_event`), and it groups only by `trip_id` with a constant `trip_grain_type='trip_id'`. This causes pause/resume counts to be zero, start/end timestamps to stay null, and all null-`trip_id` events to collapse together instead of using the spec-required `payload_trip_id` / `start_anchored` / `orphan_end` construction paths.
-
-3. `models/marts/agg_bike_daily_utilization.sql` computes business KPIs over all rows instead of only `trip_status in ('completed','in_progress')`, defines `anomaly_trip_count` from `data_quality_flag <> 'ok'` instead of status, and can return null `total_trip_duration_seconds` when all contributing durations are null. These deviations will overstate utilization/anomaly metrics and violate the non-null total-duration requirement.

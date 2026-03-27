@@ -1,9 +1,0 @@
-Patch required. Multiple gold models are still implemented as zero-row placeholders, which is a correctness defect rather than a style issue.
-
-1. `fct_trip_event` is not implementing the approved event-stream contract: the source branches use `WHERE 1 = 0` and the final projection is null-cast placeholders, so the model emits no lifecycle events.
-
-2. `fct_trip` is also a zero-row stub (`CAST(NULL ...)` from `ref('fct_trip_event')` with `WHERE 1 = 0`), so it never constructs trip-level records or required metrics at the declared `trip_id` grain.
-
-3. The downstream marts remain non-functional placeholders: `dim_bike`, `dim_rider`, `agg_rider_daily_trip_activity`, and `agg_bike_daily_utilization` all return empty or non-conforming results instead of their declared grains and aggregates. In particular, `agg_bike_daily_utilization` still uses a placeholder `SELECT * FROM {{ ref('fct_trip') }} WHERE 1 = 0` rather than bike/day aggregation.
-
-These are concrete implementation defects that would produce empty/incorrect datasets and must be fixed in the SQL implementation before proceeding.
