@@ -31,7 +31,7 @@ impl DataEngineerSuite {
             output_plugin: output_config,
         };
 
-        // 1. Write skippr.yml
+        // 1. Write skippr-el.yml
         skippr
             .write_pipeline_config(sctx.scope(), &pipeline_config)
             .await

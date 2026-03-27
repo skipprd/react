@@ -37,7 +37,7 @@ impl SkipprCliProvider {
     }
 
     fn skippr_yml_path(&self) -> PathBuf {
-        self.data_dir.join("skippr.yml")
+        self.data_dir.join("skippr-el.yaml")
     }
 
     fn env_vars(&self) -> HashMap<String, String> {
@@ -46,6 +46,10 @@ impl SkipprCliProvider {
         env.insert(
             "DATA_DIR".into(),
             self.data_dir.to_string_lossy().to_string(),
+        );
+        env.insert(
+            "SKIPPR_CONFIG_FILE".into(),
+            self.skippr_yml_path().to_string_lossy().to_string(),
         );
 
         let input = &self.el_config.skippr_input;
@@ -635,9 +639,9 @@ impl SkipprProvider for SkipprCliProvider {
             .map_err(|e| format!("failed to create data dir: {}", e))?;
 
         std::fs::write(&yml_path, yml_content.as_bytes())
-            .map_err(|e| format!("failed to write skippr.yml: {}", e))?;
+            .map_err(|e| format!("failed to write skippr-el.yml: {}", e))?;
 
-        tracing::info!(path = %yml_path.display(), "wrote skippr.yml");
+        tracing::info!(path = %yml_path.display(), "wrote skippr-el.yml");
         Ok(yml_path.to_string_lossy().to_string())
     }
 
