@@ -66,8 +66,6 @@ enum UserAction {
         #[arg(long)]
         amount: Option<f64>,
     },
-    /// Show detailed usage log.
-    Usage,
     /// Create a new API key for CI/CD or automation.
     CreateApiKey {
         /// Human-readable label (e.g. "github-actions").
@@ -748,7 +746,6 @@ async fn main() {
             UserAction::Logout => cmd_user_logout(),
             UserAction::Account => cmd_user_account().await,
             UserAction::BuyCredits { amount } => cmd_user_buy_credits(amount).await,
-            UserAction::Usage => cmd_user_usage().await,
             UserAction::CreateApiKey { name } => cmd_user_create_api_key(&name).await,
             UserAction::RevokeApiKey { key_id } => cmd_user_revoke_api_key(&key_id).await,
             UserAction::ListApiKeys => cmd_user_list_api_keys().await,
@@ -975,59 +972,6 @@ fn open_in_default_browser(url: &str) -> Result<(), String> {
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("xdg-open failed: {}", e))
-    }
-}
-
-async fn cmd_user_usage() {
-    use chrono::{NaiveDate, Utc};
-    use std::collections::BTreeMap;
-
-    let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.get_account(&creds.access_token).await {
-        Ok(account) => {
-            let today = Utc::now().date_naive();
-            let month_label = today.format("%B %Y");
-
-            println!();
-            println!("  Usage — {}", month_label);
-            println!("  {}", "-".repeat(50));
-            println!("  Balance:  ${:.2}", account.balance.balance);
-            println!();
-
-            if account.recent_usage.is_empty() {
-                println!("  No usage recorded yet.");
-            } else {
-                let mut daily: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-                let mut month_total = 0.0_f64;
-
-                for u in &account.recent_usage {
-                    if let Some(date) = u.timestamp.get(..10).and_then(|s| s.parse::<NaiveDate>().ok()) {
-                        *daily.entry(date).or_default() += u.amount;
-                        month_total += u.amount;
-                    }
-                }
-
-                println!("  Last 7 days:");
-                println!("  {:<12} {:>8}", "Date", "Cost");
-                println!("  {}", "-".repeat(22));
-                for i in (0..7).rev() {
-                    let day = today - chrono::Duration::days(i);
-                    let cost = daily.get(&day).copied().unwrap_or(0.0);
-                    println!("  {:<12} {:>8}", day.format("%Y-%m-%d"), format!("${:.2}", cost));
-                }
-                println!("  {}", "-".repeat(22));
-                println!("  {:<12} {:>8}", "This month", format!("${:.2}", month_total));
-            }
-            println!();
-
-            print_low_balance_warning(&account.balance);
-        }
-        Err(e) => {
-            eprintln!("Failed to fetch usage: {}", e);
-            std::process::exit(1);
-        }
     }
 }
 
