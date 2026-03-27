@@ -892,32 +892,16 @@ async fn cmd_user_account() {
             print_low_balance_warning(&account.balance);
 
             {
-                use chrono::{NaiveDate, Utc};
-                use std::collections::BTreeMap;
-
-                let today = Utc::now().date_naive();
-                let mut daily: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-                let mut month_total = 0.0_f64;
-
-                for u in &account.recent_usage {
-                    if let Some(date) = u.timestamp.get(..10).and_then(|s| s.parse::<NaiveDate>().ok()) {
-                        *daily.entry(date).or_default() += u.amount;
-                        if date.format("%Y-%m").to_string() == today.format("%Y-%m").to_string() {
-                            month_total += u.amount;
-                        }
-                    }
-                }
+                let today = chrono::Utc::now().date_naive();
 
                 println!("  Last 7 days:");
                 println!("  {:<12} {:>8}", "Date", "Cost");
                 println!("  {}", "-".repeat(22));
-                for i in (0..7).rev() {
-                    let day = today - chrono::Duration::days(i);
-                    let cost = daily.get(&day).copied().unwrap_or(0.0);
-                    println!("  {:<12} {:>8}", day.format("%Y-%m-%d"), format!("${:.2}", cost));
+                for dc in &account.daily_costs {
+                    println!("  {:<12} {:>8}", dc.date, format!("${:.2}", dc.cost));
                 }
                 println!("  {}", "-".repeat(22));
-                println!("  {:<12} {:>8}", today.format("%B"), format!("${:.2}", month_total));
+                println!("  {:<12} {:>8}", today.format("%B"), format!("${:.2}", account.balance.used));
                 println!();
             }
         }

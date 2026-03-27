@@ -44,9 +44,17 @@ impl fmt::Display for ApiError {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DailyCost {
+    pub date: String,
+    pub cost: f64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AccountResponse {
     pub profile: AccountProfile,
     pub balance: Balance,
+    #[serde(default)]
+    pub daily_costs: Vec<DailyCost>,
     pub recent_usage: Vec<UsageRecord>,
     pub subscription: Option<Subscription>,
 }
