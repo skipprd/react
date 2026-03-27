@@ -211,6 +211,12 @@ pub fn apply_authenticated_overlay(
         }),
     });
 
+    if let Some(scope) = cfg.scope.as_mut() {
+        if !creds.tenant_id.trim().is_empty() {
+            scope.tenant = Some(creds.tenant_id.clone());
+        }
+    }
+
     if !creds.llm_api_key.is_empty() {
         let existing = std::env::var("LLM_API_KEY").ok().filter(|v| !v.trim().is_empty());
         if existing.is_none() {
@@ -329,5 +335,44 @@ mod tests {
             dbt: None,
         };
         assert!(to_internal(&cfg).is_err());
+    }
+
+    #[test]
+    fn authenticated_overlay_sets_scope_tenant_from_credentials() {
+        let cfg = SkipprDbtConfig {
+            project: "tes".into(),
+            warehouse: Some(WarehouseConfig::Snowflake {
+                database: Some("ANALYTICS".into()),
+                schema: Some("RAW".into()),
+                warehouse: Some("COMPUTE_WH".into()),
+                role: Some("ACCOUNTADMIN".into()),
+            }),
+            source: Some(SourceConfig::Mssql {
+                connection_string: Some("${MSSQL_CONNECTION_STRING}".into()),
+            }),
+            dbt: None,
+        };
+
+        let mut internal = to_internal(&cfg).unwrap();
+        let creds = crate::api_client::CredentialsResponse {
+            credentials: crate::api_client::StsCreds {
+                access_key_id: "ak".into(),
+                secret_access_key: "sk".into(),
+                session_token: "st".into(),
+                expiration: "2099-01-01T00:00:00Z".into(),
+            },
+            bucket: "skippr-prod".into(),
+            key_prefix: "c3471188-8965-4c52-b486-7dbbd7a2d329/".into(),
+            tenant_id: "c3471188-8965-4c52-b486-7dbbd7a2d329".into(),
+            llm_api_key: String::new(),
+            accounting_url: String::new(),
+        };
+
+        apply_authenticated_overlay(&mut internal, &creds, "token", 0.0);
+
+        assert_eq!(
+            internal.scope.as_ref().unwrap().tenant.as_deref(),
+            Some("c3471188-8965-4c52-b486-7dbbd7a2d329")
+        );
     }
 }
