@@ -897,11 +897,11 @@ async fn cmd_user_account() {
                 println!("  Last 7 days:");
                 println!("  {:<12} {:>8}", "Date", "Cost");
                 println!("  {}", "-".repeat(22));
-                for dc in &account.daily_costs {
+                for dc in &account.daily_costs_est {
                     println!("  {:<12} {:>8}", dc.date, format!("${:.2}", dc.cost));
                 }
                 println!("  {}", "-".repeat(22));
-                println!("  {:<12} {:>8}", today.format("%B"), format!("${:.2}", account.balance.used));
+                println!("  {:<12} {:>8}", format!("~{}", today.format("%B")), format!("${:.2}", account.monthly_cost_est));
                 println!();
             }
         }

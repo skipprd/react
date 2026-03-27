@@ -54,8 +54,11 @@ pub struct AccountResponse {
     pub profile: AccountProfile,
     pub balance: Balance,
     #[serde(default)]
-    pub daily_costs: Vec<DailyCost>,
-    pub recent_usage: Vec<UsageRecord>,
+    pub daily_costs_est: Vec<DailyCost>,
+    #[serde(default)]
+    pub monthly_cost_est: f64,
+    #[serde(default)]
+    pub recent_usage: Vec<serde_json::Value>,
     pub subscription: Option<Subscription>,
 }
 
@@ -75,27 +78,7 @@ pub struct AccountProfile {
 #[derive(Debug, Deserialize)]
 pub struct Balance {
     #[serde(default)]
-    pub purchased: f64,
-    #[serde(default)]
-    pub used: f64,
-    #[serde(default)]
     pub balance: f64,
-    #[serde(default)]
-    pub period: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UsageRecord {
-    pub timestamp: String,
-    #[serde(default)]
-    pub billing_unit: String,
-    #[serde(default)]
-    pub quantity: f64,
-    #[serde(default)]
-    pub unit_price: f64,
-    #[serde(default)]
-    pub amount: f64,
-    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
