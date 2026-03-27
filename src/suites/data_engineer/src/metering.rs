@@ -18,6 +18,14 @@ pub fn init_metering(
     ));
 }
 
+pub fn set_metering_run_id(run_id: &str) {
+    global_metering().set_run_id(run_id);
+}
+
+pub fn set_metering_thread_id(thread_id: &str) {
+    global_metering().set_thread_id(thread_id);
+}
+
 pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
     let event = UsageEvent::LlmRequest { input_tokens, output_tokens, model };
     let client = global_metering();
@@ -212,6 +220,8 @@ pub struct MeteringClient {
     auth_token: Option<String>,
     http: Option<reqwest::Client>,
     pub budget: Budget,
+    run_id: Mutex<Option<String>>,
+    thread_id: Mutex<Option<String>>,
 }
 
 impl MeteringClient {
@@ -226,7 +236,14 @@ impl MeteringClient {
             accounting_url.clone(),
             auth_token.clone(),
         );
-        Self { accounting_url, auth_token, http, budget }
+        Self {
+            accounting_url,
+            auth_token,
+            http,
+            budget,
+            run_id: Mutex::new(None),
+            thread_id: Mutex::new(None),
+        }
     }
 
     pub fn noop() -> Self {
@@ -235,7 +252,17 @@ impl MeteringClient {
             auth_token: None,
             http: None,
             budget: Budget::noop(),
+            run_id: Mutex::new(None),
+            thread_id: Mutex::new(None),
         }
+    }
+
+    pub fn set_run_id(&self, id: &str) {
+        *self.run_id.lock().unwrap() = Some(id.to_string());
+    }
+
+    pub fn set_thread_id(&self, id: &str) {
+        *self.thread_id.lock().unwrap() = Some(id.to_string());
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -250,6 +277,8 @@ impl MeteringClient {
             return Ok(());
         };
         let record_url = format!("{}/usage/record", base_url);
+        let run_id = self.run_id.lock().unwrap().clone();
+        let thread_id = self.thread_id.lock().unwrap().clone();
 
         for event in events {
             self.budget.deduct(event.cost());
@@ -262,6 +291,8 @@ impl MeteringClient {
                     "metadata": serde_json::to_value(event).ok(),
                     "project_id": event.project_id(),
                     "phase": billing_unit,
+                    "run_id": run_id,
+                    "thread_id": thread_id,
                 });
 
                 let mut req = client.post(&record_url).json(&payload);

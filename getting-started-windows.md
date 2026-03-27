@@ -5,7 +5,7 @@ This guide walks **Windows** users through **extracting data from MSSQL**, **loa
 What you'll end up with:
 
 - Raw MSSQL tables landed in Snowflake (`ANALYTICS.RAW`)
-- AI-generated silver dbt models (`mssql_migration_silver`)
+- Silver dbt models (`mssql_migration_silver`)
 - Gold-tier models ready for downstream use (`mssql_migration_gold`)
 
 ---
@@ -35,10 +35,6 @@ Verify (open a **new** PowerShell window after installing):
 ```powershell
 python --version
 ```
-
-### Docker Desktop (for local MSSQL dev)
-
-If you don't already have an MSSQL instance, you can run one locally via Docker. Install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/) and make sure Docker is running.
 
 ### Snowflake account
 
@@ -100,34 +96,6 @@ You will reference the private key file path in the environment variables below.
 
 `skippr` extracts data from MSSQL and loads it into Snowflake automatically. You just need a running MSSQL instance with the tables you want to migrate.
 
-### Option A — Use an existing MSSQL server
-
-If you already have a SQL Server instance, note the connection string. It follows the ADO.NET format:
-
-```
-server=tcp:YOUR_HOST,1433;database=YOUR_DB;user id=sa;password=YOUR_PASS;TrustServerCertificate=true
-```
-
-### Option B — Spin up a local MSSQL with Docker (POC / dev)
-
-```powershell
-docker compose -f test\el-integration\docker-compose.yml up -d
-```
-
-Wait for the seed service to complete (check with `docker compose logs seed`), then use:
-
-```
-server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true
-```
-
-The seed creates three tables: `dbo.customers`, `dbo.orders`, and `dbo.order_items`.
-
-To tear down later:
-
-```powershell
-docker compose -f test\el-integration\docker-compose.yml down -v
-```
-
 ---
 
 ## 2. Set up the dbt environment
@@ -175,33 +143,18 @@ skippr user login
 
 This sends a one-time code to your email. Enter it when prompted and your session credentials are stored locally.
 
-### CI / non-interactive
 
-For headless environments, set an API key instead:
+## 4. Set credentials environment variables
 
-```powershell
-$env:SKIPPR_API_KEY = "sk-..."
-```
-
-You can generate API keys from an authenticated session with `skippr user create-api-key`.
-
----
-
-## 4. Set environment variables
+It's recomended to set credentails via environment variables for security.
 
 ### Required
 
 ```powershell
-$env:SNOWFLAKE_ACCOUNT = "RSSKNWT-KC12345"
+$env:SNOWFLAKE_ACCOUNT = "RSAAAAA-KC12345"
 $env:SNOWFLAKE_USER = "YOURUSERNAME"
 
-$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
-```
-
-### Optional
-
-```powershell
-$env:LLM_API_KEY = "sk-..."   # Optional — the server provides a key after authentication
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=PaswordTestYOURPASSWORD;TrustServerCertificate=true"
 ```
 
 ### Snowflake authentication
@@ -220,7 +173,7 @@ See [Generate an RSA key pair for Snowflake](#generate-an-rsa-key-pair-for-snowf
 $env:SNOWFLAKE_PASSWORD = "your_password"
 ```
 
-Credentials are read from the environment at runtime and are **not** written to disk in plaintext.
+Credentials are read from the environment at runtime and are **not** written to disk in plaintext. They are never set to the skippr.io platform (nor is the data you sync via skippr cli).
 
 ---
 
@@ -230,7 +183,7 @@ Credentials are read from the environment at runtime and are **not** written to 
 skippr init mssql-migration
 ```
 
-This creates `skippr.yaml` with your project name and a `.env.example` showing the required variables.
+This creates `skippr.yaml` with your project name and a `.env.example` in the current working directory. You can inspect them to see the required configuration variables.
 
 ---
 
@@ -281,19 +234,6 @@ Make sure your virtual environment is activated, then:
 skippr run --log info
 ```
 
-On Windows, `--log info` is the **recommended default** because the live terminal UI requires a real TTY, which some PowerShell hosts do not provide. If you are using Windows Terminal, you can try running without `--log` to enable the TUI.
-
-### Log modes
-
-| Flag | Behavior |
-|------|----------|
-| _(none)_ | Terminal UI enabled (requires a TTY — may not work in all PowerShell hosts). |
-| `--log info` | Disables the TUI; prints plain structured logs to stdout. **Recommended on Windows.** |
-| `--log debug` | Debug-level logs. |
-| `--log trace` | Most verbose. |
-
-If you see `"terminal mode not enabled: stdout is not a TTY"`, use `--log info`.
-
 ### What happens when you run
 
 1. **Discover** — reads source schemas from MSSQL.
@@ -328,54 +268,6 @@ source:
 ```
 
 That's the entire config. Everything else is handled automatically.
-
-### Local artifacts
-
-All pipeline artifacts are stored under `.skippr\` in your working directory:
-
-```
-.skippr\
-└── local\
-    └── dev\
-        └── mssql-migration\
-            ├── logs\             # Per-run log files
-            └── pipeline\         # Generated pipeline config
-```
-
-### dbt project files
-
-The generated dbt models land in the working directory:
-
-```
-models\
-├── schema.yml                     # Source definitions (pointing at RAW tables)
-└── staging\
-    ├── stg_raw_customers.sql      # Silver model for customers
-    └── stg_raw_orders.sql         # Silver model for orders
-```
-
-Each staging model uses `{{ source("raw", "customers") }}` to reference the bronze table and applies cleansing (casting, renaming, null handling).
-
-### Run dbt manually (optional sanity check)
-
-After the pipeline finishes, you can run dbt directly against the generated project:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-dbt debug   --profiles-dir .   # Verify connection
-dbt run     --profiles-dir .   # Materialize models into Snowflake
-dbt test    --profiles-dir .   # Run any generated tests
-```
-
-Verify in Snowflake:
-
-```sql
-USE DATABASE ANALYTICS;
-SHOW SCHEMAS LIKE '%mssql_migration%';
--- Expect: mssql_migration_silver, mssql_migration_gold
-
-SELECT * FROM mssql_migration_silver.stg_raw_customers LIMIT 10;
-```
 
 ---
 
@@ -442,10 +334,6 @@ pip install dbt-core dbt-snowflake
 | What | Where |
 |------|-------|
 | Config file | `skippr.yaml` (working directory) |
-| Local artifacts | `.skippr\local\dev\mssql-migration\` |
-| dbt models | `models\staging\stg_*.sql` |
-| Source definitions | `models\schema.yml` |
-| Run logs | `.skippr\local\dev\mssql-migration\logs\` |
 | Snowflake raw schema | `ANALYTICS.RAW` |
 | Snowflake silver schema | `ANALYTICS.MSSQL_MIGRATION_SILVER` |
 | Snowflake gold schema | `ANALYTICS.MSSQL_MIGRATION_GOLD` |

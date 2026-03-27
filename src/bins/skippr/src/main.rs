@@ -636,6 +636,10 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     }
 
+    let run_id = uuid::Uuid::new_v4().to_string();
+    react_suite_data_engineer::metering::set_metering_run_id(&run_id);
+    eprintln!("[skippr] run {run_id}");
+
     let metering = react_suite_data_engineer::metering::global_metering();
     let _ = metering
         .record_batch(&[react_suite_data_engineer::metering::UsageEvent::PipelineRun {
@@ -659,6 +663,7 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
 
     let thread_id = find_latest_thread(cfg.project.trim());
     if let Some(ref tid) = thread_id {
+        react_suite_data_engineer::metering::set_metering_thread_id(tid);
         eprintln!("[skippr] resuming thread {tid}");
     }
 
@@ -869,18 +874,33 @@ async fn cmd_user_account() {
 
             print_low_balance_warning(&account.balance);
 
-            if !account.recent_usage.is_empty() {
-                println!("  Recent usage (last 10):");
-                println!("  {:<22} {:<22} {:>8}  {}", "Timestamp", "Event", "Cost", "Project");
-                println!("  {}", "-".repeat(70));
-                for u in account.recent_usage.iter().take(10) {
-                    println!("  {:<22} {:<22} {:>8}  {}",
-                        &u.timestamp[..std::cmp::min(22, u.timestamp.len())],
-                        u.billing_unit,
-                        format!("${:.2}", u.amount),
-                        u.project_id.as_deref().unwrap_or("-"),
-                    );
+            {
+                use chrono::{NaiveDate, Utc};
+                use std::collections::BTreeMap;
+
+                let today = Utc::now().date_naive();
+                let mut daily: BTreeMap<NaiveDate, f64> = BTreeMap::new();
+                let mut month_total = 0.0_f64;
+
+                for u in &account.recent_usage {
+                    if let Some(date) = u.timestamp.get(..10).and_then(|s| s.parse::<NaiveDate>().ok()) {
+                        *daily.entry(date).or_default() += u.amount;
+                        if date.format("%Y-%m").to_string() == today.format("%Y-%m").to_string() {
+                            month_total += u.amount;
+                        }
+                    }
                 }
+
+                println!("  Last 7 days:");
+                println!("  {:<12} {:>8}", "Date", "Cost");
+                println!("  {}", "-".repeat(22));
+                for i in (0..7).rev() {
+                    let day = today - chrono::Duration::days(i);
+                    let cost = daily.get(&day).copied().unwrap_or(0.0);
+                    println!("  {:<12} {:>8}", day.format("%Y-%m-%d"), format!("${:.2}", cost));
+                }
+                println!("  {}", "-".repeat(22));
+                println!("  {:<12} {:>8}", today.format("%B"), format!("${:.2}", month_total));
                 println!();
             }
         }

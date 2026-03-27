@@ -34,3 +34,4 @@ react-module-provider-catalog = { path = "../../suites/data_engineer/src/modules
 react-module-provider-snowflake = { path = "../../suites/data_engineer/src/modules/provider-snowflake" }
 react-module-provider-mssql = { path = "../../suites/data_engineer/src/modules/provider-mssql" }
 chrono = "0.4.42"
+uuid = { version = "1", features = ["v4"] }
