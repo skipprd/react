@@ -1,6 +1,6 @@
 use once_cell::sync::OnceCell;
-use serde::Serialize;
-use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 const LOW_BALANCE_THRESHOLD: f64 = 2.0;
 
@@ -8,12 +8,12 @@ static METERING_CLIENT: OnceCell<MeteringClient> = OnceCell::new();
 
 pub fn init_metering(
     accounting_url: Option<String>,
-    auth_token: Option<String>,
+    tokens: Arc<TokenProvider>,
     initial_balance: f64,
 ) {
     let _ = METERING_CLIENT.set(MeteringClient::new(
         accounting_url,
-        auth_token,
+        tokens,
         initial_balance,
     ));
 }
@@ -119,13 +119,120 @@ impl UsageEvent {
 }
 
 // ---------------------------------------------------------------------------
+// TokenProvider — shared, auto-refreshing auth token
+// ---------------------------------------------------------------------------
+
+pub struct TokenProvider {
+    access_token: Mutex<Option<String>>,
+    refresh_token: Option<String>,
+    auth_base_url: Option<String>,
+    http: reqwest::Client,
+}
+
+#[derive(Deserialize)]
+struct RefreshResponse {
+    token: Option<String>,
+    #[allow(dead_code)]
+    refresh_token: Option<String>,
+}
+
+impl TokenProvider {
+    pub fn new(
+        access_token: Option<String>,
+        refresh_token: Option<String>,
+        auth_base_url: Option<String>,
+    ) -> Self {
+        Self {
+            access_token: Mutex::new(access_token),
+            refresh_token,
+            auth_base_url,
+            http: reqwest::Client::new(),
+        }
+    }
+
+    pub fn noop() -> Self {
+        Self {
+            access_token: Mutex::new(None),
+            refresh_token: None,
+            auth_base_url: None,
+            http: reqwest::Client::new(),
+        }
+    }
+
+    pub fn get_token(&self) -> Option<String> {
+        self.access_token.lock().unwrap().clone()
+    }
+
+    async fn refresh(&self) -> Result<(), String> {
+        let Some(base_url) = &self.auth_base_url else {
+            return Err("no auth base URL configured".into());
+        };
+        let Some(rt) = &self.refresh_token else {
+            return Err("no refresh token available".into());
+        };
+
+        let url = format!("{}/auth/refresh", base_url);
+        let body = serde_json::json!({ "refresh_token": rt });
+
+        let resp = self.http
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("token refresh failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("token refresh returned {}", resp.status()));
+        }
+
+        let data: RefreshResponse = resp
+            .json()
+            .await
+            .map_err(|e| format!("token refresh parse failed: {e}"))?;
+
+        if let Some(new_token) = data.token {
+            *self.access_token.lock().unwrap() = Some(new_token);
+            tracing::info!("Auth token refreshed");
+        }
+
+        Ok(())
+    }
+
+    /// Send an authenticated request, refreshing the token once on 401/403/500.
+    pub async fn send_authenticated(
+        &self,
+        client: &reqwest::Client,
+        build: impl Fn(&str) -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, String> {
+        let token = self.get_token().unwrap_or_default();
+        let resp = build(&token)
+            .send()
+            .await
+            .map_err(|e| format!("request failed: {e}"))?;
+
+        let status = resp.status().as_u16();
+        if status == 401 || status == 403 || status == 500 {
+            if self.refresh().await.is_ok() {
+                let new_token = self.get_token().unwrap_or_default();
+                return build(&new_token)
+                    .send()
+                    .await
+                    .map_err(|e| format!("retry after refresh failed: {e}"));
+            }
+        }
+
+        Ok(resp)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Budget — in-memory tracker with API-backed verification
 // ---------------------------------------------------------------------------
 
 pub struct Budget {
     estimate: Mutex<f64>,
     accounting_url: Option<String>,
-    auth_token: Option<String>,
+    tokens: Arc<TokenProvider>,
     http: Option<reqwest::Client>,
 }
 
@@ -133,13 +240,13 @@ impl Budget {
     pub fn new(
         initial: f64,
         accounting_url: Option<String>,
-        auth_token: Option<String>,
+        tokens: Arc<TokenProvider>,
     ) -> Self {
         let http = accounting_url.as_ref().map(|_| reqwest::Client::new());
         Self {
             estimate: Mutex::new(initial),
             accounting_url,
-            auth_token,
+            tokens,
             http,
         }
     }
@@ -148,7 +255,7 @@ impl Budget {
         Self {
             estimate: Mutex::new(f64::MAX),
             accounting_url: None,
-            auth_token: None,
+            tokens: Arc::new(TokenProvider::noop()),
             http: None,
         }
     }
@@ -195,14 +302,13 @@ impl Budget {
             return Ok(f64::MAX);
         };
         let url = format!("{}/usage/check", base_url);
-        let mut req = client.get(&url);
-        if let Some(token) = &self.auth_token {
-            req = req.header("Authorization", format!("Bearer {}", token));
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("balance check failed: {e}"))?;
+
+        let resp = self.tokens
+            .send_authenticated(client, |token| {
+                client.get(&url).header("Authorization", format!("Bearer {}", token))
+            })
+            .await?;
+
         let data: serde_json::Value = resp
             .json()
             .await
@@ -217,7 +323,7 @@ impl Budget {
 
 pub struct MeteringClient {
     accounting_url: Option<String>,
-    auth_token: Option<String>,
+    tokens: Arc<TokenProvider>,
     http: Option<reqwest::Client>,
     pub budget: Budget,
     run_id: Mutex<Option<String>>,
@@ -227,18 +333,18 @@ pub struct MeteringClient {
 impl MeteringClient {
     pub fn new(
         accounting_url: Option<String>,
-        auth_token: Option<String>,
+        tokens: Arc<TokenProvider>,
         initial_balance: f64,
     ) -> Self {
         let http = accounting_url.as_ref().map(|_| reqwest::Client::new());
         let budget = Budget::new(
             initial_balance,
             accounting_url.clone(),
-            auth_token.clone(),
+            Arc::clone(&tokens),
         );
         Self {
             accounting_url,
-            auth_token,
+            tokens,
             http,
             budget,
             run_id: Mutex::new(None),
@@ -247,9 +353,10 @@ impl MeteringClient {
     }
 
     pub fn noop() -> Self {
+        let tokens = Arc::new(TokenProvider::noop());
         Self {
             accounting_url: None,
-            auth_token: None,
+            tokens: Arc::clone(&tokens),
             http: None,
             budget: Budget::noop(),
             run_id: Mutex::new(None),
@@ -295,13 +402,17 @@ impl MeteringClient {
                     "thread_id": thread_id,
                 });
 
-                let mut req = client.post(&record_url).json(&payload);
-                if let Some(token) = &self.auth_token {
-                    req = req.header("Authorization", format!("Bearer {}", token));
-                }
+                let resp = self.tokens
+                    .send_authenticated(client, |token| {
+                        client
+                            .post(&record_url)
+                            .json(&payload)
+                            .header("Authorization", format!("Bearer {}", token))
+                    })
+                    .await;
 
-                if let Err(e) = req.send().await {
-                    tracing::warn!(billing_unit = billing_unit, error = ?e, "Failed to record usage event");
+                if let Err(e) = resp {
+                    tracing::warn!(billing_unit = billing_unit, error = %e, "Failed to record usage event");
                 }
             }
         }
@@ -365,7 +476,8 @@ mod tests {
 
     #[test]
     fn budget_deduct_and_check() {
-        let budget = Budget::new(10.0, None, None);
+        let tokens = Arc::new(TokenProvider::noop());
+        let budget = Budget::new(10.0, None, tokens);
         assert!(budget.check_local().is_ok());
         assert!((budget.local_estimate() - 10.0).abs() < f64::EPSILON);
 

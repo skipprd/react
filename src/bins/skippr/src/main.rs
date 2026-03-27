@@ -596,9 +596,10 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
     };
 
     let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
+    let tokens = create_token_provider(&creds);
+    let client = api_client::ApiClient::authenticated(&base_url, std::sync::Arc::clone(&tokens));
 
-    let initial_balance = match client.get_account(&creds.access_token).await {
+    let initial_balance = match client.get_account().await {
         Ok(account) => {
             let bal = account.balance.balance;
             if bal <= 0.0 {
@@ -619,12 +620,12 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     };
 
-    match client.get_credentials(&creds.access_token).await {
+    match client.get_credentials().await {
         Ok(srv_creds) => {
             translate::apply_authenticated_overlay(
                 &mut internal_file,
                 &srv_creds,
-                &creds.access_token,
+                std::sync::Arc::clone(&tokens),
                 initial_balance,
             );
             eprintln!("[skippr] cloud storage + metering active");
@@ -851,11 +852,27 @@ async fn load_authenticated_user_credentials(client: &api_client::ApiClient) -> 
     refresh_user_credentials_or_exit(client, creds).await
 }
 
-async fn cmd_user_account() {
+fn create_token_provider(creds: &auth::StoredCredentials) -> std::sync::Arc<react_suite_data_engineer::metering::TokenProvider> {
     let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.get_account(&creds.access_token).await {
+    let rt = if creds.refresh_token.is_empty() { None } else { Some(creds.refresh_token.clone()) };
+    std::sync::Arc::new(react_suite_data_engineer::metering::TokenProvider::new(
+        Some(creds.access_token.clone()),
+        rt,
+        Some(base_url),
+    ))
+}
+
+async fn authenticated_api_client() -> api_client::ApiClient {
+    let base_url = auth::auth_base_url();
+    let unauthenticated = api_client::ApiClient::new(&base_url);
+    let creds = load_authenticated_user_credentials(&unauthenticated).await;
+    let tokens = create_token_provider(&creds);
+    api_client::ApiClient::authenticated(&base_url, tokens)
+}
+
+async fn cmd_user_account() {
+    let client = authenticated_api_client().await;
+    match client.get_account().await {
         Ok(account) => {
             println!();
             println!("  Account");
@@ -939,10 +956,8 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
         eprintln!("Maximum top-up is $10,000 per transaction.");
         std::process::exit(1);
     }
-    let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.add_funds(&creds.access_token, amount).await {
+    let client = authenticated_api_client().await;
+    match client.add_funds(amount).await {
         Ok(url) => {
             let browser_result = open_in_default_browser(&url);
             println!();
@@ -996,10 +1011,8 @@ fn open_in_default_browser(url: &str) -> Result<(), String> {
 }
 
 async fn cmd_user_create_api_key(name: &str) {
-    let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.create_api_key(&creds.access_token, name).await {
+    let client = authenticated_api_client().await;
+    match client.create_api_key(name).await {
         Ok(key) => {
             println!();
             println!("  API key created: {}", key.name);
@@ -1018,10 +1031,8 @@ async fn cmd_user_create_api_key(name: &str) {
 }
 
 async fn cmd_user_revoke_api_key(key_id: &str) {
-    let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.revoke_api_key(&creds.access_token, key_id).await {
+    let client = authenticated_api_client().await;
+    match client.revoke_api_key(key_id).await {
         Ok(()) => {
             println!("API key {} revoked.", key_id);
         }
@@ -1033,10 +1044,8 @@ async fn cmd_user_revoke_api_key(key_id: &str) {
 }
 
 async fn cmd_user_list_api_keys() {
-    let base_url = auth::auth_base_url();
-    let client = api_client::ApiClient::new(&base_url);
-    let creds = load_authenticated_user_credentials(&client).await;
-    match client.list_api_keys(&creds.access_token).await {
+    let client = authenticated_api_client().await;
+    match client.list_api_keys().await {
         Ok(keys) => {
             println!();
             if keys.is_empty() {

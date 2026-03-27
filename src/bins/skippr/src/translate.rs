@@ -191,11 +191,11 @@ pub fn set_skippr_binary(cfg: &mut ReactConfigFile, binary_path: &str) {
 /// Overlay authenticated mode onto an existing config:
 /// - Switch storage to S3 with STS credentials
 /// - Set server-provided LLM API key (if user hasn't set their own)
-/// - Initialize metering client
+/// - Initialize metering client (sharing the same TokenProvider as ApiClient)
 pub fn apply_authenticated_overlay(
     cfg: &mut ReactConfigFile,
     creds: &crate::api_client::CredentialsResponse,
-    auth_token: &str,
+    tokens: std::sync::Arc<react_suite_data_engineer::metering::TokenProvider>,
     initial_balance: f64,
 ) {
     cfg.storage = Some(StorageFile {
@@ -232,7 +232,7 @@ pub fn apply_authenticated_overlay(
 
     react_suite_data_engineer::metering::init_metering(
         accounting_url,
-        Some(auth_token.to_string()),
+        tokens,
         initial_balance,
     );
 
@@ -368,7 +368,10 @@ mod tests {
             accounting_url: String::new(),
         };
 
-        apply_authenticated_overlay(&mut internal, &creds, "token", 0.0);
+        let tokens = std::sync::Arc::new(react_suite_data_engineer::metering::TokenProvider::new(
+            Some("token".to_string()), None, None,
+        ));
+        apply_authenticated_overlay(&mut internal, &creds, tokens, 0.0);
 
         assert_eq!(
             internal.scope.as_ref().unwrap().tenant.as_deref(),
