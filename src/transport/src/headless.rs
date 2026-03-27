@@ -98,6 +98,15 @@ pub struct RunOpts {
     pub thread_id_tx: Option<mpsc::UnboundedSender<String>>,
 }
 
+/// Result returned by [`run_headless`].
+#[derive(Clone, Debug)]
+pub struct HeadlessResult {
+    pub exit_code: i32,
+    pub thread_id: String,
+    /// Human-readable failure summary when exit_code != 0.
+    pub failure_summary: Option<String>,
+}
+
 /// Run a headless thread execution and return the final exit code.
 ///
 /// Exit codes:
@@ -108,7 +117,7 @@ pub async fn run_headless(
     ctx: SuiteCtx,
     opts: RunOpts,
     registry: SuiteRegistry,
-) -> Result<(i32, String), String> {
+) -> Result<HeadlessResult, String> {
     let hub = EventHub::new(DEFAULT_EVENT_HUB_CAPACITY);
     let mut rx = hub.subscribe();
     let plain_progress = std::env::var("REACT_PLAIN_PROGRESS")
@@ -254,30 +263,45 @@ pub async fn run_headless(
             .and_then(|m| m.as_str())
         {
             if mode == "failed" {
+                let summary = match reader.get_log(&thread_id).await {
+                    Ok(log) => {
+                        let st = crate::ws::thread_state::materialize_state_from_log(
+                            &thread_id, &log,
+                        );
+                        let events = react_view::build_thread_events_from_log(&log, 500);
+                        summarize_failure_state(&st, &events)
+                    }
+                    Err(_) => None,
+                };
                 if plain_progress {
-                    let (st, timeline_events) = match reader.get_log(&thread_id).await {
-                        Ok(log) => (
-                            Some(crate::ws::thread_state::materialize_state_from_log(
-                                &thread_id, &log,
-                            )),
-                            react_view::build_thread_events_from_log(&log, 500),
-                        ),
-                        Err(_) => (None, Vec::new()),
-                    };
-                    if let Some(ref st) = st {
-                        if let Some(line) = summarize_failure_state(st, &timeline_events) {
-                            println!("{}", line);
-                        }
+                    if let Some(ref line) = summary {
+                        println!("{}", line);
                     }
                 }
-                return Ok((1, thread_id));
+                return Ok(HeadlessResult {
+                    exit_code: 1,
+                    thread_id,
+                    failure_summary: summary,
+                });
             }
-            return Ok((0, thread_id));
+            return Ok(HeadlessResult {
+                exit_code: 0,
+                thread_id,
+                failure_summary: None,
+            });
         }
     }
 
     if !saw_final {
-        return Ok((2, thread_id));
+        return Ok(HeadlessResult {
+            exit_code: 2,
+            thread_id,
+            failure_summary: Some("Thread did not reach a final state.".to_string()),
+        });
     }
-    Ok((0, thread_id))
+    Ok(HeadlessResult {
+        exit_code: 0,
+        thread_id,
+        failure_summary: None,
+    })
 }

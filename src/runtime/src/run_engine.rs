@@ -266,15 +266,18 @@ pub async fn run_headless_from_config(
     );
 
     let mut thread_id_for_logs: Option<String> = None;
+    let mut failure_summary: Option<String> = None;
     let exit_code: i32 = tokio::select! {
         r = run_fut => {
             match r {
-                Ok((code, tid)) => {
-                    thread_id_for_logs = Some(tid);
-                    code
+                Ok(result) => {
+                    thread_id_for_logs = Some(result.thread_id);
+                    failure_summary = result.failure_summary;
+                    result.exit_code
                 }
                 Err(e) => {
                     tracing::error!("{}", e);
+                    failure_summary = Some(e.clone());
                     1
                 }
             }
@@ -286,6 +289,19 @@ pub async fn run_headless_from_config(
     }
 
     drop(guards);
+
+    // Always print a result line so the user knows the outcome.
+    match exit_code {
+        0 => eprintln!("[skippr] Done."),
+        130 => eprintln!("[skippr] Interrupted."),
+        _ => {
+            if let Some(ref summary) = failure_summary {
+                eprintln!("[skippr] Failed: {}", summary);
+            } else {
+                eprintln!("[skippr] Failed (exit code {}).", exit_code);
+            }
+        }
+    }
 
     if let Some(logs) = run_logs.as_ref() {
         let tid = thread_id_for_logs
