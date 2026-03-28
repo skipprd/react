@@ -153,12 +153,12 @@ impl Agent {
         let mut transcript: Vec<String> = Vec::new();
         Self::transcript_add(
             &mut transcript,
-            format!("System: {}", system_prompt),
+            format!("System: {system_prompt}"),
             &ctx.trace_tx,
         );
         Self::transcript_add(
             &mut transcript,
-            format!("Tools: {}", tools_card),
+            format!("Tools: {tools_card}"),
             &ctx.trace_tx,
         );
 
@@ -168,7 +168,7 @@ impl Agent {
 
         Self::transcript_add(
             &mut transcript,
-            format!("User: {}", question),
+            format!("User: {question}"),
             &ctx.trace_tx,
         );
 
@@ -336,14 +336,14 @@ impl Agent {
     ) {
         Self::transcript_add(
             transcript,
-            format!("Assistant: {}", raw_model_output),
+            format!("Assistant: {raw_model_output}"),
             &ctx.trace_tx,
         );
 
         if obs_env.ok {
             Self::transcript_add(
                 transcript,
-                format!("Observation: {}", raw_obs),
+                format!("Observation: {raw_obs}"),
                 &ctx.trace_tx,
             );
         } else {
@@ -370,8 +370,8 @@ impl Agent {
         llm_options: &LlmCallOptions,
     ) -> Result<ParsedStep, CoreError> {
         match Self::parse_agent_step(raw) {
-            Ok(v) => return Ok(v),
-            Err(e) if !is_retriable_parse_error(&e) => return Err(e),
+            Ok(v) => Ok(v),
+            Err(e) if !is_retriable_parse_error(&e) => Err(e),
             Err(e) => {
                 let e_str = e.to_string();
 
@@ -390,7 +390,7 @@ impl Agent {
                             "error": err_label,
                             "detail": e_str,
                             "response_hash": resp_hash,
-                            "bytes": raw.as_bytes().len(),
+                            "bytes": raw.len(),
                         })
                     ),
                     &ctx.trace_tx,
@@ -405,8 +405,8 @@ impl Agent {
                 let retry_prompt = format!("{}\n{}", keep.join("\n"), output_contract_line);
                 *raw = Self::llm_chat_once(ctx, retry_prompt, llm_options.clone()).await?;
                 match Self::parse_agent_step(raw) {
-                    Ok(v) => return Ok(v),
-                    Err(e2) if !is_retriable_parse_error(&e2) => return Err(e2),
+                    Ok(v) => Ok(v),
+                    Err(e2) if !is_retriable_parse_error(&e2) => Err(e2),
                     Err(e2) => {
                         let e2_str = e2.to_string();
                         let mut keep2 = build_retry_transcript(transcript, None);

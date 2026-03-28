@@ -20,9 +20,9 @@ impl StorageAdapter for SequencedJsonStorage {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         self.json_value
             .lock()
-            .map_err(|_| CoreError::Storage(format!("get_json('{}'): lock poisoned", key)))?
+            .map_err(|_| CoreError::Storage(format!("get_json('{key}'): lock poisoned")))?
             .clone()
-            .ok_or_else(|| CoreError::Storage(format!("get_json('{}'): not found", key)))
+            .ok_or_else(|| CoreError::Storage(format!("get_json('{key}'): not found")))
     }
 
     async fn put_json(&self, _key: &str, value: &Value) -> Result<(), CoreError> {
@@ -59,8 +59,7 @@ impl StorageAdapter for SequencedJsonStorage {
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         Err(CoreError::Storage(format!(
-            "get_bytes('{}'): unsupported in test",
-            key
+            "get_bytes('{key}'): unsupported in test"
         )))
     }
 
@@ -71,8 +70,7 @@ impl StorageAdapter for SequencedJsonStorage {
         _content_type: &str,
     ) -> Result<(), CoreError> {
         Err(CoreError::Storage(format!(
-            "put_bytes('{}'): unsupported in test",
-            key
+            "put_bytes('{key}'): unsupported in test"
         )))
     }
 
@@ -84,13 +82,13 @@ impl StorageAdapter for SequencedJsonStorage {
         let mut guard = self
             .head_responses
             .lock()
-            .map_err(|_| CoreError::Storage(format!("head_etag('{}'): lock poisoned", key)))?;
+            .map_err(|_| CoreError::Storage(format!("head_etag('{key}'): lock poisoned")))?;
         if guard.is_empty() {
             return Ok(self
                 .json_value
                 .lock()
                 .map_err(|_| {
-                    CoreError::Storage(format!("head_etag('{}'): json lock poisoned", key))
+                    CoreError::Storage(format!("head_etag('{key}'): json lock poisoned"))
                 })?
                 .as_ref()
                 .map(|_| "stable".to_string()));
@@ -372,6 +370,6 @@ async fn run_observed_appends_failed_tool_end_when_operation_panics() {
                 observation.errors
             );
         }
-        other => panic!("expected tool end, got {:?}", other),
+        other => panic!("expected tool end, got {other:?}"),
     }
 }

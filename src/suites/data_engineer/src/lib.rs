@@ -94,6 +94,7 @@ pub(crate) mod dataset_truth;
 pub(crate) mod dbt;
 pub(crate) mod dbt_error;
 pub mod de_config;
+pub mod debug;
 pub(crate) mod dialect;
 pub(crate) mod domain_types;
 mod enrichment;

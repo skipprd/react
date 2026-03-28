@@ -73,14 +73,14 @@ fn schema_for_id(id: SchemaId) -> Result<Value, crate::CoreError> {
         SchemaId::AgentStepV1 => schemars::schema_for!(AgentStepV1),
     };
     let root_v = serde_json::to_value(&schema).map_err(|e| {
-        crate::CoreError::Schema(format!("schema serialization failed for {:?}: {}", id, e))
+        crate::CoreError::Schema(format!("schema serialization failed for {id:?}: {e}"))
     })?;
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
 pub fn strict_json_schema_for<T: JsonSchema>() -> Result<Value, crate::CoreError> {
     let root_v = serde_json::to_value(schemars::schema_for!(T))
-        .map_err(|e| crate::CoreError::Schema(format!("schema serialization failed: {}", e)))?;
+        .map_err(|e| crate::CoreError::Schema(format!("schema serialization failed: {e}")))?;
     Ok(root_schema_json_to_json_schema_value(root_v))
 }
 
@@ -278,7 +278,7 @@ mod tests {
                 if map.contains_key("$ref") && map.len() > 1 {
                     let mut keys: Vec<String> = map.keys().cloned().collect();
                     keys.sort();
-                    out.push(format!("{path}: {:?}", keys));
+                    out.push(format!("{path}: {keys:?}"));
                 }
                 for (k, child) in map {
                     collect_ref_sibling_violations(child, &format!("{path}.{k}"), out);

@@ -14,6 +14,12 @@ pub struct ToolRegistry {
     tools: HashMap<&'static str, Box<dyn Tool>>,
 }
 
+impl Default for ToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
@@ -26,7 +32,7 @@ impl ToolRegistry {
     pub async fn call(&self, name: &str, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         match self.tools.get(name) {
             Some(t) => t.call(args, ctx).await,
-            None => Err(format!("unknown tool '{}'", name)),
+            None => Err(format!("unknown tool '{name}'")),
         }
     }
 

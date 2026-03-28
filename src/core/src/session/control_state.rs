@@ -119,8 +119,7 @@ impl ControlStateStore {
         {
             ConditionalWriteStatus::Written => Ok(()),
             ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
-                "control_state('{}'): write conflict detected (expected_etag={:?}, current_etag={:?})",
-                thread_id, expected, current_etag
+                "control_state('{thread_id}'): write conflict detected (expected_etag={expected:?}, current_etag={current_etag:?})"
             ))),
         }
     }

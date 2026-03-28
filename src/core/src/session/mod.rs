@@ -69,6 +69,8 @@ mod store_io;
 mod observed;
 pub use observed::ToolStepMeta;
 
+pub mod analysis;
+
 #[async_trait::async_trait]
 impl ThreadLogReader for ThreadStore {
     async fn get_log(&self, thread_id: &str) -> crate::error::CoreResult<ThreadLog> {

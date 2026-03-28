@@ -494,7 +494,7 @@ impl crate::tools::Tool for CapturingFilesPatchTool {
     async fn call(&self, args: Value, _ctx: &AgentCtx) -> Result<Value, String> {
         let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
         if op != "patch" {
-            return Err(format!("expected op=patch, got op={}", op));
+            return Err(format!("expected op=patch, got op={op}"));
         }
         let has_rf = args.get("replace_file").is_some();
         let has_rr = args.get("replace_range").is_some();

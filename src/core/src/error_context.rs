@@ -240,7 +240,7 @@ fn extract_common_string_fields(
                 let next = if path.is_empty() {
                     k.clone()
                 } else {
-                    format!("{}.{}", path, k)
+                    format!("{path}.{k}")
                 };
                 extract_common_string_fields(vv, out, &next, depth + 1, max_depth);
             }
@@ -248,9 +248,9 @@ fn extract_common_string_fields(
         Value::Array(arr) => {
             for (i, vv) in arr.iter().enumerate() {
                 let next = if path.is_empty() {
-                    format!("[{}]", i)
+                    format!("[{i}]")
                 } else {
-                    format!("{}[{}]", path, i)
+                    format!("{path}[{i}]")
                 };
                 extract_common_string_fields(vv, out, &next, depth + 1, max_depth);
             }
@@ -302,11 +302,11 @@ mod tests {
     fn excerpt_is_bounded_and_includes_keyword_window() {
         let mut text = String::new();
         for i in 0..200 {
-            text.push_str(&format!("line {}\n", i));
+            text.push_str(&format!("line {i}\n"));
         }
         text.push_str("this is a PANIC: something bad happened\n");
         for i in 200..500 {
-            text.push_str(&format!("tail {}\n", i));
+            text.push_str(&format!("tail {i}\n"));
         }
 
         let out = excerpt_by_keywords(&text, 600, &["panic"]);

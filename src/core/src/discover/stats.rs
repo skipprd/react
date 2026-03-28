@@ -50,18 +50,18 @@ impl FieldStats {
                         RESERVOIR_CAPACITY,
                     );
                 }
-                self.observe_hll(&value);
+                self.observe_hll(value);
                 self.push_example(n.to_string());
             }
             serde_json::Value::String(s) => {
                 let len = s.len() as u64;
                 self.min_len = Some(self.min_len.map(|v| v.min(len)).unwrap_or(len));
                 self.max_len = Some(self.max_len.map(|v| v.max(len)).unwrap_or(len));
-                self.observe_hll(&value);
+                self.observe_hll(value);
                 self.push_example(s.clone());
             }
             serde_json::Value::Bool(b) => {
-                self.observe_hll(&value);
+                self.observe_hll(value);
                 self.push_example(b.to_string());
             }
             _ => {}

@@ -7,6 +7,8 @@ members = [
   "src/view",
   "src/suites/data_engineer",
   "src/suites/kb",
+  "src/suites/goggles_review",
+  "src/suites/suite_debugger",
   "src/modules/adaptors/storage-s3",
   "src/modules/adaptors/storage-local",
   "src/modules/adaptors/storage-memory",
@@ -20,4 +22,5 @@ members = [
   "src/suites/data_engineer/src/modules/provider-mssql",
   "src/suites/data_engineer/src/modules/provider-skippr",
   "src/bins/skippr",
+  "src/bins/skippr-admin",
 ]

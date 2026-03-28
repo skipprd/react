@@ -1,19 +1,21 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use react_core::agent::{Agent, DefaultPolicy, InterruptKind, RunOutcome};
-use react_core::session::ThreadStore;
-use react_core::suite::{FlowFrame, FlowKind, Suite, SuiteCtx};
+use react_core::agent::{Agent, AgentCtxBuilder, DefaultPolicy, InterruptKind, RunOutcome};
+use react_core::session::{analysis, ThreadStore};
+use react_core::suite::{
+    DebugProviderRegistry, FlowFrame, FlowKind, Suite, SuiteCtx,
+};
 use react_core::tools::ToolRegistry;
 use react_core::workflow::{PhaseExecutor, PhaseOutcome, WorkflowConfig};
 
-pub struct KbSuite;
-
-pub mod debug;
 pub mod prompts;
+pub mod session;
 pub mod tools;
 
-struct KbExecutor<'a> {
+pub struct SuiteDebugger;
+
+struct DebugExecutor<'a> {
     thread_store: ThreadStore,
     sctx: &'a SuiteCtx,
     thread_id: &'a str,
@@ -21,17 +23,52 @@ struct KbExecutor<'a> {
 }
 
 #[async_trait]
-impl<'a> PhaseExecutor for KbExecutor<'a> {
+impl<'a> PhaseExecutor for DebugExecutor<'a> {
     async fn execute_turn(&self, _out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
-        let registry = match KbSuite::build_tools(self.sctx) {
+        let registry = match SuiteDebugger::build_tools() {
             Ok(r) => r,
             Err(e) => return PhaseOutcome::Failed { reason: e },
         };
 
-        let sys = prompts::system_prompt();
-        let tools_card = prompts::tool_card();
+        let target_thread_id = extract_target_thread_id(self.question);
+        let target_suite_id = extract_target_suite_id(self.question);
 
-        let mut actx = react_core::agent::AgentCtxBuilder::new(
+        let (pre_summary, domain_ctx) = if let Some(tid) = &target_thread_id {
+            let target_store = ThreadStore::new(
+                self.sctx.storage().clone(),
+                self.sctx.scope().clone(),
+                self.sctx.keyspace().clone(),
+            );
+            let summary = match target_store.get(tid).await {
+                Ok(log) => Some(analysis::summarize(&log)),
+                Err(_) => None,
+            };
+
+            let domain = target_suite_id.as_deref().and_then(|suite_id| {
+                self.sctx
+                    .capability::<DebugProviderRegistry>()
+                    .and_then(|reg| reg.get(suite_id).map(|p| p.domain_context()))
+            });
+
+            (summary, domain)
+        } else {
+            (None, None)
+        };
+
+        let default_summary = analysis::ThreadSummary {
+            total_steps: 0,
+            phases: vec![],
+            llm_calls: 0,
+            tool_calls: vec![],
+            total_duration_ms: None,
+            issues: vec![],
+            result: None,
+        };
+        let summary_ref = pre_summary.as_ref().unwrap_or(&default_summary);
+        let sys = prompts::system_prompt(summary_ref, domain_ctx);
+        let tools_card = tools::tool_card();
+
+        let mut actx = AgentCtxBuilder::new(
             self.sctx.llm().clone(),
             self.sctx.storage().clone(),
             self.sctx.scope().clone(),
@@ -43,47 +80,30 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
         .max_steps(30)
         .thread_id(self.thread_id.to_string())
         .trace_tx(self.sctx.trace_tx().clone())
-        .agent_name("kb")
-        .vector(self.sctx.vector().clone())
+        .agent_name("suite_debugger")
         .thread_store(self.thread_store.clone())
         .build();
-        react_suite_data_engineer::copy_capabilities_to_actx(self.sctx, &mut actx);
 
-        let llm_opts = {
-            let max_out: u32 = std::env::var("LLM_KB_MAX_TOKENS")
-                .ok()
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(4_000)
-                .max(800)
-                .min(32_000);
-            let effort = match std::env::var("LLM_KB_REASONING_EFFORT")
-                .ok()
-                .map(|s| s.trim().to_lowercase())
-                .as_deref()
-            {
-                Some("none") => react_core::llm::ReasoningEffort::None,
-                Some("low") | None | Some("") => react_core::llm::ReasoningEffort::Low,
-                Some("medium") => react_core::llm::ReasoningEffort::Medium,
-                Some("high") => react_core::llm::ReasoningEffort::High,
-                _ => react_core::llm::ReasoningEffort::Low,
-            };
-            react_core::llm::LlmCallOptions {
-                prompt_id: "kb.run",
-                thread_id: Some(self.thread_id.to_string()),
-                expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                max_output_tokens: Some(max_out),
-                reasoning_effort: Some(effort),
-                temperature: None,
-                top_p: None,
-                timeout_secs: None,
-                model: None,
-            }
+        if let Some(caps) = self.sctx.capability::<DebugProviderRegistry>() {
+            actx.set_capability(caps);
+        }
+
+        let llm_opts = react_core::llm::LlmCallOptions {
+            prompt_id: "suite_debugger.run",
+            thread_id: Some(self.thread_id.to_string()),
+            expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+            max_output_tokens: Some(4_000),
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::Medium),
+            temperature: None,
+            top_p: None,
+            timeout_secs: None,
+            model: None,
         };
 
         match Agent::run_until_block(
             &registry,
             &actx,
-            sys,
+            &sys,
             tools_card,
             self.question,
             llm_opts,
@@ -127,29 +147,23 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
     }
 }
 
-impl KbSuite {
+impl SuiteDebugger {
     fn validate_agent_type(agent_type: &str) -> Result<(), String> {
-        if agent_type != "kb" {
+        if agent_type != "suite_debugger" {
             return Err(format!(
-                "invalid agent_type '{}' for suite 'kb' (expected 'kb')",
-                agent_type
+                "invalid agent_type '{agent_type}' for suite 'suite_debugger' (expected 'suite_debugger')"
             ));
         }
         Ok(())
     }
 
-    fn build_tools(sctx: &SuiteCtx) -> Result<ToolRegistry, String> {
+    fn build_tools() -> Result<ToolRegistry, String> {
         let mut registry = ToolRegistry::new();
-        registry.register(tools::kb_ingest_dir::KbIngestDirTool);
-        registry.register(tools::kb_search::KbSearchTool);
-
-        if sctx.vector().is_none() {
-            return Err("vector provider missing".to_string());
-        }
+        tools::register_all(&mut registry);
         Ok(registry)
     }
 
-    async fn run_kb(
+    async fn run_debug(
         thread_id: &str,
         question: &str,
         sctx: &SuiteCtx,
@@ -160,7 +174,7 @@ impl KbSuite {
             sctx.keyspace().clone(),
         );
 
-        let executor = KbExecutor {
+        let executor = DebugExecutor {
             thread_store,
             sctx,
             thread_id,
@@ -179,25 +193,24 @@ impl KbSuite {
 }
 
 #[async_trait]
-impl Suite for KbSuite {
+impl Suite for SuiteDebugger {
     fn id(&self) -> &'static str {
-        "kb"
+        "suite_debugger"
     }
 
     fn label(&self) -> &'static str {
-        "KB"
+        "Suite Debugger"
     }
 
     fn supported_agent_types(&self) -> Vec<String> {
-        vec!["kb".to_string()]
+        vec!["suite_debugger".to_string()]
     }
 
     fn default_agent_type(&self) -> &'static str {
-        "kb"
+        "suite_debugger"
     }
 
     fn phase_order(&self, _agent_type: &str) -> Vec<String> {
-        // kb suite does not expose internal phases (single-pass).
         Vec::new()
     }
 
@@ -218,8 +231,9 @@ impl Suite for KbSuite {
                 self.initial_phase(),
             )
             .await;
-        let frames = Self::run_kb(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        let frames = Self::run_debug(thread_id, question, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await;
         Ok(frames)
     }
 
@@ -240,8 +254,9 @@ impl Suite for KbSuite {
                 self.initial_phase(),
             )
             .await;
-        let frames = Self::run_kb(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        let frames = Self::run_debug(thread_id, question, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await;
         Ok(frames)
     }
 
@@ -262,8 +277,34 @@ impl Suite for KbSuite {
                 self.initial_phase(),
             )
             .await;
-        let frames = Self::run_kb(thread_id, text, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        let frames = Self::run_debug(thread_id, text, ctx).await?;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await;
         Ok(frames)
     }
+}
+
+fn extract_target_thread_id(question: &str) -> Option<String> {
+    for word in question.split_whitespace() {
+        let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+        if cleaned.len() >= 8
+            && cleaned
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == '-')
+        {
+            return Some(cleaned.to_string());
+        }
+    }
+    None
+}
+
+fn extract_target_suite_id(question: &str) -> Option<String> {
+    let lower = question.to_lowercase();
+    let known = ["data_engineer", "kb", "suite_debugger"];
+    for id in &known {
+        if lower.contains(id) {
+            return Some(id.to_string());
+        }
+    }
+    None
 }

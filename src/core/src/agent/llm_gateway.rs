@@ -117,18 +117,17 @@ impl AgentCtx {
             .await
             {
                 Ok(join_result) => join_result
-                    .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
-                    .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e))),
+                    .map_err(|e| CoreError::Agent(format!("LLM execution failed: {e}")))?
+                    .map_err(|e| CoreError::Agent(format!("LLM request failed: {e}"))),
                 Err(_) => Err(CoreError::Agent(format!(
-                    "LLM call timed out after {}s",
-                    timeout
+                    "LLM call timed out after {timeout}s"
                 ))),
             }
         } else {
             tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options))
                 .await
-                .map_err(|e| CoreError::Agent(format!("LLM execution failed: {}", e)))?
-                .map_err(|e| CoreError::Agent(format!("LLM request failed: {}", e)))
+                .map_err(|e| CoreError::Agent(format!("LLM execution failed: {e}")))?
+                .map_err(|e| CoreError::Agent(format!("LLM request failed: {e}")))
         }
     }
 

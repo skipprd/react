@@ -351,14 +351,12 @@ struct NullStorageAdapter;
 impl StorageAdapter for NullStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: get_json('{}')",
-            key
+            "NullStorageAdapter: get_json('{key}')"
         )))
     }
     async fn put_json(&self, key: &str, _value: &Value) -> Result<(), CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: put_json('{}')",
-            key
+            "NullStorageAdapter: put_json('{key}')"
         )))
     }
     async fn put_json_if_etag_matches(
@@ -368,38 +366,32 @@ impl StorageAdapter for NullStorageAdapter {
         _expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: put_json_if_etag_matches('{}')",
-            key
+            "NullStorageAdapter: put_json_if_etag_matches('{key}')"
         )))
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: get_bytes('{}')",
-            key
+            "NullStorageAdapter: get_bytes('{key}')"
         )))
     }
     async fn put_bytes(&self, key: &str, _bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: put_bytes('{}')",
-            key
+            "NullStorageAdapter: put_bytes('{key}')"
         )))
     }
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: delete_object('{}')",
-            key
+            "NullStorageAdapter: delete_object('{key}')"
         )))
     }
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: head_etag('{}')",
-            key
+            "NullStorageAdapter: head_etag('{key}')"
         )))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         Err(CoreError::Storage(format!(
-            "NullStorageAdapter: list_prefix('{}')",
-            prefix
+            "NullStorageAdapter: list_prefix('{prefix}')"
         )))
     }
 }
@@ -411,7 +403,7 @@ impl Default for SuiteCtx {
             scope: RequestScope::parse("default", "default", "default")
                 .expect("default scope segments are safe"),
             keyspace: Arc::new(DefaultKeyspace::new("unset".to_string())),
-            secrets: Arc::new(NullSecretsProvider::default()),
+            secrets: Arc::new(NullSecretsProvider),
             llm: Arc::new(NullModel::new()),
             resolved_config: None,
             trace_tx: None,
@@ -513,6 +505,12 @@ pub struct SuiteRegistry {
     suites: HashMap<&'static str, DynSuite>,
 }
 
+impl Default for SuiteRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SuiteRegistry {
     pub fn new() -> Self {
         Self {
@@ -533,5 +531,50 @@ impl SuiteRegistry {
         let mut out: Vec<&'static str> = self.suites.keys().copied().collect();
         out.sort();
         out
+    }
+}
+
+// ── Debug Provider ──────────────────────────────────────────────
+
+use crate::session::analysis::Issue;
+use crate::session::ThreadLog;
+
+/// Trait that suites implement to provide domain-specific debug context.
+///
+/// The `suite_debugger` suite loads the matching `DebugProvider` at runtime
+/// via `SuiteCtx::capability::<DebugProviderRegistry>()` — no compile-time
+/// coupling between the debugger and specific suites.
+pub trait DebugProvider: Send + Sync {
+    fn suite_id(&self) -> &'static str;
+    fn detect_domain_issues(&self, log: &ThreadLog) -> Vec<Issue>;
+    /// LLM-readable explanation of phases, tools, and common failure patterns.
+    fn domain_context(&self) -> &'static str;
+}
+
+/// Registry keyed by suite ID, passed as a capability to the suite_debugger.
+pub struct DebugProviderRegistry {
+    providers: HashMap<String, Arc<dyn DebugProvider>>,
+}
+
+impl Default for DebugProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DebugProviderRegistry {
+    pub fn new() -> Self {
+        Self {
+            providers: HashMap::new(),
+        }
+    }
+
+    pub fn register(&mut self, provider: impl DebugProvider + 'static) {
+        self.providers
+            .insert(provider.suite_id().to_string(), Arc::new(provider));
+    }
+
+    pub fn get(&self, suite_id: &str) -> Option<&Arc<dyn DebugProvider>> {
+        self.providers.get(suite_id)
     }
 }

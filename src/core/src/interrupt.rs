@@ -71,12 +71,12 @@ pub struct RejectPolicy;
 impl InterruptPolicy for RejectPolicy {
     async fn on_await_user(&self, prompt: &str) -> InterruptDecision {
         InterruptDecision::Reject {
-            reason: format!("ask_user_not_supported_in_headless: {}", prompt),
+            reason: format!("ask_user_not_supported_in_headless: {prompt}"),
         }
     }
     async fn on_await_approval(&self, prompt: &str) -> InterruptDecision {
         InterruptDecision::Reject {
-            reason: format!("await_approval_not_supported_in_headless: {}", prompt),
+            reason: format!("await_approval_not_supported_in_headless: {prompt}"),
         }
     }
     async fn on_review(&self, _text: &str, _meta: Option<&serde_json::Value>) -> ReviewDecision {

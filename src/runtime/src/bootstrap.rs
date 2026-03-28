@@ -89,5 +89,12 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
     )
     .await?;
 
+    {
+        let mut debug_reg = react_core::suite::DebugProviderRegistry::new();
+        debug_reg.register(react_suite_data_engineer::debug::DataEngineerDebugProvider);
+        debug_reg.register(react_suite_kb::debug::KbDebugProvider);
+        sctx.set_capability(Arc::new(debug_reg));
+    }
+
     Ok(sctx)
 }

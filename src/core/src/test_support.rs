@@ -30,11 +30,11 @@ impl StorageAdapter for InMemoryStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
         serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Storage(format!("get_json('{}'): {}", key, e)))
+            .map_err(|e| CoreError::Storage(format!("get_json('{key}'): {e}")))
     }
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(format!("put_json('{}'): {}", key, e)))?;
+            .map_err(|e| CoreError::Storage(format!("put_json('{key}'): {e}")))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
     async fn put_json_if_etag_matches(
@@ -44,7 +44,7 @@ impl StorageAdapter for InMemoryStorageAdapter {
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
         let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!("put_json_if_etag_matches('{}'): {}", key, e))
+            CoreError::Storage(format!("put_json_if_etag_matches('{key}'): {e}"))
         })?;
         let mut g = self
             .inner
@@ -65,7 +65,7 @@ impl StorageAdapter for InMemoryStorageAdapter {
             .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
         g.get(key)
             .cloned()
-            .ok_or_else(|| CoreError::Storage(format!("not found: {}", key)))
+            .ok_or_else(|| CoreError::Storage(format!("not found: {key}")))
     }
     async fn put_bytes(&self, key: &str, bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
         let mut g = self

@@ -152,7 +152,7 @@ impl ProgressUi {
                     print!("✔ {}", task.name);
                 }
             }
-            print!("\n");
+            println!();
             lines_rendered += 1;
         }
         st.last_lines = lines_rendered;

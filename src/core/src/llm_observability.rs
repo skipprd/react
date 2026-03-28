@@ -86,7 +86,7 @@ pub fn redact_common_secrets(input: &str) -> String {
         for k in sensitive_keys.iter() {
             if lower.contains(k) {
                 // Very conservative: redact the entire line to avoid partial parsing mistakes.
-                out.push(format!("{}: <redacted>", k));
+                out.push(format!("{k}: <redacted>"));
                 replaced = true;
                 break;
             }
@@ -136,12 +136,12 @@ const MAX_CALL_ID_ENTRIES: usize = 10_000;
 
 static PART_SEEN_CACHE: OnceCell<DashSet<String>> = OnceCell::new();
 fn part_seen_cache() -> &'static DashSet<String> {
-    PART_SEEN_CACHE.get_or_init(|| DashSet::new())
+    PART_SEEN_CACHE.get_or_init(DashSet::new)
 }
 
 static CALL_ID_CACHE: OnceCell<DashMap<String, u64>> = OnceCell::new();
 fn call_id_cache() -> &'static DashMap<String, u64> {
-    CALL_ID_CACHE.get_or_init(|| DashMap::new())
+    CALL_ID_CACHE.get_or_init(DashMap::new)
 }
 
 fn evict_part_seen_cache_if_full() {
@@ -192,11 +192,11 @@ pub fn build_parts_for_thread(thread_id: &str, parts: &[PartInput]) -> BuiltPart
         for ch in chunks.into_iter() {
             let chunk_raw = ch.to_string();
             let chunk_hash = sha256_hex_str(&chunk_raw);
-            let chunk_seen_key = format!("{}::{}::{}", thread_id, name, chunk_hash);
+            let chunk_seen_key = format!("{thread_id}::{name}::{chunk_hash}");
             let is_seen = !part_seen_cache().insert(chunk_seen_key);
             evict_part_seen_cache_if_full();
             if is_seen {
-                rendered_chunks.push(format!("unchanged: {}", chunk_hash));
+                rendered_chunks.push(format!("unchanged: {chunk_hash}"));
             } else {
                 // Include hash on first emission so later `unchanged: <hash>` lines can be traced back.
                 rendered_chunks.push(format!(

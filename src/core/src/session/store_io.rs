@@ -108,8 +108,7 @@ impl ThreadStore {
         let expected = expected_etag.map(str::to_string);
         let val = serde_json::to_value(log).map_err(|e| {
             CoreError::Session(format!(
-                "thread_log('{}'): failed to serialize thread log: {}",
-                thread_id, e
+                "thread_log('{thread_id}'): failed to serialize thread log: {e}"
             ))
         })?;
         match self
@@ -119,8 +118,7 @@ impl ThreadStore {
         {
             ConditionalWriteStatus::Written => Ok(()),
             ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
-                "thread_log('{}'): write conflict detected (expected_etag={:?}, current_etag={:?})",
-                thread_id, expected, current_etag
+                "thread_log('{thread_id}'): write conflict detected (expected_etag={expected:?}, current_etag={current_etag:?})"
             ))),
         }
     }
@@ -238,7 +236,7 @@ impl ThreadStore {
             .storage
             .get_json(&key)
             .await
-            .map_err(|e| CoreError::Session(format!("get('{}'): {}", thread_id, e)))?;
+            .map_err(|e| CoreError::Session(format!("get('{thread_id}'): {e}")))?;
         let log = serde_json::from_value::<ThreadLog>(v)
             .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?;
         Self::ensure_thread_log_schema(&log)?;

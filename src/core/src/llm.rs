@@ -6,7 +6,9 @@ use std::sync::Arc;
 /// This is a **hard contract** between callers and providers/adapters.
 /// Callers MUST set this explicitly; do not infer it from prompt text.
 #[derive(Clone, Debug, PartialEq)]
+#[derive(Default)]
 pub enum LlmExpectedFormat {
+    #[default]
     Text,
     JsonObject,
     /// A single JSON object matching an OpenAI-compatible strict schema built in core.
@@ -27,17 +29,13 @@ pub enum ReasoningEffort {
     High,
 }
 
-impl Default for LlmExpectedFormat {
-    fn default() -> Self {
-        LlmExpectedFormat::Text
-    }
-}
 
 /// Per-call overrides for LLM sampling/limits and response contract.
 ///
 /// When optional fields are `None`, implementations should fall back to configured defaults
 /// (e.g., env/config values).
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct LlmCallOptions {
     /// Stable identifier for the prompt/call site.
     ///
@@ -64,21 +62,6 @@ pub struct LlmCallOptions {
     pub timeout_secs: Option<u64>,
 }
 
-impl Default for LlmCallOptions {
-    fn default() -> Self {
-        Self {
-            prompt_id: "",
-            thread_id: None,
-            model: None,
-            expected_format: LlmExpectedFormat::default(),
-            max_output_tokens: None,
-            temperature: None,
-            top_p: None,
-            reasoning_effort: None,
-            timeout_secs: None,
-        }
-    }
-}
 
 /// High-level abstraction for large language models used by the ReAct runtime.
 /// Implementations may be local (llama.cpp) or remote (OpenAI-compatible HTTP).
@@ -113,7 +96,7 @@ impl TryFrom<&str> for ChatRole {
             "system" => Ok(Self::System),
             "user" => Ok(Self::User),
             "assistant" => Ok(Self::Assistant),
-            other => Err(format!("unknown ChatRole: '{}'", other)),
+            other => Err(format!("unknown ChatRole: '{other}'")),
         }
     }
 }
@@ -126,6 +109,12 @@ pub struct ChatMessage {
 
 /// Placeholder model that always errors. Useful for tests that need a default.
 pub struct NullModel {}
+
+impl Default for NullModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NullModel {
     pub fn new() -> Self {

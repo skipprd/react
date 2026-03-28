@@ -15,7 +15,7 @@ pub fn encode_key_component(s: &str) -> String {
         if safe {
             out.push(c);
         } else {
-            out.push_str(&format!("%{:02X}", b));
+            out.push_str(&format!("%{b:02X}"));
         }
     }
     out
@@ -32,7 +32,7 @@ pub trait Keyspace: Send + Sync {
     }
     fn thread_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
-        Ok(self.scoped_key(scope, &["threads", &format!("{}.json", thread_id)]))
+        Ok(self.scoped_key(scope, &["threads", &format!("{thread_id}.json")]))
     }
     fn thread_state_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
@@ -56,7 +56,7 @@ pub trait Keyspace: Send + Sync {
         ensure_safe_scope_segment("artifact_id", artifact_id).map_err(ks_err)?;
         Ok(self.scoped_key(
             scope,
-            &["threads", &format!("{}.{}.json", thread_id, artifact_id)],
+            &["threads", &format!("{thread_id}.{artifact_id}.json")],
         ))
     }
     fn logs_prefix(&self, scope: &RequestScope) -> String {
@@ -64,7 +64,7 @@ pub trait Keyspace: Send + Sync {
     }
     fn thread_log_key(&self, scope: &RequestScope, thread_id: &str) -> Result<String, CoreError> {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
-        Ok(self.scoped_key(scope, &["logs", &format!("{}.log", thread_id)]))
+        Ok(self.scoped_key(scope, &["logs", &format!("{thread_id}.log")]))
     }
 }
 
