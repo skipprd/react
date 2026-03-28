@@ -46,11 +46,12 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
                     creds.session_token.as_deref(),
                     &creds.region,
                 ).await) as Arc<dyn react_core::storage::StorageAdapter>;
-                let prefix = format!(
-                    "s3://{}/{}",
-                    b,
-                    creds.key_prefix.trim_end_matches('/')
-                );
+                let trimmed = creds.key_prefix.trim_end_matches('/');
+                let prefix = if trimmed.is_empty() {
+                    format!("s3://{}", b)
+                } else {
+                    format!("s3://{}/{}", b, trimmed)
+                };
                 let mut opts = vec![
                     ("aws_access_key_id".into(), creds.access_key_id.clone()),
                     ("aws_secret_access_key".into(), creds.secret_access_key.clone()),
