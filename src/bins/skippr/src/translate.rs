@@ -201,13 +201,12 @@ pub fn apply_authenticated_overlay(
     cfg.storage = Some(StorageFile {
         mode: Some("s3".into()),
         bucket: Some(creds.bucket.clone()),
-        path: Some(creds.key_prefix.clone()),
+        path: None,
         s3_credentials: Some(S3Credentials {
             access_key_id: creds.credentials.access_key_id.clone(),
             secret_access_key: creds.credentials.secret_access_key.clone(),
             session_token: Some(creds.credentials.session_token.clone()),
             region: "us-east-1".to_string(),
-            key_prefix: creds.key_prefix.clone(),
         }),
     });
 
@@ -362,7 +361,6 @@ mod tests {
                 expiration: "2099-01-01T00:00:00Z".into(),
             },
             bucket: "skippr-prod".into(),
-            key_prefix: "c3471188-8965-4c52-b486-7dbbd7a2d329/".into(),
             tenant_id: "c3471188-8965-4c52-b486-7dbbd7a2d329".into(),
             llm_api_key: String::new(),
             accounting_url: String::new(),

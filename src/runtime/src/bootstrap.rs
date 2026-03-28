@@ -40,18 +40,12 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
             let (storage, lance_prefix, lance_opts) = if let Some(creds) = s3_creds {
                 let storage = Arc::new(S3StorageAdapter::from_credentials(
                     b.clone(),
-                    creds.key_prefix.clone(),
                     &creds.access_key_id,
                     &creds.secret_access_key,
                     creds.session_token.as_deref(),
                     &creds.region,
                 ).await) as Arc<dyn react_core::storage::StorageAdapter>;
-                let trimmed = creds.key_prefix.trim_end_matches('/');
-                let prefix = if trimmed.is_empty() {
-                    format!("s3://{}", b)
-                } else {
-                    format!("s3://{}/{}", b, trimmed)
-                };
+                let prefix = format!("s3://{}", b);
                 let mut opts = vec![
                     ("aws_access_key_id".into(), creds.access_key_id.clone()),
                     ("aws_secret_access_key".into(), creds.secret_access_key.clone()),

@@ -323,8 +323,6 @@ async fn response_error(context: &str, resp: reqwest::Response) -> ApiError {
 pub struct CredentialsResponse {
     pub credentials: StsCreds,
     pub bucket: String,
-    pub key_prefix: String,
-    #[serde(default)]
     pub tenant_id: String,
     pub llm_api_key: String,
     pub accounting_url: String,
