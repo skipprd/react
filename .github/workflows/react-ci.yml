@@ -453,3 +453,20 @@ jobs:
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload binaries to S3 website bucket
+        run: |
+          TAG="${{ github.ref_name }}"
+          BUCKET="skippr-web-static-site-prod"
+          for f in skippr-*.tar.gz; do
+            aws s3 cp "$f" "s3://${BUCKET}/releases/${TAG}/${f}"
+          done
+          echo -n "$TAG" > latest.txt
+          aws s3 cp latest.txt "s3://${BUCKET}/releases/latest.txt" --cache-control "no-cache, no-store, must-revalidate"

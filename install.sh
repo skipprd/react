@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="skipprd/skipprd"
+BASE_URL="https://skippr.io/releases"
 INSTALL_DIR="/usr/local/bin"
 BINARY="skippr"
 
@@ -31,7 +31,7 @@ main() {
             esac
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            err "Windows detected. Download from https://github.com/$REPO/releases"
+            err "Windows detected. Download manually from https://skippr.io/releases"
             ;;
         *)
             err "Unsupported operating system: $os"
@@ -41,22 +41,21 @@ main() {
     local tag url tmpdir
 
     say "Detecting latest release..."
-    tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep '"tag_name"' | head -1 | cut -d '"' -f 4)"
+    tag="$(curl -fsSL "$BASE_URL/latest.txt")"
 
     if [ -z "$tag" ]; then
-        err "Could not determine latest release. Check https://github.com/$REPO/releases"
+        err "Could not determine latest release."
     fi
 
     say "Latest release: $tag"
 
-    url="https://github.com/$REPO/releases/download/${tag}/${BINARY}-${target}.tar.gz"
+    url="${BASE_URL}/${tag}/${BINARY}-${target}.tar.gz"
 
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
     say "Downloading $BINARY for $target..."
-    curl -fsSL "$url" -o "$tmpdir/skippr.tar.gz"
+    curl -fSL --progress-bar "$url" -o "$tmpdir/skippr.tar.gz"
 
     say "Extracting..."
     tar -xzf "$tmpdir/skippr.tar.gz" -C "$tmpdir"
@@ -67,7 +66,7 @@ main() {
     fi
 
     if [ ! -f "$bin_path" ]; then
-        err "Binary not found in archive. Please report this at https://github.com/$REPO/issues"
+        err "Binary not found in archive."
     fi
 
     chmod +x "$bin_path"
