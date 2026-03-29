@@ -182,7 +182,7 @@ pub fn generate_profiles_yml(
             out.push_str(&format!("      host: {}\n", yaml_escape_scalar(host)));
             out.push_str(&format!("      user: {}\n", yaml_escape_scalar(user)));
             out.push_str(&format!("      password: {}\n", yaml_escape_scalar(pass)));
-            out.push_str(&format!("      port: {}\n", port));
+            out.push_str(&format!("      port: {}\n", yaml_escape_scalar(port)));
             out.push_str(&format!("      dbname: {}\n", yaml_escape_scalar(&dbname)));
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
             if let Some(t) = threads {
@@ -235,7 +235,12 @@ pub fn generate_profiles_yml(
             out.push_str("      account: \"{{ env_var('SNOWFLAKE_ACCOUNT') }}\"\n");
             out.push_str("      user: \"{{ env_var('SNOWFLAKE_USER') }}\"\n");
             if use_keypair {
-                out.push_str("      private_key_path: \"{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}\"\n");
+                let raw = std::env::var("SNOWFLAKE_PRIVATE_KEY_PATH").unwrap_or_default();
+                let abs = resolve_to_absolute_path(&raw);
+                out.push_str(&format!(
+                    "      private_key_path: {}\n",
+                    yaml_escape_scalar(&abs)
+                ));
             } else {
                 out.push_str("      password: \"{{ env_var('SNOWFLAKE_PASSWORD') }}\"\n");
             }
@@ -296,7 +301,12 @@ pub fn generate_profiles_yml(
                     "      method: {}\n",
                     yaml_escape_scalar("service-account")
                 ));
-                out.push_str("      keyfile: \"{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}\"\n");
+                let raw = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
+                let abs = resolve_to_absolute_path(&raw);
+                out.push_str(&format!(
+                    "      keyfile: {}\n",
+                    yaml_escape_scalar(&abs)
+                ));
             } else {
                 out.push_str(&format!("      method: {}\n", yaml_escape_scalar("oauth")));
             }
@@ -393,6 +403,17 @@ fn sanitize_ident(s: &str) -> String {
         out = out.replace("__", "_");
     }
     out.trim_matches('_').to_string()
+}
+
+fn resolve_to_absolute_path(raw: &str) -> String {
+    let p = std::path::Path::new(raw);
+    if p.is_absolute() {
+        return raw.to_string();
+    }
+    std::env::current_dir()
+        .ok()
+        .map(|cwd| cwd.join(p).to_string_lossy().to_string())
+        .unwrap_or_else(|| raw.to_string())
 }
 
 fn yaml_escape_key(s: &str) -> String {
