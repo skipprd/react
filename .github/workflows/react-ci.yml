@@ -428,6 +428,7 @@ jobs:
     needs:
       - skippr_binary_build
     runs-on: ubuntu-latest
+    environment: Skippr
     steps:
       - name: Check out code
         uses: actions/checkout@v4
