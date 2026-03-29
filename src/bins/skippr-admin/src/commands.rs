@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use serde_json::Value;
+
 use crate::keyspace_for_scope;
+use react_core::error::CoreError;
 use react_core::provider_traits::NullSecretsProvider;
 use react_core::session::analysis;
 use react_core::session::ThreadStore;
+use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
 use react_core::suite::SuiteCtx;
 use react_suite_debugger::SuiteDebugger;
 
@@ -11,6 +16,48 @@ use crate::accounting;
 use crate::debug;
 use crate::display;
 use crate::nav::ShellState;
+
+/// Wraps a real storage adapter but silently drops all writes.
+/// Used for debug sessions so the agent loop doesn't pollute real data.
+struct ReadOnlyStorage(Arc<dyn StorageAdapter>);
+
+#[async_trait]
+impl StorageAdapter for ReadOnlyStorage {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+        self.0.get_json(key).await
+    }
+    async fn put_json(&self, _key: &str, _value: &Value) -> Result<(), CoreError> {
+        Ok(())
+    }
+    async fn put_json_if_etag_matches(
+        &self,
+        _key: &str,
+        _value: &Value,
+        _expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        Ok(ConditionalWriteStatus::Written)
+    }
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+        self.0.get_bytes(key).await
+    }
+    async fn put_bytes(
+        &self,
+        _key: &str,
+        _bytes: &[u8],
+        _content_type: &str,
+    ) -> Result<(), CoreError> {
+        Ok(())
+    }
+    async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
+        Ok(())
+    }
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+        self.0.head_etag(key).await
+    }
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+        self.0.list_prefix(prefix).await
+    }
+}
 
 pub struct AppCtx {
     pub ddb_client: aws_sdk_dynamodb::Client,
@@ -203,8 +250,12 @@ async fn handle_threads(state: &ShellState, app: &AppCtx) {
 
     let keyspace = keyspace_for_scope();
     let store = ThreadStore::new(app.storage.clone(), scope, keyspace);
-    let ids = store.list().await;
-    display::print_thread_list(&ids);
+    let all = store.list().await;
+    let root_threads: Vec<String> = all
+        .into_iter()
+        .filter(|id| !id.contains('/') && !id.contains("__"))
+        .collect();
+    display::print_thread_list(&root_threads);
 }
 
 async fn handle_thread(state: &ShellState, app: &AppCtx, thread_id: &str) {
@@ -264,8 +315,9 @@ async fn handle_debug(state: &ShellState, app: &AppCtx, thread_id: &str) {
     };
 
     let keyspace = keyspace_for_scope();
+    let ro_storage: Arc<dyn StorageAdapter> = Arc::new(ReadOnlyStorage(app.storage.clone()));
     let mut ctx = SuiteCtx::new(
-        app.storage.clone(),
+        ro_storage,
         Arc::new(NullSecretsProvider),
         app.llm.clone(),
         scope,

@@ -37,6 +37,15 @@ async fn main() {
         .await;
     let ddb_client = aws_sdk_dynamodb::Client::new(&aws_cfg);
 
+    fn setenv(key: &str, val: &str) {
+        if std::env::var(key).ok().filter(|v| !v.trim().is_empty()).is_none() {
+            std::env::set_var(key, val);
+        }
+    }
+    setenv("LLM_PROVIDER", "OPENAI_COMPAT");
+    setenv("LLM_BASE_URL", "https://api.openai.com");
+    setenv("LLM_REASON_MODEL", "gpt-5.4");
+
     let llm_cfg = react::llm::LlmConfig::default();
     let llm = react::llm::create_llm(&llm_cfg);
 

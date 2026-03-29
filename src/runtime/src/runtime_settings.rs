@@ -55,7 +55,11 @@ fn env_opt(key: &str) -> Option<String> {
 }
 
 pub fn llm_provider() -> Option<LlmProvider> {
-    resolved_config().map(|cfg| cfg.llm.provider)
+    resolved_config()
+        .map(|cfg| cfg.llm.provider)
+        .or_else(|| {
+            env_opt("LLM_PROVIDER").and_then(|s| s.parse::<LlmProvider>().ok())
+        })
 }
 
 pub fn llm_provider_string() -> String {

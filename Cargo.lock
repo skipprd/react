@@ -7475,6 +7475,7 @@ dependencies = [
 name = "skippr-admin"
 version = "0.0.0-git"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "chrono",
