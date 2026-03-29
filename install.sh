@@ -31,7 +31,7 @@ main() {
             esac
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            err "Windows detected. Use PowerShell instead:\n  irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex"
+            err "Windows detected. Download from https://github.com/$REPO/releases"
             ;;
         *)
             err "Unsupported operating system: $os"
