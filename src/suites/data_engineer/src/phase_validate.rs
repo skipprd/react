@@ -148,14 +148,16 @@ impl DataEngineerSuite {
     async fn reduce_validate_pass_plan_state(
         actx: &AgentCtx,
         phase: Phase,
-    ) -> Result<(Option<crate::plan::PlanCompletionSnapshot>, Option<String>), String> {
+    ) -> Result<(Option<crate::plan::PlanCompletionSnapshot>, Option<String>, u64), String> {
         let mut completion_snapshot: Option<crate::plan::PlanCompletionSnapshot> = None;
         let mut active_plan_key: Option<String> = None;
+        let mut validated_count: u64 = 0;
         if phase == Phase::CleanseValidate {
             if let Some(mut p) = crate::plan::load_cleanse_plan(actx)
                 .await
                 .map_err(|e| e.to_string())?
             {
+                validated_count = p.tasks.len() as u64;
                 crate::plan::apply_cleanse_progress_event(
                     &mut p,
                     crate::plan::PlanProgressEvent::CleanseValidateDone,
@@ -178,6 +180,7 @@ impl DataEngineerSuite {
             .await
             .map_err(|e| e.to_string())?
         {
+            validated_count = p.tasks.len() as u64;
             crate::plan::apply_model_progress_event(
                 &mut p,
                 crate::plan::PlanProgressEvent::ModelValidateDone,
@@ -194,7 +197,7 @@ impl DataEngineerSuite {
                 .await
                 .map_err(|e| format!("failed to persist model plan validate-pass state: {e}"))?;
         }
-        Ok((completion_snapshot, active_plan_key))
+        Ok((completion_snapshot, active_plan_key, validated_count))
     }
 
     async fn commit_validate_pass_transition(
@@ -203,6 +206,7 @@ impl DataEngineerSuite {
         phase: Phase,
         thread_state_step_count: usize,
         completion_snapshot: Option<crate::plan::PlanCompletionSnapshot>,
+        validated_count: u64,
         active_plan_key: Option<String>,
         dbt_validate_observation: serde_json::Value,
         signal: &str,
@@ -257,7 +261,7 @@ impl DataEngineerSuite {
             Phase::ModelReview
         };
         let trigger_step_idx = thread_state_step_count.saturating_sub(1);
-        crate::phase_contract::commit_phase_decision(
+        crate::phase_contract::commit_metered_decision(
             thread_store,
             thread_id,
             Some(phase),
@@ -267,6 +271,11 @@ impl DataEngineerSuite {
                     step_idx: trigger_step_idx,
                 }),
             ),
+            vec![crate::metering::UsageEvent::ModelsValidated {
+                count: validated_count,
+                project_id: thread_id.to_string(),
+            }],
+            crate::metering::global_metering(),
         )
         .await?;
         Ok(())
@@ -416,7 +425,7 @@ impl DataEngineerSuite {
                 })?;
             }
 
-            let (completion_snapshot, active_plan_key) =
+            let (completion_snapshot, active_plan_key, validated_count) =
                 Self::reduce_validate_pass_plan_state(&actx, phase).await?;
 
             Self::commit_validate_pass_transition(
@@ -425,6 +434,7 @@ impl DataEngineerSuite {
                 phase,
                 thread_state_step_count,
                 completion_snapshot,
+                validated_count,
                 active_plan_key,
                 obs.observation.clone(),
                 "ValidatePassPlanIncomplete",

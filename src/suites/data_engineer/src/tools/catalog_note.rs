@@ -229,6 +229,13 @@ impl Tool for CatalogNoteTool {
             .await
             .map_err(|e| format!("put_json: {}", e))?;
 
+        let _ = crate::metering::global_metering()
+            .record_batch(&[crate::metering::UsageEvent::CatalogEntryCurated {
+                count: 1,
+                project_id: thread_id.clone(),
+            }])
+            .await;
+
         // Upsert curated digest into embeddings as a doc
         let vector = ctx
             .vector()

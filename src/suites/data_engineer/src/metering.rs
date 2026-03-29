@@ -32,7 +32,6 @@ pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
     if !client.is_enabled() {
         return;
     }
-    client.budget.deduct(event.cost());
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         handle.spawn(async move {
             let client = global_metering();
@@ -60,23 +59,35 @@ pub enum UsageEvent {
     RepairCycle { cycle: u64, project_id: String },
     PipelineRun { project_id: String },
     LlmRequest { input_tokens: u64, output_tokens: u64, model: String },
+    SchemaContractApplied { count: u64, project_id: String },
+    ModelsValidated { count: u64, project_id: String },
+    ModelsPublished { count: u64, project_id: String },
+    CatalogEntryCurated { count: u64, project_id: String },
+    PlanEnriched { tasks: u64, project_id: String },
+    PipelineCompleted { project_id: String },
 }
 
 impl UsageEvent {
     pub fn cost(&self) -> f64 {
         match self {
-            Self::FieldsDiscovered { count, .. } => *count as f64 * 0.02,
-            Self::TablesSynced { count, .. } => *count as f64 * 0.50,
+            Self::FieldsDiscovered { count, .. } => *count as f64 * 0.10,
+            Self::TablesSynced { count, .. } => *count as f64 * 1.50,
             Self::ModelsAuthored { silver, gold, .. } => {
-                *silver as f64 * 1.00 + *gold as f64 * 1.50
+                *silver as f64 * 2.00 + *gold as f64 * 3.00
             }
             Self::PlanApproved { .. } => 0.0,
             Self::RepairCycle { .. } => 0.0,
-            Self::PipelineRun { .. } => 0.30,
+            Self::PipelineRun { .. } => 0.50,
             Self::LlmRequest { input_tokens, output_tokens, .. } => {
                 (*input_tokens as f64 / 1000.0) * 0.05
                     + (*output_tokens as f64 / 1000.0) * 0.20
             }
+            Self::SchemaContractApplied { count, .. } => *count as f64 * 0.50,
+            Self::ModelsValidated { count, .. } => *count as f64 * 0.75,
+            Self::ModelsPublished { count, .. } => *count as f64 * 1.00,
+            Self::CatalogEntryCurated { count, .. } => *count as f64 * 0.25,
+            Self::PlanEnriched { tasks, .. } => *tasks as f64 * 0.10,
+            Self::PipelineCompleted { .. } => 0.50,
         }
     }
 
@@ -102,6 +113,12 @@ impl UsageEvent {
             Self::PipelineRun { .. } => vec![("pipeline_run", 1.0)],
             Self::PlanApproved { tasks, .. } => vec![("plan_approved", *tasks as f64)],
             Self::RepairCycle { cycle, .. } => vec![("repair_cycle", *cycle as f64)],
+            Self::SchemaContractApplied { count, .. } => vec![("schema_contract_applied", *count as f64)],
+            Self::ModelsValidated { count, .. } => vec![("models_validated", *count as f64)],
+            Self::ModelsPublished { count, .. } => vec![("models_published", *count as f64)],
+            Self::CatalogEntryCurated { count, .. } => vec![("catalog_entry_curated", *count as f64)],
+            Self::PlanEnriched { tasks, .. } => vec![("plan_enriched", *tasks as f64)],
+            Self::PipelineCompleted { .. } => vec![("pipeline_completed", 1.0)],
         }
     }
 
@@ -112,7 +129,13 @@ impl UsageEvent {
             | Self::ModelsAuthored { project_id, .. }
             | Self::PlanApproved { project_id, .. }
             | Self::RepairCycle { project_id, .. }
-            | Self::PipelineRun { project_id, .. } => project_id,
+            | Self::PipelineRun { project_id, .. }
+            | Self::SchemaContractApplied { project_id, .. }
+            | Self::ModelsValidated { project_id, .. }
+            | Self::ModelsPublished { project_id, .. }
+            | Self::CatalogEntryCurated { project_id, .. }
+            | Self::PlanEnriched { project_id, .. }
+            | Self::PipelineCompleted { project_id, .. } => project_id,
             Self::LlmRequest { .. } => "",
         }
     }
@@ -438,13 +461,32 @@ mod tests {
             UsageEvent::LlmRequest { input_tokens: 1000, output_tokens: 500, model: "gpt-4o".into() },
         ];
         let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
-        assert!((costs[0] - 2.0).abs() < f64::EPSILON);     // 100 fields * $0.02
-        assert!((costs[1] - 5.0).abs() < f64::EPSILON);     // 10 tables * $0.50
-        assert!((costs[2] - 9.50).abs() < f64::EPSILON);    // 5*$1.00 + 3*$1.50
+        assert!((costs[0] - 10.0).abs() < f64::EPSILON);    // 100 fields * $0.10
+        assert!((costs[1] - 15.0).abs() < f64::EPSILON);    // 10 tables * $1.50
+        assert!((costs[2] - 19.0).abs() < f64::EPSILON);    // 5*$2.00 + 3*$3.00
         assert!((costs[3] - 0.0).abs() < f64::EPSILON);
         assert!((costs[4] - 0.0).abs() < f64::EPSILON);
-        assert!((costs[5] - 0.30).abs() < f64::EPSILON);
+        assert!((costs[5] - 0.50).abs() < f64::EPSILON);
         assert!((costs[6] - 0.15).abs() < f64::EPSILON);    // 1K*$0.05 + 0.5K*$0.20
+    }
+
+    #[test]
+    fn cost_calculations_new_events() {
+        let events = vec![
+            UsageEvent::SchemaContractApplied { count: 4, project_id: "t".into() },
+            UsageEvent::ModelsValidated { count: 6, project_id: "t".into() },
+            UsageEvent::ModelsPublished { count: 3, project_id: "t".into() },
+            UsageEvent::CatalogEntryCurated { count: 2, project_id: "t".into() },
+            UsageEvent::PlanEnriched { tasks: 10, project_id: "t".into() },
+            UsageEvent::PipelineCompleted { project_id: "t".into() },
+        ];
+        let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
+        assert!((costs[0] - 2.0).abs() < f64::EPSILON);     // 4 * $0.50
+        assert!((costs[1] - 4.5).abs() < f64::EPSILON);     // 6 * $0.75
+        assert!((costs[2] - 3.0).abs() < f64::EPSILON);     // 3 * $1.00
+        assert!((costs[3] - 0.5).abs() < f64::EPSILON);     // 2 * $0.25
+        assert!((costs[4] - 1.0).abs() < f64::EPSILON);     // 10 * $0.10
+        assert!((costs[5] - 0.5).abs() < f64::EPSILON);     // flat $0.50
     }
 
     #[test]
@@ -488,6 +530,27 @@ mod tests {
         budget.deduct(3.0);
         assert!(budget.check_local().is_err());
         assert!(budget.local_estimate() < 0.0);
+    }
+
+    #[test]
+    fn to_server_records_new_events() {
+        let ev = UsageEvent::SchemaContractApplied { count: 3, project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("schema_contract_applied", 3.0)]);
+
+        let ev = UsageEvent::ModelsValidated { count: 5, project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("models_validated", 5.0)]);
+
+        let ev = UsageEvent::ModelsPublished { count: 2, project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("models_published", 2.0)]);
+
+        let ev = UsageEvent::CatalogEntryCurated { count: 1, project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("catalog_entry_curated", 1.0)]);
+
+        let ev = UsageEvent::PlanEnriched { tasks: 8, project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("plan_enriched", 8.0)]);
+
+        let ev = UsageEvent::PipelineCompleted { project_id: "p".into() };
+        assert_eq!(ev.to_server_records(), vec![("pipeline_completed", 1.0)]);
     }
 
     #[test]

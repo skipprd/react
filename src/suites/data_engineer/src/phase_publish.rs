@@ -1,4 +1,4 @@
-use crate::phase_contract::{commit_phase_decision, PhaseDecision};
+use crate::phase_contract::{commit_metered_decision, commit_phase_decision, PhaseDecision};
 use crate::progress_controller::{DataEngineerEvent, PhaseTransition, PublishRetryKind};
 use crate::{control_flow, state_manager, tools, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
@@ -115,7 +115,13 @@ impl DataEngineerSuite {
             )
             .await
             .map_err(|e| PhaseError::Fatal(format!("failed to persist publish confirmed-success state: {e}")))?;
-            commit_phase_decision(
+            let published_count = crate::plan::load_model_plan(&actx)
+                .await
+                .ok()
+                .flatten()
+                .map(|p| p.tasks.len() as u64)
+                .unwrap_or(1);
+            commit_metered_decision(
                 thread_store,
                 thread_id,
                 Some(control_flow::Phase::Publish),
@@ -123,6 +129,16 @@ impl DataEngineerSuite {
                     control_flow::Phase::Done,
                     Some(PhaseTransition::PublishConfirmedSuccess),
                 ),
+                vec![
+                    crate::metering::UsageEvent::ModelsPublished {
+                        count: published_count,
+                        project_id: thread_id.to_string(),
+                    },
+                    crate::metering::UsageEvent::PipelineCompleted {
+                        project_id: thread_id.to_string(),
+                    },
+                ],
+                crate::metering::global_metering(),
             )
             .await?;
             return Ok(PhaseOutcome::TransitionCommitted);

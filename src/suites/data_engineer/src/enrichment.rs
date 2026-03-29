@@ -529,6 +529,16 @@ impl DataEngineerSuite {
             }
             T::apply_source_schema(task, source_schemas);
         }
+        let enriched_count = task_ids.len() as u64;
+        if enriched_count > 0 {
+            let project_id = ctx.thread_id().clone().unwrap_or_default();
+            let _ = crate::metering::global_metering()
+                .record_batch(&[crate::metering::UsageEvent::PlanEnriched {
+                    tasks: enriched_count,
+                    project_id,
+                }])
+                .await;
+        }
         Ok(())
     }
 

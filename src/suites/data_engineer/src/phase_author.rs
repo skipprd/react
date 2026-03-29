@@ -1338,6 +1338,23 @@ async fn handle_author_run_outcome(
             } else {
                 Phase::ModelValidate
             };
+            let (silver_count, gold_count) = if params.track.is_cleanse() {
+                let n = crate::plan::load_cleanse_plan(actx)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|p| p.tasks.len() as u64)
+                    .unwrap_or(0);
+                (n, 0u64)
+            } else {
+                let n = crate::plan::load_model_plan(actx)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|p| p.tasks.len() as u64)
+                    .unwrap_or(0);
+                (0u64, n)
+            };
             let _reason_detail = DataEngineerSuite::authoring_complete_reason_detail(
                 params.thread_store,
                 params.thread_id,
@@ -1354,8 +1371,8 @@ async fn handle_author_run_outcome(
                     Some(crate::progress_controller::PhaseTransition::AuthoringComplete),
                 ),
                 vec![crate::metering::UsageEvent::ModelsAuthored {
-                    silver: 0,
-                    gold: 0,
+                    silver: silver_count,
+                    gold: gold_count,
                     project_id: params.thread_id.to_string(),
                 }],
                 crate::metering::global_metering(),
