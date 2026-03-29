@@ -237,10 +237,8 @@ pub fn generate_profiles_yml(
             if use_keypair {
                 let raw = std::env::var("SNOWFLAKE_PRIVATE_KEY_PATH").unwrap_or_default();
                 let abs = resolve_to_absolute_path(&raw);
-                out.push_str(&format!(
-                    "      private_key_path: {}\n",
-                    yaml_escape_scalar(&abs)
-                ));
+                std::env::set_var("SNOWFLAKE_PRIVATE_KEY_PATH", &abs);
+                out.push_str("      private_key_path: \"{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}\"\n");
             } else {
                 out.push_str("      password: \"{{ env_var('SNOWFLAKE_PASSWORD') }}\"\n");
             }
@@ -303,10 +301,8 @@ pub fn generate_profiles_yml(
                 ));
                 let raw = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
                 let abs = resolve_to_absolute_path(&raw);
-                out.push_str(&format!(
-                    "      keyfile: {}\n",
-                    yaml_escape_scalar(&abs)
-                ));
+                std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &abs);
+                out.push_str("      keyfile: \"{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}\"\n");
             } else {
                 out.push_str(&format!("      method: {}\n", yaml_escape_scalar("oauth")));
             }
@@ -407,30 +403,32 @@ fn sanitize_ident(s: &str) -> String {
 
 fn resolve_to_absolute_path(raw: &str) -> String {
     let p = std::path::Path::new(raw);
-    if p.is_absolute() {
-        return raw.to_string();
-    }
-    std::env::current_dir()
-        .ok()
-        .map(|cwd| cwd.join(p).to_string_lossy().to_string())
-        .unwrap_or_else(|| raw.to_string())
+    let abs = if p.is_absolute() {
+        raw.to_string()
+    } else {
+        std::env::current_dir()
+            .ok()
+            .map(|cwd| cwd.join(p).to_string_lossy().to_string())
+            .unwrap_or_else(|| raw.to_string())
+    };
+    // Normalize to forward slashes so the path is safe in YAML double-quoted
+    // strings and portable across OSes (Windows accepts forward slashes).
+    abs.replace('\\', "/")
 }
 
 fn yaml_escape_key(s: &str) -> String {
-    // Minimal escape: quote if it contains special chars
     if s.chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         s.to_string()
     } else {
-        format!("\"{}\"", s.replace('"', "\\\""))
+        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     }
 }
 
 fn yaml_escape_scalar<S: AsRef<str>>(s: S) -> String {
     let s = s.as_ref();
-    // Always quote scalars to be safe with punctuation like ':' or '/'.
-    format!("\"{}\"", s.replace('"', "\\\""))
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 #[cfg(test)]
@@ -459,5 +457,33 @@ mod tests {
         };
         let err = generate_profiles_yml(&cfg, None).unwrap_err();
         assert!(err.contains("result_s3"));
+    }
+
+    #[test]
+    fn yaml_escape_scalar_escapes_backslashes() {
+        assert_eq!(
+            yaml_escape_scalar(r"D:\a\react\react\key.p8"),
+            r#""D:\\a\\react\\react\\key.p8""#
+        );
+    }
+
+    #[test]
+    fn yaml_escape_scalar_escapes_quotes_and_backslashes() {
+        assert_eq!(
+            yaml_escape_scalar(r#"say "hello" to C:\Users"#),
+            r#""say \"hello\" to C:\\Users""#
+        );
+    }
+
+    #[test]
+    fn yaml_escape_scalar_plain_string_unchanged() {
+        assert_eq!(yaml_escape_scalar("simple"), r#""simple""#);
+    }
+
+    #[test]
+    fn resolve_to_absolute_path_normalizes_backslashes() {
+        let result = resolve_to_absolute_path("some/relative/path.p8");
+        assert!(!result.contains('\\'), "resolved path should not contain backslashes: {result}");
+        assert!(result.contains('/'));
     }
 }
