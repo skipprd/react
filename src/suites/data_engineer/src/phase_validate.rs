@@ -465,7 +465,6 @@ impl DataEngineerSuite {
                 unreachable!("validate pass should have continued above")
             }
         };
-        // Infra-transient failures are not code defects.
         let errs: Vec<String> = obs
             .observation
             .get("errors")
@@ -476,6 +475,13 @@ impl DataEngineerSuite {
             return Err(PhaseError::Fatal(format!(
         "dbt_validate failed due to a transient infrastructure error (service outage, throttling, or network issue). \
          This is not a code defect — retry after the upstream service recovers.\n\n{}",
+        brief
+    )));
+        }
+        if failure_class.is_config() {
+            return Err(PhaseError::Fatal(format!(
+        "dbt_validate failed due to an environment/configuration error (missing credentials, broken profiles.yml, \
+         or auth misconfiguration). This cannot be fixed by re-authoring models — fix the runtime environment.\n\n{}",
         brief
     )));
         }
@@ -555,6 +561,19 @@ impl DataEngineerSuite {
                     format!("failed to persist model validate-failure facts bundle: {e}")
                 })?;
             }
+        }
+
+        let retry_outcome = Self::check_subjective_retry_budget(
+            &thread_store,
+            thread_id,
+            crate::progress_controller::SubjectiveRetryKind::ValidateFailedRetry,
+        )
+        .await?;
+        if let crate::retry_budget::SubjectiveRetryOutcome::Exhausted(tries) = retry_outcome {
+            return Err(PhaseError::Fatal(format!(
+                "dbt_validate has failed {tries} consecutive times without progress; \
+                 manual intervention required.\n\n{brief}"
+            )));
         }
 
         crate::phase_contract::commit_phase_decision(

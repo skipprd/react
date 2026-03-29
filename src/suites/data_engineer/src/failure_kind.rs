@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     InfraTransient,
+    InfraConfig,
     #[serde(other)]
     Unknown,
 }
@@ -19,7 +20,13 @@ impl FailureKind {
         matches!(self, Self::InfraTransient)
     }
 
+    /// Environment/configuration errors the LLM cannot repair by rewriting models.
+    pub fn is_config(self) -> bool {
+        matches!(self, Self::InfraConfig)
+    }
+
+    /// True only for errors that could plausibly be fixed by re-authoring dbt models.
     pub fn is_repairable(self) -> bool {
-        !self.is_transient()
+        matches!(self, Self::Unknown)
     }
 }

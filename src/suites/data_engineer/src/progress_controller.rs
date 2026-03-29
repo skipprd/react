@@ -655,6 +655,7 @@ pub enum SubjectiveRetryKind {
     ReviewPlanChange,
     ValidatePrecheckFailed,
     ValidateExecutionFailed,
+    ValidateFailedRetry,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -978,6 +979,7 @@ impl ExecutionState {
 
         self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidatePrecheckFailed);
         self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidateExecutionFailed);
+        self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidateFailedRetry);
         self.debug_assert_invariants();
     }
 
