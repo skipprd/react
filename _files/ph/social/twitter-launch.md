@@ -4,25 +4,27 @@
 
 > We just launched Skippr on @ProductHunt.
 >
-> The enterprise data platform that builds itself.
+> Like Codex, but for data.
 >
-> Point it at your databases. It extracts, loads, cleanses, and models your data automatically — bronze, silver, gold — all on dbt.
+> An AI agent that reads your data sources, extracts, loads, generates dbt models, validates them, and repairs failures — autonomously.
 >
-> Your data never leaves your machine.
+> Four commands. Minutes to production dbt models.
 >
-> Check it out: [PH_LINK]
+> [PH_LINK]
 
 ---
 
 ## Launch Thread (post as replies to the main tweet)
 
-### Tweet 2 — The problem
+### Tweet 2 — The Codex parallel
 
-> Most companies sit on data they can't use.
+> Codex reads your codebase and writes code.
 >
-> Not because the data is bad — but because the path from raw source to usable insight takes months, a data team, and a stack of infrastructure.
+> Skippr reads your data sources and writes dbt models.
 >
-> We built Skippr to fix that.
+> Both are autonomous agents that produce artifacts you review and own.
+>
+> Same workflow. Different domain.
 
 ### Tweet 3 — How it works
 
@@ -33,7 +35,7 @@
 > skippr connect source mssql
 > skippr run
 >
-> Skippr discovers your schemas, extracts the data, loads it into your warehouse, and generates clean dbt models — silver and gold — automatically.
+> The agent discovers your schemas, extracts the data, loads it into bronze, generates silver and gold dbt models, validates them, and auto-repairs failures.
 
 ### Tweet 4 — Privacy angle
 
@@ -41,13 +43,13 @@
 >
 > All transfer is local: source → your machine → your warehouse.
 >
-> The LLM only sees table names and column metadata. Never your rows. And you choose which model to use — GPT, Claude, Mistral, or local.
+> AI mapping uses only schema metadata — table and column names. Never your rows.
 
 ### Tweet 5 — CTA
 
 > We're live on Product Hunt today.
 >
-> If you work with data and wish the boring parts would just handle themselves — we'd love your feedback.
+> If you work with data and wish the first three months of setup would just handle themselves — we'd love your feedback.
 >
 > [PH_LINK]
 
@@ -59,9 +61,9 @@ Variations for supporters to post in their own voice. Pick one.
 
 ### Option A
 
-> Just discovered Skippr — a CLI that builds your entire data pipeline automatically.
+> Just found Skippr — like Codex but for data.
 >
-> Connect a source, point at a warehouse, and it generates clean dbt models with AI. Data stays on your machine.
+> An AI agent that builds your entire data stack: extraction, loading, dbt models — autonomously. Runs on your machine.
 >
 > Live on Product Hunt today → [PH_LINK]
 
@@ -69,15 +71,15 @@ Variations for supporters to post in their own voice. Pick one.
 
 > If you've ever spent weeks building ELT pipelines and dbt models by hand, Skippr is worth a look.
 >
-> AI-powered, local-first, and it just works.
+> An AI agent that does the setup work. Standard dbt output you own.
 >
 > [PH_LINK]
 
 ### Option C
 
-> The "it just works" data platform is live on PH.
+> "Like Codex, but for data" — that's Skippr.
 >
-> Skippr: source → warehouse → dbt models. Automated. Private. Your choice of LLM.
+> Source → warehouse → bronze/silver/gold dbt models. Automated. Private. Minutes, not months.
 >
 > [PH_LINK]
 
@@ -92,4 +94,3 @@ Use 1–2 per tweet, not more.
 - #AI
 - #BuildInPublic
 - #ProductHunt
-- #DataPlatform

@@ -4,4 +4,4 @@
 
 ---
 
-Skippr discovers your data sources, extracts and loads them into your warehouse, then automatically generates clean, tested, business-ready models — all with AI. No infrastructure to manage, no data team required. Your data never leaves your machine. You choose the LLM.
+Skippr is an AI agent that builds your entire data stack. Point it at your sources, tell it where your warehouse is, and run one command. It extracts, cleanses, and generates production dbt models — bronze, silver, gold — autonomously. Runs on your machine. Your data stays local.

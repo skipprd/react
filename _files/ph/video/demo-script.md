@@ -7,17 +7,17 @@
 
 ---
 
-## Scene 1 — The Problem (0:00–0:10)
+## Scene 1 — The Hook (0:00–0:10)
 
 **Visual:** Text on dark background, appearing line by line (kinetic typography)
 
 **On screen:**
-> Getting value from your data shouldn't take months.
-> It shouldn't require a dedicated team.
-> Or a wall of infrastructure.
+> Codex reads your codebase and writes code.
+> What if an agent could read your data sources
+> and write the pipeline?
 
 **Voiceover:**
-"Getting real value from your data usually means months of setup — hiring a data team, provisioning infrastructure, writing pipelines, building models. What if all of that just happened automatically?"
+"Codex reads your codebase and writes code. What if an agent could do the same thing for your data — extract it, load it, generate the dbt models, validate them, and repair failures — all autonomously?"
 
 ---
 
@@ -26,10 +26,10 @@
 **Visual:** Skippr logo animates in. Tagline fades in below.
 
 **On screen:**
-> Skippr — The enterprise data platform that builds itself.
+> Skippr — like Codex, but for data.
 
 **Voiceover:**
-"Meet Skippr. Point it at your data. It does the rest."
+"Meet Skippr. Point it at your data sources. It builds the entire pipeline."
 
 ---
 
@@ -73,7 +73,7 @@ $ skippr run
 ```
 
 **Voiceover:**
-"One command. Skippr extracts your data, loads it into bronze tables, then uses AI to generate clean silver models and business-ready gold models — all built on dbt. Schema mapping, type inference, naming conventions — handled."
+"One command. Skippr extracts your data, loads it into bronze tables, then autonomously generates clean silver staging models and business-ready gold models — all built on dbt. Schema mapping, type inference, naming conventions, validation, and repair — handled by the agent."
 
 **Motion graphic overlay (brief):** Pipeline diagram flashes: Source → Bronze → Silver → Gold
 
@@ -81,10 +81,10 @@ $ skippr run
 
 ## Scene 5 — Privacy (1:00–1:10)
 
-**Visual:** Split screen — left: terminal still visible. Right: privacy diagram (laptop with arrows to warehouse, LLM cloud with "metadata only" label).
+**Visual:** Split screen — left: terminal still visible. Right: privacy diagram (laptop with arrows to warehouse, AI cloud with "metadata only" label).
 
 **Voiceover:**
-"And here's the thing — your data never leaves your machine. It flows directly from source to warehouse. The LLM only ever sees table names and column metadata. Never your actual data. And you choose which LLM to use."
+"And your data never leaves your machine. It flows directly from source to warehouse. AI mapping uses only schema metadata — table and column names. Never your actual data."
 
 ---
 
@@ -93,14 +93,14 @@ $ skippr run
 **Visual:** Dark background. Skippr logo centred. Below it:
 
 **On screen:**
-> From raw data to AI-ready insights. Automatically.
+> Like Codex, but for data.
 >
 > skippr.io
 >
 > Upvote us on Product Hunt ↑
 
 **Voiceover:**
-"Skippr. From raw data to AI-ready insights. Try it today."
+"Skippr. Like Codex, but for data. From raw sources to production dbt models in minutes."
 
 ---
 

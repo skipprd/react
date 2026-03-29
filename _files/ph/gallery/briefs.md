@@ -6,25 +6,26 @@
 
 ---
 
-## Slide 1 — Hero
+## Slide 1 — Hero / Codex Parallel
 
-**Headline:** The enterprise data platform that builds itself.
+**Headline:** Like Codex, but for data.
 
-**Body copy:** Skippr discovers, integrates, cleanses, and models your data — then gives you AI-ready insights. No infrastructure. No data team. No friction.
+**Body copy:** Codex reads your codebase and writes code. Skippr reads your data sources and writes dbt models. Both produce artifacts you review and own.
 
 **Visual direction:**
-- Centred headline in large, bold sans-serif (e.g. Inter Bold or similar)
-- Subtle animated-style data flow illustration behind text: abstract lines/nodes moving from left (sources) to right (insights)
+- Centred headline in large, bold sans-serif
+- Split visual: left side shows a code editor (Codex territory), right side shows a terminal with dbt output (Skippr territory)
+- Subtle connecting element between the two halves — an AI "spark" or neural line
 - Skippr logo top-left or top-centre
-- Small subline below: "Your data never leaves your machine. You choose the LLM."
+- Small subline below: "Runs on your machine. Your data stays local."
 
-**Purpose:** First impression. Communicates the value prop in under 3 seconds.
+**Purpose:** First impression. Instantly positions Skippr via a reference developers already understand.
 
 ---
 
 ## Slide 2 — The Problem
 
-**Headline:** Months of setup. Or minutes with Skippr.
+**Headline:** Months of setup. Or minutes with an agent.
 
 **Body copy (left column — "Before"):**
 - Hire a data team
@@ -48,28 +49,28 @@
 
 ---
 
-## Slide 3 — How It Works
+## Slide 3 — Agent in Action
 
-**Headline:** From source to insight. Automatically.
+**Headline:** From source to production dbt models. Autonomously.
 
 **Visual direction:**
 - Horizontal pipeline flow diagram with 5 stages:
   1. **Discover** — icon: magnifying glass + database
-  2. **Integrate** — icon: arrows flowing into warehouse
+  2. **Extract & Load** — icon: arrows flowing into warehouse
   3. **Cleanse** — icon: filter / sparkle
   4. **Model** — icon: layered blocks (bronze / silver / gold)
-  5. **Insights** — icon: chart / lightbulb
+  5. **Validate & Repair** — icon: checkmark with retry arrow
 - Each stage connected by a subtle animated arrow or line
 - Below each icon: one-line description
   - "Reads schemas from your sources"
-  - "Loads raw data into your warehouse"
-  - "Types, renames, validates"
-  - "Generates dbt silver & gold models"
-  - "Business-ready, AI-ready data"
+  - "Loads raw data into bronze tables"
+  - "Maps columns, casts types, renames"
+  - "Generates silver & gold dbt models"
+  - "Validates and auto-repairs failures"
 - Sources shown at left: MSSQL, S3 logos
 - Warehouses shown at right: Snowflake, BigQuery, Postgres logos
 
-**Purpose:** Show the full automated pipeline in one visual.
+**Purpose:** Show the full autonomous pipeline in one visual.
 
 ---
 
@@ -77,43 +78,50 @@
 
 **Headline:** Your data never leaves your machine.
 
-**Body copy:** All data transfer is local. Source to warehouse, directly. The LLM only sees table names and column metadata — never your actual data.
+**Body copy:** All data transfer is local. Source to warehouse, directly. AI mapping uses only schema metadata — table and column names — never row-level data.
 
 **Visual direction:**
 - Centre: illustration of a laptop with a shield/lock icon
 - Left of laptop: source icons (database, S3 bucket) with arrows pointing IN to the laptop
 - Right of laptop: warehouse icons (Snowflake, BigQuery) with arrows pointing OUT from the laptop
-- Above: LLM cloud icon with a small dotted line labelled "metadata only" — visually distinct from the bold data-flow arrows
+- Above: AI cloud icon with a small dotted line labelled "metadata only" — visually distinct from the bold data-flow arrows
 - Red X or crossed-out line showing data does NOT go to any third-party cloud
 - Callout badge: "Zero third-party data access"
 
-**Purpose:** Address the #1 enterprise concern. Build trust immediately.
+**Purpose:** Address the #1 concern. Build trust immediately.
 
 ---
 
-## Slide 5 — Choose Your LLM
+## Slide 5 — Concrete Output
 
-**Headline:** You choose the LLM.
+**Headline:** Standard dbt. Nothing proprietary.
 
-**Body copy:** Works with any OpenAI-compatible model. GPT, Claude, Mistral, or run it locally. Your policy, your choice.
+**Body copy:** The agent generates a complete dbt project — source definitions, staging models, business-ready marts. You own it. Review it, extend it, plug it into CI/CD.
 
 **Visual direction:**
-- Centre: Skippr logo or terminal icon
-- Radiating outward: logos/icons for supported LLM providers arranged in a circle or arc:
-  - OpenAI
-  - Anthropic (Claude)
-  - Mistral
-  - Local/self-hosted (generic server icon)
-- Connecting lines from each to the centre, suggesting plug-and-play
-- Small badge: "OpenAI-compatible API"
+- File tree showing generated dbt project structure:
+  ```
+  my-project/
+  ├── dbt_project.yml
+  ├── models/
+  │   ├── schema.yml
+  │   ├── staging/
+  │   │   ├── stg_customers.sql
+  │   │   └── stg_orders.sql
+  │   └── marts/
+  │       └── fct_revenue.sql
+  └── packages.yml
+  ```
+- Clean terminal-style presentation
+- Highlight: "12 silver models, 5 gold models — all validated"
 
-**Purpose:** Differentiate from locked-in AI tools. Appeal to security-conscious and cost-conscious buyers.
+**Purpose:** Show developers exactly what they get. Concrete, tangible output.
 
 ---
 
 ## Slide 6 — CLI in Action
 
-**Headline:** Four commands. Minutes to value.
+**Headline:** Four commands. Minutes to your first query.
 
 **Visual direction:**
 - Full-width terminal screenshot (dark theme) showing:

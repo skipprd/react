@@ -122,6 +122,56 @@ Not sure why it took me so long to question the assumption that pipelines need i
 
 ---
 
+## Post 10 — The Codex parallel
+
+The thing that made Codex click for developers wasn't the tech — it was the workflow.
+
+You don't hand Codex a spec and wait for a delivery. You point it at your codebase, give it a task, and it writes code. You review the output. Ship when ready. The agent does the first pass. You handle the judgment calls.
+
+I've been thinking about what that same pattern looks like for data engineering. The first phase of every data project is identical: discover the source schemas, write extraction logic, load into a warehouse, map columns to clean names and types, generate staging models, validate them, fix the failures.
+
+It's the data engineering equivalent of boilerplate code. Necessary, tedious, identical every time.
+
+What if an agent could do that part? Read your data sources instead of your codebase. Generate dbt models instead of application code. Validate them. Iterate on failures. Same workflow — different domain.
+
+The output would be standard dbt. You review it, extend it, plug it into CI/CD. Just like Codex produces PRs, a data agent produces dbt projects.
+
+I keep coming back to this idea: the best AI tools don't replace the engineer. They handle the setup so the engineer can focus on the work that actually requires human judgment.
+
+---
+
+## Post 11 — AI-ready data is a board-level priority
+
+Had an interesting conversation with a CTO last week. They'd been asked by their board — not their data team, their *board* — "Is our data ready for AI?"
+
+A year ago that question would have come from the engineering team. Now it's coming from the same people who pushed cloud migration. The framing has shifted from "which ETL tool are we using?" to "why can't we do RAG over our own data yet?"
+
+The answer, almost always, is the same: "We have the data. It's just not structured, cleaned, or modeled yet. We need 3-6 months and a data engineer."
+
+That gap — between "we have data" and "we can query it" — is becoming a strategic liability. Not because the tools don't exist. Because the setup takes too long.
+
+I think this is where AI agents change the equation. Not by replacing data engineers, but by compressing the setup phase from months to minutes. The foundation work — extraction, loading, schema mapping, model generation — is repetitive enough that an agent can do it.
+
+The interesting question isn't whether this will happen. It's whether companies will treat "AI-ready data" as an engineering project or a board-level priority. I think it's shifting to the latter faster than most people realise.
+
+---
+
+## Post 12 — Every company gets a data stack
+
+Here's something I didn't expect: the biggest impact of AI data agents won't be at big companies. It'll be at small ones.
+
+A Fortune 500 already has a data team, a warehouse, a stack of dbt models. An AI agent makes them faster. Nice. Incremental.
+
+But a 50-person company with valuable data locked in MSSQL and no data engineer? They've never had a data stack. They couldn't justify the investment. An AI agent changes the math entirely — from "hire a team, wait months" to "run a command, review the output."
+
+That's not a marginal improvement. That's a structural shift in who gets to have a data stack.
+
+The barrier to entry drops from "hire a team" to "run a command." And the output is the same architecture the big companies use: bronze/silver/gold, tested dbt models, incremental pipelines.
+
+I think we're about to see a lot more companies with production-grade data infrastructure — not because the technology changed, but because the setup cost dropped to zero.
+
+---
+
 ## Posting cadence
 
 | Week | Posts |
@@ -129,7 +179,7 @@ Not sure why it took me so long to question the assumption that pipelines need i
 | W-4 | Post 1, Post 4 |
 | W-3 | Post 3, Post 6 |
 | W-2 | Post 2, Post 7 |
-| W-1 | Post 5, Post 8 |
-| Launch week | Post 9 (optional), then PH announcement |
+| W-1 | Post 5, Post 8, Post 10 |
+| Launch week | Post 11, Post 12, then PH announcement |
 
 Post 7–9 AM Tue/Wed/Thu. Reply to every comment. No hashtags in the post body — one in the first comment if you want (#dataengineering). Don't put links in the post itself, LinkedIn buries them. Link in first comment if needed.
