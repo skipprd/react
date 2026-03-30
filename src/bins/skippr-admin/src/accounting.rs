@@ -8,7 +8,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub struct AccountProfile {
     pub tenant_id: String,
-    pub email: Option<String>,
+    pub domain: Option<String>,
     pub plan: String,
     pub billing_status: String,
     pub stripe_customer_id: Option<String>,
@@ -79,8 +79,8 @@ pub async fn get_profile(
 
     Ok(AccountProfile {
         tenant_id: tenant_id.to_string(),
-        email: item
-            .get("email")
+        domain: item
+            .get("domain")
             .and_then(|v| v.as_s().ok())
             .map(|s| s.to_string()),
         plan: attr_s(item, "plan"),

@@ -5,6 +5,11 @@ use react_core::storage::ConditionalWriteStatus;
 pub use react_core::storage::StorageAdapter;
 use react_core::CoreError;
 
+pub struct ObjectMeta {
+    pub key: String,
+    pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 #[derive(Clone)]
 pub struct S3StorageAdapter {
     pub bucket: String,
@@ -18,6 +23,39 @@ impl S3StorageAdapter {
             .await;
         let client = aws_sdk_s3::Client::new(&aws_cfg);
         Self { bucket, client }
+    }
+
+    pub async fn list_prefix_meta(&self, prefix: &str) -> Result<Vec<ObjectMeta>, CoreError> {
+        let mut token: Option<String> = None;
+        let mut out: Vec<ObjectMeta> = Vec::new();
+        loop {
+            let mut req = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix)
+                .max_keys(1000);
+            if let Some(t) = token.as_ref() {
+                req = req.continuation_token(t);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+            for obj in resp.contents() {
+                out.push(ObjectMeta {
+                    key: obj.key().unwrap_or_default().to_string(),
+                    last_modified: obj.last_modified().and_then(|dt| {
+                        chrono::DateTime::from_timestamp(dt.secs(), dt.subsec_nanos())
+                    }),
+                });
+            }
+            token = resp.next_continuation_token().map(|s| s.to_string());
+            if token.is_none() {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     pub async fn from_credentials(

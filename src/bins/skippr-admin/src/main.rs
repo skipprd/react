@@ -53,6 +53,7 @@ async fn main() {
         ddb_client,
         ddb_table: cli.table,
         storage: storage.clone(),
+        s3: storage.clone(),
         llm,
         suite_debugger: SuiteDebugger,
     };

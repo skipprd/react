@@ -63,6 +63,7 @@ pub struct AppCtx {
     pub ddb_client: aws_sdk_dynamodb::Client,
     pub ddb_table: String,
     pub storage: Arc<dyn react_core::storage::StorageAdapter>,
+    pub s3: Arc<react_module_storage_s3::S3StorageAdapter>,
     pub llm: react_core::llm::DynLlm,
     pub suite_debugger: SuiteDebugger,
 }
@@ -80,7 +81,7 @@ pub async fn dispatch(line: &str, state: &mut ShellState, app: &AppCtx) {
     match cmd {
         "help" => print_help(depth),
         "quit" | "exit" => std::process::exit(0),
-        "ls" => handle_ls(state).await,
+        "ls" => handle_ls(state, app).await,
         "cd" => handle_cd(args, state).await,
         ".." => {
             state.cd_up();
@@ -147,16 +148,29 @@ fn print_help(depth: usize) {
     println!();
 }
 
-async fn handle_ls(state: &mut ShellState) {
+async fn handle_ls(state: &mut ShellState, app: &AppCtx) {
     state.refresh_children().await;
-    let label = match state.depth() {
-        0 => "Tenants",
-        1 => "Workspaces",
-        2 => "Projects",
-        _ => "Items",
-    };
     let children = state.children();
-    display::print_children(&children, label);
+
+    if state.depth() == 0 {
+        let mut tenant_rows: Vec<(String, String)> = Vec::new();
+        for id in &children {
+            let domain = accounting::get_profile(&app.ddb_client, &app.ddb_table, id)
+                .await
+                .ok()
+                .and_then(|p| p.domain)
+                .unwrap_or_default();
+            tenant_rows.push((id.clone(), domain));
+        }
+        display::print_tenant_list(&tenant_rows);
+    } else {
+        let label = match state.depth() {
+            1 => "Workspaces",
+            2 => "Projects",
+            _ => "Items",
+        };
+        display::print_children(&children, label);
+    }
 }
 
 async fn handle_cd(args: &[&str], state: &mut ShellState) {
@@ -249,13 +263,26 @@ async fn handle_threads(state: &ShellState, app: &AppCtx) {
     };
 
     let keyspace = keyspace_for_scope();
-    let store = ThreadStore::new(app.storage.clone(), scope, keyspace);
-    let all = store.list().await;
-    let root_threads: Vec<String> = all
-        .into_iter()
-        .filter(|id| !id.contains('/') && !id.contains("__"))
-        .collect();
-    display::print_thread_list(&root_threads);
+    let prefix = keyspace.threads_prefix(&scope);
+    let prefix = format!("{}/", prefix.trim_end_matches('/'));
+
+    match app.s3.list_prefix_meta(&prefix).await {
+        Ok(objects) => {
+            let mut threads: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> = objects
+                .into_iter()
+                .filter_map(|obj| {
+                    let name = obj.key.strip_prefix(&prefix)?.strip_suffix(".json")?;
+                    if name.contains('/') || name.contains("__") || name.contains('.') {
+                        return None;
+                    }
+                    Some((name.to_string(), obj.last_modified))
+                })
+                .collect();
+            threads.sort_by(|a, b| b.1.cmp(&a.1));
+            display::print_thread_list_with_dates(&threads);
+        }
+        Err(e) => println!("  Error: {e}"),
+    }
 }
 
 async fn handle_thread(state: &ShellState, app: &AppCtx, thread_id: &str) {

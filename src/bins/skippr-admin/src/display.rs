@@ -5,7 +5,7 @@ use crate::accounting::{AccountProfile, Balance, DailyCost, LedgerEntry};
 pub fn print_account_summary(profile: &AccountProfile, balance: &Balance, costs: &[DailyCost]) {
     println!();
     println!("  Account: {}", profile.tenant_id);
-    println!("  Email:   {}", profile.email.as_deref().unwrap_or("-"));
+    println!("  Domain:  {}", profile.domain.as_deref().unwrap_or("-"));
     println!("  Plan:    {}", profile.plan);
     println!("  Status:  {}", profile.billing_status);
     println!("  Balance: ${:.2}", balance.balance);
@@ -52,15 +52,20 @@ pub fn print_ledger(entries: &[LedgerEntry]) {
     println!();
 }
 
-pub fn print_thread_list(thread_ids: &[String]) {
-    if thread_ids.is_empty() {
+pub fn print_thread_list_with_dates(threads: &[(String, Option<chrono::DateTime<chrono::Utc>>)]) {
+    if threads.is_empty() {
         println!("  No threads found.");
         return;
     }
     println!();
-    println!("  Threads ({}):", thread_ids.len());
-    for (i, id) in thread_ids.iter().enumerate() {
-        println!("  {:>4}  {}", i + 1, id);
+    println!("  Threads ({}):", threads.len());
+    println!("  {:>4}  {:<38} {}", "#", "Thread ID", "Last Modified");
+    println!("  {}", "-".repeat(68));
+    for (i, (id, modified)) in threads.iter().enumerate() {
+        let ts = modified
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            .unwrap_or_else(|| "-".to_string());
+        println!("  {:>4}  {:<38} {}", i + 1, id, ts);
     }
     println!();
 }
@@ -121,6 +126,22 @@ pub fn print_thread_summary(thread_id: &str, summary: &ThreadSummary) {
         }
         println!();
     }
+}
+
+pub fn print_tenant_list(tenants: &[(String, String)]) {
+    if tenants.is_empty() {
+        println!("  No tenants found.");
+        return;
+    }
+    println!();
+    println!("  Tenants ({}):", tenants.len());
+    println!("  {:<38} {}", "Tenant ID", "Domain");
+    println!("  {}", "-".repeat(64));
+    for (id, domain) in tenants {
+        let display = if domain.is_empty() { "-" } else { domain };
+        println!("  {:<38} {}", id, display);
+    }
+    println!();
 }
 
 pub fn print_children(children: &[String], label: &str) {
