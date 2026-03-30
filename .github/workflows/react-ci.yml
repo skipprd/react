@@ -149,22 +149,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download skippr from GitHub Release
+      - name: Install skippr via install.skippr.io
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          gh release download ${{ github.ref_name }} --pattern "skippr-x86_64-pc-windows-msvc.tar.gz" --dir .
-          tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
+          $tag = (Invoke-RestMethod -Uri "https://skippr.io/releases/latest.txt").Trim()
+          $url = "https://skippr.io/releases/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
+          Write-Host "Downloading skippr $tag from $url"
+          Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
+          tar -xzf skippr.tar.gz
           Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
-
-      # - name: Download skippr-el 7.0.0 for Windows
-      #   shell: pwsh
-      #   run: |
-      #     Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/7.0.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
-      #     tar -xzf skippr-el.tar.gz
-      #     Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
+          .\bin\skippr.exe --version
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -285,22 +280,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download skippr from GitHub Release
+      - name: Install skippr via install.skippr.io
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          gh release download ${{ github.ref_name }} --pattern "skippr-x86_64-pc-windows-msvc.tar.gz" --dir .
-          tar -xzf skippr-x86_64-pc-windows-msvc.tar.gz
+          $tag = (Invoke-RestMethod -Uri "https://skippr.io/releases/latest.txt").Trim()
+          $url = "https://skippr.io/releases/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
+          Write-Host "Downloading skippr $tag from $url"
+          Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
+          tar -xzf skippr.tar.gz
           Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
-
-      # - name: Download skippr-el 7.0.0 for Windows
-      #   shell: pwsh
-      #   run: |
-      #     Invoke-WebRequest -Uri "https://github.com/skipprd/skipprd/releases/download/7.0.0/skippr-windows_x86.tar.gz" -OutFile skippr-el.tar.gz
-      #     tar -xzf skippr-el.tar.gz
-      #     Copy-Item skippr-windows_x86\skippr.exe bin\skippr-el.exe
+          .\bin\skippr.exe --version
 
       - name: Install SQL Server Express
         shell: pwsh
