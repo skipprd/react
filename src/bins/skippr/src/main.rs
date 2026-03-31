@@ -8,7 +8,7 @@ use std::{path::PathBuf, process::Command};
 
 use clap::{Parser, Subcommand};
 
-use public_config::{DbtConfig, S3Transform, SkipprDbtConfig, SourceConfig, WarehouseConfig};
+use public_config::{DbtConfig, S3Transform, SchemaSinkConfig, SkipprDbtConfig, SourceConfig, WarehouseConfig};
 
 #[derive(Parser, Debug)]
 #[command(name = "skippr", about = "Data pipeline CLI — extract, load, and model with dbt")]
@@ -98,6 +98,19 @@ enum ConnectTarget {
 
 #[derive(Subcommand, Debug)]
 enum WarehouseKind {
+    /// AWS Athena (S3 + Glue) warehouse.
+    Athena {
+        #[arg(long)]
+        workgroup: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long)]
+        result_s3: Option<String>,
+        #[arg(long)]
+        catalog: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+    },
     /// Snowflake warehouse.
     Snowflake {
         #[arg(long)]
@@ -125,6 +138,63 @@ enum WarehouseKind {
         #[arg(long)]
         schema: Option<String>,
     },
+    /// Databricks (Unity Catalog) warehouse.
+    Databricks {
+        #[arg(long)]
+        workspace_url: Option<String>,
+        #[arg(long)]
+        token: Option<String>,
+        #[arg(long)]
+        warehouse_id: Option<String>,
+        #[arg(long)]
+        catalog: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+    },
+    /// Azure Synapse Analytics warehouse.
+    Synapse {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+    },
+    /// Amazon Redshift warehouse.
+    Redshift {
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        cluster_identifier: Option<String>,
+        #[arg(long)]
+        workgroup_name: Option<String>,
+        #[arg(long)]
+        db_user: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+    },
+    /// ClickHouse warehouse.
+    Clickhouse {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// DuckDB / MotherDuck warehouse.
+    Duckdb {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long)]
+        motherduck_token: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        schema: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -144,6 +214,227 @@ enum SourceKind {
         /// Field(s) used to namespace incoming events (e.g. event_type).
         #[arg(long)]
         namespace_fields: Option<String>,
+    },
+    /// MySQL source.
+    Mysql {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+    },
+    /// PostgreSQL source (distinct from postgres warehouse).
+    PostgresSource {
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+        #[arg(long)]
+        query: Option<String>,
+    },
+    /// Amazon Redshift source.
+    RedshiftSource {
+        #[arg(long)]
+        cluster_identifier: Option<String>,
+        #[arg(long)]
+        workgroup_name: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        db_user: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+        #[arg(long)]
+        region: Option<String>,
+    },
+    /// MongoDB source.
+    Mongodb {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        collection: Option<String>,
+        #[arg(long)]
+        filter: Option<String>,
+    },
+    /// DynamoDB source.
+    Dynamodb {
+        #[arg(long)]
+        table_name: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long)]
+        endpoint_url: Option<String>,
+    },
+    /// ClickHouse source.
+    ClickhouseSource {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+        #[arg(long)]
+        query: Option<String>,
+    },
+    /// DuckDB / MotherDuck source.
+    DuckdbSource {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long)]
+        motherduck_token: Option<String>,
+        #[arg(long)]
+        database: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        tables: Option<Vec<String>>,
+        #[arg(long)]
+        query: Option<String>,
+    },
+    /// SFTP source.
+    Sftp {
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long)]
+        username: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        private_key_path: Option<String>,
+        #[arg(long)]
+        remote_path: Option<String>,
+    },
+    /// Local file source.
+    File {
+        #[arg(long)]
+        path: Option<String>,
+    },
+    /// Delta Lake source.
+    DeltaLake {
+        #[arg(long)]
+        table_uri: Option<String>,
+        #[arg(long)]
+        filter: Option<String>,
+    },
+    /// Kafka source.
+    Kafka {
+        #[arg(long)]
+        brokers: Option<String>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long)]
+        group_id: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// SQS source.
+    Sqs {
+        #[arg(long)]
+        queue_url: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Kinesis source.
+    Kinesis {
+        #[arg(long)]
+        stream_name: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// AMQP (RabbitMQ) source.
+    Amqp {
+        #[arg(long)]
+        connection_string: Option<String>,
+        #[arg(long)]
+        queue: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// SNS source (via SQS).
+    Sns {
+        #[arg(long)]
+        topic_arn: Option<String>,
+        #[arg(long)]
+        sqs_queue_url: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+    },
+    /// EventBridge source (via SQS).
+    Eventbridge {
+        #[arg(long)]
+        event_bus_name: Option<String>,
+        #[arg(long)]
+        sqs_queue_url: Option<String>,
+        #[arg(long)]
+        region: Option<String>,
+    },
+    /// MQTT source.
+    Mqtt {
+        #[arg(long)]
+        broker_url: Option<String>,
+        #[arg(long)]
+        topic: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// WebSocket source.
+    Websocket {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// HTTP client source (polling).
+    HttpClient {
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        method: Option<String>,
+        #[arg(long)]
+        scrape_interval_seconds: Option<u64>,
+    },
+    /// HTTP server source (push receiver).
+    HttpServer {
+        #[arg(long)]
+        listen_address: Option<String>,
+        #[arg(long)]
+        path: Option<String>,
+    },
+    /// Socket source (TCP/UDP/Unix).
+    Socket {
+        #[arg(long)]
+        mode: Option<String>,
+        #[arg(long)]
+        address: Option<String>,
+    },
+    /// StatsD source.
+    Statsd {
+        #[arg(long)]
+        listen_address: Option<String>,
+    },
+    /// Stdin source.
+    Stdin {
+        #[arg(long)]
+        mode: Option<String>,
     },
 }
 
@@ -184,6 +475,7 @@ fn cmd_init(name: &str, explicit_config: &Option<PathBuf>) {
         warehouse: None,
         source: None,
         dbt: None,
+        schema_sink: None,
     };
     if let Err(e) = cfg.save_to(&path) {
         eprintln!("error: {}", e);
@@ -248,6 +540,14 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
     };
 
     let wh = match kind {
+        WarehouseKind::Athena { workgroup, region, result_s3, catalog, schema } => {
+            let workgroup = workgroup.or_else(|| prompt("Athena workgroup (optional)"));
+            let region = region.or_else(|| prompt("AWS region"));
+            let result_s3 = result_s3.or_else(|| prompt("S3 result location (optional, e.g. s3://bucket/path)"));
+            let catalog = catalog.or_else(|| prompt("Glue catalog (default: AwsDataCatalog)"));
+            let schema = schema.or_else(|| prompt("Default database/schema (optional)"));
+            WarehouseConfig::Athena { workgroup, region, result_s3, catalog, schema }
+        }
         WarehouseKind::Snowflake {
             database,
             schema,
@@ -283,6 +583,24 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             let database = database.or_else(|| prompt("PostgreSQL database"));
             let schema = schema.or_else(|| prompt("PostgreSQL schema (default: public)"));
             WarehouseConfig::Postgres { database, schema }
+        }
+        WarehouseKind::Databricks { workspace_url, token, warehouse_id, catalog, schema } => {
+            WarehouseConfig::Databricks { workspace_url, token, warehouse_id, catalog, schema }
+        }
+        WarehouseKind::Synapse { connection_string, schema } => {
+            WarehouseConfig::Synapse { connection_string, schema }
+        }
+        WarehouseKind::Redshift { database, cluster_identifier, workgroup_name, db_user, schema, region } => {
+            WarehouseConfig::Redshift {
+                database, cluster_identifier, workgroup_name, db_user, schema, region,
+                staging_s3_bucket: None, staging_s3_prefix: None, iam_role_arn: None,
+            }
+        }
+        WarehouseKind::Clickhouse { url, database, user, password } => {
+            WarehouseConfig::Clickhouse { url, database, user, password }
+        }
+        WarehouseKind::Duckdb { connection_string, motherduck_token, database, schema } => {
+            WarehouseConfig::Duckdb { connection_string, motherduck_token, database, schema }
         }
     };
 
@@ -339,14 +657,104 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
                 transform,
             }
         }
+        SourceKind::Mysql { connection_string, tables } => {
+            SourceConfig::Mysql { connection_string, tables }
+        }
+        SourceKind::PostgresSource { host, port, user, password, database, connection_string, tables, query } => {
+            SourceConfig::PostgresSource { host, port, user, password, database, connection_string, tables, query }
+        }
+        SourceKind::RedshiftSource { cluster_identifier, workgroup_name, database, db_user, tables, region } => {
+            SourceConfig::RedshiftSource { cluster_identifier, workgroup_name, database, db_user, tables, region }
+        }
+        SourceKind::Mongodb { connection_string, database, collection, filter } => {
+            SourceConfig::Mongodb { connection_string, database, collection, filter }
+        }
+        SourceKind::Dynamodb { table_name, region, endpoint_url } => {
+            SourceConfig::Dynamodb { table_name, region, endpoint_url }
+        }
+        SourceKind::ClickhouseSource { url, database, user, password, tables, query } => {
+            SourceConfig::ClickhouseSource { url, database, user, password, tables, query }
+        }
+        SourceKind::DuckdbSource { connection_string, motherduck_token, database, tables, query } => {
+            SourceConfig::DuckdbSource { connection_string, motherduck_token, database, tables, query }
+        }
+        SourceKind::Sftp { host, port, username, password, private_key_path, remote_path } => {
+            SourceConfig::Sftp { host, port, username, password, private_key_path, remote_path }
+        }
+        SourceKind::File { path } => {
+            SourceConfig::File { path }
+        }
+        SourceKind::DeltaLake { table_uri, filter } => {
+            SourceConfig::DeltaLake { table_uri, storage_options: None, version: None, filter }
+        }
+        SourceKind::Kafka { brokers, topic, group_id, mode } => {
+            SourceConfig::Kafka { brokers, topic, group_id, auto_offset_reset: None, security_protocol: None, sasl_mechanism: None, sasl_username: None, sasl_password: None, mode }
+        }
+        SourceKind::Sqs { queue_url, region, mode } => {
+            SourceConfig::Sqs { queue_url, region, endpoint_url: None, mode }
+        }
+        SourceKind::Kinesis { stream_name, region, mode } => {
+            SourceConfig::Kinesis { stream_name, region, endpoint_url: None, mode }
+        }
+        SourceKind::Amqp { connection_string, queue, mode } => {
+            SourceConfig::Amqp { connection_string, queue, exchange: None, routing_key: None, prefetch_count: None, mode }
+        }
+        SourceKind::Sns { topic_arn, sqs_queue_url, region } => {
+            SourceConfig::Sns { topic_arn, sqs_queue_url, region, endpoint_url: None }
+        }
+        SourceKind::Eventbridge { event_bus_name, sqs_queue_url, region } => {
+            SourceConfig::Eventbridge { event_bus_name, sqs_queue_url, region, endpoint_url: None }
+        }
+        SourceKind::Mqtt { broker_url, topic, mode } => {
+            SourceConfig::Mqtt { broker_url, port: None, topic, client_id: None, qos: None, username: None, password: None, mode }
+        }
+        SourceKind::Websocket { url, mode } => {
+            SourceConfig::Websocket { url, headers: None, mode }
+        }
+        SourceKind::HttpClient { url, method, scrape_interval_seconds } => {
+            SourceConfig::HttpClient { url, method, headers: None, body: None, auth_strategy: None, auth_user: None, auth_password: None, auth_token: None, scrape_interval_seconds }
+        }
+        SourceKind::HttpServer { listen_address, path } => {
+            SourceConfig::HttpServer { listen_address, path, auth_token: None }
+        }
+        SourceKind::Socket { mode, address } => {
+            SourceConfig::Socket { mode, address, framing: None }
+        }
+        SourceKind::Statsd { listen_address } => {
+            SourceConfig::Statsd { listen_address }
+        }
+        SourceKind::Stdin { mode } => {
+            SourceConfig::Stdin { mode }
+        }
     };
 
-    let kind_label = cfg
-        .source_kind_str()
-        .unwrap_or_else(|| match &src {
-            SourceConfig::Mssql { .. } => "mssql",
-            SourceConfig::S3 { .. } => "s3",
-        });
+    let kind_label = match &src {
+        SourceConfig::Mssql { .. } => "mssql",
+        SourceConfig::S3 { .. } => "s3",
+        SourceConfig::Mysql { .. } => "mysql",
+        SourceConfig::PostgresSource { .. } => "postgres_source",
+        SourceConfig::RedshiftSource { .. } => "redshift_source",
+        SourceConfig::Mongodb { .. } => "mongodb",
+        SourceConfig::Dynamodb { .. } => "dynamodb",
+        SourceConfig::ClickhouseSource { .. } => "clickhouse_source",
+        SourceConfig::DuckdbSource { .. } => "duckdb_source",
+        SourceConfig::Sftp { .. } => "sftp",
+        SourceConfig::File { .. } => "file",
+        SourceConfig::DeltaLake { .. } => "delta_lake",
+        SourceConfig::Kafka { .. } => "kafka",
+        SourceConfig::Sqs { .. } => "sqs",
+        SourceConfig::Kinesis { .. } => "kinesis",
+        SourceConfig::Amqp { .. } => "amqp",
+        SourceConfig::Sns { .. } => "sns",
+        SourceConfig::Eventbridge { .. } => "eventbridge",
+        SourceConfig::Mqtt { .. } => "mqtt",
+        SourceConfig::Websocket { .. } => "websocket",
+        SourceConfig::HttpClient { .. } => "http_client",
+        SourceConfig::HttpServer { .. } => "http_server",
+        SourceConfig::Socket { .. } => "socket",
+        SourceConfig::Statsd { .. } => "statsd",
+        SourceConfig::Stdin { .. } => "stdin",
+    };
     cfg.source = Some(src);
 
     if let Err(e) = save_config(&cfg, explicit_config) {
@@ -443,6 +851,10 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_pass("LLM_API_KEY not set (will use server-provided key)");
     }
 
+    if let Some(WarehouseConfig::Athena { .. }) = &cfg.warehouse {
+        check_athena_env(&mut ok);
+    }
+
     if let Some(WarehouseConfig::Snowflake { .. }) = &cfg.warehouse {
         check_snowflake_env(&mut ok);
     }
@@ -451,12 +863,46 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_postgres_env(&mut ok);
     }
 
+    if let Some(WarehouseConfig::Databricks { .. }) = &cfg.warehouse {
+        check_databricks_env(&mut ok);
+    }
+
+    if let Some(WarehouseConfig::Synapse { .. }) = &cfg.warehouse {
+        check_synapse_env(&mut ok);
+    }
+
+    if let Some(WarehouseConfig::Redshift { .. }) = &cfg.warehouse {
+        check_redshift_env(&mut ok);
+    }
+
+    if let Some(WarehouseConfig::Clickhouse { .. }) = &cfg.warehouse {
+        check_clickhouse_env(&mut ok);
+    }
+
     println!();
     if ok {
         println!("All checks passed. Run 'skippr run' to start.");
     } else {
         println!("Some checks failed. Fix the issues above and re-run 'skippr doctor'.");
         std::process::exit(1);
+    }
+}
+
+fn check_athena_env(_ok: &mut bool) {
+    if env_set("AWS_REGION") || env_set("AWS_DEFAULT_REGION") {
+        check_pass("AWS region configured (AWS_REGION or AWS_DEFAULT_REGION)");
+    } else {
+        check_pass("AWS region not set (will use SDK default or --region flag)");
+    }
+    if env_set("ATHENA_WORKGROUP") {
+        check_pass("ATHENA_WORKGROUP is set");
+    } else {
+        check_pass("ATHENA_WORKGROUP not set (will use Athena default workgroup)");
+    }
+    if env_set("ATHENA_RESULT_S3") {
+        check_pass("ATHENA_RESULT_S3 is set");
+    } else {
+        check_pass("ATHENA_RESULT_S3 not set (will rely on workgroup output location)");
     }
 }
 
@@ -508,6 +954,47 @@ fn check_postgres_env(ok: &mut bool) {
     } else {
         check_fail("PGPASSWORD is not set");
         *ok = false;
+    }
+}
+
+fn check_databricks_env(ok: &mut bool) {
+    if env_set("DATABRICKS_HOST") || env_set("DATABRICKS_WORKSPACE_URL") {
+        check_pass("DATABRICKS_HOST or DATABRICKS_WORKSPACE_URL is set");
+    } else {
+        check_fail("DATABRICKS_HOST / DATABRICKS_WORKSPACE_URL is not set");
+        *ok = false;
+    }
+    if env_set("DATABRICKS_TOKEN") {
+        check_pass("DATABRICKS_TOKEN is set");
+    } else {
+        check_fail("DATABRICKS_TOKEN is not set");
+        *ok = false;
+    }
+}
+
+fn check_synapse_env(ok: &mut bool) {
+    if env_set("SYNAPSE_CONNECTION_STRING") {
+        check_pass("SYNAPSE_CONNECTION_STRING is set");
+    } else {
+        check_fail("SYNAPSE_CONNECTION_STRING is not set");
+        *ok = false;
+    }
+}
+
+fn check_redshift_env(ok: &mut bool) {
+    if env_set("REDSHIFT_HOST") || env_set("REDSHIFT_CLUSTER_IDENTIFIER") || env_set("REDSHIFT_WORKGROUP_NAME") {
+        check_pass("Redshift connection configured (host, cluster, or workgroup)");
+    } else {
+        check_fail("Redshift connection not configured — set REDSHIFT_HOST, REDSHIFT_CLUSTER_IDENTIFIER, or REDSHIFT_WORKGROUP_NAME");
+        *ok = false;
+    }
+}
+
+fn check_clickhouse_env(_ok: &mut bool) {
+    if env_set("CLICKHOUSE_URL") {
+        check_pass("CLICKHOUSE_URL is set");
+    } else {
+        check_pass("CLICKHOUSE_URL not set (defaults to http://localhost:8123)");
     }
 }
 

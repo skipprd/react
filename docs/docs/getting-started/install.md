@@ -18,7 +18,7 @@ source .venv/bin/activate        # macOS / Linux
 # .\.venv\Scripts\Activate.ps1   # Windows PowerShell
 
 pip install --upgrade pip
-pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres
+pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres, dbt-databricks, dbt-synapse, dbt-redshift, dbt-clickhouse, dbt-duckdb
 ```
 
 Verify:
@@ -74,6 +74,50 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 export POSTGRES_HOST="localhost"
 export POSTGRES_USER="myuser"
 export POSTGRES_PASSWORD="mypassword"
+```
+
+### Databricks
+
+```bash
+export DATABRICKS_HOST="https://myworkspace.cloud.databricks.com"
+export DATABRICKS_TOKEN="dapi..."
+export DATABRICKS_WAREHOUSE_ID="abc123def456"
+```
+
+### Redshift
+
+Authentication uses the AWS default credential chain. Set a cluster or serverless workgroup:
+
+```bash
+export REDSHIFT_CLUSTER_IDENTIFIER="my-cluster"   # provisioned
+# or: export REDSHIFT_WORKGROUP_NAME="my-wg"      # serverless
+export REDSHIFT_DB_USER="admin"
+export REDSHIFT_DATABASE="analytics"
+```
+
+### ClickHouse
+
+```bash
+export CLICKHOUSE_URL="http://localhost:8123"
+export CLICKHOUSE_USER="default"
+export CLICKHOUSE_PASSWORD="mypassword"
+```
+
+### DuckDB / MotherDuck
+
+For MotherDuck, set the token and use an `md:` connection string in `skippr.yaml`:
+
+```bash
+export MOTHERDUCK_TOKEN="eyJ..."
+```
+
+### Azure Synapse
+
+```bash
+export SYNAPSE_HOST="myworkspace.sql.azuresynapse.net"
+export SYNAPSE_USER="sqladmin"
+export SYNAPSE_PASSWORD="mypassword"
+export SYNAPSE_DATABASE="analytics"
 ```
 
 ## Next steps

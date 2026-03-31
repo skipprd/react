@@ -14,5 +14,10 @@ pub fn active_provider_dialect(cfg: &ReactResolvedConfig) -> String {
         WarehouseKind::Mssql => "Microsoft SQL Server (T-SQL)".to_string(),
         WarehouseKind::Snowflake => "Snowflake SQL".to_string(),
         WarehouseKind::Bigquery => "Google BigQuery (Standard SQL)".to_string(),
+        WarehouseKind::Databricks => "Databricks SQL".to_string(),
+        WarehouseKind::Synapse => "Azure Synapse Analytics (T-SQL)".to_string(),
+        WarehouseKind::Redshift => "Amazon Redshift SQL".to_string(),
+        WarehouseKind::Clickhouse => "ClickHouse SQL".to_string(),
+        WarehouseKind::Duckdb => "DuckDB SQL".to_string(),
     }
 }

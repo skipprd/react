@@ -8,6 +8,14 @@ pub struct SkipprPipelineConfig {
     pub pipeline_name: String,
     pub skippr_input: serde_json::Value,
     pub output_plugin: SkipprOutputConfig,
+    #[serde(default)]
+    pub schema_sink: Option<SchemaSinkResolvedConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SchemaSinkResolvedConfig {
+    pub kind: String,
+    pub glue_database_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

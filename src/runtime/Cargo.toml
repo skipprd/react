@@ -46,6 +46,11 @@ react-module-provider-catalog = { path = "../suites/data_engineer/src/modules/pr
 react-module-provider-snowflake = { path = "../suites/data_engineer/src/modules/provider-snowflake" }
 react-module-provider-mssql = { path = "../suites/data_engineer/src/modules/provider-mssql" }
 react-module-provider-skippr = { path = "../suites/data_engineer/src/modules/provider-skippr" }
+react-module-provider-databricks = { path = "../suites/data_engineer/src/modules/provider-databricks" }
+react-module-provider-synapse = { path = "../suites/data_engineer/src/modules/provider-synapse" }
+react-module-provider-redshift = { path = "../suites/data_engineer/src/modules/provider-redshift" }
+react-module-provider-clickhouse = { path = "../suites/data_engineer/src/modules/provider-clickhouse" }
+react-module-provider-duckdb = { path = "../suites/data_engineer/src/modules/provider-duckdb" }
 react-transport = { path = "../transport" }
 
 # Vector store + Arrow

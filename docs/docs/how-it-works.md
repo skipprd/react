@@ -5,7 +5,7 @@ Skippr dbt builds a complete data pipeline by combining extract-and-load with db
 ## Pipeline flow
 
 ```
-Source (MSSQL, S3)
+Source (databases, files, streams, APIs)
   |
   |  discover -- reads source schemas
   v
@@ -17,7 +17,7 @@ Schema Mapping
   |
   |  sync -- extracts rows, loads into warehouse
   v
-Bronze Tables (Snowflake, BigQuery, or Postgres)
+Bronze Tables (Snowflake, BigQuery, Postgres, Athena, Databricks, Synapse, …)
   |
   |  dbt -- generates and runs silver/gold models
   v

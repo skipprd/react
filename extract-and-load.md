@@ -69,8 +69,8 @@ All skippr invocations run with `SKIPPR_STORAGE_MODE=local`. Auth credentials ar
 
 ## skippr-side Capabilities (Implemented)
 
-- **MSSQL Input Plugin** — `DATA_SOURCE_PLUGIN_NAME=Mssql`; optional `tables` for auto-discovery; namespace `mssql.{db}.{schema}.{table}`
-- **Snowflake Output Plugin** — `DATA_OUTPUT_PLUGIN_NAME=Snowflake`; namespace-to-table: dots to underscores, lowercased
+- **Input Plugins** — databases (MSSQL, MySQL, Postgres, Redshift, MongoDB, ClickHouse, DuckDB/MotherDuck), object stores (S3, SFTP, Delta Lake), streaming (Kafka, SQS, Kinesis, AMQP, SNS, EventBridge, MQTT, WebSocket), HTTP (server and client), DynamoDB, Socket, StatsD, File, Stdin
+- **Output Plugins** — warehouses (Snowflake, Postgres, Athena, Amazon Redshift, Databricks, Synapse, ClickHouse, DuckDB/MotherDuck), cloud storage (GCS, Azure Blob, SFTP), messaging (AMQP), File, Stdout; optional **Glue** schema sink for catalog registration
 - **`LOAD SCHEMA` DDL** — writes LLM-produced destination schemas to skippr pipeline metadata
 - **`SHOW PIPELINE` DDL** — returns namespaces, field schemas, offsets as JSON
 - **Output Modes** — `--output progress|json|text` on `sync` and `discover`
@@ -84,12 +84,11 @@ All skippr invocations run with `SKIPPR_STORAGE_MODE=local`. Auth credentials ar
 - Batch-style table-to-table extraction and load
 - LLM-assisted schema mapping (source -> destination)
 - Preparing raw/bronze destination tables for dbt consumption
-- MSSQL source, Snowflake destination (initial)
 - Incremental loads via skippr's internal offset tracking
+- Database, file, streaming, and API source ingestion
+- Multi-warehouse destination support (Snowflake, Postgres, Athena, BigQuery, Amazon Redshift, Databricks, Synapse, ClickHouse, DuckDB/MotherDuck) and optional AWS Glue schema sink
 
 ### Out of Scope
 
 - Replacing dbt
-- Real-time streaming (already handled by skippr for supported sources)
-- CDC, Kafka, or API source support
-- skippr connecting directly to source systems
+- skippr connecting directly to source systems (skippr-el handles all source connectivity)

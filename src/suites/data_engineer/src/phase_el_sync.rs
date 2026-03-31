@@ -27,6 +27,7 @@ impl DataEngineerSuite {
             pipeline_name: pipeline_name.to_string(),
             skippr_input: cfg.el.skippr_input.clone(),
             output_plugin: output_config,
+            schema_sink: None,
         };
 
         skippr
@@ -82,6 +83,11 @@ fn warehouse_to_output_config(
         WarehouseKind::Postgres => "postgres",
         WarehouseKind::Bigquery => "bigquery",
         WarehouseKind::Mssql => "mssql",
+        WarehouseKind::Databricks => "databricks",
+        WarehouseKind::Synapse => "synapse",
+        WarehouseKind::Redshift => "redshift",
+        WarehouseKind::Clickhouse => "clickhouse",
+        WarehouseKind::Duckdb => "duckdb",
     };
     SkipprOutputConfig {
         kind: kind.to_string(),

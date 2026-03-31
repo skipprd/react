@@ -9,6 +9,11 @@ use react_module_provider_mssql::{MssqlProvider, MssqlSettings};
 use react_module_provider_postgres::{PostgresProvider, PostgresSettings};
 use react_module_provider_skippr::SkipprCliProvider;
 use react_module_provider_snowflake::{SnowflakeProvider, SnowflakeSettings};
+use react_module_provider_databricks::{DatabricksProvider, DatabricksSettings};
+use react_module_provider_synapse::{SynapseProvider, SynapseSettings};
+use react_module_provider_redshift::{RedshiftProvider, RedshiftSettings};
+use react_module_provider_clickhouse::{ClickHouseProvider, ClickHouseSettings};
+use react_module_provider_duckdb::{DuckDbProvider, DuckDbSettings};
 use react_suite_data_engineer::ctx_ext::{
     CatalogCap, DatasetsCap, DbtCap, ProvidersCfgCap, QueryCap, SkipprCap, WarehouseCap,
 };
@@ -190,6 +195,199 @@ fn resolve_mssql_settings(providers: &de_cfg::ProvidersResolved) -> MssqlSetting
     }
 }
 
+fn resolve_databricks_settings(providers: &de_cfg::ProvidersResolved) -> DatabricksSettings {
+    let extras = &providers.warehouse.extras;
+    let max_concurrency = getenv_usize("DATABRICKS_MAX_CONCURRENCY")
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
+        .unwrap_or(15);
+    let discovery_cache_ttl_secs = getenv_u64("DATABRICKS_DISCOVERY_CACHE_TTL_SECS")
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
+        .unwrap_or(120);
+
+    DatabricksSettings {
+        workspace_url: getenv_nonempty("DATABRICKS_HOST").or_else(|| {
+            extras.get("workspace_url").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        token: getenv_nonempty("DATABRICKS_TOKEN").or_else(|| {
+            extras.get("token").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        warehouse_id: getenv_nonempty("DATABRICKS_WAREHOUSE_ID").or_else(|| {
+            extras.get("warehouse_id").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        catalog: Some(providers.warehouse.container.clone()).filter(|s| !s.is_empty()),
+        schema: Some(providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()),
+        max_concurrency,
+        discovery_cache_ttl_secs,
+    }
+}
+
+fn resolve_synapse_settings(providers: &de_cfg::ProvidersResolved) -> SynapseSettings {
+    let extras = &providers.warehouse.extras;
+    let max_concurrency = getenv_usize("SYNAPSE_MAX_CONCURRENCY")
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
+        .unwrap_or(15);
+    let discovery_cache_ttl_secs = getenv_u64("SYNAPSE_DISCOVERY_CACHE_TTL_SECS")
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
+        .unwrap_or(120);
+
+    let connection_string = getenv_nonempty("SYNAPSE_CONNECTION_STRING").or_else(|| {
+        extras.get("connection_string").and_then(|v| v.as_str()).map(|s| s.to_string())
+    });
+
+    let (host, port, user, password, database) = if let Some(_cs) = &connection_string {
+        (
+            getenv_nonempty("SYNAPSE_HOST"),
+            getenv_nonempty("SYNAPSE_PORT").and_then(|v| v.parse::<u16>().ok()),
+            getenv_nonempty("SYNAPSE_USER"),
+            getenv_nonempty("SYNAPSE_PASSWORD"),
+            nonempty(&providers.warehouse.container),
+        )
+    } else {
+        (
+            getenv_nonempty("SYNAPSE_HOST"),
+            getenv_nonempty("SYNAPSE_PORT").and_then(|v| v.parse::<u16>().ok()),
+            getenv_nonempty("SYNAPSE_USER"),
+            getenv_nonempty("SYNAPSE_PASSWORD"),
+            nonempty(&providers.warehouse.container),
+        )
+    };
+
+    SynapseSettings {
+        host,
+        port,
+        user,
+        password,
+        database,
+        schema: nonempty(&providers.warehouse.namespace),
+        max_concurrency,
+        discovery_cache_ttl_secs,
+        trust_cert: false,
+    }
+}
+
+fn resolve_redshift_settings(providers: &de_cfg::ProvidersResolved) -> RedshiftSettings {
+    let extras = &providers.warehouse.extras;
+    let max_concurrency = getenv_usize("REDSHIFT_MAX_CONCURRENCY")
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
+        .unwrap_or(15);
+    let discovery_cache_ttl_secs = getenv_u64("REDSHIFT_DISCOVERY_CACHE_TTL_SECS")
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
+        .unwrap_or(120);
+
+    RedshiftSettings {
+        database: nonempty(&providers.warehouse.container),
+        cluster_identifier: getenv_nonempty("REDSHIFT_CLUSTER_IDENTIFIER").or_else(|| {
+            extras.get("cluster_identifier").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        workgroup_name: getenv_nonempty("REDSHIFT_WORKGROUP_NAME").or_else(|| {
+            extras.get("workgroup_name").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        db_user: getenv_nonempty("REDSHIFT_DB_USER").or_else(|| {
+            extras.get("db_user").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        schema: nonempty(&providers.warehouse.namespace),
+        region: getenv_nonempty("AWS_REGION").or_else(|| {
+            extras.get("region").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        max_concurrency,
+        discovery_cache_ttl_secs,
+    }
+}
+
+fn resolve_clickhouse_settings(providers: &de_cfg::ProvidersResolved) -> ClickHouseSettings {
+    let extras = &providers.warehouse.extras;
+    let max_concurrency = getenv_usize("CLICKHOUSE_MAX_CONCURRENCY")
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
+        .unwrap_or(15);
+    let discovery_cache_ttl_secs = getenv_u64("CLICKHOUSE_DISCOVERY_CACHE_TTL_SECS")
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
+        .unwrap_or(120);
+
+    ClickHouseSettings {
+        url: getenv_nonempty("CLICKHOUSE_URL").or_else(|| {
+            extras.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        database: nonempty(&providers.warehouse.container),
+        user: getenv_nonempty("CLICKHOUSE_USER").or_else(|| {
+            extras.get("user").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        password: getenv_nonempty("CLICKHOUSE_PASSWORD").or_else(|| {
+            extras.get("password").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        max_concurrency,
+        discovery_cache_ttl_secs,
+    }
+}
+
+fn resolve_duckdb_settings(providers: &de_cfg::ProvidersResolved) -> DuckDbSettings {
+    let extras = &providers.warehouse.extras;
+    let max_concurrency = getenv_usize("DUCKDB_MAX_CONCURRENCY")
+        .or_else(|| {
+            extras
+                .get("max_concurrency")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+        })
+        .unwrap_or(4);
+
+    let discovery_cache_ttl_secs = getenv_u64("DUCKDB_DISCOVERY_CACHE_TTL_SECS")
+        .or_else(|| {
+            extras
+                .get("discovery_cache_ttl_secs")
+                .and_then(|v| v.as_u64())
+        })
+        .unwrap_or(120);
+
+    DuckDbSettings {
+        connection_string: getenv_nonempty("DUCKDB_CONNECTION_STRING").or_else(|| {
+            extras.get("connection_string").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        motherduck_token: getenv_nonempty("MOTHERDUCK_TOKEN").or_else(|| {
+            extras.get("motherduck_token").and_then(|v| v.as_str()).map(|s| s.to_string())
+        }),
+        database: nonempty(&providers.warehouse.container),
+        schema: nonempty(&providers.warehouse.namespace),
+        max_concurrency,
+        discovery_cache_ttl_secs,
+    }
+}
+
 /// Wire all data_engineer-specific providers onto the SuiteCtx.
 ///
 /// This module is intentionally coupled to the `data_engineer` suite: it is the
@@ -294,6 +492,55 @@ pub(crate) async fn wire_providers(
             sctx.set_capability(Arc::new(WarehouseCap(ms.clone())));
             sctx.set_capability(Arc::new(QueryCap(ms.clone())));
             sctx.set_capability(Arc::new(DatasetsCap(ms.clone())));
+        }
+        WarehouseKind::Databricks => {
+            let db = Arc::new(
+                DatabricksProvider::from_settings(resolve_databricks_settings(&providers))
+                    .await
+                    .map_err(|e| format!("Databricks provider init failed: {}", e))?,
+            );
+            sctx.set_capability(Arc::new(WarehouseCap(db.clone())));
+            sctx.set_capability(Arc::new(QueryCap(db.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(db.clone())));
+        }
+        WarehouseKind::Synapse => {
+            let syn = Arc::new(
+                SynapseProvider::from_settings(resolve_synapse_settings(&providers))
+                    .await
+                    .map_err(|e| format!("Synapse provider init failed: {}", e))?,
+            );
+            sctx.set_capability(Arc::new(WarehouseCap(syn.clone())));
+            sctx.set_capability(Arc::new(QueryCap(syn.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(syn.clone())));
+        }
+        WarehouseKind::Redshift => {
+            apply_aws_region_fallback(&providers.warehouse.extras);
+            let rs = Arc::new(
+                RedshiftProvider::from_settings(resolve_redshift_settings(&providers))
+                    .await
+                    .map_err(|e| format!("Redshift provider init failed: {}", e))?,
+            );
+            sctx.set_capability(Arc::new(WarehouseCap(rs.clone())));
+            sctx.set_capability(Arc::new(QueryCap(rs.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(rs.clone())));
+        }
+        WarehouseKind::Clickhouse => {
+            let ch = Arc::new(
+                ClickHouseProvider::from_settings(resolve_clickhouse_settings(&providers))
+                    .map_err(|e| format!("ClickHouse provider init failed: {}", e))?,
+            );
+            sctx.set_capability(Arc::new(WarehouseCap(ch.clone())));
+            sctx.set_capability(Arc::new(QueryCap(ch.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(ch.clone())));
+        }
+        WarehouseKind::Duckdb => {
+            let dk = Arc::new(
+                DuckDbProvider::from_settings(resolve_duckdb_settings(&providers))
+                    .map_err(|e| format!("DuckDB provider init failed: {}", e))?,
+            );
+            sctx.set_capability(Arc::new(WarehouseCap(dk.clone())));
+            sctx.set_capability(Arc::new(QueryCap(dk.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(dk.clone())));
         }
     }
 

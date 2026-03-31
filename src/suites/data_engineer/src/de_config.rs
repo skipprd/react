@@ -65,6 +65,40 @@ pub(crate) enum WarehouseFile {
         max_concurrency: Option<usize>,
         discovery_cache_ttl_secs: Option<u64>,
     },
+    Databricks {
+        workspace_url: Option<String>,
+        token: Option<String>,
+        warehouse_id: Option<String>,
+        catalog: Option<String>,
+        schema: Option<String>,
+    },
+    Synapse {
+        connection_string: Option<String>,
+        schema: Option<String>,
+    },
+    Redshift {
+        database: Option<String>,
+        cluster_identifier: Option<String>,
+        workgroup_name: Option<String>,
+        db_user: Option<String>,
+        schema: Option<String>,
+        region: Option<String>,
+        staging_s3_bucket: Option<String>,
+        staging_s3_prefix: Option<String>,
+        iam_role_arn: Option<String>,
+    },
+    Clickhouse {
+        url: Option<String>,
+        database: Option<String>,
+        user: Option<String>,
+        password: Option<String>,
+    },
+    Duckdb {
+        connection_string: Option<String>,
+        motherduck_token: Option<String>,
+        database: Option<String>,
+        schema: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -189,6 +223,57 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
             }),
         },
+        WarehouseFile::Databricks { workspace_url, token, warehouse_id, catalog, schema } => WarehouseResolved {
+            kind: WarehouseKind::Databricks,
+            container: resolve_env_ref(&catalog.unwrap_or_else(|| "main".to_string())),
+            namespace: resolve_env_ref(&schema.unwrap_or_else(|| "default".to_string())),
+            extras: serde_json::json!({
+                "workspace_url": workspace_url,
+                "token": token,
+                "warehouse_id": warehouse_id,
+            }),
+        },
+        WarehouseFile::Synapse { connection_string, schema } => WarehouseResolved {
+            kind: WarehouseKind::Synapse,
+            container: String::new(),
+            namespace: resolve_env_ref(&schema.unwrap_or_else(|| "dbo".to_string())),
+            extras: serde_json::json!({
+                "connection_string": connection_string,
+            }),
+        },
+        WarehouseFile::Redshift { database, cluster_identifier, workgroup_name, db_user, schema, region, staging_s3_bucket, staging_s3_prefix, iam_role_arn } => WarehouseResolved {
+            kind: WarehouseKind::Redshift,
+            container: resolve_env_ref(&database.unwrap_or_default()),
+            namespace: resolve_env_ref(&schema.unwrap_or_default()),
+            extras: serde_json::json!({
+                "cluster_identifier": cluster_identifier,
+                "workgroup_name": workgroup_name,
+                "db_user": db_user,
+                "region": region,
+                "staging_s3_bucket": staging_s3_bucket,
+                "staging_s3_prefix": staging_s3_prefix,
+                "iam_role_arn": iam_role_arn,
+            }),
+        },
+        WarehouseFile::Clickhouse { url, database, user, password } => WarehouseResolved {
+            kind: WarehouseKind::Clickhouse,
+            container: resolve_env_ref(&database.unwrap_or_else(|| "default".to_string())),
+            namespace: "default".to_string(),
+            extras: serde_json::json!({
+                "url": url,
+                "user": user,
+                "password": password,
+            }),
+        },
+        WarehouseFile::Duckdb { connection_string, motherduck_token, database, schema } => WarehouseResolved {
+            kind: WarehouseKind::Duckdb,
+            container: resolve_env_ref(&database.unwrap_or_default()),
+            namespace: resolve_env_ref(&schema.unwrap_or_else(|| "main".to_string())),
+            extras: serde_json::json!({
+                "connection_string": connection_string,
+                "motherduck_token": motherduck_token,
+            }),
+        },
     }
 }
 
@@ -279,6 +364,11 @@ pub enum WarehouseKind {
     Mssql,
     Snowflake,
     Bigquery,
+    Databricks,
+    Synapse,
+    Redshift,
+    Clickhouse,
+    Duckdb,
 }
 
 impl fmt::Display for WarehouseKind {
@@ -289,6 +379,11 @@ impl fmt::Display for WarehouseKind {
             Self::Mssql => write!(f, "mssql"),
             Self::Snowflake => write!(f, "snowflake"),
             Self::Bigquery => write!(f, "bigquery"),
+            Self::Databricks => write!(f, "databricks"),
+            Self::Synapse => write!(f, "synapse"),
+            Self::Redshift => write!(f, "redshift"),
+            Self::Clickhouse => write!(f, "clickhouse"),
+            Self::Duckdb => write!(f, "duckdb"),
         }
     }
 }
@@ -320,6 +415,8 @@ pub struct ElToolResolved {
     pub skippr_binary: String,
     #[serde(default)]
     pub skippr_input: serde_json::Value,
+    #[serde(default)]
+    pub schema_sink: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

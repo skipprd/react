@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 /// The skippr-el version that this build of skippr expects.
 /// Updated when skippr is built against a new skippr-el release.
-pub const SKIPPR_VERSION: &str = "7.0.0";
+pub const SKIPPR_VERSION: &str = "7.1.0";
 
 const GITHUB_OWNER: &str = "skipprd";
 const GITHUB_REPO: &str = "skipprd";

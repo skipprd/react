@@ -21,6 +21,11 @@ members = [
   "src/suites/data_engineer/src/modules/provider-snowflake",
   "src/suites/data_engineer/src/modules/provider-mssql",
   "src/suites/data_engineer/src/modules/provider-skippr",
+  "src/suites/data_engineer/src/modules/provider-databricks",
+  "src/suites/data_engineer/src/modules/provider-synapse",
+  "src/suites/data_engineer/src/modules/provider-redshift",
+  "src/suites/data_engineer/src/modules/provider-clickhouse",
+  "src/suites/data_engineer/src/modules/provider-duckdb",
   "src/bins/skippr",
   "src/bins/skippr-admin",
 ]

@@ -73,6 +73,103 @@ impl SkipprCliProvider {
                 }
             }
 
+            if kind.eq_ignore_ascii_case("mysql") {
+                if let Some(cs) = input.get("connection_string").and_then(|v| v.as_str()) {
+                    env.insert("MYSQL_CONNECTION_STRING".into(), resolve_env_ref(cs));
+                }
+            }
+
+            if kind.eq_ignore_ascii_case("postgres") {
+                if let Some(v) = input.get("host").and_then(|v| v.as_str()) { env.insert("POSTGRES_HOST".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("user").and_then(|v| v.as_str()) { env.insert("POSTGRES_USER".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("password").and_then(|v| v.as_str()) { env.insert("POSTGRES_PASSWORD".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("POSTGRES_DATABASE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("POSTGRES_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("redshift") {
+                if let Some(v) = input.get("cluster_identifier").and_then(|v| v.as_str()) { env.insert("REDSHIFT_CLUSTER_IDENTIFIER".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("REDSHIFT_DATABASE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("mongodb") {
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("MONGODB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("dynamodb") {
+                if let Some(v) = input.get("table_name").and_then(|v| v.as_str()) { env.insert("DYNAMODB_TABLE_NAME".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("clickhouse") {
+                if let Some(v) = input.get("url").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_DATABASE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("user").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_USER".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("duckdb") {
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("DUCKDB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("sftp") {
+                if let Some(v) = input.get("host").and_then(|v| v.as_str()) { env.insert("SFTP_HOST".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("username").and_then(|v| v.as_str()) { env.insert("SFTP_USERNAME".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("password").and_then(|v| v.as_str()) { env.insert("SFTP_PASSWORD".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("remote_path").and_then(|v| v.as_str()) { env.insert("SFTP_REMOTE_PATH".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("kafka") {
+                if let Some(v) = input.get("brokers").and_then(|v| v.as_str()) { env.insert("KAFKA_BROKERS".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) { env.insert("KAFKA_TOPIC".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("sqs") {
+                if let Some(v) = input.get("queue_url").and_then(|v| v.as_str()) { env.insert("SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("kinesis") {
+                if let Some(v) = input.get("stream_name").and_then(|v| v.as_str()) { env.insert("KINESIS_STREAM_NAME".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("amqp") {
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("AMQP_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("queue").and_then(|v| v.as_str()) { env.insert("AMQP_QUEUE".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("sns") {
+                if let Some(v) = input.get("topic_arn").and_then(|v| v.as_str()) { env.insert("SNS_TOPIC_ARN".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) { env.insert("SNS_SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("eventbridge") {
+                if let Some(v) = input.get("event_bus_name").and_then(|v| v.as_str()) { env.insert("EVENTBRIDGE_EVENT_BUS_NAME".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) { env.insert("EVENTBRIDGE_SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("mqtt") {
+                if let Some(v) = input.get("broker_url").and_then(|v| v.as_str()) { env.insert("MQTT_BROKER_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) { env.insert("MQTT_TOPIC".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("websocket") {
+                if let Some(v) = input.get("url").and_then(|v| v.as_str()) { env.insert("WEBSOCKET_URL".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("socket") {
+                if let Some(v) = input.get("mode").and_then(|v| v.as_str()) { env.insert("SOCKET_MODE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("address").and_then(|v| v.as_str()) { env.insert("SOCKET_ADDRESS".into(), resolve_env_ref(v)); }
+            }
+
+            if kind.eq_ignore_ascii_case("delta_lake") {
+                if let Some(v) = input.get("table_uri").and_then(|v| v.as_str()) { env.insert("DELTA_TABLE_URI".into(), resolve_env_ref(v)); }
+            }
+
         }
 
         match self.warehouse.kind {
@@ -112,7 +209,65 @@ impl SkipprCliProvider {
                     env.insert("POSTGRES_SCHEMA".into(), resolve_env_ref(&self.warehouse.namespace));
                 }
             }
-            _ => {}
+            WarehouseKind::Databricks => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Databricks".into());
+                if let Some(v) = std::env::var("DATABRICKS_WORKSPACE_URL").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_WORKSPACE_URL".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("workspace_url").and_then(|v| v.as_str()) { env.insert("DATABRICKS_WORKSPACE_URL".into(), v.to_string()); }
+                if let Some(v) = std::env::var("DATABRICKS_TOKEN").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_TOKEN".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("token").and_then(|v| v.as_str()) { env.insert("DATABRICKS_TOKEN".into(), v.to_string()); }
+                if let Some(v) = std::env::var("DATABRICKS_WAREHOUSE_ID").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_WAREHOUSE_ID".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("warehouse_id").and_then(|v| v.as_str()) { env.insert("DATABRICKS_WAREHOUSE_ID".into(), v.to_string()); }
+            }
+            WarehouseKind::Synapse => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Synapse".into());
+                if let Some(v) = std::env::var("SYNAPSE_CONNECTION_STRING").ok().filter(|v| !v.trim().is_empty()) { env.insert("SYNAPSE_CONNECTION_STRING".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("connection_string").and_then(|v| v.as_str()) { env.insert("SYNAPSE_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+            }
+            WarehouseKind::Redshift => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Redshift".into());
+                for (env_key, json_key) in [
+                    ("REDSHIFT_DATABASE", "database"), ("REDSHIFT_CLUSTER_IDENTIFIER", "cluster_identifier"),
+                    ("REDSHIFT_WORKGROUP_NAME", "workgroup_name"), ("REDSHIFT_DB_USER", "db_user"),
+                    ("REDSHIFT_REGION", "region"), ("REDSHIFT_STAGING_S3_BUCKET", "staging_s3_bucket"),
+                    ("REDSHIFT_STAGING_S3_PREFIX", "staging_s3_prefix"), ("REDSHIFT_IAM_ROLE_ARN", "iam_role_arn"),
+                ] {
+                    if let Some(v) = std::env::var(env_key).ok().filter(|v| !v.trim().is_empty()) { env.insert(env_key.into(), v); }
+                    else if let Some(v) = self.warehouse.extras.get(json_key).and_then(|v| v.as_str()).filter(|v| !v.is_empty()) { env.insert(env_key.into(), resolve_env_ref(v)); }
+                }
+                if !self.warehouse.container.is_empty() && !env.contains_key("REDSHIFT_DATABASE") {
+                    env.insert("REDSHIFT_DATABASE".into(), resolve_env_ref(&self.warehouse.container));
+                }
+            }
+            WarehouseKind::Clickhouse => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Clickhouse".into());
+                if let Some(v) = std::env::var("CLICKHOUSE_URL").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_URL".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("url").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = std::env::var("CLICKHOUSE_DATABASE").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_DATABASE".into(), v); }
+                else if !self.warehouse.container.is_empty() { env.insert("CLICKHOUSE_DATABASE".into(), resolve_env_ref(&self.warehouse.container)); }
+                if let Some(v) = std::env::var("CLICKHOUSE_USER").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_USER".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("user").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_USER".into(), v.to_string()); }
+                if let Some(v) = std::env::var("CLICKHOUSE_PASSWORD").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_PASSWORD".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("password").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_PASSWORD".into(), v.to_string()); }
+            }
+            WarehouseKind::Duckdb => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Duckdb".into());
+                if let Some(v) = std::env::var("DUCKDB_CONNECTION_STRING").ok().filter(|v| !v.trim().is_empty()) { env.insert("DUCKDB_CONNECTION_STRING".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("connection_string").and_then(|v| v.as_str()) { env.insert("DUCKDB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+                if let Some(v) = std::env::var("MOTHERDUCK_TOKEN").ok().filter(|v| !v.trim().is_empty()) { env.insert("MOTHERDUCK_TOKEN".into(), v); }
+                else if let Some(v) = self.warehouse.extras.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
+            }
+            WarehouseKind::Mssql => {}
+        }
+
+        if let Some(ref ss) = self.el_config.schema_sink {
+            if let Some(kind) = ss.get("kind").and_then(|v| v.as_str()) {
+                env.insert("DATA_SCHEMA_PLUGIN_NAME".into(), capitalize_first(kind));
+                if kind.eq_ignore_ascii_case("glue") {
+                    if let Some(v) = ss.get("glue_database_name").and_then(|v| v.as_str()) {
+                        env.insert("GLUE_DATABASE_NAME".into(), resolve_env_ref(v));
+                    }
+                }
+            }
         }
 
         env
@@ -376,7 +531,16 @@ impl SkipprCliProvider {
             }
         }
 
-        let yml = serde_yaml::to_value(&serde_json::json!({
+        let mut dest_block = serde_json::json!({ output_kind: output_config });
+
+        let has_schema_sink = config.schema_sink.is_some()
+            || self.el_config.schema_sink.is_some();
+
+        if has_schema_sink {
+            dest_block["schema_sink"] = serde_json::Value::String("schema_sinks.schema".into());
+        }
+
+        let mut root = serde_json::json!({
             "skippr": {
                 "storage_mode": "local"
             },
@@ -389,13 +553,40 @@ impl SkipprCliProvider {
                 }
             },
             "data_sinks": {
-                "destination": {
-                    output_kind: output_config
-                }
+                "destination": dest_block
             }
-        }))
-        .unwrap_or_default();
+        });
 
+        if has_schema_sink {
+            let ss = config.schema_sink.as_ref().map(|s| {
+                let mut m = serde_json::Map::new();
+                let kind = capitalize_first(&s.kind);
+                let mut inner = serde_json::Map::new();
+                if let Some(ref db) = s.glue_database_name {
+                    inner.insert("glue_database_name".into(), serde_json::Value::String(db.clone()));
+                }
+                m.insert(kind, serde_json::Value::Object(inner));
+                serde_json::Value::Object(m)
+            }).or_else(|| {
+                self.el_config.schema_sink.as_ref().map(|ss_val| {
+                    let kind = ss_val.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let cap = capitalize_first(kind);
+                    let mut inner = serde_json::Map::new();
+                    if let Some(v) = ss_val.get("glue_database_name").and_then(|v| v.as_str()) {
+                        inner.insert("glue_database_name".into(), serde_json::Value::String(v.to_string()));
+                    }
+                    let mut m = serde_json::Map::new();
+                    m.insert(cap, serde_json::Value::Object(inner));
+                    serde_json::Value::Object(m)
+                })
+            });
+
+            if let Some(ss_block) = ss {
+                root["schema_sinks"] = serde_json::json!({ "schema": ss_block });
+            }
+        }
+
+        let yml = serde_yaml::to_value(&root).unwrap_or_default();
         serde_yaml::to_string(&yml).unwrap_or_default()
     }
 
@@ -531,7 +722,50 @@ impl SkipprCliProvider {
                 }
                 serde_json::Value::Object(cfg)
             }
-            _ => serde_json::json!({}),
+            WarehouseKind::Databricks => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                if let Some(v) = getenv("DATABRICKS_WORKSPACE_URL").or_else(|| extra_str(extras, "workspace_url")) { cfg.insert("workspace_url".into(), serde_json::Value::String(v)); }
+                if let Some(v) = getenv("DATABRICKS_TOKEN").or_else(|| extra_str(extras, "token")) { cfg.insert("token".into(), serde_json::Value::String(v)); }
+                if let Some(v) = getenv("DATABRICKS_WAREHOUSE_ID").or_else(|| extra_str(extras, "warehouse_id")) { cfg.insert("warehouse_id".into(), serde_json::Value::String(v)); }
+                if !self.warehouse.container.is_empty() { cfg.insert("catalog".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
+                if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
+                serde_json::Value::Object(cfg)
+            }
+            WarehouseKind::Synapse => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                if let Some(v) = getenv("SYNAPSE_CONNECTION_STRING").or_else(|| extra_str(extras, "connection_string")) { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
+                if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
+                serde_json::Value::Object(cfg)
+            }
+            WarehouseKind::Redshift => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
+                for (json_key, env_key) in [("cluster_identifier", "REDSHIFT_CLUSTER_IDENTIFIER"), ("workgroup_name", "REDSHIFT_WORKGROUP_NAME"), ("db_user", "REDSHIFT_DB_USER"), ("region", "REDSHIFT_REGION"), ("staging_s3_bucket", "REDSHIFT_STAGING_S3_BUCKET"), ("staging_s3_prefix", "REDSHIFT_STAGING_S3_PREFIX"), ("iam_role_arn", "REDSHIFT_IAM_ROLE_ARN")] {
+                    if let Some(v) = getenv(env_key).or_else(|| extra_str(extras, json_key)) { cfg.insert(json_key.into(), serde_json::Value::String(v)); }
+                }
+                serde_json::Value::Object(cfg)
+            }
+            WarehouseKind::Clickhouse => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                if let Some(v) = getenv("CLICKHOUSE_URL").or_else(|| extra_str(extras, "url")) { cfg.insert("url".into(), serde_json::Value::String(v)); }
+                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
+                if let Some(v) = getenv("CLICKHOUSE_USER").or_else(|| extra_str(extras, "user")) { cfg.insert("user".into(), serde_json::Value::String(v)); }
+                if let Some(v) = getenv("CLICKHOUSE_PASSWORD").or_else(|| extra_str(extras, "password")) { cfg.insert("password".into(), serde_json::Value::String(v)); }
+                serde_json::Value::Object(cfg)
+            }
+            WarehouseKind::Duckdb => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                if let Some(v) = getenv("DUCKDB_CONNECTION_STRING").or_else(|| extra_str(extras, "connection_string")) { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
+                if let Some(v) = getenv("MOTHERDUCK_TOKEN").or_else(|| extra_str(extras, "motherduck_token")) { cfg.insert("motherduck_token".into(), serde_json::Value::String(v)); }
+                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
+                serde_json::Value::Object(cfg)
+            }
+            WarehouseKind::Athena | WarehouseKind::Mssql => serde_json::json!({}),
         }
     }
 }
