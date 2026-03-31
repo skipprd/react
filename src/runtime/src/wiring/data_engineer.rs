@@ -13,7 +13,7 @@ use react_module_provider_databricks::{DatabricksProvider, DatabricksSettings};
 use react_module_provider_synapse::{SynapseProvider, SynapseSettings};
 use react_module_provider_redshift::{RedshiftProvider, RedshiftSettings};
 use react_module_provider_clickhouse::{ClickHouseProvider, ClickHouseSettings};
-use react_module_provider_duckdb::{DuckDbProvider, DuckDbSettings};
+use react_module_provider_motherduck::{MotherDuckProvider, MotherDuckSettings};
 use react_suite_data_engineer::ctx_ext::{
     CatalogCap, DatasetsCap, DbtCap, ProvidersCfgCap, QueryCap, SkipprCap, WarehouseCap,
 };
@@ -355,9 +355,9 @@ fn resolve_clickhouse_settings(providers: &de_cfg::ProvidersResolved) -> ClickHo
     }
 }
 
-fn resolve_duckdb_settings(providers: &de_cfg::ProvidersResolved) -> DuckDbSettings {
+fn resolve_motherduck_settings(providers: &de_cfg::ProvidersResolved) -> MotherDuckSettings {
     let extras = &providers.warehouse.extras;
-    let max_concurrency = getenv_usize("DUCKDB_MAX_CONCURRENCY")
+    let max_concurrency = getenv_usize("MOTHERDUCK_MAX_CONCURRENCY")
         .or_else(|| {
             extras
                 .get("max_concurrency")
@@ -366,7 +366,7 @@ fn resolve_duckdb_settings(providers: &de_cfg::ProvidersResolved) -> DuckDbSetti
         })
         .unwrap_or(4);
 
-    let discovery_cache_ttl_secs = getenv_u64("DUCKDB_DISCOVERY_CACHE_TTL_SECS")
+    let discovery_cache_ttl_secs = getenv_u64("MOTHERDUCK_DISCOVERY_CACHE_TTL_SECS")
         .or_else(|| {
             extras
                 .get("discovery_cache_ttl_secs")
@@ -374,10 +374,7 @@ fn resolve_duckdb_settings(providers: &de_cfg::ProvidersResolved) -> DuckDbSetti
         })
         .unwrap_or(120);
 
-    DuckDbSettings {
-        connection_string: getenv_nonempty("DUCKDB_CONNECTION_STRING").or_else(|| {
-            extras.get("connection_string").and_then(|v| v.as_str()).map(|s| s.to_string())
-        }),
+    MotherDuckSettings {
         motherduck_token: getenv_nonempty("MOTHERDUCK_TOKEN").or_else(|| {
             extras.get("motherduck_token").and_then(|v| v.as_str()).map(|s| s.to_string())
         }),
@@ -533,14 +530,14 @@ pub(crate) async fn wire_providers(
             sctx.set_capability(Arc::new(QueryCap(ch.clone())));
             sctx.set_capability(Arc::new(DatasetsCap(ch.clone())));
         }
-        WarehouseKind::Duckdb => {
-            let dk = Arc::new(
-                DuckDbProvider::from_settings(resolve_duckdb_settings(&providers))
-                    .map_err(|e| format!("DuckDB provider init failed: {}", e))?,
+        WarehouseKind::Motherduck => {
+            let md = Arc::new(
+                MotherDuckProvider::from_settings(resolve_motherduck_settings(&providers))
+                    .map_err(|e| format!("MotherDuck provider init failed: {}", e))?,
             );
-            sctx.set_capability(Arc::new(WarehouseCap(dk.clone())));
-            sctx.set_capability(Arc::new(QueryCap(dk.clone())));
-            sctx.set_capability(Arc::new(DatasetsCap(dk.clone())));
+            sctx.set_capability(Arc::new(WarehouseCap(md.clone())));
+            sctx.set_capability(Arc::new(QueryCap(md.clone())));
+            sctx.set_capability(Arc::new(DatasetsCap(md.clone())));
         }
     }
 

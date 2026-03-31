@@ -184,10 +184,8 @@ enum WarehouseKind {
         #[arg(long)]
         password: Option<String>,
     },
-    /// DuckDB / MotherDuck warehouse.
-    Duckdb {
-        #[arg(long)]
-        connection_string: Option<String>,
+    /// MotherDuck warehouse.
+    Motherduck {
         #[arg(long)]
         motherduck_token: Option<String>,
         #[arg(long)]
@@ -291,10 +289,8 @@ enum SourceKind {
         #[arg(long)]
         query: Option<String>,
     },
-    /// DuckDB / MotherDuck source.
-    DuckdbSource {
-        #[arg(long)]
-        connection_string: Option<String>,
+    /// MotherDuck source.
+    MotherduckSource {
         #[arg(long)]
         motherduck_token: Option<String>,
         #[arg(long)]
@@ -599,8 +595,8 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
         WarehouseKind::Clickhouse { url, database, user, password } => {
             WarehouseConfig::Clickhouse { url, database, user, password }
         }
-        WarehouseKind::Duckdb { connection_string, motherduck_token, database, schema } => {
-            WarehouseConfig::Duckdb { connection_string, motherduck_token, database, schema }
+        WarehouseKind::Motherduck { motherduck_token, database, schema } => {
+            WarehouseConfig::Motherduck { motherduck_token, database, schema }
         }
     };
 
@@ -675,8 +671,8 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
         SourceKind::ClickhouseSource { url, database, user, password, tables, query } => {
             SourceConfig::ClickhouseSource { url, database, user, password, tables, query }
         }
-        SourceKind::DuckdbSource { connection_string, motherduck_token, database, tables, query } => {
-            SourceConfig::DuckdbSource { connection_string, motherduck_token, database, tables, query }
+        SourceKind::MotherduckSource { motherduck_token, database, tables, query } => {
+            SourceConfig::MotherduckSource { motherduck_token, database, tables, query }
         }
         SourceKind::Sftp { host, port, username, password, private_key_path, remote_path } => {
             SourceConfig::Sftp { host, port, username, password, private_key_path, remote_path }
@@ -737,7 +733,7 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
         SourceConfig::Mongodb { .. } => "mongodb",
         SourceConfig::Dynamodb { .. } => "dynamodb",
         SourceConfig::ClickhouseSource { .. } => "clickhouse_source",
-        SourceConfig::DuckdbSource { .. } => "duckdb_source",
+        SourceConfig::MotherduckSource { .. } => "motherduck_source",
         SourceConfig::Sftp { .. } => "sftp",
         SourceConfig::File { .. } => "file",
         SourceConfig::DeltaLake { .. } => "delta_lake",
@@ -879,6 +875,10 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_clickhouse_env(&mut ok);
     }
 
+    if let Some(WarehouseConfig::Motherduck { .. }) = &cfg.warehouse {
+        check_motherduck_env(&mut ok);
+    }
+
     println!();
     if ok {
         println!("All checks passed. Run 'skippr run' to start.");
@@ -995,6 +995,15 @@ fn check_clickhouse_env(_ok: &mut bool) {
         check_pass("CLICKHOUSE_URL is set");
     } else {
         check_pass("CLICKHOUSE_URL not set (defaults to http://localhost:8123)");
+    }
+}
+
+fn check_motherduck_env(ok: &mut bool) {
+    if env_set("MOTHERDUCK_TOKEN") {
+        check_pass("MOTHERDUCK_TOKEN is set");
+    } else {
+        check_fail("MOTHERDUCK_TOKEN is not set (required for MotherDuck)");
+        *ok = false;
     }
 }
 

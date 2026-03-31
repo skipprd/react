@@ -18,6 +18,6 @@ pub fn active_provider_dialect(cfg: &ReactResolvedConfig) -> String {
         WarehouseKind::Synapse => "Azure Synapse Analytics (T-SQL)".to_string(),
         WarehouseKind::Redshift => "Amazon Redshift SQL".to_string(),
         WarehouseKind::Clickhouse => "ClickHouse SQL".to_string(),
-        WarehouseKind::Duckdb => "DuckDB SQL".to_string(),
+        WarehouseKind::Motherduck => "MotherDuck SQL".to_string(),
     }
 }

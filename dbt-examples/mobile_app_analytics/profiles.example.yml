@@ -25,10 +25,12 @@ mobile_app_analytics:
       dataset: "{{ env_var('DBT_SCHEMA', 'dbt_mobile') }}"
       keyfile_json: "{{ env_var('BQ_SERVICE_ACCOUNT_JSON') }}"
       threads: 4
-    duckdb:
+    motherduck:
       type: duckdb
-      path: "{{ env_var('DUCKDB_PATH', '.dbt/mobile.duckdb') }}"
+      path: "md:{{ env_var('MOTHERDUCK_DATABASE', 'my_db') }}"
       schema: "{{ env_var('DBT_SCHEMA', 'dbt_mobile') }}"
+      settings:
+        motherduck_token: "{{ env_var('MOTHERDUCK_TOKEN') }}"
       threads: 4
   target: "{{ env_var('DBT_TARGET', 'snowflake') }}"
 

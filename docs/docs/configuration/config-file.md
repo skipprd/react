@@ -163,21 +163,20 @@ warehouse:
   user: default
 ```
 
-#### DuckDB / MotherDuck
+#### MotherDuck
 
 | Field | Description |
 |---|---|
-| `kind` | `duckdb` |
-| `connection_string` | Path or URI (e.g. `md:my_db` for MotherDuck) |
-| `motherduck_token` | MotherDuck token when using `md:` |
-| `database` | Database name (optional) |
+| `kind` | `motherduck` |
+| `motherduck_token` | MotherDuck auth token (required) |
+| `database` | MotherDuck database name |
 | `schema` | Target schema |
 
 ```yaml
 warehouse:
-  kind: duckdb
-  connection_string: md:my_database
+  kind: motherduck
   motherduck_token: ${MOTHERDUCK_TOKEN}
+  database: my_database
   schema: main
 ```
 
@@ -265,14 +264,13 @@ The data source for extraction. When absent, the pipeline skips extraction and s
 | `tables` | Optional list of tables |
 | `query` | Optional SQL query instead of table list |
 
-##### DuckDB / MotherDuck
+##### MotherDuck
 
 | Field | Description |
 |---|---|
-| `kind` | `duckdb_source` |
-| `connection_string` | Path or URI (e.g. `md:my_db` for MotherDuck) |
-| `motherduck_token` | MotherDuck token when using `md:` |
-| `database` | Database name |
+| `kind` | `motherduck_source` |
+| `motherduck_token` | MotherDuck auth token (required) |
+| `database` | MotherDuck database name |
 | `tables` | Optional list of tables |
 | `query` | Optional SQL query |
 

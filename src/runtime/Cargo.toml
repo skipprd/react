@@ -50,7 +50,7 @@ react-module-provider-databricks = { path = "../suites/data_engineer/src/modules
 react-module-provider-synapse = { path = "../suites/data_engineer/src/modules/provider-synapse" }
 react-module-provider-redshift = { path = "../suites/data_engineer/src/modules/provider-redshift" }
 react-module-provider-clickhouse = { path = "../suites/data_engineer/src/modules/provider-clickhouse" }
-react-module-provider-duckdb = { path = "../suites/data_engineer/src/modules/provider-duckdb" }
+react-module-provider-motherduck = { path = "../suites/data_engineer/src/modules/provider-motherduck" }
 react-transport = { path = "../transport" }
 
 # Vector store + Arrow

@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use duckdb::types::ValueRef;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore};
 
 use react_core::discover::stats::FieldStats;
 use react_suite_data_engineer::providers::{
@@ -12,13 +11,13 @@ use react_suite_data_engineer::providers::{
 };
 use react_suite_data_engineer::providers::warehouse_utils;
 
+const MOTHERDUCK_API_URL: &str = "https://api.motherduck.com/v1/sql";
 const DEFAULT_MAX_CONCURRENCY: usize = 4;
 const MAX_CONCURRENCY_CAP: usize = 8;
 const DEFAULT_DISCOVERY_CACHE_TTL_SECS: u64 = 120;
 
 #[derive(Clone, Debug, Default)]
-pub struct DuckDbSettings {
-    pub connection_string: Option<String>,
+pub struct MotherDuckSettings {
     pub motherduck_token: Option<String>,
     pub database: Option<String>,
     pub schema: Option<String>,
@@ -27,12 +26,13 @@ pub struct DuckDbSettings {
 }
 
 #[derive(Clone)]
-pub struct DuckDbProvider {
+pub struct MotherDuckProvider {
     inner: Arc<Inner>,
 }
 
 struct Inner {
-    conn: Mutex<duckdb::Connection>,
+    client: reqwest::Client,
+    token: String,
     database: String,
     schema: String,
     max_concurrency: usize,
@@ -47,45 +47,37 @@ struct Cache {
     columns_by_fqn: HashMap<String, (Instant, Vec<(String, String)>)>,
 }
 
-impl DuckDbProvider {
-    pub fn from_settings(settings: DuckDbSettings) -> Result<Self, String> {
-        let conn_str = settings
-            .connection_string
-            .or_else(|| getenv_nonempty("DUCKDB_CONNECTION_STRING"))
-            .or_else(|| getenv_nonempty("DUCKDB_PATH"));
+#[derive(serde::Deserialize)]
+struct MdSqlResponse {
+    #[serde(default)]
+    columns: Vec<MdColumn>,
+    #[serde(default)]
+    data: Vec<Vec<serde_json::Value>>,
+    #[serde(default)]
+    error: Option<String>,
+}
 
-        let md_token = settings
+#[derive(serde::Deserialize)]
+struct MdColumn {
+    name: String,
+}
+
+impl MotherDuckProvider {
+    pub fn from_settings(settings: MotherDuckSettings) -> Result<Self, String> {
+        let token = settings
             .motherduck_token
-            .or_else(|| getenv_nonempty("MOTHERDUCK_TOKEN"));
-
-        let conn = if let Some(cs) = &conn_str {
-            duckdb::Connection::open(cs)
-                .map_err(|e| format!("duckdb: failed to open '{}': {}", cs, e))?
-        } else {
-            duckdb::Connection::open_in_memory()
-                .map_err(|e| format!("duckdb: failed to open in-memory: {}", e))?
-        };
-
-        if let Some(token) = &md_token {
-            conn.execute_batch(&format!("SET motherduck_token='{}'", token.replace('\'', "''")))
-                .map_err(|e| format!("duckdb: failed to set motherduck_token: {}", e))?;
-        }
+            .or_else(|| getenv_nonempty("MOTHERDUCK_TOKEN"))
+            .ok_or_else(|| "motherduck: MOTHERDUCK_TOKEN is required".to_string())?;
 
         let database = settings
             .database
-            .or_else(|| getenv_nonempty("DUCKDB_DATABASE"))
-            .unwrap_or_else(|| {
-                if conn_str.as_deref().map(|s| s.starts_with("md:")).unwrap_or(false) {
-                    "my_db".to_string()
-                } else {
-                    "memory".to_string()
-                }
-            });
+            .or_else(|| getenv_nonempty("MOTHERDUCK_DATABASE"))
+            .unwrap_or_else(|| "my_db".to_string());
 
         let schema = settings
             .schema
             .filter(|s| !s.trim().is_empty())
-            .or_else(|| getenv_nonempty("DUCKDB_SCHEMA"))
+            .or_else(|| getenv_nonempty("MOTHERDUCK_SCHEMA"))
             .unwrap_or_else(|| "main".to_string());
 
         let max_concurrency = warehouse_utils::clamp_concurrency(
@@ -104,9 +96,15 @@ impl DuckDbProvider {
             },
         );
 
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("motherduck: failed to build HTTP client: {}", e))?;
+
         Ok(Self {
             inner: Arc::new(Inner {
-                conn: Mutex::new(conn),
+                client,
+                token,
                 database,
                 schema,
                 max_concurrency,
@@ -124,76 +122,72 @@ impl DuckDbProvider {
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| "duckdb: query limiter closed".to_string())?;
+            .map_err(|_| "motherduck: query limiter closed".to_string())?;
 
-        tracing::info!(target: "duckdb", sql_len = sql.len(), "query_started");
+        tracing::info!(target: "motherduck", sql_len = sql.len(), "query_started");
 
-        let inner = self.inner.clone();
-        let sql = sql.to_string();
+        let body = serde_json::json!({
+            "sql": sql,
+            "database": self.inner.database,
+        });
 
-        tokio::task::spawn_blocking(move || {
-            let conn = inner.conn.blocking_lock();
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| format!("duckdb: prepare failed: {}", e))?;
+        let resp = self
+            .inner
+            .client
+            .post(MOTHERDUCK_API_URL)
+            .bearer_auth(&self.inner.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("motherduck: request failed: {}", e))?;
 
-            let col_count = stmt.column_count();
-            let header: Vec<String> = (0..col_count)
-                .map(|i| stmt.column_name(i).map_or("?", |v| v).to_string())
-                .collect();
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("motherduck: HTTP {}: {}", status, text));
+        }
 
-            let rows_iter = stmt
-                .query_map([], |row| {
-                    let mut out: Vec<String> = Vec::with_capacity(col_count);
-                    for i in 0..col_count {
-                        let val = row.get_ref(i).unwrap_or(ValueRef::Null);
-                        let s = match val {
-                            ValueRef::Null => String::new(),
-                            ValueRef::Boolean(b) => b.to_string(),
-                            ValueRef::TinyInt(n) => n.to_string(),
-                            ValueRef::SmallInt(n) => n.to_string(),
-                            ValueRef::Int(n) => n.to_string(),
-                            ValueRef::BigInt(n) => n.to_string(),
-                            ValueRef::HugeInt(n) => n.to_string(),
-                            ValueRef::Float(f) => f.to_string(),
-                            ValueRef::Double(f) => f.to_string(),
-                            ValueRef::Text(bytes) => {
-                                String::from_utf8_lossy(bytes).to_string()
-                            }
-                            ValueRef::Blob(bytes) => {
-                                format!("<blob {} bytes>", bytes.len())
-                            }
-                            _ => String::new(),
-                        };
-                        out.push(s);
-                    }
-                    Ok(out)
-                })
-                .map_err(|e| format!("duckdb: query failed: {}", e))?;
+        let md_resp: MdSqlResponse = resp
+            .json()
+            .await
+            .map_err(|e| format!("motherduck: failed to parse response: {}", e))?;
 
-            let mut rows: Vec<Vec<String>> = Vec::new();
-            for row_result in rows_iter {
-                rows.push(row_result.map_err(|e| format!("duckdb: row read failed: {}", e))?);
-            }
+        if let Some(err) = md_resp.error {
+            return Err(format!("motherduck: query error: {}", err));
+        }
 
-            tracing::info!(
-                target: "duckdb",
-                rows = rows.len(),
-                cols = header.len(),
-                "query_succeeded"
-            );
-
-            Ok(QueryResult {
-                header,
-                rows,
-                meta: Some(serde_json::json!({"engine": "duckdb"})),
+        let header: Vec<String> = md_resp.columns.iter().map(|c| c.name.clone()).collect();
+        let rows: Vec<Vec<String>> = md_resp
+            .data
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|v| match v {
+                        serde_json::Value::Null => String::new(),
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        other => other.to_string(),
+                    })
+                    .collect()
             })
+            .collect();
+
+        tracing::info!(
+            target: "motherduck",
+            rows = rows.len(),
+            cols = header.len(),
+            "query_succeeded"
+        );
+
+        Ok(QueryResult {
+            header,
+            rows,
+            meta: Some(serde_json::json!({"engine": "motherduck"})),
         })
-        .await
-        .map_err(|e| format!("duckdb: spawn_blocking panicked: {}", e))?
     }
 
-    fn quote_ident_ddb(ident: &str) -> String {
+    fn quote_ident_md(ident: &str) -> String {
         format!("\"{}\"", ident.replace('"', "\"\""))
     }
 
@@ -270,9 +264,9 @@ impl DuckDbProvider {
     }
 }
 
-impl WarehouseNaming for DuckDbProvider {
+impl WarehouseNaming for MotherDuckProvider {
     fn kind(&self) -> react_suite_data_engineer::de_config::WarehouseKind {
-        react_suite_data_engineer::de_config::WarehouseKind::Duckdb
+        react_suite_data_engineer::de_config::WarehouseKind::Motherduck
     }
 
     fn parse_dataset_fqn(&self, dataset_fqn: &str) -> Result<DatasetId, String> {
@@ -284,40 +278,40 @@ impl WarehouseNaming for DuckDbProvider {
     }
 
     fn quote_ident(&self, ident: &str) -> String {
-        Self::quote_ident_ddb(ident)
+        Self::quote_ident_md(ident)
     }
 
     fn quote_fqn(&self, id: &DatasetId) -> String {
         format!(
             "{}.{}",
-            Self::quote_ident_ddb(&id.database),
-            Self::quote_ident_ddb(&id.table)
+            Self::quote_ident_md(&id.database),
+            Self::quote_ident_md(&id.table)
         )
     }
 
     fn sql_prompt_rules(&self) -> Vec<&'static str> {
         vec![
-            "DuckDB SQL: PostgreSQL-compatible dialect with extensions.",
-            "DuckDB SQL: Use double-quote quoting for identifiers.",
-            "DuckDB SQL: LIMIT N for row limiting.",
-            "DuckDB SQL: Supports list, struct, map, and union types natively.",
-            "DuckDB SQL: Use EPOCH(col) or EXTRACT(EPOCH FROM col) for Unix timestamps.",
-            "DuckDB SQL: TRY_CAST(expr AS type) for safe conversions.",
-            "DuckDB SQL: information_schema.tables and information_schema.columns available.",
+            "MotherDuck SQL: DuckDB-compatible dialect via MotherDuck cloud.",
+            "MotherDuck SQL: Use double-quote quoting for identifiers.",
+            "MotherDuck SQL: LIMIT N for row limiting.",
+            "MotherDuck SQL: Supports list, struct, map, and union types natively.",
+            "MotherDuck SQL: Use EPOCH(col) or EXTRACT(EPOCH FROM col) for Unix timestamps.",
+            "MotherDuck SQL: TRY_CAST(expr AS type) for safe conversions.",
+            "MotherDuck SQL: information_schema.tables and information_schema.columns available.",
         ]
     }
 
     fn sql_remediation_rules(&self) -> Vec<&'static str> {
         vec![
-            "DuckDB rule: No TOP N syntax. Use LIMIT N.",
-            "DuckDB rule: GETDATE() and SYSDATE are not supported. Use CURRENT_TIMESTAMP.",
-            "DuckDB rule: NVL() is not supported. Use COALESCE().",
+            "MotherDuck rule: No TOP N syntax. Use LIMIT N.",
+            "MotherDuck rule: GETDATE() and SYSDATE are not supported. Use CURRENT_TIMESTAMP.",
+            "MotherDuck rule: NVL() is not supported. Use COALESCE().",
         ]
     }
 }
 
 #[async_trait]
-impl QueryProvider for DuckDbProvider {
+impl QueryProvider for MotherDuckProvider {
     async fn query(&self, sql: &str) -> Result<QueryResult, String> {
         self.execute_sql(sql).await
     }
@@ -341,7 +335,7 @@ impl QueryProvider for DuckDbProvider {
 }
 
 #[async_trait]
-impl DatasetCatalogProvider for DuckDbProvider {
+impl DatasetCatalogProvider for MotherDuckProvider {
     async fn list_datasets(&self) -> Result<Vec<DatasetId>, String> {
         self.cached_tables().await
     }
@@ -374,7 +368,7 @@ impl DatasetCatalogProvider for DuckDbProvider {
         let mut ns_stats = DatasetFieldStats::new(&dataset.fqn());
 
         for (name, ty) in cols.into_iter().take(max_fields) {
-            let expr = Self::quote_ident_ddb(&name);
+            let expr = Self::quote_ident_md(&name);
             let ty_lc = ty.trim().to_lowercase();
             let is_complex = ty_lc.starts_with("struct")
                 || ty_lc.starts_with("list")
@@ -418,7 +412,7 @@ impl DatasetCatalogProvider for DuckDbProvider {
                 Ok(qr) => qr,
                 Err(e) => {
                     tracing::warn!(
-                        "duckdb stats: dataset='{}' field='{}' type='{}' failed: {}",
+                        "motherduck stats: dataset='{}' field='{}' type='{}' failed: {}",
                         dataset.fqn(), name, ty, e
                     );
                     let mut fs = FieldStats::default();

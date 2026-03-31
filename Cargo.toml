@@ -25,7 +25,7 @@ members = [
   "src/suites/data_engineer/src/modules/provider-synapse",
   "src/suites/data_engineer/src/modules/provider-redshift",
   "src/suites/data_engineer/src/modules/provider-clickhouse",
-  "src/suites/data_engineer/src/modules/provider-duckdb",
+  "src/suites/data_engineer/src/modules/provider-motherduck",
   "src/bins/skippr",
   "src/bins/skippr-admin",
 ]

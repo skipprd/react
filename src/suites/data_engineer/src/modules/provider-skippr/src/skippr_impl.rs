@@ -108,9 +108,9 @@ impl SkipprCliProvider {
                 if let Some(v) = input.get("user").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_USER".into(), resolve_env_ref(v)); }
             }
 
-            if kind.eq_ignore_ascii_case("duckdb") {
-                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("DUCKDB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+            if kind.eq_ignore_ascii_case("motherduck") {
                 if let Some(v) = input.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_DATABASE".into(), resolve_env_ref(v)); }
             }
 
             if kind.eq_ignore_ascii_case("sftp") {
@@ -249,12 +249,11 @@ impl SkipprCliProvider {
                 if let Some(v) = std::env::var("CLICKHOUSE_PASSWORD").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_PASSWORD".into(), v); }
                 else if let Some(v) = self.warehouse.extras.get("password").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_PASSWORD".into(), v.to_string()); }
             }
-            WarehouseKind::Duckdb => {
-                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Duckdb".into());
-                if let Some(v) = std::env::var("DUCKDB_CONNECTION_STRING").ok().filter(|v| !v.trim().is_empty()) { env.insert("DUCKDB_CONNECTION_STRING".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("connection_string").and_then(|v| v.as_str()) { env.insert("DUCKDB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+            WarehouseKind::Motherduck => {
+                env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Motherduck".into());
                 if let Some(v) = std::env::var("MOTHERDUCK_TOKEN").ok().filter(|v| !v.trim().is_empty()) { env.insert("MOTHERDUCK_TOKEN".into(), v); }
                 else if let Some(v) = self.warehouse.extras.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
+                if !self.warehouse.container.is_empty() { env.insert("MOTHERDUCK_DATABASE".into(), resolve_env_ref(&self.warehouse.container)); }
             }
             WarehouseKind::Mssql => {}
         }
@@ -757,10 +756,9 @@ impl SkipprCliProvider {
                 if let Some(v) = getenv("CLICKHOUSE_PASSWORD").or_else(|| extra_str(extras, "password")) { cfg.insert("password".into(), serde_json::Value::String(v)); }
                 serde_json::Value::Object(cfg)
             }
-            WarehouseKind::Duckdb => {
+            WarehouseKind::Motherduck => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("DUCKDB_CONNECTION_STRING").or_else(|| extra_str(extras, "connection_string")) { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
                 if let Some(v) = getenv("MOTHERDUCK_TOKEN").or_else(|| extra_str(extras, "motherduck_token")) { cfg.insert("motherduck_token".into(), serde_json::Value::String(v)); }
                 if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
                 serde_json::Value::Object(cfg)

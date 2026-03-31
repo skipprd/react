@@ -18,7 +18,7 @@ source .venv/bin/activate        # macOS / Linux
 # .\.venv\Scripts\Activate.ps1   # Windows PowerShell
 
 pip install --upgrade pip
-pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres, dbt-databricks, dbt-synapse, dbt-redshift, dbt-clickhouse, dbt-duckdb
+pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres, dbt-databricks, dbt-synapse, dbt-redshift, dbt-clickhouse, dbt-duckdb (MotherDuck)
 ```
 
 Verify:
@@ -103,9 +103,7 @@ export CLICKHOUSE_USER="default"
 export CLICKHOUSE_PASSWORD="mypassword"
 ```
 
-### DuckDB / MotherDuck
-
-For MotherDuck, set the token and use an `md:` connection string in `skippr.yaml`:
+### MotherDuck
 
 ```bash
 export MOTHERDUCK_TOKEN="eyJ..."

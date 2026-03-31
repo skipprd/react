@@ -156,20 +156,19 @@ skippr connect warehouse clickhouse \
 | `--user` | Username (default: `default`) |
 | `--password` | Password |
 
-### DuckDB / MotherDuck
+### MotherDuck
 
 ```bash
-skippr connect warehouse duckdb \
-  --connection-string "md:my_database" \
+skippr connect warehouse motherduck \
   --motherduck-token "$MOTHERDUCK_TOKEN" \
+  --database my_database \
   --schema main
 ```
 
 | Flag | Description |
 |---|---|
-| `--connection-string` | Path or URI (e.g. `md:my_db` for MotherDuck, or a local `.duckdb` path) |
-| `--motherduck-token` | MotherDuck token (or set `MOTHERDUCK_TOKEN`) |
-| `--database` | Database name |
+| `--motherduck-token` | MotherDuck auth token (required, or set `MOTHERDUCK_TOKEN`) |
+| `--database` | MotherDuck database name |
 | `--schema` | Target schema (default: `main`) |
 
 ---
@@ -290,20 +289,19 @@ skippr connect source clickhouse-source \
 | `--tables` | Comma-separated list of tables |
 | `--query` | SQL query instead of table list |
 
-### DuckDB / MotherDuck (source)
+### MotherDuck (source)
 
 ```bash
-skippr connect source duckdb-source \
-  --connection-string "md:my_db" \
+skippr connect source motherduck-source \
   --motherduck-token "$MOTHERDUCK_TOKEN" \
+  --database my_db \
   --tables main.customers,main.orders
 ```
 
 | Flag | Description |
 |---|---|
-| `--connection-string` | Path or URI |
-| `--motherduck-token` | MotherDuck token |
-| `--database` | Database name |
+| `--motherduck-token` | MotherDuck auth token (required, or set `MOTHERDUCK_TOKEN`) |
+| `--database` | MotherDuck database name |
 | `--tables` | Comma-separated list of tables |
 | `--query` | SQL query instead of table list |
 

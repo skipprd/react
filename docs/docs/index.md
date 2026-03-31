@@ -29,7 +29,7 @@ All data transfer happens locally on your machine. No data leaves your network.
 | Amazon DynamoDB | `dynamodb` |
 | ClickHouse | `clickhouse_source` |
 | Delta Lake | `delta_lake` |
-| DuckDB / MotherDuck | `duckdb_source` |
+| MotherDuck | `motherduck_source` |
 | AMQP (RabbitMQ) | `amqp` |
 | Amazon SNS | `sns` |
 | Amazon EventBridge | `eventbridge` |
@@ -54,7 +54,7 @@ All data transfer happens locally on your machine. No data leaves your network.
 | Azure Synapse | `synapse` |
 | Amazon Redshift | `redshift` |
 | ClickHouse | `clickhouse` |
-| DuckDB / MotherDuck | `duckdb` |
+| MotherDuck | `motherduck` |
 | Google Cloud Storage | `gcs` |
 | Azure Blob Storage | `azure_blob` |
 | SFTP | `sftp` |

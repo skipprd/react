@@ -93,8 +93,7 @@ pub(crate) enum WarehouseFile {
         user: Option<String>,
         password: Option<String>,
     },
-    Duckdb {
-        connection_string: Option<String>,
+    Motherduck {
         motherduck_token: Option<String>,
         database: Option<String>,
         schema: Option<String>,
@@ -265,12 +264,11 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "password": password,
             }),
         },
-        WarehouseFile::Duckdb { connection_string, motherduck_token, database, schema } => WarehouseResolved {
-            kind: WarehouseKind::Duckdb,
+        WarehouseFile::Motherduck { motherduck_token, database, schema } => WarehouseResolved {
+            kind: WarehouseKind::Motherduck,
             container: resolve_env_ref(&database.unwrap_or_default()),
             namespace: resolve_env_ref(&schema.unwrap_or_else(|| "main".to_string())),
             extras: serde_json::json!({
-                "connection_string": connection_string,
                 "motherduck_token": motherduck_token,
             }),
         },
@@ -368,7 +366,7 @@ pub enum WarehouseKind {
     Synapse,
     Redshift,
     Clickhouse,
-    Duckdb,
+    Motherduck,
 }
 
 impl fmt::Display for WarehouseKind {
@@ -383,7 +381,7 @@ impl fmt::Display for WarehouseKind {
             Self::Synapse => write!(f, "synapse"),
             Self::Redshift => write!(f, "redshift"),
             Self::Clickhouse => write!(f, "clickhouse"),
-            Self::Duckdb => write!(f, "duckdb"),
+            Self::Motherduck => write!(f, "motherduck"),
         }
     }
 }

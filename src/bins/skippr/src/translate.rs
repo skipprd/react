@@ -162,12 +162,9 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Duckdb { connection_string, motherduck_token, database, schema }) => {
+        Some(WarehouseConfig::Motherduck { motherduck_token, database, schema }) => {
             let mut m = serde_json::Map::new();
-            m.insert("kind".into(), "duckdb".into());
-            if let Some(v) = connection_string {
-                m.insert("connection_string".into(), v.clone().into());
-            }
+            m.insert("kind".into(), "motherduck".into());
             if let Some(v) = motherduck_token {
                 m.insert("motherduck_token".into(), v.clone().into());
             }
@@ -350,12 +347,9 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::DuckdbSource { connection_string, motherduck_token, database, tables, query } => {
+                SourceConfig::MotherduckSource { motherduck_token, database, tables, query } => {
                     let mut m = serde_json::Map::new();
-                    m.insert("kind".into(), "duckdb".into());
-                    if let Some(v) = connection_string {
-                        m.insert("connection_string".into(), v.clone().into());
-                    }
+                    m.insert("kind".into(), "motherduck".into());
                     if let Some(v) = motherduck_token {
                         m.insert("motherduck_token".into(), v.clone().into());
                     }
@@ -996,15 +990,15 @@ mod tests {
     }
 
     #[test]
-    fn translate_duckdb_warehouse() {
+    fn translate_motherduck_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Duckdb { connection_string: Some("md:my_db".into()), motherduck_token: Some("tok".into()), database: None, schema: Some("main".into()) },
+            WarehouseConfig::Motherduck { motherduck_token: Some("tok".into()), database: Some("my_db".into()), schema: Some("main".into()) },
             SourceConfig::Mssql { connection_string: None },
         );
         let wh = wh_json(&cfg);
-        assert_eq!(wh["kind"], "duckdb");
-        assert_eq!(wh["connection_string"], "md:my_db");
+        assert_eq!(wh["kind"], "motherduck");
         assert_eq!(wh["motherduck_token"], "tok");
+        assert_eq!(wh["database"], "my_db");
     }
 
     #[test]

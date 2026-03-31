@@ -110,9 +110,7 @@ pub enum WarehouseConfig {
         #[serde(default)]
         password: Option<String>,
     },
-    Duckdb {
-        #[serde(default)]
-        connection_string: Option<String>,
+    Motherduck {
         #[serde(default)]
         motherduck_token: Option<String>,
         #[serde(default)]
@@ -210,10 +208,8 @@ pub enum SourceConfig {
         #[serde(default)]
         query: Option<String>,
     },
-    #[serde(rename = "duckdb_source")]
-    DuckdbSource {
-        #[serde(default)]
-        connection_string: Option<String>,
+    #[serde(rename = "motherduck_source")]
+    MotherduckSource {
         #[serde(default)]
         motherduck_token: Option<String>,
         #[serde(default)]
@@ -446,7 +442,7 @@ impl SkipprDbtConfig {
             Some(WarehouseConfig::Synapse { .. }) => Some("synapse"),
             Some(WarehouseConfig::Redshift { .. }) => Some("redshift"),
             Some(WarehouseConfig::Clickhouse { .. }) => Some("clickhouse"),
-            Some(WarehouseConfig::Duckdb { .. }) => Some("duckdb"),
+            Some(WarehouseConfig::Motherduck { .. }) => Some("motherduck"),
             None => None,
         }
     }
@@ -461,7 +457,7 @@ impl SkipprDbtConfig {
             Some(SourceConfig::Mongodb { .. }) => Some("mongodb"),
             Some(SourceConfig::Dynamodb { .. }) => Some("dynamodb"),
             Some(SourceConfig::ClickhouseSource { .. }) => Some("clickhouse_source"),
-            Some(SourceConfig::DuckdbSource { .. }) => Some("duckdb_source"),
+            Some(SourceConfig::MotherduckSource { .. }) => Some("motherduck_source"),
             Some(SourceConfig::Sftp { .. }) => Some("sftp"),
             Some(SourceConfig::File { .. }) => Some("file"),
             Some(SourceConfig::DeltaLake { .. }) => Some("delta_lake"),
@@ -498,7 +494,7 @@ impl WarehouseConfig {
             Self::Synapse { .. } => "synapse",
             Self::Redshift { .. } => "redshift",
             Self::Clickhouse { .. } => "clickhouse",
-            Self::Duckdb { .. } => "duckdb",
+            Self::Motherduck { .. } => "motherduck",
         }
     }
 }

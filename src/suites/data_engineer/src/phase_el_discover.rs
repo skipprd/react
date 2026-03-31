@@ -107,7 +107,7 @@ fn warehouse_to_output_config(
         WarehouseKind::Synapse => "synapse",
         WarehouseKind::Redshift => "redshift",
         WarehouseKind::Clickhouse => "clickhouse",
-        WarehouseKind::Duckdb => "duckdb",
+        WarehouseKind::Motherduck => "motherduck",
     };
     SkipprOutputConfig {
         kind: kind.to_string(),

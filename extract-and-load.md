@@ -69,8 +69,8 @@ All skippr invocations run with `SKIPPR_STORAGE_MODE=local`. Auth credentials ar
 
 ## skippr-side Capabilities (Implemented)
 
-- **Input Plugins** — databases (MSSQL, MySQL, Postgres, Redshift, MongoDB, ClickHouse, DuckDB/MotherDuck), object stores (S3, SFTP, Delta Lake), streaming (Kafka, SQS, Kinesis, AMQP, SNS, EventBridge, MQTT, WebSocket), HTTP (server and client), DynamoDB, Socket, StatsD, File, Stdin
-- **Output Plugins** — warehouses (Snowflake, Postgres, Athena, Amazon Redshift, Databricks, Synapse, ClickHouse, DuckDB/MotherDuck), cloud storage (GCS, Azure Blob, SFTP), messaging (AMQP), File, Stdout; optional **Glue** schema sink for catalog registration
+- **Input Plugins** — databases (MSSQL, MySQL, Postgres, Redshift, MongoDB, ClickHouse, MotherDuck), object stores (S3, SFTP, Delta Lake), streaming (Kafka, SQS, Kinesis, AMQP, SNS, EventBridge, MQTT, WebSocket), HTTP (server and client), DynamoDB, Socket, StatsD, File, Stdin
+- **Output Plugins** — warehouses (Snowflake, Postgres, Athena, Amazon Redshift, Databricks, Synapse, ClickHouse, MotherDuck), cloud storage (GCS, Azure Blob, SFTP), messaging (AMQP), File, Stdout; optional **Glue** schema sink for catalog registration
 - **`LOAD SCHEMA` DDL** — writes LLM-produced destination schemas to skippr pipeline metadata
 - **`SHOW PIPELINE` DDL** — returns namespaces, field schemas, offsets as JSON
 - **Output Modes** — `--output progress|json|text` on `sync` and `discover`
@@ -86,7 +86,7 @@ All skippr invocations run with `SKIPPR_STORAGE_MODE=local`. Auth credentials ar
 - Preparing raw/bronze destination tables for dbt consumption
 - Incremental loads via skippr's internal offset tracking
 - Database, file, streaming, and API source ingestion
-- Multi-warehouse destination support (Snowflake, Postgres, Athena, BigQuery, Amazon Redshift, Databricks, Synapse, ClickHouse, DuckDB/MotherDuck) and optional AWS Glue schema sink
+- Multi-warehouse destination support (Snowflake, Postgres, Athena, BigQuery, Amazon Redshift, Databricks, Synapse, ClickHouse, MotherDuck) and optional AWS Glue schema sink
 
 ### Out of Scope
 

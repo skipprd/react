@@ -11,7 +11,7 @@ pub enum ActiveWarehouse {
     Synapse,
     Redshift,
     Clickhouse,
-    Duckdb,
+    Motherduck,
 }
 
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ pub fn active_warehouse(cfg: &ReactResolvedConfig) -> Result<ActiveWarehouse, St
         WarehouseKind::Synapse => Ok(ActiveWarehouse::Synapse),
         WarehouseKind::Redshift => Ok(ActiveWarehouse::Redshift),
         WarehouseKind::Clickhouse => Ok(ActiveWarehouse::Clickhouse),
-        WarehouseKind::Duckdb => Ok(ActiveWarehouse::Duckdb),
+        WarehouseKind::Motherduck => Ok(ActiveWarehouse::Motherduck),
     }
 }
 
@@ -457,20 +457,23 @@ pub fn generate_profiles_yml(
             if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
             Ok(GeneratedProfiles { target, profiles_yml: out })
         }
-        ActiveWarehouse::Duckdb => {
+        ActiveWarehouse::Motherduck => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "duckdb".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() { "motherduck".to_string() } else { providers.dbt.target.trim().to_string() };
             let wh = &providers.warehouse;
             let schema = if providers.dbt.naming.target_schema.trim().is_empty() { derive_scope_db_name(cfg) } else { providers.dbt.naming.target_schema.trim().to_string() };
-            let path = wh.extras.get("connection_string").and_then(|v| v.as_str()).unwrap_or(":memory:");
+            let database = if wh.container.is_empty() { "my_db" } else { wh.container.as_str() };
+            let md_path = format!("md:{}", database);
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
             out.push_str("  outputs:\n");
             out.push_str(&format!("    {}:\n", yaml_escape_key(&target)));
             out.push_str("      type: duckdb\n");
-            out.push_str(&format!("      path: {}\n", yaml_escape_scalar(path)));
+            out.push_str(&format!("      path: {}\n", yaml_escape_scalar(&md_path)));
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
+            out.push_str("      settings:\n");
+            out.push_str("        motherduck_token: \"{{ env_var('MOTHERDUCK_TOKEN') }}\"\n");
             if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
             Ok(GeneratedProfiles { target, profiles_yml: out })
         }
