@@ -10,7 +10,8 @@ const GITHUB_REPO: &str = "skipprd";
 /// Resolves the path to the `skippr-el` binary.
 ///
 /// 1. If `skippr-el` is on PATH, use it (user has an explicit install).
-/// 2. If a managed copy exists at `~/.skippr/bin/skippr-el`, use it.
+/// 2. If a managed copy exists at `~/.skippr/bin/skippr-el` **and** its
+///    version marker matches `SKIPPR_VERSION`, use it.
 /// 3. Otherwise, download the pinned version from GitHub releases.
 pub async fn resolve_skippr_binary() -> Result<String, String> {
     if which_skippr_el() {
@@ -18,15 +19,23 @@ pub async fn resolve_skippr_binary() -> Result<String, String> {
     }
 
     let managed = managed_binary_path()?;
-    if managed.is_file() {
+    if managed.is_file() && cached_version_matches() {
         return Ok(managed.to_string_lossy().to_string());
     }
 
-    eprintln!(
-        "[skippr] downloading extract-and-load engine v{}...",
-        SKIPPR_VERSION
-    );
+    if managed.is_file() {
+        eprintln!(
+            "[skippr] upgrading extract-and-load engine to v{}...",
+            SKIPPR_VERSION
+        );
+    } else {
+        eprintln!(
+            "[skippr] downloading extract-and-load engine v{}...",
+            SKIPPR_VERSION
+        );
+    }
     download_skippr_el(&managed).await?;
+    write_version_marker();
 
     Ok(managed.to_string_lossy().to_string())
 }
@@ -36,6 +45,24 @@ pub fn managed_binary_path() -> Result<PathBuf, String> {
     let home = dirs_next::home_dir().ok_or("could not determine home directory")?;
     let bin_dir = home.join(".skippr").join("bin");
     Ok(bin_dir.join(skippr_el_binary_name()))
+}
+
+fn version_marker_path() -> Option<PathBuf> {
+    let home = dirs_next::home_dir()?;
+    Some(home.join(".skippr").join("bin").join(".skippr-el-version"))
+}
+
+fn cached_version_matches() -> bool {
+    version_marker_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|v| v.trim() == SKIPPR_VERSION)
+        .unwrap_or(false)
+}
+
+fn write_version_marker() {
+    if let Some(marker) = version_marker_path() {
+        let _ = std::fs::write(marker, SKIPPR_VERSION);
+    }
 }
 
 fn skippr_el_binary_name() -> &'static str {
