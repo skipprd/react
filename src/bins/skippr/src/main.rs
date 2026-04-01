@@ -11,7 +11,11 @@ use clap::{Parser, Subcommand};
 use public_config::{DbtConfig, S3Transform, SchemaSinkConfig, SkipprDbtConfig, SourceConfig, WarehouseConfig};
 
 #[derive(Parser, Debug)]
-#[command(name = "skippr", about = "Data pipeline CLI — extract, load, and model with dbt")]
+#[command(
+    name = "skippr",
+    about = "Data pipeline CLI — extract, load, and model with dbt",
+    version = option_env!("SKIPPR_CLI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+)]
 struct Cli {
     /// Log level (info, debug, trace). When omitted the live terminal UI is shown.
     #[arg(long, global = true, num_args = 0..=1, default_missing_value = "info")]

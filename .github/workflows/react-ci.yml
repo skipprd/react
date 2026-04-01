@@ -119,6 +119,8 @@ jobs:
           key: ${{ matrix.target }}
   
       - name: Build skippr release binary
+        env:
+          SKIPPR_CLI_VERSION: ${{ github.ref_name }}
         run: cargo build --release -p skippr --target ${{ matrix.target }}
   
       - name: Upload skippr artifact (unix)
@@ -160,6 +162,12 @@ jobs:
           tar -xzf skippr.tar.gz
           Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
           .\bin\skippr.exe --version
+
+      - name: Install Python dependencies for Snowflake CI
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install snowflake-connector-python
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -224,7 +232,6 @@ jobs:
       - name: Install dbt runtime
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
           pip install dbt-core dbt-snowflake
 
       - name: Write Snowflake private key
@@ -317,7 +324,6 @@ jobs:
           sqlcmd -S ".\SQLEXPRESS" -Q "EXEC sp_configure 'show advanced options', 1; RECONFIGURE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa ENABLE;"
           sqlcmd -S ".\SQLEXPRESS" -Q "ALTER LOGIN sa WITH PASSWORD = 'Skippr!Test123';"
-          # Enable Mixed Mode authentication (SQL + Windows) — required for SA login
           $mssqlServerPaths = Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSPath -like "*SQLEXPRESS\MSSQLServer" -and $_.PSPath -notlike "*SuperSocketNetLib*" -and $_.PSPath -notlike "*Parameters*" }
           foreach ($path in $mssqlServerPaths) {
             Set-ItemProperty -Path $path.PSPath -Name "LoginMode" -Value 2 -ErrorAction SilentlyContinue
