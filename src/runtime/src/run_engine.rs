@@ -116,7 +116,7 @@ pub(crate) fn init_tracing(
             .with_ansi(false)
             .with_writer(run_nb)
             .with_target(true)
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
         (Some(run_layer), Some(run_guard))
     } else {
         (None, None)
@@ -230,6 +230,14 @@ pub async fn run_headless_from_config(
     let storage_for_logs = suite_ctx.storage().clone();
     let keyspace_for_logs = suite_ctx.keyspace().clone();
 
+    let periodic_upload_cancel = run_logs.as_ref().map(|logs| {
+        logs.start_periodic_upload(
+            storage_for_logs.clone(),
+            keyspace_for_logs.clone(),
+            std::time::Duration::from_secs(60),
+        )
+    });
+
     let (thread_id_tx, tid_rx) = if run_logs.is_some() && requested_thread_id.is_none() {
         let (tx, rx) = mpsc::unbounded_channel::<String>();
         (Some(tx), Some(rx))
@@ -300,6 +308,9 @@ pub async fn run_headless_from_config(
         }
     }
 
+    if let Some(flag) = periodic_upload_cancel {
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if let Some(logs) = run_logs.as_ref() {
         let tid = thread_id_for_logs
             .clone()

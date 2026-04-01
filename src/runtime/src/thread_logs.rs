@@ -1,6 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use react_core::keyspace::Keyspace;
@@ -128,21 +129,48 @@ impl RunThreadLogs {
         Ok(())
     }
 
-    pub async fn upload_if_needed(
+    /// Spawn a background task that periodically uploads the log file to storage.
+    /// Returns a stop flag; set it to `true` to stop the loop.
+    /// Only active in Buffered mode (non-local / S3).
+    pub fn start_periodic_upload(
+        &self,
+        storage: Arc<dyn StorageAdapter>,
+        keyspace: Arc<dyn Keyspace>,
+        interval: std::time::Duration,
+    ) -> Arc<AtomicBool> {
+        let stop = Arc::new(AtomicBool::new(false));
+
+        if matches!(self.inner.mode, Mode::Local { .. }) {
+            return stop;
+        }
+
+        let logs = self.clone();
+        let flag = stop.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let tid = {
+                    let g = logs.inner.bound_thread_id.lock().ok();
+                    g.and_then(|g| g.clone())
+                };
+                if let Some(tid) = tid {
+                    let _ = logs.upload_snapshot(storage.clone(), keyspace.clone(), &tid).await;
+                }
+            }
+        });
+
+        stop
+    }
+
+    async fn upload_snapshot(
         &self,
         storage: Arc<dyn StorageAdapter>,
         keyspace: Arc<dyn Keyspace>,
         thread_id: &str,
     ) -> Result<(), String> {
-        // Always bind for consistency (no-op if already bound).
-        let _ = self.bind_thread_id(keyspace.as_ref(), thread_id);
-
-        // Local mode: no upload (we write directly to filesystem under root).
-        if matches!(self.inner.mode, Mode::Local { .. }) {
-            return Ok(());
-        }
-
-        // Buffered mode: upload entire temp file at end.
         let key = keyspace
             .thread_log_key(&self.inner.scope, thread_id)
             .map_err(|e| e.to_string())?;
@@ -151,12 +179,29 @@ impl RunThreadLogs {
             tokio::task::spawn_blocking(move || std::fs::read(&path).map_err(|e| e.to_string()))
                 .await
                 .map_err(|e| e.to_string())??;
+        if bytes.is_empty() {
+            return Ok(());
+        }
         storage
             .put_bytes(&key, &bytes, "text/plain")
             .await
             .map_err(|e| e.to_string())?;
-
         Ok(())
+    }
+
+    pub async fn upload_if_needed(
+        &self,
+        storage: Arc<dyn StorageAdapter>,
+        keyspace: Arc<dyn Keyspace>,
+        thread_id: &str,
+    ) -> Result<(), String> {
+        let _ = self.bind_thread_id(keyspace.as_ref(), thread_id);
+
+        if matches!(self.inner.mode, Mode::Local { .. }) {
+            return Ok(());
+        }
+
+        self.upload_snapshot(storage, keyspace, thread_id).await
     }
 
     pub fn tmp_path(&self) -> PathBuf {
