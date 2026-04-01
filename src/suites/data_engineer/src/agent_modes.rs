@@ -867,6 +867,7 @@ impl DataEngineerSuite {
             }
         });
 
+        let repair_cycle = execution_state.repair.cycle_count();
         let result = crate::repair_subroutine::run_repair(
             sctx,
             thread_store,
@@ -874,6 +875,7 @@ impl DataEngineerSuite {
             &dispatch,
             error_context,
             None,
+            repair_cycle,
         )
         .await;
 

@@ -51,6 +51,8 @@ struct RepairExecutor<'a> {
     dispatch: &'a ModelDispatch,
     session_log: std::sync::Mutex<RepairSessionLog>,
     iteration: AtomicUsize,
+    repair_cycle: usize,
+    repair_id: String,
 }
 
 #[async_trait]
@@ -59,8 +61,16 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
         let i = self.iteration.fetch_add(1, Ordering::Relaxed);
         let log_snapshot = self.session_log.lock().unwrap().clone();
 
-        let gathered = match run_gather(self.sctx, self.thread_id, self.dispatch, &log_snapshot, i)
-            .await
+        let gathered = match run_gather(
+            self.sctx,
+            self.thread_id,
+            self.dispatch,
+            &log_snapshot,
+            i,
+            self.repair_cycle,
+            &self.repair_id,
+        )
+        .await
         {
             Ok(g) => g,
             Err(e) => return PhaseOutcome::Failed { reason: e },
@@ -160,8 +170,10 @@ pub async fn run_repair(
     dispatch: &ModelDispatch,
     error_context: ValidationFailureContext,
     max_iterations: Option<usize>,
+    repair_cycle: usize,
 ) -> Result<Vec<FlowFrame>, String> {
     let max_iters = max_iterations.unwrap_or(DEFAULT_MAX_ITERATIONS);
+    let repair_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
 
     let executor = RepairExecutor {
         sctx,
@@ -169,6 +181,8 @@ pub async fn run_repair(
         dispatch,
         session_log: std::sync::Mutex::new(RepairSessionLog::new(error_context)),
         iteration: AtomicUsize::new(0),
+        repair_cycle,
+        repair_id,
     };
 
     let config = WorkflowConfig {
@@ -197,12 +211,14 @@ async fn run_gather(
     dispatch: &ModelDispatch,
     session_log: &RepairSessionLog,
     iteration: usize,
+    repair_cycle: usize,
+    repair_id: &str,
 ) -> Result<GatheredContext, String> {
     // ── Phase A: investigation agent (tool calls) ────────────────────────
     let registry = build_gather_tools(sctx)?;
     let tools_card = gather_tools_card();
 
-    let gather_tid = format!("{thread_id}__gather_{iteration}");
+    let gather_tid = format!("{thread_id}__gather_c{repair_cycle}-{repair_id}_{iteration}");
 
     let actx = AgentCtxBuilder::new(
         sctx.llm().clone(),
