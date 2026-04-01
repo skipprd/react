@@ -32,6 +32,11 @@ struct GatherDiagnosisV1 {
     /// Column schemas of upstream models referenced via ref() by the failing model(s).
     /// Extracted from file contents or sql_schema tool observations.
     upstream_schemas: Vec<UpstreamModelSchema>,
+    /// True when ALL original errors (from the Error Context) have been resolved by
+    /// prior iterations, even if the latest validation reveals NEW errors (e.g. cascade
+    /// failures from previously-skipped downstream models).  Always false on the first
+    /// iteration since no fix has been attempted yet.
+    original_errors_resolved: bool,
 }
 
 use crate::control_flow::DeterministicDbtValidateOnce;
@@ -75,6 +80,15 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
             Ok(g) => g,
             Err(e) => return PhaseOutcome::Failed { reason: e },
         };
+
+        if i > 0 && gathered.original_errors_resolved {
+            tracing::info!(
+                iteration = i,
+                "original errors resolved — exiting repair loop, \
+                 new errors will be handled by the outer validate cycle"
+            );
+            return PhaseOutcome::Return(vec![]);
+        }
 
         let fix_plan =
             match run_reason(self.sctx, self.dispatch, &gathered, &log_snapshot, i).await {
@@ -299,6 +313,7 @@ STRICT RULES:\n\
         files: investigation.files,
         diagnosis: diag.diagnosis,
         upstream_schemas: diag.upstream_schemas,
+        original_errors_resolved: diag.original_errors_resolved,
     })
 }
 
@@ -433,7 +448,14 @@ async fn extract_diagnosis_structured(
                    between SQL outputs and YAML schema declarations.\n\
                  - \"upstream_schemas\": for each upstream model referenced via ref() by the \
                    failing model(s), list the model_path and the exact column names from its \
-                   final SELECT statement",
+                   final SELECT statement\n\
+                 - \"original_errors_resolved\": set to true ONLY when ALL of these hold: \
+                   (1) there are Prior Repair Attempts in the history above, \
+                   (2) the most recent validation outcome shows the ORIGINAL errors from the \
+                   Error Context are gone, and \
+                   (3) any remaining failures are NEW errors not present in the original Error \
+                   Context (e.g. new errors revealed since fixing the original errors). \
+                   Set to false if this is the first iteration or any original error persists.",
             ),
         },
     ];
@@ -723,6 +745,8 @@ struct GatheredContext {
     diagnosis: String,
     /// Column schemas extracted from upstream models.
     upstream_schemas: Vec<UpstreamModelSchema>,
+    /// LLM assessment: original errors resolved but new cascade errors appeared.
+    original_errors_resolved: bool,
 }
 
 /// Index a repair iteration to the vector store for future retrieval.
