@@ -186,18 +186,15 @@ pub async fn run_headless_from_config(
         }
     }
 
-    let run_logs = if terminal_enabled {
-        if cfg.storage.mode == rc::StorageMode::Local {
-            if let Some(root) = cfg.storage.path.as_ref() {
+    let run_logs = if cfg.storage.mode == rc::StorageMode::Local {
+        cfg.storage
+            .path
+            .as_ref()
+            .and_then(|root| {
                 crate::thread_logs::RunThreadLogs::new_local(root.clone(), cfg.scope.clone()).ok()
-            } else {
-                None
-            }
-        } else {
-            crate::thread_logs::RunThreadLogs::new_buffered(cfg.scope.clone()).ok()
-        }
+            })
     } else {
-        None
+        crate::thread_logs::RunThreadLogs::new_buffered(cfg.scope.clone()).ok()
     };
     let run_writer = run_logs.as_ref().map(|l| l.make_writer());
     let guards = init_tracing(&log_dir, enable_console, run_writer);
