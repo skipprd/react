@@ -320,10 +320,17 @@ impl SkipprCliProvider {
 
         let stderr_handle = child.stderr.take();
         let stderr_task = tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
             let mut buf = Vec::new();
-            if let Some(mut stderr) = stderr_handle {
-                use tokio::io::AsyncReadExt;
-                let _ = stderr.read_to_end(&mut buf).await;
+            if let Some(stderr) = stderr_handle {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if !line.trim().is_empty() {
+                        tracing::info!(target: "skippr_el", "{}", line);
+                    }
+                    buf.extend_from_slice(line.as_bytes());
+                    buf.push(b'\n');
+                }
             }
             buf
         });
@@ -341,11 +348,9 @@ impl SkipprCliProvider {
                 };
                 if !output.status.success() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!(
                         exit_code = ?output.status.code(),
                         stdout = %stdout,
-                        stderr = %stderr,
                         "skippr command failed"
                     );
                 }
@@ -377,7 +382,7 @@ impl SkipprCliProvider {
         args: &[&str],
         idle_timeout: std::time::Duration,
     ) -> Result<(Vec<serde_json::Value>, Vec<u8>, bool), String> {
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+        use tokio::io::{AsyncBufReadExt, BufReader};
 
         let env = self.env_vars();
         let mut cmd = tokio::process::Command::new(&self.binary);
@@ -409,8 +414,15 @@ impl SkipprCliProvider {
         let stderr_handle = child.stderr.take();
         let stderr_task = tokio::spawn(async move {
             let mut buf = Vec::new();
-            if let Some(mut stderr) = stderr_handle {
-                let _ = stderr.read_to_end(&mut buf).await;
+            if let Some(stderr) = stderr_handle {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if !line.trim().is_empty() {
+                        tracing::info!(target: "skippr_el", "{}", line);
+                    }
+                    buf.extend_from_slice(line.as_bytes());
+                    buf.push(b'\n');
+                }
             }
             buf
         });
@@ -488,10 +500,8 @@ impl SkipprCliProvider {
 
         let success = exit_status.as_ref().map(|s| s.success()).unwrap_or(false);
         if !success {
-            let stderr = String::from_utf8_lossy(&stderr_bytes);
             tracing::warn!(
                 exit_code = ?exit_status.as_ref().ok().and_then(|s| s.code()),
-                stderr = %stderr,
                 "skippr command failed"
             );
         }
