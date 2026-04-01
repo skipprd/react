@@ -321,14 +321,8 @@ pub async fn llm_patch_loop_single_file(
 
     let mut call_opts = llm_options.unwrap_or_else(|| react_core::llm::LlmCallOptions {
         prompt_id: "data_engineer.patch_protocol.llm_patch_loop",
-        thread_id: None,
-        model: None,
-        expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-        max_output_tokens: None,
-        temperature: None,
-        top_p: None,
-        reasoning_effort: None,
-        timeout_secs: None,
+        reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+        ..Default::default()
     });
     call_opts.expected_format =
         react_core::llm::LlmExpectedFormat::JsonSchema(patch_schema);

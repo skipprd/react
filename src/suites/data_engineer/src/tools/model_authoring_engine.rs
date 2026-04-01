@@ -110,8 +110,7 @@ pub(crate) struct AuthorLoopConfig {
     pub max_attempts: usize,
     pub initial_prompt_id: &'static str,
     pub repair_prompt_id: &'static str,
-    pub initial_temp: f64,
-    pub repair_temp: f64,
+    pub reasoning_effort: react_core::llm::ReasoningEffort,
     /// When true, skip warehouse SQL validation (used for gold models whose
     /// inputs include unmaterialized intra-plan dependencies).
     pub skip_warehouse_validation: bool,
@@ -156,11 +155,6 @@ where
         } else {
             config.repair_prompt_id
         };
-        let temp = if attempt == 1 {
-            config.initial_temp
-        } else {
-            config.repair_temp
-        };
 
         let mut d = match sql_first::llm_draft_sql_json(
             ctx,
@@ -168,7 +162,7 @@ where
             v.to_string(),
             prompt_id,
             config.max_tokens as u32,
-            temp as f32,
+            config.reasoning_effort,
         )
         .await
         {

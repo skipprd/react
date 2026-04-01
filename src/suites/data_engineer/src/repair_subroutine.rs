@@ -410,7 +410,7 @@ async fn extract_diagnosis_structured(
     dispatch: &ModelDispatch,
     error_brief: &str,
     investigation_context: &str,
-    iteration: usize,
+    _iteration: usize,
 ) -> Result<GatherDiagnosisV1, String> {
     let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<GatherDiagnosisV1>(
         "repair.gather_diagnosis",
@@ -420,8 +420,8 @@ async fn extract_diagnosis_structured(
     let options = react_core::llm::LlmCallOptions {
         prompt_id: "repair.gather_diagnosis",
         model: Some(dispatch.reason_model.clone()),
-        temperature: Some((0.1 + (iteration as f32 * 0.05)).min(0.3)),
         expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
+        reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
         ..Default::default()
     };
 
@@ -482,7 +482,7 @@ async fn run_reason(
     dispatch: &ModelDispatch,
     gathered: &GatheredContext,
     session_log: &RepairSessionLog,
-    iteration: usize,
+    _iteration: usize,
 ) -> Result<Vec<PlannedFix>, String> {
     let history = session_log.format_for_prompt();
     let dialect = resolved_config_from_ctx_sctx(sctx)
@@ -568,8 +568,8 @@ async fn run_reason(
     let options = react_core::llm::LlmCallOptions {
         prompt_id: "repair.fix_plan",
         model: Some(dispatch.reason_model.clone()),
-        temperature: Some((0.15 + (iteration as f32 * 0.05)).min(0.35)),
         expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
+        reasoning_effort: Some(react_core::llm::ReasoningEffort::Medium),
         ..Default::default()
     };
 

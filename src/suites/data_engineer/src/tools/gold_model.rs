@@ -451,8 +451,7 @@ impl Tool for GoldModelTool {
                 max_attempts,
                 initial_prompt_id: "data_engineer.tools.gold_model.sql_first",
                 repair_prompt_id: "data_engineer.tools.gold_model.sql_first_repair",
-                initial_temp: 0.12,
-                repair_temp: 0.08,
+                reasoning_effort: react_core::llm::ReasoningEffort::Low,
                 skip_warehouse_validation: has_unmaterialized_gold_dep,
             };
             let sys2 = sys.clone();

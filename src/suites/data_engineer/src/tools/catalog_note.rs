@@ -125,13 +125,8 @@ impl Tool for CatalogNoteTool {
         let opts = react_core::llm::LlmCallOptions {
             prompt_id: "data_engineer.tools.catalog_note.curate",
             thread_id: Some(thread_id.clone()),
-            model: None,
             expected_format: react_core::llm::LlmExpectedFormat::Text,
-            max_output_tokens: None,
-            temperature: None,
-            top_p: None,
-            reasoning_effort: None,
-            timeout_secs: None,
+            ..Default::default()
         };
         let resp = ctx.llm_chat(&messages, &opts).await;
         let bullets_text = match resp.as_ref() {

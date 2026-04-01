@@ -438,15 +438,11 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                 Some(LlmCallOptions {
                     prompt_id: "data_engineer.apply_next_schema_batch.staging_schema_patch",
                     thread_id: ctx.thread_id().clone(),
-                    model: None,
-                    expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    temperature: Some(0.05),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(
                         crate::patch_protocol::default_patch_loop_max_output_tokens(),
                     ),
-                    reasoning_effort: None,
-                    timeout_secs: None,
+                    reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                    ..Default::default()
                 }),
             )
             .await
@@ -786,15 +782,11 @@ impl Tool for ApplyNextModelSchemaBatchTool {
             Some(LlmCallOptions {
                 prompt_id: "data_engineer.apply_next_schema_batch.models_schema_patch",
                 thread_id: ctx.thread_id().clone(),
-                model: None,
-                expected_format: react_core::llm::LlmExpectedFormat::Text,
-                temperature: Some(0.05),
-                top_p: Some(1.0),
                 max_output_tokens: Some(
                     crate::patch_protocol::default_patch_loop_max_output_tokens(),
                 ),
-                reasoning_effort: None,
-                timeout_secs: None,
+                reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+                ..Default::default()
             }),
         )
         .await

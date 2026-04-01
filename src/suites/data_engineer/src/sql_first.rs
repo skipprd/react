@@ -147,7 +147,7 @@ pub async fn llm_draft_sql_json(
     user_json: String,
     prompt_id: &'static str,
     max_output_tokens: u32,
-    temperature: f32,
+    reasoning_effort: react_core::llm::ReasoningEffort,
 ) -> Result<SqlFirstDraft, String> {
     let messages = vec![
         ChatMessage {
@@ -170,11 +170,9 @@ pub async fn llm_draft_sql_json(
         thread_id: ctx.thread_id().clone(),
         model: None,
         expected_format: LlmExpectedFormat::JsonSchema(schema),
-        temperature: Some(temperature),
-        top_p: Some(1.0),
         max_output_tokens: Some(max_output_tokens),
-        reasoning_effort: None,
-        timeout_secs: None,
+        reasoning_effort: Some(reasoning_effort),
+        ..Default::default()
     };
     let payload: SqlFirstDraftPayload = ctx
         .llm_chat_json(&messages, &opts)

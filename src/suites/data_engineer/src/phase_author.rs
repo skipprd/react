@@ -1204,11 +1204,9 @@ async fn build_author_prompt(
             thread_id: None,
             model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-            temperature: Some(0.05),
-            top_p: Some(1.0),
             max_output_tokens: Some(author_max_tokens),
-            reasoning_effort: None,
-            timeout_secs: None,
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+            ..Default::default()
         }
     } else {
         let author_max_tokens: u32 =
@@ -1221,11 +1219,9 @@ async fn build_author_prompt(
             thread_id: None,
             model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-            temperature: Some(0.12),
-            top_p: Some(1.0),
             max_output_tokens: Some(author_max_tokens),
-            reasoning_effort: None,
-            timeout_secs: None,
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+            ..Default::default()
         }
     };
 

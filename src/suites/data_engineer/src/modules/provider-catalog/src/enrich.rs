@@ -107,14 +107,8 @@ async fn llm_reason_pass(
 ) -> Option<String> {
     let opts = react_core::llm::LlmCallOptions {
         prompt_id,
-        thread_id: None,
         expected_format: react_core::llm::LlmExpectedFormat::Text,
-        max_output_tokens: None,
-        temperature: None,
-        top_p: None,
-        reasoning_effort: None,
-        timeout_secs: None,
-        model: None,
+        ..Default::default()
     };
     if llm_timeout_secs == 0 {
         tokio::task::spawn_blocking(move || {
@@ -157,14 +151,8 @@ async fn llm_compile_pass_json(
 ) -> Option<serde_json::Value> {
     let opts = react_core::llm::LlmCallOptions {
         prompt_id,
-        thread_id: None,
         expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-        max_output_tokens: None,
-        temperature: None,
-        top_p: None,
-        reasoning_effort: None,
-        timeout_secs: None,
-        model: None,
+        ..Default::default()
     };
     let text = if llm_timeout_secs == 0 {
         tokio::task::spawn_blocking(move || {

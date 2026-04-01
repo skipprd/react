@@ -450,14 +450,8 @@ impl DataEngineerSuite {
                 question,
                 LlmCallOptions {
                     prompt_id: "data_engineer.ask_user_parse",
-                    thread_id: None,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    max_output_tokens: None,
-                    temperature: None,
-                    top_p: None,
-                    reasoning_effort: None,
-                    timeout_secs: None,
+                    ..Default::default()
                 },
             )
             .await
@@ -494,14 +488,8 @@ impl DataEngineerSuite {
                 &prompt,
                 LlmCallOptions {
                     prompt_id: "data_engineer.ask_approval_parse",
-                    thread_id: None,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    max_output_tokens: None,
-                    temperature: None,
-                    top_p: None,
-                    reasoning_effort: None,
-                    timeout_secs: None,
+                    ..Default::default()
                 },
             )
             .await

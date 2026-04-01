@@ -39,13 +39,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.20),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::DiscoveryModel => {
@@ -67,13 +64,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.55),
-                    top_p: Some(0.95),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::DesignMemo => {
@@ -89,13 +83,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    temperature: Some(0.2),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(reasoning_effort),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::DesignCritique => {
@@ -108,18 +99,15 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(
                         react_core::schema_registry::OpenAiStrictSchema::for_type::<
                             crate::plan_schema::PlanDesignCritiqueV1,
                         >("suite.plan_design_critique.v1")
                         .map_err(|e| e.to_string())?,
                     ),
-                    temperature: Some(0.10),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::SkeletonOrCandidates => {
@@ -132,13 +120,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.1),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::EnrichmentCompile => {
@@ -151,13 +136,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-                    temperature: Some(0.10),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
             PlanningLlmProfile::EnrichmentReason => {
@@ -170,13 +152,10 @@ impl DataEngineerSuite {
                 LlmCallOptions {
                     prompt_id,
                     thread_id,
-                    model: None,
                     expected_format: react_core::llm::LlmExpectedFormat::Text,
-                    temperature: Some(0.20),
-                    top_p: Some(1.0),
                     max_output_tokens: Some(max_tokens),
                     reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
-                    timeout_secs: None,
+                    ..Default::default()
                 }
             }
         })

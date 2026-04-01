@@ -322,29 +322,20 @@ impl ReviewLlmConfig {
         ];
 
         let expected_format = self.expected_format()?;
-        let mut opts = if let Some(temp) = self.temperature {
+        let mut opts = if self.temperature.is_some() {
             LlmCallOptions {
                 prompt_id: self.prompt_id,
                 thread_id: Some(thread_id.to_string()),
-                model: None,
                 expected_format: expected_format.clone(),
-                temperature: Some(temp),
-                top_p: Some(1.0),
                 max_output_tokens: Some(final_budget),
                 reasoning_effort: Some(self.reasoning_effort),
-                timeout_secs: None,
+                ..Default::default()
             }
         } else {
             LlmCallOptions {
                 prompt_id: "data_engineer.review_batched.llm_json",
-                thread_id: None,
-                model: None,
                 expected_format: expected_format.clone(),
-                max_output_tokens: None,
-                temperature: None,
-                top_p: None,
-                reasoning_effort: None,
-                timeout_secs: None,
+                ..Default::default()
             }
         };
         opts.expected_format = expected_format;
