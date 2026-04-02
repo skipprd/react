@@ -31,7 +31,7 @@ main() {
             esac
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            err "Windows detected. Download manually from https://skippr.io/releases"
+            err "Windows detected. Install with PowerShell instead:  irm https://skippr.io/install.ps1 | iex"
             ;;
         *)
             err "Unsupported operating system: $os"

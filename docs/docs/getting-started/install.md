@@ -2,23 +2,62 @@
 
 ## 1. Download skippr
 
-Download `skippr` for your platform from the releases page and place it on your `PATH`:
+### macOS / Linux
+
+```bash
+curl -fsSL https://install.skippr.io | sh
+```
+
+### Windows (PowerShell — default terminal in VS Code)
+
+```powershell
+irm https://skippr.io/install.ps1 | iex
+```
+
+This installs `skippr.exe` to `%LOCALAPPDATA%\skippr\bin` and adds it to your user `PATH` so you can run `skippr` from any terminal.
+
+From cmd.exe you can invoke the same installer:
+
+```cmd
+powershell -c "irm https://skippr.io/install.ps1 | iex"
+```
+
+Verify the install:
 
 ```bash
 skippr --version
 ```
 
-## 2. Install Python and dbt
+## 2. Install OpenSSL (Windows only)
+
+OpenSSL is required for Snowflake key-pair authentication. On macOS and Linux it is typically pre-installed.
+
+```powershell
+winget install OpenSSL
+```
+
+## 3. Install Python and dbt
 
 Python 3.10+ is required to run `dbt`, which `skippr` uses for model compilation and materialisation.
 
+**macOS / Linux:**
+
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate        # macOS / Linux
-# .\.venv\Scripts\Activate.ps1   # Windows PowerShell
+source .venv/bin/activate
 
 pip install --upgrade pip
 pip install dbt-core dbt-snowflake   # or: dbt-bigquery, dbt-postgres, dbt-databricks, dbt-synapse, dbt-redshift, dbt-clickhouse, dbt-duckdb (MotherDuck)
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+pip install --upgrade pip
+pip install dbt-core dbt-snowflake
 ```
 
 Verify:
@@ -29,7 +68,7 @@ dbt --version
 
 The virtual environment must be activated whenever you run `skippr`.
 
-## 3. LLM API key (optional)
+## 4. LLM API key (optional)
 
 Skippr dbt includes a server-provided LLM key when you authenticate. To use your own key instead:
 
@@ -37,7 +76,7 @@ Skippr dbt includes a server-provided LLM key when you authenticate. To use your
 export LLM_API_KEY="sk-..."
 ```
 
-## 4. Warehouse credentials
+## 5. Warehouse credentials
 
 ### Snowflake
 
@@ -45,7 +84,7 @@ Set these environment variables:
 
 ```bash
 export SNOWFLAKE_ACCOUNT="MYORG-MYACCOUNT"
-export SNOWFLAKE_USER="myuser"
+export SNOWFLAKE_USER="myuser"                           # or a service account name
 export SNOWFLAKE_PRIVATE_KEY_PATH="/path/to/snowflake_key.p8"
 ```
 
@@ -61,6 +100,8 @@ Then assign the public key in Snowflake:
 ```sql
 ALTER USER myuser SET RSA_PUBLIC_KEY='MIIBIjANBgkqh...';
 ```
+
+**Using a service account?** Create a dedicated `TYPE = SERVICE` user in Snowflake for least-privilege automated access. See the [Snowflake connector docs](https://docs.skippr.io/connectors/destinations/snowflake#service-account-authentication) for full setup instructions.
 
 ### BigQuery
 
