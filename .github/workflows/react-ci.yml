@@ -442,7 +442,7 @@ jobs:
           done
           ls -la skippr-*.tar.gz || true
   
-      - name: Upload assets to GitHub Release
+      - name: Upload assets to GitHub Release (react repo)
         uses: softprops/action-gh-release@v1
         with:
           files: ./skippr-*.tar.gz
@@ -450,6 +450,22 @@ jobs:
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish skippr binaries to skipprd/skipprd release
+        env:
+          GH_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Ensure the release exists (no-op if skippr-el already created it)
+          gh release create "$TAG" \
+            --repo skipprd/skipprd \
+            --title "Release $TAG" \
+            --notes "Release $TAG" 2>/dev/null || true
+          # Upload skippr assets — --clobber overwrites same-name files
+          # but never deletes other assets (e.g. skippr-el-*)
+          gh release upload "$TAG" skippr-*.tar.gz \
+            --repo skipprd/skipprd \
+            --clobber
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
