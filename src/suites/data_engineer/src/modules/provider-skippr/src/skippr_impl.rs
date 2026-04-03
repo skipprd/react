@@ -968,7 +968,7 @@ impl SkipprProvider for SkipprCliProvider {
         _scope: &RequestScope,
         pipeline: &str,
     ) -> Result<SkipprPipelineStatus, String> {
-        let sql = format!("SHOW PIPELINE {}", pipeline);
+        let sql = format!("SHOW PIPELINE \"{}\"", pipeline);
         let output = self
             .run_skippr(&["query", "--plain", "--sql", &sql])
             .await?;
