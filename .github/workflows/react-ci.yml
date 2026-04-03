@@ -26,7 +26,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-react-core
+          shared-key: v2-ubuntu-dev
   
       - name: Check OpenAPI generated artifact drift (core)
         run: bash scripts/check-openapi-drift-core.sh
@@ -57,7 +57,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-skippr-test
+          shared-key: v2-ubuntu-dev
   
       - name: Check OpenAPI generated artifact drift (data_engineer suite)
         run: bash scripts/check-openapi-drift-suite-data-engineer.sh
@@ -115,8 +115,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-release
-          key: ${{ matrix.target }}
+          shared-key: v2-release-${{ matrix.target }}
   
       - name: Build skippr release binary
         env:
