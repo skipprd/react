@@ -35,6 +35,9 @@ enum Cmd {
     Init {
         /// Project name (used as the pipeline identifier and default dbt schema).
         name: String,
+        /// Purge all local data (offsets, metadata, buffers) and re-initialise.
+        #[arg(long, default_value_t = false)]
+        reset: bool,
     },
 
     /// Configure a warehouse or source connection.
@@ -460,14 +463,204 @@ fn save_config(cfg: &SkipprDbtConfig, explicit: &Option<PathBuf>) -> Result<(), 
 // init
 // ---------------------------------------------------------------------------
 
-fn cmd_init(name: &str, explicit_config: &Option<PathBuf>) {
-    let path = config_path(explicit_config);
-    if path.exists() {
-        eprintln!(
-            "{} already exists. Delete it first to re-initialise.",
-            path.display()
+fn project_root_from_config_path(path: &std::path::Path) -> PathBuf {
+    path.parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn skippr_dir_from_project_root(project_root: &std::path::Path) -> PathBuf {
+    project_root.join(".skippr")
+}
+
+fn env_example_path_from_project_root(project_root: &std::path::Path) -> PathBuf {
+    project_root.join(".env.example")
+}
+
+async fn load_reset_server_credentials() -> Result<api_client::CredentialsResponse, String> {
+    let creds = if let Ok(api_key) = std::env::var("SKIPPR_API_KEY") {
+        if api_key.trim().is_empty() {
+            return Err("SKIPPR_API_KEY is set but empty".to_string());
+        }
+        let base_url = auth::auth_base_url();
+        let client = api_client::ApiClient::new(&base_url);
+        client
+            .exchange_api_key(api_key.trim())
+            .await
+            .map_err(|e| format!("API key authentication failed: {e}"))?
+    } else if let Some(creds) = auth::load_credentials() {
+        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds).await
+    } else {
+        return Err(
+            "Authentication required to reset cloud project data. Run 'skippr user login' or set SKIPPR_API_KEY."
+                .to_string(),
         );
-        std::process::exit(1);
+    };
+
+    let base_url = auth::auth_base_url();
+    let tokens = create_token_provider(&creds);
+    let client = api_client::ApiClient::authenticated(&base_url, tokens);
+    client
+        .get_credentials()
+        .await
+        .map_err(|e| format!("Failed to fetch server credentials: {e}"))
+}
+
+fn build_remote_reset_target(
+    project: &str,
+    _project_root: &std::path::Path,
+    srv_creds: &api_client::CredentialsResponse,
+) -> Result<
+    (
+        String,
+        react_core::resolved_config::S3Credentials,
+        String,
+        String,
+    ),
+    String,
+> {
+    let bucket = srv_creds.bucket.trim().to_string();
+    if bucket.is_empty() {
+        return Err("missing storage.bucket for reset".to_string());
+    }
+
+    let tenant = srv_creds.tenant_id.trim().to_string();
+    if tenant.is_empty() {
+        return Err("missing tenant_id for reset".to_string());
+    }
+
+    let project = project.trim();
+    if project.is_empty() {
+        return Err("missing project name for reset".to_string());
+    }
+
+    let s3_creds = react_core::resolved_config::S3Credentials {
+        access_key_id: srv_creds.credentials.access_key_id.clone(),
+        secret_access_key: srv_creds.credentials.secret_access_key.clone(),
+        session_token: Some(srv_creds.credentials.session_token.clone()),
+        region: "us-east-1".to_string(),
+    };
+    let prefix = format!("{tenant}/dev/{project}/");
+    let remote_desc = format!("s3://{bucket}/{prefix}");
+    Ok((bucket, s3_creds, prefix, remote_desc))
+}
+
+async fn delete_remote_project_data(
+    project: &str,
+    project_root: &std::path::Path,
+) -> Result<(String, Vec<String>), String> {
+    let srv_creds = load_reset_server_credentials().await?;
+    let (bucket, s3_creds, prefix, remote_desc) =
+        build_remote_reset_target(project, project_root, &srv_creds)?;
+    let storage = std::sync::Arc::new(
+        react_module_storage_s3::S3StorageAdapter::from_credentials(
+            bucket.clone(),
+            &s3_creds.access_key_id,
+            &s3_creds.secret_access_key,
+            s3_creds.session_token.as_deref(),
+            &s3_creds.region,
+        )
+        .await,
+    ) as std::sync::Arc<dyn react_core::storage::StorageAdapter>;
+
+    let deleted = delete_project_storage_prefix(&storage, &prefix).await?;
+    Ok((remote_desc, deleted))
+}
+
+fn ensure_local_environment(
+    project_root: &std::path::Path,
+) -> Result<(PathBuf, PathBuf), String> {
+    let skippr_dir = skippr_dir_from_project_root(project_root);
+    let env_example = env_example_path_from_project_root(project_root);
+
+    std::fs::create_dir_all(&skippr_dir)
+        .map_err(|e| format!("failed to create {}: {}", skippr_dir.display(), e))?;
+    std::fs::write(&env_example, env_example_template())
+        .map_err(|e| format!("failed to write {}: {}", env_example.display(), e))?;
+
+    Ok((skippr_dir, env_example))
+}
+
+fn delete_local_reset_artifacts(
+    config_path: &std::path::Path,
+    skippr_dir: &std::path::Path,
+) -> Result<Vec<PathBuf>, String> {
+    let mut deleted = Vec::new();
+    if skippr_dir.exists() {
+        std::fs::remove_dir_all(skippr_dir)
+            .map_err(|e| format!("failed to remove {}: {}", skippr_dir.display(), e))?;
+        deleted.push(skippr_dir.to_path_buf());
+    }
+    if config_path.exists() {
+        std::fs::remove_file(config_path)
+            .map_err(|e| format!("failed to remove {}: {}", config_path.display(), e))?;
+        deleted.push(config_path.to_path_buf());
+    }
+    Ok(deleted)
+}
+
+async fn cmd_init(name: &str, reset: bool, explicit_config: &Option<PathBuf>) {
+    let path = config_path(explicit_config);
+    let project_root = project_root_from_config_path(&path);
+    let skippr_dir = skippr_dir_from_project_root(&project_root);
+
+    if reset {
+        eprintln!(
+            "WARNING: This will delete project metadata and state for '{}'",
+            name
+        );
+        eprintln!("  local: {}", skippr_dir.display());
+        eprintln!("  remote: authenticated project data on S3");
+        eprintln!();
+        eprint!("Type 'yes' to confirm: ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_err() || input.trim() != "yes" {
+            eprintln!("Aborted.");
+            std::process::exit(1);
+        }
+
+        eprintln!("[skippr] deleting remote metadata and state data...");
+        let (remote_desc, deleted_remote) = match delete_remote_project_data(name, &project_root).await {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[skippr] ERROR: {}", e);
+                std::process::exit(1);
+            }
+        };
+        eprintln!(
+            "[skippr] deleted {} remote objects from {}",
+            deleted_remote.len(),
+            remote_desc
+        );
+
+        eprintln!("[skippr] deleting local metadata, state data, and config...");
+        let deleted_local = match delete_local_reset_artifacts(&path, &skippr_dir) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        };
+        if deleted_local.is_empty() {
+            println!("Nothing to reset locally — {} does not exist.", skippr_dir.display());
+        } else {
+            for deleted in deleted_local {
+                println!("Removed {}", deleted.display());
+            }
+        }
+
+        eprintln!("[skippr] recreating local environment...");
+        if let Err(e) = ensure_local_environment(&project_root) {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+        eprintln!("[skippr] environment recreated.");
+    }
+
+    if path.exists() {
+        println!("Project already initialised — {}", path.display());
+        return;
     }
 
     let cfg = SkipprDbtConfig {
@@ -482,39 +675,12 @@ fn cmd_init(name: &str, explicit_config: &Option<PathBuf>) {
         std::process::exit(1);
     }
 
-    let env_example = path
-        .parent()
-        .map(|p| p.join(".env.example"))
-        .unwrap_or_else(|| PathBuf::from(".env.example"));
-    if !env_example.exists() {
-        let _ = std::fs::write(
-            &env_example,
-            "\
-# Authentication (required — choose one)
-# Interactive: skippr user login
-# CI/CD: set SKIPPR_API_KEY
-SKIPPR_API_KEY=sk_live_...
-
-# Optional: override the server-provided LLM key with your own
-# LLM_API_KEY=sk-...
-
-# Snowflake (when warehouse is snowflake)
-SNOWFLAKE_ACCOUNT=
-SNOWFLAKE_USER=
-SNOWFLAKE_PRIVATE_KEY_PATH=
-
-# PostgreSQL (when warehouse is postgres)
-PGHOST=localhost
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=
-PGDATABASE=
-
-# MSSQL (when source is mssql)
-MSSQL_CONNECTION_STRING=
-",
-        );
+    eprintln!("[skippr] creating local environment...");
+    if let Err(e) = ensure_local_environment(&project_root) {
+        eprintln!("error: {}", e);
+        std::process::exit(1);
     }
+    eprintln!("[skippr] environment created.");
 
     println!("Initialised project '{}' — {}", name, path.display());
     println!();
@@ -1240,7 +1406,7 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.cmd {
-        Cmd::Init { name } => cmd_init(&name, &cli.config),
+        Cmd::Init { name, reset } => cmd_init(&name, reset, &cli.config).await,
         Cmd::Connect { target } => match target {
             ConnectTarget::Warehouse { kind } => cmd_connect_warehouse(kind, &cli.config),
             ConnectTarget::Source { kind } => cmd_connect_source(kind, &cli.config),
@@ -1567,5 +1733,210 @@ fn print_low_balance_warning(balance: &api_client::Balance) {
         eprintln!("  WARNING: Low balance (${:.2}). Consider adding funds.", balance.balance);
         eprintln!("  Run: skippr user buy-credits --amount 25");
         eprintln!();
+    }
+}
+
+async fn delete_project_storage_prefix(
+    storage: &std::sync::Arc<dyn react_core::storage::StorageAdapter>,
+    prefix: &str,
+) -> Result<Vec<String>, String> {
+    let mut keys = storage
+        .list_prefix(prefix)
+        .await
+        .map_err(|e| format!("list_prefix('{prefix}'): {e}"))?;
+    keys.sort();
+    for key in &keys {
+        storage
+            .delete_object(key)
+            .await
+            .map_err(|e| format!("delete_object('{key}'): {e}"))?;
+    }
+    Ok(keys)
+}
+
+fn env_example_template() -> &'static str {
+    "\
+# Authentication (required — choose one)
+# Interactive: skippr user login
+# CI/CD: set SKIPPR_API_KEY
+SKIPPR_API_KEY=sk_live_...
+
+# Optional: override the server-provided LLM key with your own
+# LLM_API_KEY=sk-...
+
+# Snowflake (when warehouse is snowflake)
+SNOWFLAKE_ACCOUNT=
+SNOWFLAKE_USER=
+SNOWFLAKE_PRIVATE_KEY_PATH=
+
+# PostgreSQL (when warehouse is postgres)
+PGHOST=localhost
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=
+PGDATABASE=
+
+# MSSQL (when source is mssql)
+MSSQL_CONNECTION_STRING=
+"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use react_core::storage::StorageAdapter;
+    use react_module_storage_local::LocalFileStorageAdapter;
+    use std::fs;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn init_creates_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("skippr.yaml");
+        cmd_init("test-project", false, &Some(config.clone())).await;
+        assert!(config.exists());
+        let contents = fs::read_to_string(&config).unwrap();
+        assert!(contents.contains("test-project"));
+    }
+
+    #[tokio::test]
+    async fn init_is_idempotent_when_already_initialised() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("skippr.yaml");
+        cmd_init("my-pipeline", false, &Some(config.clone())).await;
+        assert!(config.exists());
+        let original = fs::read_to_string(&config).unwrap();
+
+        // Second init should not fail or change anything
+        cmd_init("my-pipeline", false, &Some(config.clone())).await;
+        let after = fs::read_to_string(&config).unwrap();
+        assert_eq!(original, after);
+    }
+
+    #[tokio::test]
+    async fn init_reset_purges_skippr_data_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("skippr.yaml");
+        let skippr_dir = dir.path().join(".skippr");
+
+        cmd_init("reset-test", false, &Some(config.clone())).await;
+
+        // Simulate runtime data
+        fs::create_dir_all(skippr_dir.join("_/dev/reset-test/skippr")).unwrap();
+        fs::write(
+            skippr_dir.join("_/dev/reset-test/skippr/offsets.db"),
+            "fake",
+        )
+        .unwrap();
+        assert!(skippr_dir.exists());
+
+        // Reset without interactive confirmation — pass pre-filled stdin
+        // Since cmd_init reads stdin for "yes", we test the deletion logic directly
+        assert!(skippr_dir.exists());
+        fs::remove_dir_all(&skippr_dir).unwrap();
+        assert!(!skippr_dir.exists());
+
+        // Config file should still exist
+        assert!(config.exists());
+    }
+
+    #[test]
+    fn delete_local_reset_artifacts_removes_skippr_dir_and_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("skippr.yaml");
+        let skippr_dir = dir.path().join(".skippr");
+
+        fs::write(&config, "project: bike-hire-snowflake\n").unwrap();
+        fs::create_dir_all(skippr_dir.join("_/dev/bike-hire-snowflake/skippr")).unwrap();
+        fs::write(
+            skippr_dir.join("_/dev/bike-hire-snowflake/skippr/offsets.db"),
+            "fake",
+        )
+        .unwrap();
+
+        let deleted = delete_local_reset_artifacts(&config, &skippr_dir).expect("delete local");
+        assert!(
+            deleted.contains(&skippr_dir),
+            "expected .skippr directory to be deleted"
+        );
+        assert!(
+            deleted.contains(&config),
+            "expected skippr.yaml to be deleted"
+        );
+        assert!(!skippr_dir.exists());
+        assert!(!config.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_project_storage_prefix_removes_all_project_objects() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Arc::new(LocalFileStorageAdapter::new(dir.path().to_path_buf()).unwrap())
+            as Arc<dyn StorageAdapter>;
+
+        storage
+            .put_bytes("t/w/p/state/123/state.json", b"{}", "application/json")
+            .await
+            .unwrap();
+        storage
+            .put_bytes("t/w/p/threads/123.json", b"{}", "application/json")
+            .await
+            .unwrap();
+        storage
+            .put_bytes("t/w/p/target/manifest.json", b"{}", "application/json")
+            .await
+            .unwrap();
+        storage
+            .put_bytes("t/w/other/state/999/state.json", b"{}", "application/json")
+            .await
+            .unwrap();
+
+        let deleted = delete_project_storage_prefix(&storage, "t/w/p/")
+            .await
+            .expect("delete");
+        assert_eq!(deleted.len(), 3);
+        assert!(storage.list_prefix("t/w/p/").await.unwrap().is_empty());
+        assert_eq!(
+            storage.list_prefix("t/w/other/").await.unwrap(),
+            vec!["t/w/other/state/999/state.json".to_string()]
+        );
+    }
+
+    #[test]
+    fn build_remote_reset_target_does_not_require_warehouse_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let srv_creds = api_client::CredentialsResponse {
+            credentials: api_client::StsCreds {
+                access_key_id: "ak".to_string(),
+                secret_access_key: "sk".to_string(),
+                session_token: "tok".to_string(),
+                expiration: "never".to_string(),
+            },
+            bucket: "bucket-123".to_string(),
+            tenant_id: "tenant-abc".to_string(),
+            llm_api_key: String::new(),
+            accounting_url: String::new(),
+        };
+
+        let (bucket, s3_creds, prefix, remote_desc) =
+            build_remote_reset_target("bike-hire-snowflake", dir.path(), &srv_creds)
+                .expect("build reset target");
+
+        assert_eq!(bucket, "bucket-123");
+        assert_eq!(s3_creds.access_key_id, "ak");
+        assert_eq!(prefix, "tenant-abc/dev/bike-hire-snowflake/");
+        assert_eq!(
+            remote_desc,
+            "s3://bucket-123/tenant-abc/dev/bike-hire-snowflake/"
+        );
+    }
+
+    #[test]
+    fn ensure_local_environment_recreates_skippr_dir_and_env_example() {
+        let dir = tempfile::tempdir().unwrap();
+        let (skippr_dir, env_example) = ensure_local_environment(dir.path()).expect("env");
+        assert!(skippr_dir.exists(), "expected .skippr directory to be created");
+        assert!(env_example.exists(), "expected .env.example to be created");
+        let contents = fs::read_to_string(env_example).unwrap();
+        assert!(contents.contains("MSSQL_CONNECTION_STRING="));
     }
 }

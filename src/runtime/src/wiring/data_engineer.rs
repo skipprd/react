@@ -404,7 +404,7 @@ pub(crate) async fn wire_providers(
     let providers = de_cfg::de_config_from_resolved(cfg).unwrap_or_default();
     let wh_kind = providers.warehouse.kind;
     let skippr_data_dir = {
-        let fs_root = cfg.storage.path.as_deref().unwrap_or("/tmp/skippr");
+        let fs_root = cfg.storage.path.as_deref().unwrap_or("./.skippr");
         std::path::PathBuf::from(fs_root)
             .join(cfg.scope.tenant.as_str())
             .join(cfg.scope.workspace.as_str())
