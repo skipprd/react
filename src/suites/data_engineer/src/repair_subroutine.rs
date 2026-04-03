@@ -158,6 +158,10 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
                 index_to_vector_store(self.sctx, entry, passed).await;
             }
             if passed {
+                crate::phase_plan_lifecycle::refresh_model_plan_grounded_schemas(
+                    self.sctx, &actx,
+                )
+                .await;
                 return PhaseOutcome::Return(vec![]);
             }
         }

@@ -1,4 +1,5 @@
 use react_core::agent::AgentCtx;
+use react_core::suite::SuiteCtx;
 
 use crate::plan;
 use crate::plan_types::{CleansePlan, ModelPlan, PlanStatus, TrackPlan};
@@ -71,5 +72,46 @@ pub(super) async fn save_plan(actx: &AgentCtx, plan: &TrackPlanDoc) -> Result<()
         TrackPlanDoc::Model(plan) => crate::plan::save_model_plan(actx, plan)
             .await
             .map_err(|e| e.to_string()),
+    }
+}
+
+/// Re-resolve `grounded_inputs[].source_schema` from the warehouse for every
+/// model task in the active plan, then persist the updated plan.
+///
+/// Call after repair successfully validates — upstream column changes are
+/// reflected in the warehouse views at that point, so the plan stays
+/// authoritative without gold authoring ever seeing stale schemas.
+pub(crate) async fn refresh_model_plan_grounded_schemas(sctx: &SuiteCtx, actx: &AgentCtx) {
+    let query = match crate::ctx_ext::sctx_query(sctx) {
+        Some(q) => q,
+        None => return,
+    };
+    let mut plan = match crate::plan::load_model_plan(actx).await.ok().flatten() {
+        Some(p) => p,
+        None => return,
+    };
+    let mut dirty = false;
+    for task in plan.tasks.iter_mut() {
+        let mut merged: Vec<crate::plan_types::SourceColumnDef> = Vec::new();
+        for gi in task.grounded_inputs.iter_mut() {
+            if gi.relation_fqn.trim().is_empty() {
+                continue;
+            }
+            if let Some(fresh) =
+                crate::facts::resolve_source_schema_live(query.as_ref(), &gi.relation_fqn).await
+            {
+                gi.source_schema = fresh;
+                dirty = true;
+            }
+            merged.extend(gi.source_schema.iter().cloned());
+        }
+        if !merged.is_empty() {
+            task.source_schema = merged;
+        }
+    }
+    if dirty {
+        if let Err(e) = crate::plan::save_model_plan(actx, &plan).await {
+            tracing::warn!("failed to persist refreshed plan schemas: {e}");
+        }
     }
 }

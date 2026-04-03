@@ -371,6 +371,22 @@ pub fn dataset_ids_to_fqns(dataset_ids: &[String]) -> Vec<String> {
     out
 }
 
+/// Resolve live warehouse schema for a relation into plan-compatible column defs.
+/// Returns `None` when the warehouse is unreachable or the relation has no columns.
+pub(crate) async fn resolve_source_schema_live(
+    query: &dyn crate::providers::QueryProvider,
+    relation_fqn: &str,
+) -> Option<Vec<crate::plan_types::SourceColumnDef>> {
+    match query.schema(relation_fqn).await {
+        Ok(cols) if !cols.is_empty() => Some(
+            cols.into_iter()
+                .map(|(name, data_type)| crate::plan_types::SourceColumnDef { name, data_type })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 /// Small helper to merge, sort, and cap relation lists deterministically.
 #[cfg(test)]
 pub fn merge_relation_fqns(mut a: Vec<String>, b: Vec<String>) -> Vec<String> {
