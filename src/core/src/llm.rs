@@ -21,12 +21,16 @@ pub enum LlmExpectedFormat {
 /// OpenAI-style reasoning effort hint.
 ///
 /// Not all providers support this; unsupported providers should ignore it.
+/// `ExtraHigh` maps to `"high"` for providers that cap at four tiers but
+/// signals the intent for maximum deliberation (e.g. larger thinking-token
+/// budgets on providers that support it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReasoningEffort {
     None,
     Low,
     Medium,
     High,
+    ExtraHigh,
 }
 
 

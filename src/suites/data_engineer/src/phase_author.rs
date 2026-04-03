@@ -1205,7 +1205,7 @@ async fn build_author_prompt(
             model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             max_output_tokens: Some(author_max_tokens),
-            reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::High),
             ..Default::default()
         }
     } else {
@@ -1220,7 +1220,7 @@ async fn build_author_prompt(
             model: None,
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             max_output_tokens: Some(author_max_tokens),
-            reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::High),
             ..Default::default()
         }
     };

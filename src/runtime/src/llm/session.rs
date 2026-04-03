@@ -96,7 +96,7 @@ impl LargeLanguageModel for RouterModel {
             ReasoningEffort::None => Some("none".to_string()),
             ReasoningEffort::Low => Some("low".to_string()),
             ReasoningEffort::Medium => Some("medium".to_string()),
-            ReasoningEffort::High => Some("high".to_string()),
+            ReasoningEffort::High | ReasoningEffort::ExtraHigh => Some("high".to_string()),
         };
         let prompt_id = Some(options.prompt_id.to_string());
 

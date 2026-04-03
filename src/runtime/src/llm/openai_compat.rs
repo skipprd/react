@@ -201,7 +201,8 @@ impl LargeLanguageModel for OpenAICompatModel {
                         react_core::llm::ReasoningEffort::None => "none",
                         react_core::llm::ReasoningEffort::Low => "low",
                         react_core::llm::ReasoningEffort::Medium => "medium",
-                        react_core::llm::ReasoningEffort::High => "high",
+                        react_core::llm::ReasoningEffort::High
+                        | react_core::llm::ReasoningEffort::ExtraHigh => "high",
                     }
                     .to_string(),
                 }),

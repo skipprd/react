@@ -65,6 +65,9 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
                 Some("low") | None | Some("") => react_core::llm::ReasoningEffort::Low,
                 Some("medium") => react_core::llm::ReasoningEffort::Medium,
                 Some("high") => react_core::llm::ReasoningEffort::High,
+                Some("extra_high") | Some("xhigh") => {
+                    react_core::llm::ReasoningEffort::ExtraHigh
+                }
                 _ => react_core::llm::ReasoningEffort::Low,
             };
             react_core::llm::LlmCallOptions {

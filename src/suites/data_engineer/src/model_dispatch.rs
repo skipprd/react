@@ -35,6 +35,7 @@ impl ModelDispatch {
             model: Some(self.task_model.clone()),
             temperature: Some(0.1),
             expected_format: LlmExpectedFormat::Text,
+            reasoning_effort: Some(react_core::llm::ReasoningEffort::Medium),
             ..Default::default()
         }
     }

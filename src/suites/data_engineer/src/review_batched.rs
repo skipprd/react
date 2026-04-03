@@ -183,6 +183,7 @@ fn parse_review_reasoning_effort(var: &str) -> Option<ReasoningEffort> {
         Some("low") => Some(ReasoningEffort::Low),
         Some("medium") => Some(ReasoningEffort::Medium),
         Some("high") => Some(ReasoningEffort::High),
+        Some("extra_high") | Some("xhigh") => Some(ReasoningEffort::ExtraHigh),
         _ => None,
     }
 }
@@ -207,7 +208,7 @@ impl ReviewLlmConfig {
         use crate::env_util::{env_keys, env_u32 as parse_u32_env};
 
         let reasoning_effort = parse_review_reasoning_effort(env_keys::LLM_REVIEW_REASONING_EFFORT)
-            .unwrap_or(ReasoningEffort::Medium);
+            .unwrap_or(ReasoningEffort::High);
 
         let default_non_unify: u32 = parse_u32_env(env_keys::LLM_REVIEW_MAX_TOKENS)
             .unwrap_or(12_000)

@@ -731,7 +731,7 @@ impl Tool for StagingModelTool {
                 max_attempts,
                 initial_prompt_id: "data_engineer.tools.staging_model.sql_first",
                 repair_prompt_id: "data_engineer.tools.staging_model.sql_first_repair",
-                reasoning_effort: react_core::llm::ReasoningEffort::Low,
+                reasoning_effort: react_core::llm::ReasoningEffort::High,
                 skip_warehouse_validation: false,
             };
             let cols_for_sql_clone = cols_for_sql.clone();

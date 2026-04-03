@@ -173,6 +173,9 @@ impl DataEngineerSuite {
             Some("low") => Some(react_core::llm::ReasoningEffort::Low),
             Some("medium") => Some(react_core::llm::ReasoningEffort::Medium),
             Some("high") => Some(react_core::llm::ReasoningEffort::High),
+            Some("extra_high") | Some("xhigh") => {
+                Some(react_core::llm::ReasoningEffort::ExtraHigh)
+            }
             _ => None,
         }
     }
