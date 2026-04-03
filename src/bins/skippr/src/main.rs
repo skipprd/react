@@ -582,7 +582,7 @@ fn ensure_local_environment(
 }
 
 fn delete_local_reset_artifacts(
-    config_path: &std::path::Path,
+    _config_path: &std::path::Path,
     skippr_dir: &std::path::Path,
 ) -> Result<Vec<PathBuf>, String> {
     let mut deleted = Vec::new();
@@ -590,11 +590,6 @@ fn delete_local_reset_artifacts(
         std::fs::remove_dir_all(skippr_dir)
             .map_err(|e| format!("failed to remove {}: {}", skippr_dir.display(), e))?;
         deleted.push(skippr_dir.to_path_buf());
-    }
-    if config_path.exists() {
-        std::fs::remove_file(config_path)
-            .map_err(|e| format!("failed to remove {}: {}", config_path.display(), e))?;
-        deleted.push(config_path.to_path_buf());
     }
     Ok(deleted)
 }
@@ -634,7 +629,7 @@ async fn cmd_init(name: &str, reset: bool, explicit_config: &Option<PathBuf>) {
             remote_desc
         );
 
-        eprintln!("[skippr] deleting local metadata, state data, and config...");
+        eprintln!("[skippr] deleting local metadata and state data...");
         let deleted_local = match delete_local_reset_artifacts(&path, &skippr_dir) {
             Ok(v) => v,
             Err(e) => {
@@ -1841,7 +1836,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_local_reset_artifacts_removes_skippr_dir_and_config() {
+    fn delete_local_reset_artifacts_removes_skippr_dir_but_keeps_config() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("skippr.yaml");
         let skippr_dir = dir.path().join(".skippr");
@@ -1859,12 +1854,8 @@ mod tests {
             deleted.contains(&skippr_dir),
             "expected .skippr directory to be deleted"
         );
-        assert!(
-            deleted.contains(&config),
-            "expected skippr.yaml to be deleted"
-        );
         assert!(!skippr_dir.exists());
-        assert!(!config.exists());
+        assert!(config.exists(), "skippr.yaml should be preserved");
     }
 
     #[tokio::test]

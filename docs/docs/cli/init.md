@@ -25,11 +25,12 @@ skippr init mssql-migration --reset
 
 `--reset` will:
 
-- Delete the local `.skippr/` directory.
-- Delete the local `skippr.yaml`.
+- Delete the local `.skippr/` directory (offsets, metadata, buffers).
 - Delete remote project metadata and state from the authenticated project's S3 scope.
 - Prompt for confirmation by requiring you to type `yes`.
-- Recreate `skippr.yaml`, `.env.example`, and the local `.skippr/` environment scaffold.
+- Recreate the local `.skippr/` environment scaffold.
+
+Your `skippr.yaml` config file is preserved so you don't lose warehouse and source connection settings.
 
 ## Arguments
 

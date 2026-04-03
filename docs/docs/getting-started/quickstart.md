@@ -25,7 +25,7 @@ If you need to wipe previous offsets, metadata, and project state during testing
 skippr init mssql-migration --reset
 ```
 
-That will delete the local project state, remove the existing `skippr.yaml`, clear the authenticated project's remote metadata/state on S3, and then recreate a clean local environment.
+That will delete the local project state (`.skippr/`), clear the authenticated project's remote metadata/state on S3, and recreate a clean local environment. Your `skippr.yaml` config is preserved.
 
 ## 2. Connect the warehouse
 
