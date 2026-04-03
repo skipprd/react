@@ -6,6 +6,22 @@
 
 Run `skippr init <project>` in the working directory first.
 
+### Need to fully reset a project
+
+If you want to wipe the current project's local runtime data, config, and remote state on S3, run:
+
+```bash
+skippr init <project> --reset
+```
+
+This will prompt you to type `yes`, then delete:
+
+- local `.skippr/`
+- local `skippr.yaml`
+- remote project metadata and state in the authenticated project's S3 scope
+
+It then recreates a fresh local environment so you can reconnect and rerun from scratch.
+
 ### `dbt: command not found`
 
 Activate the Python virtual environment before running `skippr`:

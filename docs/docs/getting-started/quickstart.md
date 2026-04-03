@@ -17,7 +17,15 @@ mkdir my-workspace && cd my-workspace
 skippr init mssql-migration
 ```
 
-This creates `skippr.yaml` with your project name and a `.env.example` showing the required environment variables.
+This creates `skippr.yaml`, a `.env.example`, and a local `.skippr/` runtime directory in the current working directory.
+
+If you need to wipe previous offsets, metadata, and project state during testing, re-run init with:
+
+```bash
+skippr init mssql-migration --reset
+```
+
+That will delete the local project state, remove the existing `skippr.yaml`, clear the authenticated project's remote metadata/state on S3, and then recreate a clean local environment.
 
 ## 2. Connect the warehouse
 

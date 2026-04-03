@@ -6,12 +6,30 @@ Initialise a new project in the current directory.
 
 ```bash
 skippr init <project-name>
+skippr init <project-name> --reset
 ```
 
 ## What it does
 
 - Creates `skippr.yaml` with the project name.
 - Creates `.env.example` listing the required environment variables.
+- Creates a local `.skippr/` runtime directory in the current working directory.
+
+## Reset an existing project
+
+Use `--reset` when you want to fully re-initialise a project and clear any previous run state:
+
+```bash
+skippr init mssql-migration --reset
+```
+
+`--reset` will:
+
+- Delete the local `.skippr/` directory.
+- Delete the local `skippr.yaml`.
+- Delete remote project metadata and state from the authenticated project's S3 scope.
+- Prompt for confirmation by requiring you to type `yes`.
+- Recreate `skippr.yaml`, `.env.example`, and the local `.skippr/` environment scaffold.
 
 ## Arguments
 
@@ -40,5 +58,6 @@ Next steps:
 
 ## Notes
 
-- Running `init` in a directory that already contains `skippr.yaml` will fail. Delete the existing file first to re-initialise.
+- Running `init` in a directory that already contains `skippr.yaml` is idempotent. It will print that the project is already initialised and leave the existing files alone.
+- Use `skippr init <project-name> --reset` if you want to wipe local and remote state and start again from a clean project.
 - The project name should be a valid identifier (letters, numbers, underscores). It is used to name Snowflake schemas (e.g. `mssql_migration_silver`).
