@@ -1,6 +1,10 @@
 use react_core::session::analysis::ThreadSummary;
 
-pub fn system_prompt(summary: &ThreadSummary, domain_context: Option<&str>) -> String {
+pub fn system_prompt(
+    summary: &ThreadSummary,
+    domain_context: Option<&str>,
+    strict_audit: bool,
+) -> String {
     let mut prompt = String::from(
         "You are a thread execution debugger. You analyze thread logs from a React agent framework \
          to identify issues, explain root causes, and suggest fixes.\n\n\
@@ -14,6 +18,18 @@ pub fn system_prompt(summary: &ThreadSummary, domain_context: Option<&str>) -> S
          ## Pre-computed Summary\n",
     );
 
+    if strict_audit {
+        prompt.push_str(
+            "\n## Audit Requirements\n\
+             - Treat this as a forensic audit, not a generic advice session.\n\
+             - Establish whether the thread completed, partially completed, or failed.\n\
+             - Explain efficiency: what consumed time, what repeated, and what was unnecessary.\n\
+             - Identify the single primary root cause and any secondary contributing factors.\n\
+             - When discussing fixes, tie them to concrete evidence from phases, tool calls, log excerpts, or repo code retrieved via tools.\n\
+             - Do not speculate when evidence is missing; explicitly say what you verified versus what remains uncertain.\n",
+        );
+    }
+
     if let Ok(json) = serde_json::to_string_pretty(summary) {
         prompt.push_str(&json);
     }
@@ -24,4 +40,25 @@ pub fn system_prompt(summary: &ThreadSummary, domain_context: Option<&str>) -> S
     }
 
     prompt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_audit_prompt_adds_forensic_requirements() {
+        let summary = ThreadSummary {
+            total_steps: 0,
+            phases: vec![],
+            llm_calls: 0,
+            tool_calls: vec![],
+            total_duration_ms: None,
+            issues: vec![],
+            result: None,
+        };
+        let prompt = system_prompt(&summary, None, true);
+        assert!(prompt.contains("Treat this as a forensic audit"));
+        assert!(prompt.contains("Establish whether the thread completed"));
+    }
 }

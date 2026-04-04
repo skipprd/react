@@ -1,63 +1,19 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use serde_json::Value;
-
 use crate::keyspace_for_scope;
-use react_core::error::CoreError;
 use react_core::provider_traits::NullSecretsProvider;
 use react_core::session::analysis;
 use react_core::session::ThreadStore;
-use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
 use react_core::suite::SuiteCtx;
+use react_core::thread_feedback::{ThreadFeedback, ThreadFeedbackStore, ThreadFeedbackVerdict};
 use react_suite_debugger::SuiteDebugger;
 
 use crate::accounting;
+use crate::admin_scope;
+use crate::code_index;
 use crate::debug;
 use crate::display;
 use crate::nav::ShellState;
-
-/// Wraps a real storage adapter but silently drops all writes.
-/// Used for debug sessions so the agent loop doesn't pollute real data.
-struct ReadOnlyStorage(Arc<dyn StorageAdapter>);
-
-#[async_trait]
-impl StorageAdapter for ReadOnlyStorage {
-    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
-        self.0.get_json(key).await
-    }
-    async fn put_json(&self, _key: &str, _value: &Value) -> Result<(), CoreError> {
-        Ok(())
-    }
-    async fn put_json_if_etag_matches(
-        &self,
-        _key: &str,
-        _value: &Value,
-        _expected_etag: Option<&str>,
-    ) -> Result<ConditionalWriteStatus, CoreError> {
-        Ok(ConditionalWriteStatus::Written)
-    }
-    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        self.0.get_bytes(key).await
-    }
-    async fn put_bytes(
-        &self,
-        _key: &str,
-        _bytes: &[u8],
-        _content_type: &str,
-    ) -> Result<(), CoreError> {
-        Ok(())
-    }
-    async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
-        Ok(())
-    }
-    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        self.0.head_etag(key).await
-    }
-    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
-        self.0.list_prefix(prefix).await
-    }
-}
 
 pub struct AppCtx {
     pub ddb_client: aws_sdk_dynamodb::Client,
@@ -65,6 +21,7 @@ pub struct AppCtx {
     pub storage: Arc<dyn react_core::storage::StorageAdapter>,
     pub s3: Arc<react_module_storage_s3::S3StorageAdapter>,
     pub llm: react_core::llm::DynLlm,
+    pub vector: Arc<dyn react_core::provider_traits::VectorStore>,
     pub suite_debugger: SuiteDebugger,
 }
 
@@ -121,6 +78,14 @@ pub async fn dispatch(line: &str, state: &mut ShellState, app: &AppCtx) {
                 println!("  Usage: debug <thread_id>");
             }
         }
+        "feedback" if depth == 3 => handle_feedback(args, state, app).await,
+        "fdebug" if depth == 3 => {
+            if let Some(id) = args.first() {
+                handle_feedback_debug(state, app, id).await;
+            } else {
+                println!("  Usage: fdebug <feedback_id>");
+            }
+        }
         _ => {
             println!("  Unknown command '{cmd}'. Type 'help' for available commands.");
         }
@@ -142,6 +107,8 @@ fn print_help(depth: usize) {
         println!("    thread <id>    Show thread summary");
         println!("    log <id>       Show raw thread run log");
         println!("    debug <id>     Start interactive LLM debug session");
+        println!("    feedback       List unresolved feedback for this project");
+        println!("    fdebug <id>    Debug the thread referenced by feedback");
     }
     println!("    help           Show this help");
     println!("    quit           Exit");
@@ -333,29 +300,232 @@ async fn handle_log(state: &ShellState, app: &AppCtx, thread_id: &str) {
 }
 
 async fn handle_debug(state: &ShellState, app: &AppCtx, thread_id: &str) {
-    let scope = match state.request_scope() {
+    let target_scope = match state.request_scope() {
         Some(s) => s,
         None => {
             println!("  Navigate to a project first.");
             return;
         }
     };
+    let admin_scope = match admin_scope::derive_admin_scope(&target_scope) {
+        Ok(scope) => scope,
+        Err(e) => {
+            println!("  Failed to derive admin scope: {e}");
+            return;
+        }
+    };
 
     let keyspace = keyspace_for_scope();
-    let ro_storage: Arc<dyn StorageAdapter> = Arc::new(ReadOnlyStorage(app.storage.clone()));
     let mut ctx = SuiteCtx::new(
-        ro_storage,
+        app.storage.clone(),
         Arc::new(NullSecretsProvider),
         app.llm.clone(),
-        scope,
+        admin_scope.clone(),
         keyspace,
     );
-    debug::wire_debug_capabilities(&mut ctx);
+    ctx.set_vector(Some(app.vector.clone()));
+    debug::wire_debug_capabilities(&mut ctx, target_scope.clone());
 
-    println!("  Starting debug session for thread {thread_id}...");
+    println!("  Preparing debug session for thread {thread_id}...");
+    println!("  Checking admin repo index (this can take a while on the first run)...");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+
+    match code_index::ensure_repo_indexed_with_progress(
+        &ctx,
+        &code_index::DEFAULT_REPO_ROOTS
+            .iter()
+            .map(std::path::PathBuf::from)
+            .collect::<Vec<_>>(),
+        |msg| {
+            println!("  {msg}");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        },
+    )
+    .await
+    {
+        Ok(status) => {
+            if status.reused_existing_index {
+                println!(
+                    "  Reusing admin repo index in {} files / {} chunks.",
+                    status.file_count, status.chunk_count
+                );
+            } else {
+                println!(
+                    "  Refreshed admin repo index from {} files / {} chunks.",
+                    status.file_count, status.chunk_count
+                );
+            }
+            for warning in status.warnings {
+                println!("  Warning: {warning}");
+            }
+        }
+        Err(e) => {
+            println!("  Warning: admin repo indexing skipped: {e}");
+        }
+    }
+
+    println!(
+        "  Starting debug session for thread {thread_id} (admin scope: {}/{}/{})...",
+        admin_scope.tenant, admin_scope.workspace, admin_scope.project_id
+    );
     println!("  Type '/quit' to exit.\n");
 
     if let Err(e) = debug::run_debug(thread_id, &app.suite_debugger, &ctx).await {
         println!("  Debug error: {e}");
+    }
+}
+
+async fn handle_feedback(args: &[&str], state: &ShellState, app: &AppCtx) {
+    match args {
+        [] => handle_feedback_list(state, app, false).await,
+        ["all"] => handle_feedback_list(state, app, true).await,
+        ["resolve", feedback_id] => handle_feedback_resolve(state, app, feedback_id).await,
+        ["debug", feedback_id] => handle_feedback_debug(state, app, feedback_id).await,
+        _ => {
+            println!("  Usage: feedback");
+            println!("         feedback all");
+            println!("         feedback resolve <feedback_id>");
+            println!("         feedback debug <feedback_id>");
+        }
+    }
+}
+
+async fn handle_feedback_list(state: &ShellState, app: &AppCtx, include_resolved: bool) {
+    let store = match feedback_store(state, app) {
+        Ok(store) => store,
+        Err(e) => {
+            println!("  Error: {e}");
+            return;
+        }
+    };
+    let feedback = match store.list_all().await {
+        Ok(items) => filter_feedback(items, include_resolved),
+        Err(e) => {
+            println!("  Error loading feedback: {e}");
+            return;
+        }
+    };
+    if feedback.is_empty() {
+        if include_resolved {
+            println!("  No feedback entries found for this project.");
+        } else {
+            println!("  No unresolved feedback entries found for this project.");
+        }
+        return;
+    }
+
+    println!();
+    for item in feedback {
+        let verdict = match item.verdict {
+            ThreadFeedbackVerdict::Good => "good",
+            ThreadFeedbackVerdict::Bad => "bad",
+        };
+        let status = if item.resolved { "resolved" } else { "open" };
+        println!(
+            "  {} [{} / {}] thread {}",
+            item.feedback_id, verdict, status, item.thread_id
+        );
+        println!("    created: {}", item.created_at);
+        if let Some(resolved_at) = &item.resolved_at {
+            println!("    resolved: {}", resolved_at);
+        }
+        for line in item.comment.lines() {
+            println!("    {line}");
+        }
+        println!();
+    }
+}
+
+async fn handle_feedback_resolve(state: &ShellState, app: &AppCtx, feedback_id: &str) {
+    let store = match feedback_store(state, app) {
+        Ok(store) => store,
+        Err(e) => {
+            println!("  Error: {e}");
+            return;
+        }
+    };
+    match store.mark_resolved(feedback_id).await {
+        Ok(Some(item)) => println!(
+            "  Marked feedback {} as resolved for thread {}.",
+            item.feedback_id, item.thread_id
+        ),
+        Ok(None) => println!("  Feedback {feedback_id} was not found in this project."),
+        Err(e) => println!("  Error resolving feedback: {e}"),
+    }
+}
+
+async fn handle_feedback_debug(state: &ShellState, app: &AppCtx, feedback_id: &str) {
+    let store = match feedback_store(state, app) {
+        Ok(store) => store,
+        Err(e) => {
+            println!("  Error: {e}");
+            return;
+        }
+    };
+    match store.get_by_id(feedback_id).await {
+        Ok(Some(item)) => {
+            println!(
+                "  Debugging thread {} from feedback {}...",
+                item.thread_id, item.feedback_id
+            );
+            handle_debug(state, app, &item.thread_id).await;
+        }
+        Ok(None) => println!("  Feedback {feedback_id} was not found in this project."),
+        Err(e) => println!("  Error loading feedback: {e}"),
+    }
+}
+
+fn feedback_store(state: &ShellState, app: &AppCtx) -> Result<ThreadFeedbackStore, String> {
+    let scope = state
+        .request_scope()
+        .ok_or_else(|| "Navigate to a project first.".to_string())?;
+    Ok(ThreadFeedbackStore::new(
+        app.storage.clone(),
+        scope,
+        keyspace_for_scope(),
+    ))
+}
+
+fn filter_feedback(feedback: Vec<ThreadFeedback>, include_resolved: bool) -> Vec<ThreadFeedback> {
+    if include_resolved {
+        feedback
+    } else {
+        feedback.into_iter().filter(|item| !item.resolved).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_feedback_hides_resolved_entries_by_default() {
+        let items = vec![
+            ThreadFeedback {
+                feedback_id: "a".to_string(),
+                thread_id: "thread-1".to_string(),
+                verdict: ThreadFeedbackVerdict::Bad,
+                comment: "needs work".to_string(),
+                created_at: "2026-04-03T10:00:00Z".to_string(),
+                resolved: false,
+                resolved_at: None,
+            },
+            ThreadFeedback {
+                feedback_id: "b".to_string(),
+                thread_id: "thread-2".to_string(),
+                verdict: ThreadFeedbackVerdict::Good,
+                comment: "looks right".to_string(),
+                created_at: "2026-04-03T11:00:00Z".to_string(),
+                resolved: true,
+                resolved_at: Some("2026-04-03T12:00:00Z".to_string()),
+            },
+        ];
+
+        let unresolved = filter_feedback(items.clone(), false);
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!(unresolved[0].feedback_id, "a");
+
+        let all = filter_feedback(items, true);
+        assert_eq!(all.len(), 2);
     }
 }

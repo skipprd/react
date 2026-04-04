@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,29 @@ use tokio::sync::OnceCell;
 use tracing::{info, warn};
 
 use react_core::agent::AgentCtx;
-use react_core::provider_traits::{ScoredVectorChunk, VectorChunk};
+use react_core::provider_traits::{
+    ScoredTypedVectorDocument, TypedVectorDocument, VectorCollection, query_typed_documents,
+    upsert_typed_documents,
+};
+
+pub struct DbtExampleCollection;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DbtExampleMetadata {
+    pub project: String,
+    pub path: String,
+    #[serde(default)]
+    pub s3_uri: Option<String>,
+}
+
+impl VectorCollection for DbtExampleCollection {
+    type Metadata = DbtExampleMetadata;
+
+    const NAMESPACE: &'static str = "dbt_example";
+}
+
+pub type DbtExampleDocument = TypedVectorDocument<DbtExampleCollection>;
+pub type ScoredDbtExampleDocument = ScoredTypedVectorDocument<DbtExampleCollection>;
 
 static SYNC_ONCE: OnceCell<()> = OnceCell::const_new();
 
@@ -30,7 +52,7 @@ pub async fn search_examples(
     ctx: &AgentCtx,
     query: &str,
     k: usize,
-) -> Result<Vec<ScoredVectorChunk>, String> {
+) -> Result<Vec<ScoredDbtExampleDocument>, String> {
     let vector = ctx.vector().as_ref().ok_or_else(|| {
         "vector provider missing (dbt examples search requires embeddings)".to_string()
     })?;
@@ -42,10 +64,7 @@ pub async fn search_examples(
     if v.is_empty() {
         return Ok(Vec::new());
     }
-    let mut hits = vector.query(ctx.scope(), &v, k * 3, None).await?;
-    hits.retain(|h| {
-        h.item.kind == react_core::provider_traits::ChunkKind::Other("dbt_example".to_string())
-    });
+    let mut hits = query_typed_documents::<DbtExampleCollection>(vector.as_ref(), ctx.scope(), &v, k * 3).await?;
     hits.truncate(k.max(1));
     Ok(hits)
 }
@@ -145,30 +164,38 @@ async fn sync_from_local(ctx: &AgentCtx) -> Result<(), String> {
 
     // Embed in small batches
     let batch = 48usize;
-    let mut chunks: Vec<VectorChunk> = Vec::with_capacity(files.len());
+    let mut chunks: Vec<DbtExampleDocument> = Vec::with_capacity(files.len());
     for (rel, bytes) in files.iter() {
         let text = String::from_utf8_lossy(bytes).to_string();
         let project = rel.split('/').next().unwrap_or("dbt-examples").to_string();
         let id = format!("dbt_example:{}:{}", project, sha256_bytes(rel.as_bytes()));
-        chunks.push(VectorChunk {
+        chunks.push(DbtExampleDocument::new(
             id,
-            kind: react_core::provider_traits::ChunkKind::Other("dbt_example".to_string()),
-            entity_id: project.clone(),
-            field: Some(rel.clone()),
             text,
-            vector: Vec::new(),
-            meta: Value::Null,
-            epoch: chrono::Utc::now().timestamp() as u64,
-        });
+            Vec::new(),
+            chrono::Utc::now().timestamp() as u64,
+            DbtExampleMetadata {
+                project: project.clone(),
+                path: rel.clone(),
+                s3_uri: Some(format!("dbt-examples/{rel}")),
+            },
+        ));
     }
 
     let mut i = 0usize;
     while i < chunks.len() {
         let j = (i + batch).min(chunks.len());
-        let texts: Vec<String> = chunks[i..j].iter().map(|c| c.text.clone()).collect();
+        let texts: Vec<String> = chunks[i..j].iter().map(|c| c.text().to_string()).collect();
         let vecs = ctx.llm_embed(&texts).map_err(|e| e.to_string())?;
         for (k, v) in vecs.into_iter().enumerate() {
-            chunks[i + k].vector = v;
+            let doc = &chunks[i + k];
+            chunks[i + k] = DbtExampleDocument::new(
+                doc.id().to_string(),
+                doc.text().to_string(),
+                v,
+                doc.epoch(),
+                doc.metadata().clone(),
+            );
         }
         i = j;
     }
@@ -186,7 +213,7 @@ async fn sync_from_local(ctx: &AgentCtx) -> Result<(), String> {
     let mut p = 0usize;
     while p < chunks.len() {
         let q = (p + batch).min(chunks.len());
-        vector.upsert(ctx.scope(), &chunks[p..q]).await?;
+        upsert_typed_documents(vector.as_ref(), ctx.scope(), &chunks[p..q]).await?;
         p = q;
     }
     Ok(())

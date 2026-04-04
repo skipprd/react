@@ -4,11 +4,12 @@ mod public_config;
 mod skippr_bin;
 mod translate;
 
-use std::{path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command, sync::Arc};
 
 use clap::{Parser, Subcommand};
+use react_core::keyspace::Keyspace;
 
-use public_config::{DbtConfig, S3Transform, SchemaSinkConfig, SkipprDbtConfig, SourceConfig, WarehouseConfig};
+use public_config::{DbtConfig, S3Transform, SkipprDbtConfig, SourceConfig, WarehouseConfig};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -51,6 +52,19 @@ enum Cmd {
 
     /// Execute the full pipeline (extract, load, model).
     Run,
+
+    /// Attach human feedback to a project thread run.
+    Feedback {
+        /// Mark the most recent thread run as good.
+        #[arg(long, conflicts_with = "bad", required_unless_present = "bad")]
+        good: bool,
+        /// Mark the most recent thread run as bad.
+        #[arg(long, conflicts_with = "good", required_unless_present = "good")]
+        bad: bool,
+        /// Feedback comment. When omitted, the CLI prompts for a single-line message.
+        #[arg(long)]
+        comment: Option<String>,
+    },
 
     /// User account management (signup, login, balance, etc.).
     User {
@@ -1323,7 +1337,13 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
     let mut reg = react_core::suite::SuiteRegistry::new();
     reg.register(react_suite_data_engineer::DataEngineerSuite);
 
-    let thread_id = find_latest_thread(cfg.project.trim());
+    let thread_id = match find_latest_thread_for_resolved_config(&resolved).await {
+        Ok(thread_id) => thread_id,
+        Err(e) => {
+            eprintln!("[skippr] WARNING: failed to discover latest thread: {e}");
+            None
+        }
+    };
     if let Some(ref tid) = thread_id {
         react_suite_data_engineer::metering::set_metering_thread_id(tid);
         eprintln!("[skippr] resuming thread {tid}");
@@ -1346,35 +1366,312 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
     std::process::exit(exit_code);
 }
 
-/// Find the most recently modified primary thread for a project.
-///
-/// Scans `.skippr/local/dev/<project>/threads/` for `<uuid>.json` files
-/// (skipping companion files like `<uuid>__gather_0.json`) and returns the
-/// thread ID with the newest modification time, if any.
-fn find_latest_thread(project: &str) -> Option<String> {
-    let threads_dir = PathBuf::from(format!(
-        ".skippr/local/dev/{}/threads",
-        project.trim()
-    ));
-    let entries = std::fs::read_dir(&threads_dir).ok()?;
+async fn cmd_feedback(
+    good: bool,
+    bad: bool,
+    comment: Option<String>,
+    explicit_config: &Option<PathBuf>,
+) {
+    let cfg = match load_config(explicit_config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            eprintln!("Run 'skippr init <project>' first.");
+            std::process::exit(1);
+        }
+    };
+    let project = cfg.project.trim();
+    let srv_creds = match load_reset_server_credentials().await {
+        Ok(creds) => creds,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    let resolved_cfg = match resolve_feedback_runtime_config(&cfg, &srv_creds) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    let verdict = match resolve_feedback_verdict(good, bad) {
+        Ok(verdict) => verdict,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    let thread_id = match resolve_feedback_thread_id(&resolved_cfg).await {
+        Ok(thread_id) => thread_id,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    let comment = match resolve_feedback_comment(comment) {
+        Ok(comment) => comment,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    let store = match build_feedback_store(project, &srv_creds).await {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("[skippr] ERROR: {e}");
+            std::process::exit(1);
+        }
+    };
+    match store.submit(&thread_id, verdict, comment).await {
+        Ok(feedback) => {
+            eprintln!(
+                "[skippr] stored {:?} feedback for thread {} ({})",
+                feedback.verdict, feedback.thread_id, feedback.feedback_id
+            );
+        }
+        Err(e) => {
+            eprintln!("[skippr] ERROR: failed to store feedback: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn find_latest_thread_in_skippr_dir(skippr_dir: &std::path::Path, project: &str) -> Option<String> {
+    let scope =
+        react_core::scope::RequestScope::parse("_", "dev", project.trim()).ok()?;
+    find_latest_thread_in_local_storage(skippr_dir, &scope).ok().flatten()
+}
+
+fn find_latest_thread_in_local_storage(
+    storage_root: &std::path::Path,
+    scope: &react_core::scope::RequestScope,
+) -> Result<Option<String>, String> {
+    let keyspace = react_core::keyspace::LocalKeyspace::new(storage_root.display().to_string());
+    let threads_dir = storage_root.join(keyspace.threads_prefix(scope).trim_end_matches('/'));
+    let entries = match std::fs::read_dir(&threads_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(format!(
+                "failed to read local threads directory {}: {e}",
+                threads_dir.display()
+            ))
+        }
+    };
 
     let mut latest: Option<(String, std::time::SystemTime)> = None;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".json") || name.contains("__") {
+        let Some(thread_id) = primary_thread_id_from_filename(&name) else {
             continue;
-        }
-        let stem = name.strip_suffix(".json")?;
-        if stem.len() != 36 || stem.chars().filter(|c| *c == '-').count() != 4 {
-            continue;
-        }
-        let modified = entry.metadata().ok()?.modified().ok()?;
+        };
+        let modified = entry
+            .metadata()
+            .map_err(|e| format!("failed to read metadata for {name}: {e}"))?
+            .modified()
+            .map_err(|e| format!("failed to read modified time for {name}: {e}"))?;
         if latest.as_ref().map_or(true, |(_, t)| modified > *t) {
-            latest = Some((stem.to_string(), modified));
+            latest = Some((thread_id, modified));
         }
     }
 
-    latest.map(|(tid, _)| tid)
+    Ok(latest.map(|(tid, _)| tid))
+}
+
+fn resolve_feedback_verdict(
+    good: bool,
+    bad: bool,
+) -> Result<react_core::thread_feedback::ThreadFeedbackVerdict, String> {
+    match (good, bad) {
+        (true, false) => Ok(react_core::thread_feedback::ThreadFeedbackVerdict::Good),
+        (false, true) => Ok(react_core::thread_feedback::ThreadFeedbackVerdict::Bad),
+        (false, false) => Err("pass either --good or --bad".to_string()),
+        (true, true) => Err("pass only one of --good or --bad".to_string()),
+    }
+}
+
+async fn resolve_feedback_thread_id(
+    resolved_cfg: &react_core::resolved_config::ReactResolvedConfig,
+) -> Result<String, String> {
+    find_latest_thread_for_resolved_config(resolved_cfg)
+        .await?
+        .ok_or_else(|| {
+            format!(
+                "no primary thread was found in {} storage; run skippr first, then leave feedback",
+                resolved_cfg.storage.mode
+            )
+        })
+}
+
+fn resolve_feedback_comment(explicit_comment: Option<String>) -> Result<String, String> {
+    if let Some(comment) = explicit_comment {
+        return normalize_feedback_comment(&comment);
+    }
+
+    eprint!("Leave feedback: ");
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+    let mut comment = String::new();
+    std::io::stdin()
+        .read_line(&mut comment)
+        .map_err(|e| format!("failed to read feedback comment: {e}"))?;
+    normalize_feedback_comment(&comment)
+}
+
+fn normalize_feedback_comment(comment: &str) -> Result<String, String> {
+    let trimmed = comment.trim();
+    if trimmed.is_empty() {
+        return Err("feedback comment cannot be empty".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+async fn build_feedback_store(
+    project: &str,
+    srv_creds: &api_client::CredentialsResponse,
+) -> Result<react_core::thread_feedback::ThreadFeedbackStore, String> {
+    let (bucket, s3_creds, _prefix, _remote_desc) =
+        build_remote_reset_target(project, &working_dir(), &srv_creds)?;
+    let storage = Arc::new(
+        react_module_storage_s3::S3StorageAdapter::from_credentials(
+            bucket.clone(),
+            &s3_creds.access_key_id,
+            &s3_creds.secret_access_key,
+            s3_creds.session_token.as_deref(),
+            &s3_creds.region,
+        )
+        .await,
+    ) as Arc<dyn react_core::storage::StorageAdapter>;
+    let scope = react_core::scope::RequestScope::parse(srv_creds.tenant_id.trim(), "dev", project)
+        .map_err(|e| format!("invalid feedback scope: {e}"))?;
+    let keyspace = Arc::new(react_core::keyspace::DefaultKeyspace::new(bucket))
+        as Arc<dyn react_core::keyspace::Keyspace>;
+    Ok(react_core::thread_feedback::ThreadFeedbackStore::new(
+        storage, scope, keyspace,
+    ))
+}
+
+fn resolve_feedback_runtime_config(
+    cfg: &SkipprDbtConfig,
+    srv_creds: &api_client::CredentialsResponse,
+) -> Result<react_core::resolved_config::ReactResolvedConfig, String> {
+    let mut internal_file = translate::to_internal(cfg)?;
+    apply_feedback_storage_overlay(&mut internal_file, srv_creds);
+    react::config::resolve_config(internal_file, react::config::ServeOverrides::default())
+}
+
+fn apply_feedback_storage_overlay(
+    cfg: &mut react::config::ReactConfigFile,
+    creds: &api_client::CredentialsResponse,
+) {
+    cfg.storage = Some(react::config::StorageFile {
+        mode: Some("s3".into()),
+        bucket: Some(creds.bucket.clone()),
+        path: None,
+        s3_credentials: Some(react_core::resolved_config::S3Credentials {
+            access_key_id: creds.credentials.access_key_id.clone(),
+            secret_access_key: creds.credentials.secret_access_key.clone(),
+            session_token: Some(creds.credentials.session_token.clone()),
+            region: "us-east-1".to_string(),
+        }),
+    });
+    if let Some(scope) = cfg.scope.as_mut() {
+        if !creds.tenant_id.trim().is_empty() {
+            scope.tenant = Some(creds.tenant_id.clone());
+        }
+    }
+}
+
+async fn find_latest_thread_for_resolved_config(
+    cfg: &react_core::resolved_config::ReactResolvedConfig,
+) -> Result<Option<String>, String> {
+    match cfg.storage.mode {
+        react_core::resolved_config::StorageMode::Local => {
+            let root = cfg
+                .storage
+                .path
+                .as_ref()
+                .ok_or_else(|| "missing storage.path for local mode".to_string())?;
+            find_latest_thread_in_local_storage(std::path::Path::new(root), &cfg.scope)
+        }
+        react_core::resolved_config::StorageMode::S3 => {
+            find_latest_thread_in_s3_storage(cfg).await
+        }
+    }
+}
+
+async fn find_latest_thread_in_s3_storage(
+    cfg: &react_core::resolved_config::ReactResolvedConfig,
+) -> Result<Option<String>, String> {
+    let bucket = cfg
+        .storage
+        .bucket
+        .clone()
+        .ok_or_else(|| "missing storage.bucket for s3 mode".to_string())?;
+    let keyspace = react_core::keyspace::DefaultKeyspace::new(bucket.clone());
+    let prefix = keyspace.threads_prefix(&cfg.scope);
+    let adapter = if let Some(creds) = cfg.storage.s3_credentials.as_ref() {
+        react_module_storage_s3::S3StorageAdapter::from_credentials(
+            bucket,
+            &creds.access_key_id,
+            &creds.secret_access_key,
+            creds.session_token.as_deref(),
+            &creds.region,
+        )
+        .await
+    } else {
+        react_module_storage_s3::S3StorageAdapter::from_env(bucket).await
+    };
+    let objects = adapter
+        .list_prefix_meta(&prefix)
+        .await
+        .map_err(|e| format!("failed to list thread objects from s3: {e}"))?;
+    Ok(latest_primary_thread_id_from_s3_objects(&objects, &prefix))
+}
+
+fn latest_primary_thread_id_from_s3_objects(
+    objects: &[react_module_storage_s3::ObjectMeta],
+    prefix: &str,
+) -> Option<String> {
+    let mut latest: Option<(String, chrono::DateTime<chrono::Utc>)> = None;
+    for object in objects {
+        let Some(thread_id) = primary_thread_id_from_key(&object.key, prefix) else {
+            continue;
+        };
+        let Some(last_modified) = object.last_modified else {
+            continue;
+        };
+        if latest
+            .as_ref()
+            .map_or(true, |(_, current_ts)| last_modified > *current_ts)
+        {
+            latest = Some((thread_id, last_modified));
+        }
+    }
+    latest.map(|(thread_id, _)| thread_id)
+}
+
+fn primary_thread_id_from_key(key: &str, prefix: &str) -> Option<String> {
+    let stem = key.strip_prefix(prefix)?.strip_suffix(".json")?;
+    if stem.contains('/') {
+        return None;
+    }
+    primary_thread_id_from_stem(stem)
+}
+
+fn primary_thread_id_from_filename(name: &str) -> Option<String> {
+    let stem = name.strip_suffix(".json")?;
+    primary_thread_id_from_stem(stem)
+}
+
+fn primary_thread_id_from_stem(stem: &str) -> Option<String> {
+    if stem.contains("__") || stem.contains('.') {
+        return None;
+    }
+    if stem.len() != 36 || stem.chars().filter(|c| *c == '-').count() != 4 {
+        return None;
+    }
+    Some(stem.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -1408,6 +1705,11 @@ async fn main() {
         },
         Cmd::Doctor => cmd_doctor(&cli.config),
         Cmd::Run => cmd_run(cli.log, &cli.config).await,
+        Cmd::Feedback {
+            good,
+            bad,
+            comment,
+        } => cmd_feedback(good, bad, comment, &cli.config).await,
         Cmd::User { action } => match action {
             UserAction::Login => cmd_user_login().await,
             UserAction::Logout => cmd_user_logout(),
@@ -1929,5 +2231,127 @@ mod tests {
         assert!(env_example.exists(), "expected .env.example to be created");
         let contents = fs::read_to_string(env_example).unwrap();
         assert!(contents.contains("MSSQL_CONNECTION_STRING="));
+    }
+
+    #[test]
+    fn feedback_cli_requires_a_verdict_flag() {
+        let err = Cli::try_parse_from(["skippr", "feedback"]).expect_err("missing verdict");
+        let rendered = err.to_string();
+        assert!(rendered.contains("--good"));
+        assert!(rendered.contains("--bad"));
+    }
+
+    #[test]
+    fn feedback_cli_rejects_conflicting_verdict_flags() {
+        let err = Cli::try_parse_from(["skippr", "feedback", "--good", "--bad"])
+            .expect_err("conflicting verdict");
+        let rendered = err.to_string();
+        assert!(rendered.contains("--bad"));
+        assert!(rendered.contains("--good"));
+    }
+
+    #[test]
+    fn feedback_cli_accepts_comment_flag() {
+        let cli = Cli::try_parse_from([
+            "skippr",
+            "feedback",
+            "--bad",
+            "--comment",
+            "timed out in repair loop",
+        ])
+        .expect("parse feedback args");
+        match cli.cmd {
+            Cmd::Feedback { good, bad, comment } => {
+                assert!(!good);
+                assert!(bad);
+                assert_eq!(comment.as_deref(), Some("timed out in repair loop"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn find_latest_thread_in_skippr_dir_skips_companion_threads() {
+        let dir = tempfile::tempdir().unwrap();
+        let threads_dir = dir.path().join("_/dev/test-project/threads");
+        fs::create_dir_all(&threads_dir).unwrap();
+
+        let older = threads_dir.join("11111111-1111-1111-1111-111111111111.json");
+        let newer = threads_dir.join("22222222-2222-2222-2222-222222222222.json");
+        let companion = threads_dir.join("22222222-2222-2222-2222-222222222222__gather_0.json");
+        fs::write(&older, "{}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&newer, "{}").unwrap();
+        fs::write(&companion, "{}").unwrap();
+
+        let thread = find_latest_thread_in_skippr_dir(dir.path(), "test-project");
+        assert_eq!(thread.as_deref(), Some("22222222-2222-2222-2222-222222222222"));
+    }
+
+    #[test]
+    fn latest_primary_thread_id_from_s3_objects_prefers_newest_primary_thread() {
+        let objects = vec![
+            react_module_storage_s3::ObjectMeta {
+                key: "t/w/p/threads/11111111-1111-1111-1111-111111111111.json".to_string(),
+                last_modified: Some(
+                    chrono::DateTime::parse_from_rfc3339("2026-04-04T10:00:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+            react_module_storage_s3::ObjectMeta {
+                key: "t/w/p/threads/22222222-2222-2222-2222-222222222222__gather_0.json"
+                    .to_string(),
+                last_modified: Some(
+                    chrono::DateTime::parse_from_rfc3339("2026-04-04T12:00:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+            react_module_storage_s3::ObjectMeta {
+                key: "t/w/p/threads/33333333-3333-3333-3333-333333333333.control.json"
+                    .to_string(),
+                last_modified: Some(
+                    chrono::DateTime::parse_from_rfc3339("2026-04-04T13:00:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+            react_module_storage_s3::ObjectMeta {
+                key: "t/w/p/threads/44444444-4444-4444-4444-444444444444.json".to_string(),
+                last_modified: Some(
+                    chrono::DateTime::parse_from_rfc3339("2026-04-04T11:00:00Z")
+                        .unwrap()
+                        .with_timezone(&chrono::Utc),
+                ),
+            },
+        ];
+
+        let thread = latest_primary_thread_id_from_s3_objects(&objects, "t/w/p/threads/");
+        assert_eq!(thread.as_deref(), Some("44444444-4444-4444-4444-444444444444"));
+    }
+
+    #[test]
+    fn resolve_feedback_comment_trims_inline_comment() {
+        let comment = resolve_feedback_comment(Some("  this run looked good  ".to_string())).unwrap();
+        assert_eq!(comment, "this run looked good");
+    }
+
+    #[test]
+    fn normalize_feedback_comment_rejects_blank_input() {
+        let err = normalize_feedback_comment("   ").expect_err("blank comment");
+        assert!(err.contains("cannot be empty"));
+    }
+
+    #[test]
+    fn resolve_feedback_verdict_maps_good_and_bad_flags() {
+        assert_eq!(
+            resolve_feedback_verdict(true, false).unwrap(),
+            react_core::thread_feedback::ThreadFeedbackVerdict::Good
+        );
+        assert_eq!(
+            resolve_feedback_verdict(false, true).unwrap(),
+            react_core::thread_feedback::ThreadFeedbackVerdict::Bad
+        );
     }
 }

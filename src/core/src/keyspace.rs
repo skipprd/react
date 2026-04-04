@@ -66,6 +66,30 @@ pub trait Keyspace: Send + Sync {
         ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
         Ok(self.scoped_key(scope, &["logs", &format!("{thread_id}.log")]))
     }
+    fn feedback_prefix(&self, scope: &RequestScope) -> String {
+        self.scoped_prefix(scope, &["feedback"])
+    }
+    fn thread_feedback_prefix(
+        &self,
+        scope: &RequestScope,
+        thread_id: &str,
+    ) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
+        Ok(self.scoped_prefix(scope, &["feedback", thread_id]))
+    }
+    fn thread_feedback_key(
+        &self,
+        scope: &RequestScope,
+        thread_id: &str,
+        feedback_id: &str,
+    ) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
+        ensure_safe_scope_segment("feedback_id", feedback_id).map_err(ks_err)?;
+        Ok(self.scoped_key(
+            scope,
+            &["feedback", thread_id, &format!("{feedback_id}.json")],
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +204,14 @@ mod tests {
         let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
         let k = ks.thread_artifact_key(&scope, "123", "control").unwrap();
         assert_eq!(k, "t/w/p/threads/123.control.json");
+    }
+
+    #[test]
+    fn keyspace_builds_thread_feedback_key() {
+        let ks = DefaultKeyspace::new("b".to_string());
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let k = ks.thread_feedback_key(&scope, "123", "fb-1").unwrap();
+        assert_eq!(k, "t/w/p/feedback/123/fb-1.json");
     }
 
     #[test]

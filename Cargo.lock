@@ -6553,6 +6553,7 @@ dependencies = [
  "chrono",
  "react-core",
  "react-suite-data-engineer",
+ "serde",
  "serde_json",
  "tokio",
  "walkdir",
@@ -7583,6 +7584,7 @@ dependencies = [
  "dialoguer",
  "react",
  "react-core",
+ "react-module-provider-vector-lance",
  "react-module-storage-s3",
  "react-suite-data-engineer",
  "react-suite-debugger",
@@ -7590,8 +7592,10 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]

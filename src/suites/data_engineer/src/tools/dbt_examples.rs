@@ -36,8 +36,8 @@ impl Tool for SearchDbtExamplesTool {
         // Map to compact response
         let mut examples: Vec<Value> = Vec::new();
         for sc in results.into_iter() {
-            let project = sc.item.entity_id.clone();
-            let path = sc.item.field.clone().unwrap_or_default();
+            let project = sc.item.metadata().project.clone();
+            let path = sc.item.metadata().path.clone();
             // Filter to DBT-relevant paths only; skip CI/workflow or hidden files
             let p = path.replace('\\', "/");
             let is_allowed = p.starts_with("models/")
@@ -56,15 +56,14 @@ impl Tool for SearchDbtExamplesTool {
             }
             let s3_uri = sc
                 .item
-                .meta
-                .get("s3_uri")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let preview = if sc.item.text.len() > 280 {
-                format!("{}...", &sc.item.text[..280])
+                .metadata()
+                .s3_uri
+                .clone()
+                .unwrap_or_default();
+            let preview = if sc.item.text().len() > 280 {
+                format!("{}...", &sc.item.text()[..280])
             } else {
-                sc.item.text.clone()
+                sc.item.text().to_string()
             };
             examples.push(serde_json::json!({
                 "project": project,

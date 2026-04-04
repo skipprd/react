@@ -272,6 +272,36 @@ jobs:
         run: |
           python scripts/snowflake-ci-db.py drop CI_E2E_${{ github.run_id }}
 
+  skippr_el_windows_e2e_feedback:
+    name: Submit feedback for failed Snowflake E2E
+    needs:
+      - skippr_el_windows_e2e
+    if: ${{ always() && (needs.skippr_el_windows_e2e.result == 'failure' || needs.skippr_el_windows_e2e.result == 'cancelled') }}
+    runs-on: ubuntu-latest
+    environment: Snowflake
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download skippr Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: skippr-x86_64-unknown-linux-gnu
+          path: bin
+
+      - name: Prepare skippr binary
+        shell: bash
+        run: |
+          chmod +x bin/skippr
+          ./bin/skippr --version
+
+      - name: Submit bad feedback for failed Snowflake E2E
+        shell: bash
+        env:
+          SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+        run: |
+          comment="GitHub Actions job 'Windows MSSQL -> Snowflake E2E (skippr)' failed with result '${{ needs.skippr_el_windows_e2e.result }}'. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ./bin/skippr --config ./skippr-dbt-el-windows-snowflake.yaml feedback --bad --comment "$comment"
+
   # ---------------------------------------------------------------------------
   # skippr: Windows MSSQL -> Postgres end-to-end (no cloud deps)
   # ---------------------------------------------------------------------------
@@ -413,6 +443,36 @@ jobs:
         run: |
           $env:PATH = "$(Get-Location)\bin;$env:PATH"
           .\bin\skippr.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
+
+  skippr_el_windows_postgres_e2e_feedback:
+    name: Submit feedback for failed Postgres E2E
+    needs:
+      - skippr_el_windows_postgres_e2e
+    if: ${{ always() && (needs.skippr_el_windows_postgres_e2e.result == 'failure' || needs.skippr_el_windows_postgres_e2e.result == 'cancelled') }}
+    runs-on: ubuntu-latest
+    environment: Skippr
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download skippr Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: skippr-x86_64-unknown-linux-gnu
+          path: bin
+
+      - name: Prepare skippr binary
+        shell: bash
+        run: |
+          chmod +x bin/skippr
+          ./bin/skippr --version
+
+      - name: Submit bad feedback for failed Postgres E2E
+        shell: bash
+        env:
+          SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+        run: |
+          comment="GitHub Actions job 'Windows MSSQL -> Postgres E2E (skippr)' failed with result '${{ needs.skippr_el_windows_postgres_e2e.result }}'. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ./bin/skippr --config ./skippr-dbt-e2e-mssql-postgres.yaml feedback --bad --comment "$comment"
 
   # ---------------------------------------------------------------------------
   # Publish skippr release

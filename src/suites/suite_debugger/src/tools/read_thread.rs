@@ -18,10 +18,11 @@ impl Tool for ReadThreadTool {
             .get("thread_id")
             .and_then(|v| v.as_str())
             .ok_or("thread_id is required")?;
+        let target_scope = crate::capabilities::target_scope_for_agent(ctx);
 
         let store = ThreadStore::new(
             ctx.storage().clone(),
-            ctx.scope().clone(),
+            target_scope,
             ctx.keyspace().clone(),
         );
 

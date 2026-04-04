@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
-use react_core::provider_traits::{ChunkKind, VectorChunk};
+use react_core::provider_traits::upsert_typed_documents;
 use react_core::tools::Tool;
 
 pub struct VectUpsertTool;
@@ -35,9 +35,13 @@ impl Tool for VectUpsertTool {
         let vecs = ctx.llm_embed(&texts).map_err(|e| e.to_string())?;
 
         let epoch = chrono::Utc::now().timestamp() as u64;
-        let mut items: Vec<VectorChunk> = Vec::new();
+        let mut items: Vec<crate::vector_docs::ManualVectorDocument> = Vec::new();
         for (i, v) in arr.iter().enumerate() {
-            let kind = ChunkKind::from(v.get("kind").and_then(|x| x.as_str()).unwrap_or("doc"));
+            let kind = v
+                .get("kind")
+                .and_then(|x| x.as_str())
+                .unwrap_or("doc")
+                .to_string();
             let dataset_id = v
                 .get("dataset_id")
                 .and_then(|x| x.as_str())
@@ -48,24 +52,30 @@ impl Tool for VectUpsertTool {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string());
             let text = texts[i].clone();
-            let id = format!("{}:{}:{}", kind, &dataset_id, i);
-            let meta = v.get("meta").cloned().unwrap_or(serde_json::json!({}));
-            items.push(VectorChunk {
+            let id = format!("manual:{}:{}:{}", kind, &dataset_id, i);
+            let extra = v.get("meta").cloned().unwrap_or(serde_json::json!({}));
+            items.push(crate::vector_docs::ManualVectorDocument::new(
                 id,
-                kind,
-                entity_id: dataset_id,
-                field,
                 text,
-                vector: vecs.get(i).cloned().unwrap_or_default(),
-                meta,
+                vecs.get(i).cloned().unwrap_or_default(),
                 epoch,
-            });
+                crate::vector_docs::ManualVectorMetadata {
+                    kind,
+                    dataset_id: if dataset_id.is_empty() {
+                        None
+                    } else {
+                        Some(dataset_id)
+                    },
+                    field,
+                    extra,
+                },
+            ));
         }
         let vector = ctx
             .vector()
             .as_ref()
             .ok_or_else(|| "vector provider missing".to_string())?;
-        vector.upsert(ctx.scope(), &items).await?;
+        upsert_typed_documents(vector.as_ref(), ctx.scope(), &items).await?;
         Ok(serde_json::json!({"ok": true, "count": items.len()}))
     }
 }

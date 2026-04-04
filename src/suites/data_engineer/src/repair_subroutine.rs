@@ -774,24 +774,23 @@ async fn index_to_vector_store(sctx: &SuiteCtx, entry: &RepairIteration, success
         _ => return,
     };
 
-    let chunk = react_core::provider_traits::vector::VectorChunk {
-        id: format!("repair-{}", uuid::Uuid::new_v4()),
-        kind: react_core::provider_traits::vector::ChunkKind::Doc,
-        entity_id: "repair_attempt".into(),
-        field: None,
+    let doc = crate::vector_docs::RepairMemoryDocument::new(
+        format!("repair-{}", uuid::Uuid::new_v4()),
         text,
-        vector: embedding,
-        meta: serde_json::json!({
-            "outcome": if success { "success" } else { "failure" },
-            "files_changed": entry.files_changed(),
-        }),
-        epoch: std::time::SystemTime::now()
+        embedding,
+        std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
-    };
+        crate::vector_docs::RepairMemoryMetadata {
+            outcome: if success { "success" } else { "failure" }.to_string(),
+            files_changed: entry.files_changed(),
+        },
+    );
 
-    let _ = vector.upsert(sctx.scope(), &[chunk]).await;
+    let _ =
+        react_core::provider_traits::upsert_typed_documents(vector.as_ref(), sctx.scope(), &[doc])
+            .await;
 }
 
 fn resolved_config_from_ctx_sctx(

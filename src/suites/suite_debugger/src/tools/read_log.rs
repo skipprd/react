@@ -17,10 +17,11 @@ impl Tool for ReadRunLogTool {
             .get("thread_id")
             .and_then(|v| v.as_str())
             .ok_or("thread_id is required")?;
+        let target_scope = crate::capabilities::target_scope_for_agent(ctx);
 
         let key = ctx
             .keyspace()
-            .thread_log_key(ctx.scope(), thread_id)
+            .thread_log_key(&target_scope, thread_id)
             .map_err(|e| format!("invalid thread_id: {e}"))?;
 
         let bytes = ctx

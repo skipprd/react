@@ -1,3 +1,5 @@
+use react_core::provider_traits::VectorCollection;
+
 /// Limits for dataset discovery (kept minimal; expand as needed).
 #[derive(Clone, Debug, Default)]
 pub struct DiscoveryLimits {
@@ -44,9 +46,25 @@ pub async fn run_discovery(
 
     // Query within the current ReAct project scope.
     let mut all: Vec<(String, f32)> = Vec::new();
-    if let Ok(hits) = vector.query(sctx.scope(), &vec, k, Some("dataset")).await {
+    if let Ok(hits) = vector.query(sctx.scope(), &vec, k * 3, None).await {
         for h in hits {
-            all.push((h.item.entity_id, h.score));
+            if h.item.namespace == crate::vector_docs::ManualVectorCollection::NAMESPACE {
+                if let Ok(meta) = serde_json::from_str::<crate::vector_docs::ManualVectorMetadata>(
+                    &h.item.metadata_json,
+                ) {
+                    if meta.kind == "dataset" {
+                        if let Some(dataset_id) = meta.dataset_id {
+                            all.push((dataset_id, h.score));
+                        }
+                    }
+                }
+            } else if h.item.namespace == "dataset" {
+                if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&h.item.metadata_json) {
+                    if let Some(dataset_id) = meta.get("dataset_id").and_then(|v| v.as_str()) {
+                        all.push((dataset_id.to_string(), h.score));
+                    }
+                }
+            }
         }
     }
     // Dedupe by dataset_id, keep lowest score

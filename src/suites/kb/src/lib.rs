@@ -12,6 +12,7 @@ pub struct KbSuite;
 pub mod debug;
 pub mod prompts;
 pub mod tools;
+pub mod vector_docs;
 
 struct KbExecutor<'a> {
     thread_store: ThreadStore,

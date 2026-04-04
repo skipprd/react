@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use react_core::agent::AgentCtx;
-use react_core::provider_traits::VectorChunk;
+use react_core::provider_traits::upsert_typed_documents;
 use react_core::tools::Tool;
 
 pub struct KbIngestDirTool;
@@ -137,7 +137,7 @@ impl Tool for KbIngestDirTool {
         }
 
         let epoch = chrono::Utc::now().timestamp() as u64;
-        let mut chunks: Vec<VectorChunk> = Vec::new();
+        let mut chunks: Vec<crate::vector_docs::KbDocDocument> = Vec::new();
 
         for p in files.iter() {
             let rel = safe_rel(&root, p);
@@ -145,16 +145,17 @@ impl Tool for KbIngestDirTool {
             let text = String::from_utf8_lossy(&bytes).to_string();
             for (i, part) in chunk_text(&text, chunk_chars).into_iter().enumerate() {
                 let doc_text = format!("file: {}\n\n{}", rel, part);
-                chunks.push(VectorChunk {
-                    id: format!("doc:{}:{}:{}", dataset_id, rel, i),
-                    kind: react_core::provider_traits::ChunkKind::Doc,
-                    entity_id: dataset_id.clone(),
-                    field: None,
-                    text: doc_text,
-                    vector: Vec::new(),
-                    meta: serde_json::json!({"path": rel, "chunk_index": i}),
+                chunks.push(crate::vector_docs::KbDocDocument::new(
+                    format!("kb_doc:{}:{}:{}", dataset_id, rel, i),
+                    doc_text,
+                    Vec::new(),
                     epoch,
-                });
+                    crate::vector_docs::KbDocMetadata {
+                        dataset_id: dataset_id.clone(),
+                        path: rel.clone(),
+                        chunk_index: i,
+                    },
+                ));
             }
         }
 
@@ -163,17 +164,24 @@ impl Tool for KbIngestDirTool {
         let mut idx = 0usize;
         while idx < chunks.len() {
             let end = (idx + batch).min(chunks.len());
-            let texts: Vec<String> = chunks[idx..end].iter().map(|c| c.text.clone()).collect();
+            let texts: Vec<String> = chunks[idx..end].iter().map(|c| c.text().to_string()).collect();
             let vecs = ctx
                 .llm_embed(&texts)
                 .map_err(|e| format!("embed failed: {}", e))?;
             for (k, v) in vecs.into_iter().enumerate() {
-                chunks[idx + k].vector = v;
+                let doc = &chunks[idx + k];
+                chunks[idx + k] = crate::vector_docs::KbDocDocument::new(
+                    doc.id().to_string(),
+                    doc.text().to_string(),
+                    v,
+                    doc.epoch(),
+                    doc.metadata().clone(),
+                );
             }
             idx = end;
         }
 
-        vector.upsert(ctx.scope(), &chunks).await?;
+        upsert_typed_documents(vector.as_ref(), ctx.scope(), &chunks).await?;
 
         Ok(serde_json::json!({
             "ok": true,

@@ -5,10 +5,13 @@ use react_module_storage_s3::S3StorageAdapter;
 use react_suite_debugger::SuiteDebugger;
 
 mod accounting;
+mod admin_scope;
+mod code_index;
 mod commands;
 mod debug;
 mod display;
 mod nav;
+mod vector;
 
 use react_core::keyspace::{DefaultKeyspace, Keyspace};
 
@@ -29,8 +32,9 @@ struct Cli {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let bucket = cli.bucket.clone();
 
-    let storage = Arc::new(S3StorageAdapter::from_env(cli.bucket).await);
+    let storage = Arc::new(S3StorageAdapter::from_env(bucket.clone()).await);
 
     let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .load()
@@ -55,6 +59,7 @@ async fn main() {
         storage: storage.clone(),
         s3: storage.clone(),
         llm,
+        vector: vector::AdminLanceVectorStore::new(format!("s3://{}", bucket)).into_arc(),
         suite_debugger: SuiteDebugger,
     };
 

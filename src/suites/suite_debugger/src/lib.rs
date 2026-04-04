@@ -9,7 +9,9 @@ use react_core::suite::{
 use react_core::tools::ToolRegistry;
 use react_core::workflow::{PhaseExecutor, PhaseOutcome, WorkflowConfig};
 
+pub mod capabilities;
 pub mod prompts;
+pub mod repo_index;
 pub mod session;
 pub mod tools;
 
@@ -25,26 +27,32 @@ struct DebugExecutor<'a> {
 #[async_trait]
 impl<'a> PhaseExecutor for DebugExecutor<'a> {
     async fn execute_turn(&self, _out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
-        let registry = match SuiteDebugger::build_tools() {
+        let debugger_cfg = capabilities::debugger_config(self.sctx);
+        let registry = match SuiteDebugger::build_tools(debugger_cfg.enable_admin_repo_query) {
             Ok(r) => r,
             Err(e) => return PhaseOutcome::Failed { reason: e },
         };
 
         let target_thread_id = extract_target_thread_id(self.question);
-        let target_suite_id = extract_target_suite_id(self.question);
+        let target_scope = capabilities::target_scope_for_suite(self.sctx);
 
         let (pre_summary, domain_ctx) = if let Some(tid) = &target_thread_id {
             let target_store = ThreadStore::new(
                 self.sctx.storage().clone(),
-                self.sctx.scope().clone(),
+                target_scope,
                 self.sctx.keyspace().clone(),
             );
-            let summary = match target_store.get(tid).await {
-                Ok(log) => Some(analysis::summarize(&log)),
-                Err(_) => None,
+            let (summary, suite_id) = match target_store.get(tid).await {
+                Ok(log) => {
+                    let summary = analysis::summarize(&log);
+                    let suite_id = extract_target_suite_id(self.question)
+                        .or_else(|| infer_target_suite_id(&summary));
+                    (Some(summary), suite_id)
+                }
+                Err(_) => (None, extract_target_suite_id(self.question)),
             };
 
-            let domain = target_suite_id.as_deref().and_then(|suite_id| {
+            let domain = suite_id.as_deref().and_then(|suite_id| {
                 self.sctx
                     .capability::<DebugProviderRegistry>()
                     .and_then(|reg| reg.get(suite_id).map(|p| p.domain_context()))
@@ -65,8 +73,8 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
             result: None,
         };
         let summary_ref = pre_summary.as_ref().unwrap_or(&default_summary);
-        let sys = prompts::system_prompt(summary_ref, domain_ctx);
-        let tools_card = tools::tool_card();
+        let sys = prompts::system_prompt(summary_ref, domain_ctx, debugger_cfg.strict_audit);
+        let tools_card = tools::tool_card(debugger_cfg.enable_admin_repo_query);
 
         let mut actx = AgentCtxBuilder::new(
             self.sctx.llm().clone(),
@@ -81,11 +89,15 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
         .thread_id(self.thread_id.to_string())
         .trace_tx(self.sctx.trace_tx().clone())
         .agent_name("suite_debugger")
+        .vector(self.sctx.vector().clone())
         .thread_store(self.thread_store.clone())
         .build();
 
         if let Some(caps) = self.sctx.capability::<DebugProviderRegistry>() {
             actx.set_capability(caps);
+        }
+        if let Some(target_scope) = self.sctx.capability::<capabilities::DebugTargetScope>() {
+            actx.set_capability(target_scope);
         }
 
         let llm_opts = react_core::llm::LlmCallOptions {
@@ -93,7 +105,7 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
             thread_id: Some(self.thread_id.to_string()),
             expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
             max_output_tokens: Some(4_000),
-            reasoning_effort: Some(react_core::llm::ReasoningEffort::Medium),
+            reasoning_effort: Some(debugger_cfg.reasoning_effort),
             temperature: None,
             top_p: None,
             timeout_secs: None,
@@ -104,7 +116,7 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
             &registry,
             &actx,
             &sys,
-            tools_card,
+            &tools_card,
             self.question,
             llm_opts,
         )
@@ -157,9 +169,9 @@ impl SuiteDebugger {
         Ok(())
     }
 
-    fn build_tools() -> Result<ToolRegistry, String> {
+    fn build_tools(enable_admin_repo_query: bool) -> Result<ToolRegistry, String> {
         let mut registry = ToolRegistry::new();
-        tools::register_all(&mut registry);
+        tools::register_all(&mut registry, enable_admin_repo_query);
         Ok(registry)
     }
 
@@ -307,4 +319,74 @@ fn extract_target_suite_id(question: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn infer_target_suite_id(summary: &analysis::ThreadSummary) -> Option<String> {
+    let phase_names: Vec<&str> = summary.phases.iter().map(|p| p.name.as_str()).collect();
+    let tool_names: Vec<&str> = summary.tool_calls.iter().map(|t| t.name.as_str()).collect();
+
+    let looks_like_data_engineer = phase_names.iter().any(|name| {
+        matches!(
+            *name,
+            "preflight"
+                | "plan"
+                | "author"
+                | "review"
+                | "validate"
+                | "publish"
+                | "el_discover"
+                | "el_sync"
+                | "el_verify"
+        )
+    }) || tool_names.iter().any(|name| {
+        matches!(
+            *name,
+            "dbt_validate"
+                | "vect_query"
+                | "publish_dbt_to_provider"
+                | "catalog_note"
+                | "apply_next_batch"
+                | "apply_next_schema_batch"
+        )
+    });
+    if looks_like_data_engineer {
+        return Some("data_engineer".to_string());
+    }
+
+    let looks_like_kb = phase_names.iter().any(|name| *name == "kb")
+        || tool_names
+            .iter()
+            .any(|name| matches!(*name, "kb_search" | "kb_ingest_dir"));
+    if looks_like_kb {
+        return Some("kb".to_string());
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infers_data_engineer_suite_from_tools() {
+        let summary = analysis::ThreadSummary {
+            total_steps: 0,
+            phases: vec![],
+            llm_calls: 0,
+            tool_calls: vec![analysis::ToolCallSummary {
+                name: "dbt_validate".to_string(),
+                count: 1,
+                successes: 1,
+                failures: 0,
+            }],
+            total_duration_ms: None,
+            issues: vec![],
+            result: None,
+        };
+        assert_eq!(
+            infer_target_suite_id(&summary).as_deref(),
+            Some("data_engineer")
+        );
+    }
 }

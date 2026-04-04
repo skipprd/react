@@ -1,24 +1,22 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use react_core::provider_traits::{ScoredVectorRecord, StoredVectorRecord, VectorStore};
 use react_core::scope::RequestScope;
 use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 
-/// Default vector store implementation (LanceDB-on-S3).
 #[derive(Clone)]
-pub struct LanceVectorStore {
-    /// URI scheme + root for LanceDB paths (e.g. `s3://bucket` or `file:///data/root`).
+pub struct AdminLanceVectorStore {
     pub uri_prefix: String,
     storage_options: Vec<(String, String)>,
 }
 
-impl LanceVectorStore {
+impl AdminLanceVectorStore {
     pub fn new(uri_prefix: String) -> Self {
-        Self { uri_prefix, storage_options: Vec::new() }
-    }
-
-    pub fn with_storage_options(mut self, opts: Vec<(String, String)>) -> Self {
-        self.storage_options = opts;
-        self
+        Self {
+            uri_prefix,
+            storage_options: Vec::new(),
+        }
     }
 
     fn store_for(&self, scope: &RequestScope) -> LanceDbStore {
@@ -28,11 +26,19 @@ impl LanceVectorStore {
         );
         LanceDbStore::new(&uri).with_storage_options(self.storage_options.clone())
     }
+
+    pub fn into_arc(self) -> Arc<dyn VectorStore> {
+        Arc::new(self)
+    }
 }
 
 #[async_trait]
-impl VectorStore for LanceVectorStore {
-    async fn upsert(&self, scope: &RequestScope, items: &[StoredVectorRecord]) -> Result<(), String> {
+impl VectorStore for AdminLanceVectorStore {
+    async fn upsert(
+        &self,
+        scope: &RequestScope,
+        items: &[StoredVectorRecord],
+    ) -> Result<(), String> {
         let mapped: Vec<Chunk> = items
             .iter()
             .cloned()
@@ -55,10 +61,7 @@ impl VectorStore for LanceVectorStore {
         k: usize,
         namespace: Option<&str>,
     ) -> Result<Vec<ScoredVectorRecord>, String> {
-        let out = self
-            .store_for(scope)
-            .query(query_vec, k, namespace)
-            .await?;
+        let out = self.store_for(scope).query(query_vec, k, namespace).await?;
         Ok(out
             .into_iter()
             .map(|s| ScoredVectorRecord {
@@ -80,9 +83,7 @@ impl VectorStore for LanceVectorStore {
         scope: &RequestScope,
         thread_id: &str,
     ) -> Result<(), String> {
-        self.store_for(scope)
-            .delete_thread_embeddings(thread_id)
-            .await
+        self.store_for(scope).delete_thread_embeddings(thread_id).await
     }
 
     async fn delete_project_embeddings(&self, scope: &RequestScope) -> Result<(), String> {

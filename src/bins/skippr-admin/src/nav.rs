@@ -116,11 +116,22 @@ impl ShellState {
     }
 }
 
-const COMMANDS: [[&str; 8]; 4] = [
-    ["ls", "cd", "help", "quit", "", "", "", ""],
-    ["ls", "cd", "..", "account", "ledger", "help", "quit", ""],
-    ["ls", "cd", "..", "help", "quit", "", "", ""],
-    ["ls", "threads", "thread", "log", "debug", "..", "help", "quit"],
+const COMMANDS: [[&str; 10]; 4] = [
+    ["ls", "cd", "help", "quit", "", "", "", "", "", ""],
+    ["ls", "cd", "..", "account", "ledger", "help", "quit", "", "", ""],
+    ["ls", "cd", "..", "help", "quit", "", "", "", "", ""],
+    [
+        "ls",
+        "threads",
+        "thread",
+        "log",
+        "debug",
+        "feedback",
+        "fdebug",
+        "..",
+        "help",
+        "quit",
+    ],
 ];
 
 fn commands_for_depth(depth: usize) -> Vec<&'static str> {

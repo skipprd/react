@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
+use react_core::provider_traits::query_typed_documents;
 use react_core::tools::Tool;
 
 pub struct KbSearchTool;
@@ -40,9 +41,14 @@ impl Tool for KbSearchTool {
             return Err("empty embedding vector".to_string());
         }
 
-        // Limit to doc chunks. We also filter to dataset_id in post-processing.
-        let mut hits = vector.query(ctx.scope(), &qv, k * 5, Some("doc")).await?;
-        hits.retain(|h| h.item.entity_id == dataset_id);
+        let mut hits = query_typed_documents::<crate::vector_docs::KbDocCollection>(
+            vector.as_ref(),
+            ctx.scope(),
+            &qv,
+            k * 5,
+        )
+        .await?;
+        hits.retain(|h| h.item.metadata().dataset_id == dataset_id);
         hits.sort_by(|a, b| {
             a.score
                 .partial_cmp(&b.score)
@@ -53,12 +59,14 @@ impl Tool for KbSearchTool {
         let items: Vec<Value> = hits
             .into_iter()
             .map(|h| {
-                let it = h.item;
                 serde_json::json!({
-                    "dataset_id": it.entity_id,
-                    "text": it.text,
+                    "dataset_id": h.item.metadata().dataset_id,
+                    "text": h.item.text(),
                     "score": h.score,
-                    "meta": it.meta
+                    "meta": {
+                        "path": h.item.metadata().path,
+                        "chunk_index": h.item.metadata().chunk_index
+                    }
                 })
             })
             .collect();

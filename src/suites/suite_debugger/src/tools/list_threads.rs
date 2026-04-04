@@ -14,9 +14,10 @@ impl Tool for ListThreadsTool {
     }
 
     async fn call(&self, _args: Value, ctx: &AgentCtx) -> Result<Value, String> {
+        let target_scope = crate::capabilities::target_scope_for_agent(ctx);
         let store = ThreadStore::new(
             ctx.storage().clone(),
-            ctx.scope().clone(),
+            target_scope,
             ctx.keyspace().clone(),
         );
         let ids = store.list().await;

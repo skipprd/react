@@ -244,18 +244,26 @@ impl Tool for CatalogNoteTool {
             }
         }
         if !vec1.is_empty() {
-            let id = format!("doc:{}:catalog_note", dataset_id);
-            let chunk = react_core::provider_traits::VectorChunk {
+            let id = format!("catalog_note:{}:{}", dataset_id, field_opt.clone().unwrap_or_default());
+            let doc = crate::vector_docs::CatalogNoteDocument::new(
                 id,
-                kind: react_core::provider_traits::ChunkKind::Doc,
-                entity_id: dataset_id.clone(),
-                field: field_opt.clone(),
-                text: digest.clone(),
-                vector: vec1,
-                meta: serde_json::json!({"scope":"catalog", "level": if field_opt.is_some() { "field" } else { "dataset" }, "tags": tags }),
+                digest.clone(),
+                vec1,
                 epoch,
-            };
-            if let Err(e) = vector.upsert(ctx.scope(), &[chunk]).await {
+                crate::vector_docs::CatalogNoteMetadata {
+                    dataset_id: dataset_id.clone(),
+                    field: field_opt.clone(),
+                    level: if field_opt.is_some() {
+                        "field".to_string()
+                    } else {
+                        "dataset".to_string()
+                    },
+                    tags,
+                },
+            );
+            if let Err(e) =
+                react_core::provider_traits::upsert_typed_documents(vector.as_ref(), ctx.scope(), &[doc]).await
+            {
                 // Non-fatal, but never silent.
                 warn!("catalog_note: vector upsert failed: {}", e);
             }
