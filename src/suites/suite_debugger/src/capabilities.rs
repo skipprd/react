@@ -11,6 +11,7 @@ pub struct DebugTargetScope {
 #[derive(Clone, Debug)]
 pub struct SuiteDebuggerConfig {
     pub reasoning_effort: ReasoningEffort,
+    pub max_output_tokens: u32,
     pub strict_audit: bool,
     pub enable_admin_repo_query: bool,
 }
@@ -19,6 +20,7 @@ impl Default for SuiteDebuggerConfig {
     fn default() -> Self {
         Self {
             reasoning_effort: ReasoningEffort::Medium,
+            max_output_tokens: 4_000,
             strict_audit: false,
             enable_admin_repo_query: false,
         }

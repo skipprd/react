@@ -100,17 +100,7 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
             actx.set_capability(target_scope);
         }
 
-        let llm_opts = react_core::llm::LlmCallOptions {
-            prompt_id: "suite_debugger.run",
-            thread_id: Some(self.thread_id.to_string()),
-            expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
-            max_output_tokens: Some(4_000),
-            reasoning_effort: Some(debugger_cfg.reasoning_effort),
-            temperature: None,
-            top_p: None,
-            timeout_secs: None,
-            model: None,
-        };
+        let llm_opts = build_llm_options(self.thread_id, &debugger_cfg);
 
         match Agent::run_until_block(
             &registry,
@@ -364,6 +354,23 @@ fn infer_target_suite_id(summary: &analysis::ThreadSummary) -> Option<String> {
     None
 }
 
+fn build_llm_options(
+    thread_id: &str,
+    debugger_cfg: &capabilities::SuiteDebuggerConfig,
+) -> react_core::llm::LlmCallOptions {
+    react_core::llm::LlmCallOptions {
+        prompt_id: "suite_debugger.run",
+        thread_id: Some(thread_id.to_string()),
+        expected_format: react_core::llm::LlmExpectedFormat::JsonObject,
+        max_output_tokens: Some(debugger_cfg.max_output_tokens),
+        reasoning_effort: Some(debugger_cfg.reasoning_effort),
+        temperature: None,
+        top_p: None,
+        timeout_secs: None,
+        model: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,5 +395,20 @@ mod tests {
             infer_target_suite_id(&summary).as_deref(),
             Some("data_engineer")
         );
+    }
+
+    #[test]
+    fn strict_audit_uses_larger_output_budget() {
+        let opts = build_llm_options(
+            "thread-1",
+            &capabilities::SuiteDebuggerConfig {
+                reasoning_effort: react_core::llm::ReasoningEffort::ExtraHigh,
+                max_output_tokens: 12_000,
+                strict_audit: true,
+                enable_admin_repo_query: true,
+            },
+        );
+
+        assert_eq!(opts.max_output_tokens, Some(12_000));
     }
 }
