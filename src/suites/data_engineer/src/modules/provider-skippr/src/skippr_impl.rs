@@ -258,6 +258,15 @@ impl SkipprCliProvider {
             WarehouseKind::Mssql => {}
         }
 
+        if let Some(ref cdc) = self.el_config.cdc {
+            if cdc.enabled {
+                env.insert("CDC_ENABLED".into(), "true".into());
+                if !cdc.business_key_columns.is_empty() {
+                    env.insert("CDC_BUSINESS_KEY_COLUMNS".into(), cdc.business_key_columns.join(","));
+                }
+            }
+        }
+
         if let Some(ref ss) = self.el_config.schema_sink {
             if let Some(kind) = ss.get("kind").and_then(|v| v.as_str()) {
                 env.insert("DATA_SCHEMA_PLUGIN_NAME".into(), capitalize_first(kind));
@@ -537,6 +546,21 @@ impl SkipprCliProvider {
         if let Some(t) = transform_block {
             if t.is_object() {
                 pipeline_block["transform"] = t;
+            }
+        }
+
+        if let Some(ref cdc) = self.el_config.cdc {
+            if cdc.enabled {
+                let mut cdc_block = serde_json::Map::new();
+                if !cdc.business_key_columns.is_empty() {
+                    cdc_block.insert(
+                        "business_key_columns".into(),
+                        serde_json::Value::Array(
+                            cdc.business_key_columns.iter().map(|c| serde_json::Value::String(c.clone())).collect(),
+                        ),
+                    );
+                }
+                pipeline_block["cdc"] = serde_json::Value::Object(cdc_block);
             }
         }
 
@@ -1020,10 +1044,14 @@ impl SkipprProvider for SkipprCliProvider {
                             })
                             .unwrap_or_default();
                         let offset = ns.get("offset").cloned();
+                        let cdc_enabled = ns.get("cdc_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let last_checkpoint = ns.get("last_checkpoint").and_then(|v| v.as_str()).map(|s| s.to_string());
                         Some(SkipprNamespaceStatus {
                             namespace,
                             fields,
                             offset,
+                            cdc_enabled,
+                            last_checkpoint,
                         })
                     })
                     .collect()

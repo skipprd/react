@@ -62,6 +62,12 @@ pub struct SkipprNamespaceStatus {
     pub namespace: String,
     pub fields: Vec<SkipprFieldSchema>,
     pub offset: Option<serde_json::Value>,
+    /// Whether this namespace is running in CDC mode.
+    #[serde(default)]
+    pub cdc_enabled: bool,
+    /// Last committed LSN/position for CDC sources.
+    #[serde(default)]
+    pub last_checkpoint: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

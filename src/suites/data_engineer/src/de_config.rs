@@ -19,6 +19,7 @@ pub(crate) struct ElToolFile {
     pub enabled: Option<bool>,
     pub skippr_binary: Option<String>,
     pub skippr_input: Option<serde_json::Value>,
+    pub cdc: Option<CdcConfig>,
 }
 
 /// Warehouse configuration for a single provider (source or target).
@@ -344,6 +345,7 @@ pub fn resolve_providers_from_yaml(
             "enabled": el_f.enabled.unwrap_or(false),
             "skippr_binary": el_f.skippr_binary.unwrap_or_else(|| "skippr-el".to_string()),
             "skippr_input": el_f.skippr_input.unwrap_or(serde_json::Value::Null),
+            "cdc": el_f.cdc,
         },
     });
 
@@ -415,6 +417,18 @@ pub struct ElToolResolved {
     pub skippr_input: serde_json::Value,
     #[serde(default)]
     pub schema_sink: Option<serde_json::Value>,
+    /// CDC configuration. When present, the pipeline runs in CDC mode.
+    #[serde(default)]
+    pub cdc: Option<CdcConfig>,
+}
+
+/// CDC configuration for the EL pipeline.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CdcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub business_key_columns: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -5,6 +5,11 @@ on:
     tags:
       - "*"
 
+env:
+  RELEASES_BASE_URL: https://install.skippr.io/releases
+  RELEASES_BUCKET: skippr-web-static-site-prod
+  SKIPPR_LATEST_POINTER: latest-skippr.txt
+
 jobs:
   # ---------------------------------------------------------------------------
   # Core react: build + unit tests (no data_engineer suite, no integration runs)
@@ -154,8 +159,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          $tag = (Invoke-RestMethod -Uri "https://skippr.io/releases/latest.txt").Trim()
-          $url = "https://skippr.io/releases/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
+          $tag = (Invoke-RestMethod -Uri "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_LATEST_POINTER }}").Trim()
+          $url = "${{ env.RELEASES_BASE_URL }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
           Write-Host "Downloading skippr $tag from $url"
           Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
           tar -xzf skippr.tar.gz
@@ -320,8 +325,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          $tag = (Invoke-RestMethod -Uri "https://skippr.io/releases/latest.txt").Trim()
-          $url = "https://skippr.io/releases/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
+          $tag = (Invoke-RestMethod -Uri "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_LATEST_POINTER }}").Trim()
+          $url = "${{ env.RELEASES_BASE_URL }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
           Write-Host "Downloading skippr $tag from $url"
           Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
           tar -xzf skippr.tar.gz
@@ -533,12 +538,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Upload binaries to S3 website bucket
+      - name: Upload binaries to install releases bucket
         run: |
           TAG="${{ github.ref_name }}"
-          BUCKET="skippr-web-static-site-prod"
+          BUCKET="${{ env.RELEASES_BUCKET }}"
+          LATEST_POINTER="${{ env.SKIPPR_LATEST_POINTER }}"
           for f in skippr-*.tar.gz; do
             aws s3 cp "$f" "s3://${BUCKET}/releases/${TAG}/${f}"
           done
-          echo -n "$TAG" > latest.txt
-          aws s3 cp latest.txt "s3://${BUCKET}/releases/latest.txt" --cache-control "no-cache, no-store, must-revalidate"
+          printf '%s' "$TAG" > "$LATEST_POINTER"
+          aws s3 cp "$LATEST_POINTER" "s3://${BUCKET}/releases/${LATEST_POINTER}" --cache-control "no-cache, no-store, must-revalidate"
