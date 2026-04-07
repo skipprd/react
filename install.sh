@@ -1,7 +1,9 @@
 #!/bin/sh
 set -e
 
-BASE_URL="https://skippr.io/releases"
+BASE_URL="https://install.skippr.io/releases"
+LATEST_URL="${BASE_URL}/latest-skippr.txt"
+RELEASE_SUBDIR="skippr"
 INSTALL_DIR="/usr/local/bin"
 BINARY="skippr"
 
@@ -31,7 +33,7 @@ main() {
             esac
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            err "Windows detected. Install with PowerShell instead:  irm https://skippr.io/install.ps1 | iex"
+            err "Windows detected. Install with PowerShell instead:  irm https://install.skippr.io/install.ps1 | iex"
             ;;
         *)
             err "Unsupported operating system: $os"
@@ -41,7 +43,7 @@ main() {
     local tag url tmpdir
 
     say "Detecting latest release..."
-    tag="$(curl -fsSL "$BASE_URL/latest.txt")"
+    tag="$(curl -fsSL "$LATEST_URL" | tr -d '\r\n')"
 
     if [ -z "$tag" ]; then
         err "Could not determine latest release."
@@ -49,7 +51,7 @@ main() {
 
     say "Latest release: $tag"
 
-    url="${BASE_URL}/${tag}/${BINARY}-${target}.tar.gz"
+    url="${BASE_URL}/${tag}/${RELEASE_SUBDIR}/${BINARY}-${target}.tar.gz"
 
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
