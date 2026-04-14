@@ -2,6 +2,7 @@ use crate::domain_types::GuardBlockKind;
 use crate::progress_controller::PhaseTransition;
 use crate::state_manager::StateError;
 use react_core::session::{Observation, ThreadStep, ThreadStore};
+use std::time::Duration;
 
 use crate::control_flow::{
     allowed_next_phases, is_replan_backtrack, replan_backtrack_counter_cap, Phase, TransitionIntent,
@@ -24,8 +25,51 @@ pub enum TransitionError {
     StatePersistFailed(#[from] StateError),
     #[error("failed to append thread step: {0}")]
     AppendStepFailed(String),
-    #[error("transition rollback failed (original: {original}, rollback: {rollback})")]
-    RollbackFailed { original: String, rollback: String },
+}
+
+const PHASE_STEP_APPEND_RETRY_DELAYS_MS: [u64; 3] = [0, 25, 75];
+
+async fn append_phase_step_best_effort(
+    store: &ThreadStore,
+    thread_id: &str,
+    from_phase: Option<Phase>,
+    phase: Phase,
+    step: ThreadStep,
+) {
+    let mut last_error: Option<String> = None;
+    for (attempt_idx, delay_ms) in PHASE_STEP_APPEND_RETRY_DELAYS_MS.iter().enumerate() {
+        if attempt_idx > 0 {
+            tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+        }
+        match store.append_step(thread_id, step.clone()).await {
+            Ok(()) => return,
+            Err(e) => {
+                let err = e.to_string();
+                if attempt_idx + 1 < PHASE_STEP_APPEND_RETRY_DELAYS_MS.len() {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        from_phase = ?from_phase.map(|p| p.as_str().to_string()),
+                        phase = %phase.as_str(),
+                        attempt = attempt_idx + 1,
+                        max_attempts = PHASE_STEP_APPEND_RETRY_DELAYS_MS.len(),
+                        error = %err,
+                        "dispatch_phase_transition: failed to append phase step; retrying"
+                    );
+                }
+                last_error = Some(err);
+            }
+        }
+    }
+    if let Some(err) = last_error {
+        tracing::warn!(
+            thread_id = %thread_id,
+            from_phase = ?from_phase.map(|p| p.as_str().to_string()),
+            phase = %phase.as_str(),
+            attempts = PHASE_STEP_APPEND_RETRY_DELAYS_MS.len(),
+            error = %err,
+            "dispatch_phase_transition: failed to append phase step after persisting authoritative state"
+        );
+    }
 }
 
 pub async fn dispatch_phase_transition(
@@ -56,7 +100,6 @@ pub async fn dispatch_phase_transition(
     let mut st = state_manager::load_execution_state_strict(&store.control_store(), thread_id)
         .await?
         .unwrap_or_else(ExecutionState::new);
-    let prev_state = st.clone();
     if let Some(from) = from_phase {
         let is_backtrack = is_replan_backtrack(from, phase);
         match intent {
@@ -99,33 +142,22 @@ pub async fn dispatch_phase_transition(
         .as_ref()
         .and_then(|t| serde_json::to_value(t).ok());
     let agent = agent.unwrap_or_else(|| crate::env_util::DEFAULT_AGENT_NAME.to_string());
-    if let Err(append_err) = store
-        .append_step(
-            thread_id,
-            ThreadStep::Phase {
-                phase: phase.as_str().to_string(),
-                from_phase: from_phase.map(|p| p.as_str().to_string()),
-                reason_code: Some(reason_str),
-                reason_detail,
-                observation: Observation::ok(),
-                ts: chrono::Utc::now().to_rfc3339(),
-                agent,
-            },
-        )
-        .await
-    {
-        let original = append_err.to_string();
-        if let Err(rollback_err) =
-            state_manager::replace_execution_state(&store.control_store(), thread_id, prev_state)
-                .await
-        {
-            return Err(TransitionError::RollbackFailed {
-                original,
-                rollback: rollback_err.to_string(),
-            });
-        }
-        return Err(TransitionError::AppendStepFailed(original));
-    }
+    append_phase_step_best_effort(
+        store,
+        thread_id,
+        from_phase,
+        phase,
+        ThreadStep::Phase {
+            phase: phase.as_str().to_string(),
+            from_phase: from_phase.map(|p| p.as_str().to_string()),
+            reason_code: Some(reason_str),
+            reason_detail,
+            observation: Observation::ok(),
+            ts: chrono::Utc::now().to_rfc3339(),
+            agent,
+        },
+    )
+    .await;
 
     Ok(())
 }
@@ -183,10 +215,98 @@ pub async fn apply_phase_directive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use react_core::keyspace::DefaultKeyspace;
+    use async_trait::async_trait;
+    use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::scope::RequestScope;
+    use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
+    use react_core::CoreError;
     use react_module_storage_memory::InMemoryStorageAdapter;
+    use serde_json::Value;
     use std::sync::Arc;
+    use std::sync::Mutex;
+
+    #[derive(Clone)]
+    struct SelectiveFailStorage {
+        inner: Arc<InMemoryStorageAdapter>,
+        fail_key: String,
+        remaining_failures: Arc<Mutex<usize>>,
+        attempts: Arc<Mutex<usize>>,
+    }
+
+    impl SelectiveFailStorage {
+        fn new(fail_key: String, remaining_failures: usize) -> Self {
+            Self {
+                inner: Arc::new(InMemoryStorageAdapter::default()),
+                fail_key,
+                remaining_failures: Arc::new(Mutex::new(remaining_failures)),
+                attempts: Arc::new(Mutex::new(0)),
+            }
+        }
+
+        fn attempts(&self) -> usize {
+            *self.attempts.lock().expect("attempt mutex poisoned")
+        }
+    }
+
+    #[async_trait]
+    impl StorageAdapter for SelectiveFailStorage {
+        async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+            self.inner.get_json(key).await
+        }
+
+        async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
+            self.inner.put_json(key, value).await
+        }
+
+        async fn put_json_if_etag_matches(
+            &self,
+            key: &str,
+            value: &Value,
+            expected_etag: Option<&str>,
+        ) -> Result<ConditionalWriteStatus, CoreError> {
+            if key == self.fail_key {
+                *self.attempts.lock().expect("attempt mutex poisoned") += 1;
+                let mut remaining = self
+                    .remaining_failures
+                    .lock()
+                    .expect("remaining_failures mutex poisoned");
+                if *remaining > 0 {
+                    *remaining -= 1;
+                    return Err(CoreError::Storage(format!(
+                        "synthetic conditional write failure for '{key}'"
+                    )));
+                }
+            }
+            self.inner
+                .put_json_if_etag_matches(key, value, expected_etag)
+                .await
+        }
+
+        async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+            self.inner.get_bytes(key).await
+        }
+
+        async fn put_bytes(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            content_type: &str,
+        ) -> Result<(), CoreError> {
+            self.inner.put_bytes(key, bytes, content_type).await
+        }
+
+        async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+            self.inner.delete_object(key).await
+        }
+
+        async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+            self.inner.head_etag(key).await
+        }
+
+        async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+            self.inner.list_prefix(prefix).await
+        }
+    }
 
     #[tokio::test]
     async fn validate_pass_to_review_resets_counter() {
@@ -447,6 +567,99 @@ mod tests {
                 .iter()
                 .any(|s| matches!(s, ThreadStep::Phase { phase, .. } if phase == "cleanse_plan")),
             "transition directive must append a phase step"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_phase_transition_retries_phase_step_append_until_success() {
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
+        let tid = "tid-phase-step-retry";
+        let fail_key = keyspace
+            .thread_key(&scope, tid)
+            .expect("thread key should build");
+        let storage = Arc::new(SelectiveFailStorage::new(
+            fail_key,
+            PHASE_STEP_APPEND_RETRY_DELAYS_MS.len() - 1,
+        ));
+        let store = ThreadStore::new(storage.clone(), scope, keyspace);
+
+        dispatch_phase_transition(
+            &store,
+            tid,
+            Some("agent".to_string()),
+            Some(Phase::Preflight),
+            Phase::CleansePlan,
+            TransitionIntent::Forward,
+            Some(PhaseTransition::PreflightOk {
+                dbt_project_key: "dbt/project.yml".to_string(),
+                has_query_provider: true,
+                has_dbt_provider: true,
+            }),
+        )
+        .await
+        .expect("transition should succeed after bounded retries");
+
+        assert_eq!(storage.attempts(), PHASE_STEP_APPEND_RETRY_DELAYS_MS.len());
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
+            .await
+            .expect("state should load")
+            .expect("state should exist");
+        assert_eq!(got.phase.current_phase, Phase::CleansePlan);
+
+        let log = store.get(tid).await.expect("thread log should exist");
+        assert!(
+            log.steps
+                .iter()
+                .any(|s| matches!(s, ThreadStep::Phase { phase, .. } if phase == "cleanse_plan")),
+            "phase step should eventually be appended after retrying"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_phase_transition_keeps_state_when_phase_step_append_never_recovers() {
+        let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+        let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
+        let tid = "tid-phase-step-persisted-state";
+        let fail_key = keyspace
+            .thread_key(&scope, tid)
+            .expect("thread key should build");
+        let storage = Arc::new(SelectiveFailStorage::new(
+            fail_key,
+            PHASE_STEP_APPEND_RETRY_DELAYS_MS.len(),
+        ));
+        let store = ThreadStore::new(storage.clone(), scope, keyspace);
+
+        dispatch_phase_transition(
+            &store,
+            tid,
+            Some("agent".to_string()),
+            Some(Phase::Preflight),
+            Phase::CleansePlan,
+            TransitionIntent::Forward,
+            Some(PhaseTransition::PreflightOk {
+                dbt_project_key: "dbt/project.yml".to_string(),
+                has_query_provider: true,
+                has_dbt_provider: true,
+            }),
+        )
+        .await
+        .expect("authoritative transition state should not roll back");
+
+        assert_eq!(storage.attempts(), PHASE_STEP_APPEND_RETRY_DELAYS_MS.len());
+        let got = state_manager::load_execution_state(&store.control_store(), tid)
+            .await
+            .expect("state should load")
+            .expect("state should exist");
+        assert_eq!(got.phase.current_phase, Phase::CleansePlan);
+
+        let log = store.get(tid).await;
+        assert!(
+            log.is_err()
+                || !log.expect("checked is_err above").steps.iter().any(
+                    |s| matches!(s, ThreadStep::Phase { phase, .. } if phase == "cleanse_plan")
+                ),
+            "phase transition should stay authoritative even when the thread phase step is lost"
         );
     }
 

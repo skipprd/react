@@ -1,4 +1,5 @@
 use react_core::agent::AgentCtx;
+use std::time::Duration;
 
 use crate::plan_grounding::{
     ensure_expected_model_paths_cleanse, ensure_expected_model_paths_model,
@@ -41,6 +42,45 @@ fn plans_thread_prefix(ctx: &AgentCtx) -> String {
         .to_string();
     let tid = thread_dir(ctx);
     format!("{}/plans/{}/", root, tid)
+}
+
+const PLAN_SAVE_RETRY_DELAYS_MS: [u64; 3] = [0, 25, 75];
+
+async fn save_plan_bytes_with_retry(
+    ctx: &AgentCtx,
+    plan_key: &str,
+    bytes: &[u8],
+    plan_kind: &str,
+) -> Result<(), PlanError> {
+    let mut last_err: Option<String> = None;
+    for (attempt_idx, delay_ms) in PLAN_SAVE_RETRY_DELAYS_MS.iter().enumerate() {
+        if attempt_idx > 0 {
+            tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+        }
+        match ctx.storage().put_bytes(plan_key, bytes, "application/json").await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let err = e.to_string();
+                if attempt_idx + 1 < PLAN_SAVE_RETRY_DELAYS_MS.len() {
+                    tracing::warn!(
+                        plan_kind,
+                        plan_key,
+                        attempt = attempt_idx + 1,
+                        max_attempts = PLAN_SAVE_RETRY_DELAYS_MS.len(),
+                        error = %err,
+                        "plan save failed; retrying"
+                    );
+                }
+                last_err = Some(err);
+            }
+        }
+    }
+
+    Err(PlanError::SaveFailed(format!(
+        "failed to persist {plan_kind} plan '{plan_key}' after {} attempts: {}",
+        PLAN_SAVE_RETRY_DELAYS_MS.len(),
+        last_err.unwrap_or_else(|| "unknown storage failure".to_string())
+    )))
 }
 
 pub fn new_cleanse_plan_key(ctx: &AgentCtx) -> String {
@@ -131,10 +171,7 @@ pub async fn save_cleanse_plan(ctx: &AgentCtx, plan: &CleansePlan) -> Result<(),
     }
     let bytes =
         serde_json::to_vec_pretty(plan).map_err(|e| PlanError::SaveFailed(e.to_string()))?;
-    ctx.storage()
-        .put_bytes(&plan.plan_key, &bytes, "application/json")
-        .await
-        .map_err(|e| PlanError::SaveFailed(e.to_string()))
+    save_plan_bytes_with_retry(ctx, &plan.plan_key, &bytes, "cleanse").await
 }
 
 /// Validate grounding and persist. Returns the `GroundedCleansePlan` proof so
@@ -212,10 +249,7 @@ pub async fn save_model_plan(ctx: &AgentCtx, plan: &ModelPlan) -> Result<(), Pla
     }
     let bytes =
         serde_json::to_vec_pretty(plan).map_err(|e| PlanError::SaveFailed(e.to_string()))?;
-    ctx.storage()
-        .put_bytes(&plan.plan_key, &bytes, "application/json")
-        .await
-        .map_err(|e| PlanError::SaveFailed(e.to_string()))
+    save_plan_bytes_with_retry(ctx, &plan.plan_key, &bytes, "model").await
 }
 
 /// Validate grounding against the staging model allowlist and persist.
@@ -231,4 +265,199 @@ pub async fn save_model_plan_grounded(
         .map_err(PlanError::GroundingFailed)?;
     save_model_plan(ctx, &grounded.0).await?;
     Ok(grounded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use react_core::agent::{AgentCtx, AgentCtxBuilder, DefaultPolicy};
+    use react_core::keyspace::{DefaultKeyspace, Keyspace};
+    use react_core::llm::{LargeLanguageModel, NullModel};
+    use react_core::scope::RequestScope;
+    use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
+    use react_core::CoreError;
+    use react_module_storage_memory::InMemoryStorageAdapter;
+    use serde_json::Value;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct FlakyPutBytesStorage {
+        inner: Arc<InMemoryStorageAdapter>,
+        target_key: String,
+        remaining_failures: Arc<Mutex<usize>>,
+        attempts: Arc<Mutex<usize>>,
+    }
+
+    impl FlakyPutBytesStorage {
+        fn new(target_key: String, remaining_failures: usize) -> Self {
+            Self {
+                inner: Arc::new(InMemoryStorageAdapter::default()),
+                target_key,
+                remaining_failures: Arc::new(Mutex::new(remaining_failures)),
+                attempts: Arc::new(Mutex::new(0)),
+            }
+        }
+
+        fn attempts(&self) -> usize {
+            *self.attempts.lock().expect("attempt mutex poisoned")
+        }
+    }
+
+    #[async_trait]
+    impl StorageAdapter for FlakyPutBytesStorage {
+        async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+            self.inner.get_json(key).await
+        }
+
+        async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
+            self.inner.put_json(key, value).await
+        }
+
+        async fn put_json_if_etag_matches(
+            &self,
+            key: &str,
+            value: &Value,
+            expected_etag: Option<&str>,
+        ) -> Result<ConditionalWriteStatus, CoreError> {
+            self.inner
+                .put_json_if_etag_matches(key, value, expected_etag)
+                .await
+        }
+
+        async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+            self.inner.get_bytes(key).await
+        }
+
+        async fn put_bytes(
+            &self,
+            key: &str,
+            bytes: &[u8],
+            content_type: &str,
+        ) -> Result<(), CoreError> {
+            if key == self.target_key {
+                *self.attempts.lock().expect("attempt mutex poisoned") += 1;
+                let mut remaining = self
+                    .remaining_failures
+                    .lock()
+                    .expect("remaining_failures mutex poisoned");
+                if *remaining > 0 {
+                    *remaining -= 1;
+                    return Err(CoreError::Storage(format!(
+                        "synthetic put_bytes failure for '{key}'"
+                    )));
+                }
+            }
+            self.inner.put_bytes(key, bytes, content_type).await
+        }
+
+        async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+            self.inner.delete_object(key).await
+        }
+
+        async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+            self.inner.head_etag(key).await
+        }
+
+        async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+            self.inner.list_prefix(prefix).await
+        }
+    }
+
+    fn test_ctx(storage: Arc<dyn StorageAdapter>, thread_id: &str) -> AgentCtx {
+        let llm: Arc<dyn LargeLanguageModel> = Arc::new(NullModel::new());
+        let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+        AgentCtxBuilder::new(
+            llm,
+            storage,
+            RequestScope::parse("t", "w", "p").expect("valid test scope"),
+            keyspace,
+            Arc::new(DefaultPolicy),
+        )
+        .top_k(1)
+        .per_step_timeout_secs(1)
+        .max_steps(1)
+        .thread_id(thread_id.to_string())
+        .agent_name("test".to_string())
+        .resolved_config(Some(crate::project_fs::test_helpers::minimal_cfg()))
+        .build()
+    }
+
+    fn sample_model_plan(plan_key: String) -> crate::plan::ModelPlan {
+        let batches = vec![vec!["dim_customers".to_string()]];
+        crate::plan::ModelPlan {
+            plan_key,
+            status: crate::plan::PlanStatus::Approved,
+            project_snapshot: Default::default(),
+            tasks: vec![crate::plan::ModelTask {
+                name: "dim_customers".to_string(),
+                folder: crate::plan::ModelFolder::Marts,
+                goal: "build customer dimension".to_string(),
+                inputs: vec!["stg_test_raw_raw_customers".to_string()],
+                expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
+                invariants: vec![],
+                implementation_spec: Some(crate::plan::ModelImplementationSpec {
+                    spec_version: 1,
+                    grain: "1 row per customer".to_string(),
+                    inputs: vec!["stg_test_raw_raw_customers".to_string()],
+                    joins: vec![],
+                    metrics: vec![],
+                    output_fields: vec![crate::plan::OutputFieldSpec {
+                        name: "customer_id".to_string(),
+                        kind: crate::plan::FieldKind::Clean,
+                        source_columns: vec!["customer_id".to_string()],
+                        expression: "customer_id passthrough".to_string(),
+                        data_type: None,
+                        nullable: true,
+                        description: None,
+                    }],
+                    assumptions: vec![],
+                }),
+                source_schema: vec![crate::plan::SourceColumnDef {
+                    name: "customer_id".to_string(),
+                    data_type: "bigint".to_string(),
+                }],
+                grounded_inputs: vec![crate::plan::GroundedModelInput {
+                    input_name: "stg_test_raw_raw_customers".to_string(),
+                    model_rel_path: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                    relation_fqn: "catalog.db.stg_test_raw_raw_customers".to_string(),
+                    source_schema: vec![crate::plan::SourceColumnDef {
+                        name: "customer_id".to_string(),
+                        data_type: "bigint".to_string(),
+                    }],
+                }],
+                status: crate::plan::TaskStatus::InProgress,
+                checklist: crate::plan::canonical_task_checklist(crate::track_spec::TrackKind::Model),
+            }],
+            batches: batches.clone(),
+            work_groups: crate::plan::canonical_work_groups_from_batches(&batches, "model"),
+            mutations: vec![],
+            progress: crate::plan::PlanProgress::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn save_model_plan_retries_transient_put_bytes_failures() {
+        let plan_key = "t/w/p/plans/tid/retry_model.json".to_string();
+        let storage = Arc::new(FlakyPutBytesStorage::new(
+            plan_key.clone(),
+            PLAN_SAVE_RETRY_DELAYS_MS.len() - 1,
+        ));
+        let ctx = test_ctx(storage.clone(), "tid");
+        let plan = sample_model_plan(plan_key.clone());
+
+        save_model_plan(&ctx, &plan)
+            .await
+            .expect("transient save failures should be retried");
+
+        assert_eq!(storage.attempts(), PLAN_SAVE_RETRY_DELAYS_MS.len());
+        let bytes = ctx
+            .storage()
+            .get_bytes(&plan_key)
+            .await
+            .expect("plan should be persisted after retries");
+        let saved = serde_json::from_slice::<crate::plan::ModelPlan>(&bytes)
+            .expect("persisted bytes should deserialize");
+        assert_eq!(saved.plan_key, plan_key);
+    }
 }

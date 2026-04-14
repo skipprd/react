@@ -17,6 +17,90 @@ pub struct S3StorageAdapter {
 }
 
 impl S3StorageAdapter {
+    fn key_family(path: &str) -> &'static str {
+        let normalized = path.trim();
+        if normalized.contains("/threads/") {
+            return "thread_log";
+        }
+        if normalized.contains("/state/") {
+            if normalized.ends_with("/control.json") {
+                return "control_state";
+            }
+            if normalized.ends_with("/state.json") {
+                return "thread_state";
+            }
+            return "state";
+        }
+        if normalized.contains("/plans/") {
+            if normalized.ends_with("_model.json") {
+                return "model_plan";
+            }
+            if normalized.ends_with("_cleanse.json") {
+                return "cleanse_plan";
+            }
+            return "plan";
+        }
+        if normalized.contains("/dbt/models/staging/") {
+            return "staging_model";
+        }
+        if normalized.contains("/dbt/models/core/") || normalized.contains("/dbt/models/marts/") {
+            return "gold_model";
+        }
+        if normalized.contains("/dbt/models/") {
+            return "dbt_model";
+        }
+        if normalized.contains("/feedback/") {
+            return "feedback";
+        }
+        if normalized.contains("/logs/") {
+            return "run_log";
+        }
+        if normalized.contains("/dbt/") {
+            return "dbt_artifact";
+        }
+        "artifact"
+    }
+
+    fn key_error(&self, op: &str, key: &str, detail: String) -> CoreError {
+        CoreError::Storage(format!(
+            "s3 {op} failed (bucket='{}', key='{}', key_family='{}'): {detail}",
+            self.bucket,
+            key,
+            Self::key_family(key)
+        ))
+    }
+
+    fn prefix_error(&self, op: &str, prefix: &str, detail: String) -> CoreError {
+        CoreError::Storage(format!(
+            "s3 {op} failed (bucket='{}', prefix='{}', key_family='{}'): {detail}",
+            self.bucket,
+            prefix,
+            Self::key_family(prefix)
+        ))
+    }
+
+    fn conditional_write_error(
+        &self,
+        op: &str,
+        key: &str,
+        expected_etag: Option<&str>,
+        detail: String,
+    ) -> CoreError {
+        let condition = if expected_etag.is_some() {
+            "if_match"
+        } else {
+            "if_none_match"
+        };
+        CoreError::Storage(format!(
+            "s3 {op} failed (bucket='{}', key='{}', key_family='{}', condition='{}', expected_etag={:?}): {detail}",
+            self.bucket,
+            key,
+            Self::key_family(key),
+            condition,
+            expected_etag
+        ))
+    }
+
     pub async fn from_env(bucket: String) -> Self {
         let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
@@ -41,7 +125,7 @@ impl S3StorageAdapter {
             let resp = req
                 .send()
                 .await
-                .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+                .map_err(|e| self.prefix_error("list_objects_v2", prefix, format!("{:?}", e)))?;
             for obj in resp.contents() {
                 out.push(ObjectMeta {
                     key: obj.key().unwrap_or_default().to_string(),
@@ -120,7 +204,7 @@ impl StorageAdapter for S3StorageAdapter {
                     let current_etag = self.head_etag(key).await?;
                     return Ok(ConditionalWriteStatus::Conflict { current_etag });
                 }
-                Err(CoreError::Storage(s))
+                Err(self.conditional_write_error("put_object", key, expected_etag, s))
             }
         }
     }
@@ -133,12 +217,12 @@ impl StorageAdapter for S3StorageAdapter {
             .key(key)
             .send()
             .await
-            .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+            .map_err(|e| self.key_error("get_object", key, format!("{:?}", e)))?;
         let bytes = resp
             .body
             .collect()
             .await
-            .map_err(|e| CoreError::Storage(format!("{:?}", e)))?
+            .map_err(|e| self.key_error("get_object_body", key, format!("{:?}", e)))?
             .into_bytes();
         Ok(bytes.to_vec())
     }
@@ -157,7 +241,7 @@ impl StorageAdapter for S3StorageAdapter {
             .body(aws_sdk_s3::primitives::ByteStream::from(bytes.to_vec()))
             .send()
             .await
-            .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+            .map_err(|e| self.key_error("put_object", key, format!("{:?}", e)))?;
         Ok(())
     }
 
@@ -168,7 +252,7 @@ impl StorageAdapter for S3StorageAdapter {
             .key(key)
             .send()
             .await
-            .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+            .map_err(|e| self.key_error("delete_object", key, format!("{:?}", e)))?;
         Ok(())
     }
 
@@ -187,7 +271,7 @@ impl StorageAdapter for S3StorageAdapter {
                 if s.contains("NoSuchKey") || s.contains("NotFound") {
                     return Ok(None);
                 }
-                Err(CoreError::Storage(s))
+                Err(self.key_error("head_object", key, s))
             }
         }
     }
@@ -208,7 +292,7 @@ impl StorageAdapter for S3StorageAdapter {
             let resp = req
                 .send()
                 .await
-                .map_err(|e| CoreError::Storage(format!("{:?}", e)))?;
+                .map_err(|e| self.prefix_error("list_objects_v2", prefix, format!("{:?}", e)))?;
             for obj in resp.contents() {
                 if let Some(k) = obj.key() {
                     out.push(k.to_string());

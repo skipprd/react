@@ -289,7 +289,59 @@ async fn transition_plan_missing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control_flow::Phase;
+
+    fn sample_model_plan() -> crate::plan::ModelPlan {
+        let batches = vec![vec!["dim_customers".to_string()]];
+        crate::plan::ModelPlan {
+            plan_key: "t/w/p/plans/tid/sample_model.json".to_string(),
+            status: crate::plan::PlanStatus::Approved,
+            project_snapshot: Default::default(),
+            tasks: vec![crate::plan::ModelTask {
+                name: "dim_customers".to_string(),
+                folder: crate::plan::ModelFolder::Marts,
+                goal: "build customer dimension".to_string(),
+                inputs: vec!["stg_test_raw_raw_customers".to_string()],
+                expected_model_path: Some("models/marts/dim_customers.sql".to_string()),
+                invariants: vec![],
+                implementation_spec: Some(crate::plan::ModelImplementationSpec {
+                    spec_version: 1,
+                    grain: "1 row per customer".to_string(),
+                    inputs: vec!["stg_test_raw_raw_customers".to_string()],
+                    joins: vec![],
+                    metrics: vec![],
+                    output_fields: vec![crate::plan::OutputFieldSpec {
+                        name: "customer_id".to_string(),
+                        kind: crate::plan::FieldKind::Clean,
+                        source_columns: vec!["customer_id".to_string()],
+                        expression: "customer_id passthrough".to_string(),
+                        data_type: None,
+                        nullable: true,
+                        description: None,
+                    }],
+                    assumptions: vec![],
+                }),
+                source_schema: vec![crate::plan::SourceColumnDef {
+                    name: "customer_id".to_string(),
+                    data_type: "bigint".to_string(),
+                }],
+                grounded_inputs: vec![crate::plan::GroundedModelInput {
+                    input_name: "stg_test_raw_raw_customers".to_string(),
+                    model_rel_path: "models/staging/stg_test_raw_raw_customers.sql".to_string(),
+                    relation_fqn: "catalog.db.stg_test_raw_raw_customers".to_string(),
+                    source_schema: vec![crate::plan::SourceColumnDef {
+                        name: "customer_id".to_string(),
+                        data_type: "bigint".to_string(),
+                    }],
+                }],
+                status: crate::plan::TaskStatus::InProgress,
+                checklist: crate::plan::canonical_task_checklist(crate::track_spec::TrackKind::Model),
+            }],
+            batches: batches.clone(),
+            work_groups: crate::plan::canonical_work_groups_from_batches(&batches, "model"),
+            mutations: vec![],
+            progress: crate::plan::PlanProgress::default(),
+        }
+    }
 
     #[test]
     fn author_validate_trigger_is_single_source() {
@@ -368,6 +420,54 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn reconcile_existing_model_sql_checklist_marks_matching_paths_done() {
+        let mut plan = sample_model_plan();
+        let item_names = vec!["dim_customers".to_string()];
+        let existing_paths = std::collections::HashSet::from([String::from(
+            "./models/marts/dim_customers.sql",
+        )]);
+
+        let changed = reconcile_existing_model_sql_checklist(
+            &mut plan,
+            &item_names,
+            crate::plan::CHECKLIST_SQL_MODEL,
+            &existing_paths,
+        );
+
+        assert!(changed);
+        let status = plan.tasks[0]
+            .checklist
+            .iter()
+            .find(|it| it.checklist_item_id == crate::plan::CHECKLIST_SQL_MODEL)
+            .map(|it| it.status)
+            .expect("sql checklist item should exist");
+        assert_eq!(status, crate::plan::ChecklistItemStatus::Done);
+    }
+
+    #[test]
+    fn reconcile_existing_model_sql_checklist_ignores_missing_paths() {
+        let mut plan = sample_model_plan();
+        let item_names = vec!["dim_customers".to_string()];
+        let existing_paths = std::collections::HashSet::new();
+
+        let changed = reconcile_existing_model_sql_checklist(
+            &mut plan,
+            &item_names,
+            crate::plan::CHECKLIST_SQL_MODEL,
+            &existing_paths,
+        );
+
+        assert!(!changed);
+        let status = plan.tasks[0]
+            .checklist
+            .iter()
+            .find(|it| it.checklist_item_id == crate::plan::CHECKLIST_SQL_MODEL)
+            .map(|it| it.status)
+            .expect("sql checklist item should exist");
+        assert_eq!(status, crate::plan::ChecklistItemStatus::Pending);
+    }
 }
 
 async fn transition_plan_not_approved(
@@ -440,13 +540,99 @@ async fn track_completion_snapshot_all_done(actx: &AgentCtx, track: TrackKind) -
     }
 }
 
-fn resolve_checklist_item_id(actx: &AgentCtx) -> String {
+fn resolve_checklist_item_id(actx: &AgentCtx, default: &str) -> String {
     actx.exec_ctx()
         .as_ref()
         .and_then(|c| c.get_str("checklist_item_id"))
-        .unwrap_or(crate::plan::CHECKLIST_SCHEMA_CONTRACT)
+        .unwrap_or(default)
         .trim()
         .to_string()
+}
+
+fn reconcile_existing_model_sql_checklist(
+    plan: &mut crate::plan::ModelPlan,
+    item_names: &[String],
+    checklist_item_id: &str,
+    existing_model_paths: &std::collections::HashSet<String>,
+) -> bool {
+    if checklist_item_id.trim().is_empty() {
+        return false;
+    }
+
+    let mut changed = false;
+    for item_name in item_names {
+        let Some(task) = plan.tasks.iter().find(|t| t.name == *item_name) else {
+            continue;
+        };
+        let Some(expected_path) = task.expected_model_path.as_deref() else {
+            continue;
+        };
+        let normalized_expected = normalize_review_patch_target_path(expected_path);
+        let has_matching_file = existing_model_paths
+            .iter()
+            .any(|path| normalize_review_patch_target_path(path) == normalized_expected);
+        if !has_matching_file {
+            continue;
+        }
+
+        let already_done = task
+            .checklist
+            .iter()
+            .find(|it| it.checklist_item_id == checklist_item_id)
+            .map(|it| it.status == crate::plan::ChecklistItemStatus::Done)
+            .unwrap_or(false);
+        if already_done {
+            continue;
+        }
+
+        changed = true;
+        if checklist_item_id == crate::plan::CHECKLIST_SQL_MODEL {
+            crate::plan::model_mark_done(plan, item_name);
+        } else {
+            crate::plan::model_checklist_mark_status(
+                plan,
+                item_name,
+                checklist_item_id,
+                crate::plan::ChecklistItemStatus::Done,
+            );
+        }
+    }
+
+    changed
+}
+
+async fn reconcile_existing_model_sql_from_storage(
+    actx: &AgentCtx,
+    plan: &mut crate::plan::ModelPlan,
+    item_names: &[String],
+    checklist_item_id: &str,
+) -> bool {
+    let mut existing_model_paths: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for item_name in item_names {
+        let Some(task) = plan.tasks.iter().find(|t| t.name == *item_name) else {
+            continue;
+        };
+        let Some(expected_path) = task.expected_model_path.clone() else {
+            continue;
+        };
+        let key = crate::project_fs::join_storage_key(actx, &expected_path);
+        match actx.storage().head_etag(&key).await {
+            Ok(Some(_)) => {
+                existing_model_paths.insert(normalize_review_patch_target_path(&expected_path));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(
+                    item_name = %item_name,
+                    expected_model_path = %expected_path,
+                    error = %e,
+                    "model author reconciliation skipped existing SQL check after storage error"
+                );
+            }
+        }
+    }
+    reconcile_existing_model_sql_checklist(plan, item_names, checklist_item_id, &existing_model_paths)
 }
 
 fn build_schema_checklist_context(
@@ -662,7 +848,8 @@ async fn load_cleanse_author_context(
 
     if next.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
-            let checklist_item_id = resolve_checklist_item_id(actx);
+            let checklist_item_id =
+                resolve_checklist_item_id(actx, crate::plan::CHECKLIST_SCHEMA_CONTRACT);
             let expected_paths = crate::phase_author_lifecycle::collect_expected_paths(
                 &plan.tasks,
                 ids,
@@ -848,6 +1035,25 @@ async fn load_model_author_context(
         });
     }
 
+    if !next_names.is_empty() {
+        let checklist_item_id = resolve_checklist_item_id(actx, crate::plan::CHECKLIST_SQL_MODEL);
+        if reconcile_existing_model_sql_from_storage(
+            actx,
+            &mut plan,
+            &next_names,
+            &checklist_item_id,
+        )
+        .await
+        {
+            crate::plan::save_model_plan(actx, &plan).await?;
+            return Ok(AuthorPlanLoadResult::EarlyReturn(
+                PhaseOutcome::stayed_with_progress(
+                    "marked existing model SQL checklist items done after reconciling written gold SQL",
+                ),
+            ));
+        }
+    }
+
     if next_names.is_empty() {
         if let crate::plan::AuthoringNextAction::AuthorSchema(ids) = &next_action {
             // Reconcile: if models/schema.yml already contains stanzas for all
@@ -876,7 +1082,8 @@ async fn load_model_author_context(
                         let all_present = ids.iter().all(|n| names_in_schema.contains(n));
                         if all_present {
                             let mut changed = false;
-                            let checklist_item_id = resolve_checklist_item_id(actx);
+                            let checklist_item_id =
+                                resolve_checklist_item_id(actx, crate::plan::CHECKLIST_SCHEMA_CONTRACT);
                             for n in ids.iter() {
                                 if let Some(t) = plan.tasks.iter().find(|t| t.name == *n) {
                                     let done = t
@@ -917,7 +1124,8 @@ async fn load_model_author_context(
                 |task| task.name.as_str(),
                 |task| task.expected_model_path.as_deref(),
             );
-            let checklist_item_id = resolve_checklist_item_id(actx);
+            let checklist_item_id =
+                resolve_checklist_item_id(actx, crate::plan::CHECKLIST_SCHEMA_CONTRACT);
             let ctx = build_schema_checklist_context(
                 params.track,
                 &plan.plan_key,

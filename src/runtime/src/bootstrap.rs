@@ -10,6 +10,25 @@ use crate::wiring::{DefaultKeyspace, EnvSecretsProvider, LocalKeyspace};
 pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, String> {
     let s3_creds = cfg.storage.s3_credentials.as_ref();
 
+    match cfg.storage.mode {
+        rc::StorageMode::Local => tracing::info!(
+            storage_mode = "local",
+            storage_path = %cfg.storage.path.as_deref().unwrap_or(""),
+            scope_tenant = %cfg.scope.tenant,
+            scope_workspace = %cfg.scope.workspace,
+            scope_project_id = %cfg.scope.project_id,
+            "building suite context"
+        ),
+        rc::StorageMode::S3 => tracing::info!(
+            storage_mode = "s3",
+            storage_bucket = %cfg.storage.bucket.as_deref().unwrap_or(""),
+            scope_tenant = %cfg.scope.tenant,
+            scope_workspace = %cfg.scope.workspace,
+            scope_project_id = %cfg.scope.project_id,
+            "building suite context"
+        ),
+    }
+
     let (storage, keyspace, lance_uri_prefix, lance_storage_opts) =
         if cfg.storage.mode == rc::StorageMode::Local {
             let root = cfg
