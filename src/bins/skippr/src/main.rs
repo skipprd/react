@@ -719,7 +719,9 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             let workgroup = workgroup.or_else(|| prompt("Athena workgroup (optional)"));
             let region = region.or_else(|| prompt("AWS region"));
             let result_s3 = result_s3.or_else(|| prompt("S3 result location (optional, e.g. s3://bucket/path)"));
-            let catalog = catalog.or_else(|| prompt("Glue catalog (default: AwsDataCatalog)"));
+            let catalog = athena_catalog_or_default(
+                catalog.or_else(|| prompt("Glue catalog (default: AwsDataCatalog)")),
+            );
             let schema = schema.or_else(|| prompt("Default database/schema (optional)"));
             WarehouseConfig::Athena { workgroup, region, result_s3, catalog, schema }
         }
@@ -756,7 +758,9 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
         }
         WarehouseKind::Postgres { database, schema } => {
             let database = database.or_else(|| prompt("PostgreSQL database"));
-            let schema = schema.or_else(|| prompt("PostgreSQL schema (default: public)"));
+            let schema = postgres_schema_or_default(
+                schema.or_else(|| prompt("PostgreSQL schema (default: public)")),
+            );
             WarehouseConfig::Postgres { database, schema }
         }
         WarehouseKind::Databricks { workspace_url, token, warehouse_id, catalog, schema } => {
@@ -1034,28 +1038,12 @@ fn cmd_doctor(explicit_config: &Option<PathBuf>) {
         check_snowflake_env(&mut ok);
     }
 
+    if let Some(WarehouseConfig::Bigquery { .. }) = &cfg.warehouse {
+        check_bigquery_env(&mut ok);
+    }
+
     if let Some(WarehouseConfig::Postgres { .. }) = &cfg.warehouse {
         check_postgres_env(&mut ok);
-    }
-
-    if let Some(WarehouseConfig::Databricks { .. }) = &cfg.warehouse {
-        check_databricks_env(&mut ok);
-    }
-
-    if let Some(WarehouseConfig::Synapse { .. }) = &cfg.warehouse {
-        check_synapse_env(&mut ok);
-    }
-
-    if let Some(WarehouseConfig::Redshift { .. }) = &cfg.warehouse {
-        check_redshift_env(&mut ok);
-    }
-
-    if let Some(WarehouseConfig::Clickhouse { .. }) = &cfg.warehouse {
-        check_clickhouse_env(&mut ok);
-    }
-
-    if let Some(WarehouseConfig::Motherduck { .. }) = &cfg.warehouse {
-        check_motherduck_env(&mut ok);
     }
 
     println!();
@@ -1113,75 +1101,34 @@ fn check_snowflake_env(ok: &mut bool) {
     }
 }
 
+fn check_bigquery_env(ok: &mut bool) {
+    if env_set("GOOGLE_APPLICATION_CREDENTIALS") {
+        check_pass("GOOGLE_APPLICATION_CREDENTIALS is set");
+    } else {
+        check_fail("GOOGLE_APPLICATION_CREDENTIALS is not set");
+        *ok = false;
+    }
+}
+
 fn check_postgres_env(ok: &mut bool) {
-    let has_host = env_set("PGHOST");
-    let has_user = env_set("PGUSER");
-    let has_password = env_set("PGPASSWORD");
+    let has_host = env_set("POSTGRES_HOST");
+    let has_user = env_set("POSTGRES_USER");
+    let has_password = env_set("POSTGRES_PASSWORD");
 
     if has_host {
-        check_pass("PGHOST is set");
+        check_pass("POSTGRES_HOST is set");
     } else {
-        check_fail("PGHOST is not set (defaults to localhost)");
+        check_fail("POSTGRES_HOST is not set (defaults to localhost)");
     }
     if has_user {
-        check_pass("PGUSER is set");
+        check_pass("POSTGRES_USER is set");
     } else {
-        check_fail("PGUSER is not set (defaults to postgres)");
+        check_fail("POSTGRES_USER is not set (defaults to postgres)");
     }
     if has_password {
-        check_pass("PGPASSWORD is set");
+        check_pass("POSTGRES_PASSWORD is set");
     } else {
-        check_fail("PGPASSWORD is not set");
-        *ok = false;
-    }
-}
-
-fn check_databricks_env(ok: &mut bool) {
-    if env_set("DATABRICKS_HOST") || env_set("DATABRICKS_WORKSPACE_URL") {
-        check_pass("DATABRICKS_HOST or DATABRICKS_WORKSPACE_URL is set");
-    } else {
-        check_fail("DATABRICKS_HOST / DATABRICKS_WORKSPACE_URL is not set");
-        *ok = false;
-    }
-    if env_set("DATABRICKS_TOKEN") {
-        check_pass("DATABRICKS_TOKEN is set");
-    } else {
-        check_fail("DATABRICKS_TOKEN is not set");
-        *ok = false;
-    }
-}
-
-fn check_synapse_env(ok: &mut bool) {
-    if env_set("SYNAPSE_CONNECTION_STRING") {
-        check_pass("SYNAPSE_CONNECTION_STRING is set");
-    } else {
-        check_fail("SYNAPSE_CONNECTION_STRING is not set");
-        *ok = false;
-    }
-}
-
-fn check_redshift_env(ok: &mut bool) {
-    if env_set("REDSHIFT_HOST") || env_set("REDSHIFT_CLUSTER_IDENTIFIER") || env_set("REDSHIFT_WORKGROUP_NAME") {
-        check_pass("Redshift connection configured (host, cluster, or workgroup)");
-    } else {
-        check_fail("Redshift connection not configured — set REDSHIFT_HOST, REDSHIFT_CLUSTER_IDENTIFIER, or REDSHIFT_WORKGROUP_NAME");
-        *ok = false;
-    }
-}
-
-fn check_clickhouse_env(_ok: &mut bool) {
-    if env_set("CLICKHOUSE_URL") {
-        check_pass("CLICKHOUSE_URL is set");
-    } else {
-        check_pass("CLICKHOUSE_URL not set (defaults to http://localhost:8123)");
-    }
-}
-
-fn check_motherduck_env(ok: &mut bool) {
-    if env_set("MOTHERDUCK_TOKEN") {
-        check_pass("MOTHERDUCK_TOKEN is set");
-    } else {
-        check_fail("MOTHERDUCK_TOKEN is not set (required for MotherDuck)");
+        check_fail("POSTGRES_PASSWORD is not set");
         *ok = false;
     }
 }
@@ -1689,6 +1636,20 @@ fn prompt(label: &str) -> Option<String> {
     }
 }
 
+fn postgres_schema_or_default(schema: Option<String>) -> Option<String> {
+    schema
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| Some("public".to_string()))
+}
+
+fn athena_catalog_or_default(catalog: Option<String>) -> Option<String> {
+    catalog
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| Some("AwsDataCatalog".to_string()))
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -2067,11 +2028,11 @@ SNOWFLAKE_USER=
 SNOWFLAKE_PRIVATE_KEY_PATH=
 
 # PostgreSQL (when warehouse is postgres)
-PGHOST=localhost
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=
-PGDATABASE=
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=
+POSTGRES_DATABASE=
 
 # MSSQL (when source is mssql)
 MSSQL_CONNECTION_STRING=
@@ -2108,6 +2069,46 @@ mod tests {
         cmd_init("my-pipeline", false, &Some(config.clone())).await;
         let after = fs::read_to_string(&config).unwrap();
         assert_eq!(original, after);
+    }
+
+    #[test]
+    fn postgres_schema_or_default_uses_public_when_missing() {
+        assert_eq!(
+            postgres_schema_or_default(None).as_deref(),
+            Some("public")
+        );
+        assert_eq!(
+            postgres_schema_or_default(Some("".into())).as_deref(),
+            Some("public")
+        );
+        assert_eq!(
+            postgres_schema_or_default(Some(" public ".into())).as_deref(),
+            Some("public")
+        );
+        assert_eq!(
+            postgres_schema_or_default(Some("analytics".into())).as_deref(),
+            Some("analytics")
+        );
+    }
+
+    #[test]
+    fn athena_catalog_or_default_uses_aws_data_catalog_when_missing() {
+        assert_eq!(
+            athena_catalog_or_default(None).as_deref(),
+            Some("AwsDataCatalog")
+        );
+        assert_eq!(
+            athena_catalog_or_default(Some("".into())).as_deref(),
+            Some("AwsDataCatalog")
+        );
+        assert_eq!(
+            athena_catalog_or_default(Some(" AwsDataCatalog ".into())).as_deref(),
+            Some("AwsDataCatalog")
+        );
+        assert_eq!(
+            athena_catalog_or_default(Some("CustomCatalog".into())).as_deref(),
+            Some("CustomCatalog")
+        );
     }
 
     #[tokio::test]

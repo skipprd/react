@@ -82,7 +82,7 @@ llm:
 
 **Cause:** PostgreSQL is not running or the connection parameters are wrong.
 
-**Fix:** Verify `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` environment variables.
+**Fix:** Verify `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE` environment variables.
 
 ## dbt errors
 

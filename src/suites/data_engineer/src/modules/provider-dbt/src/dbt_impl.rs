@@ -981,11 +981,11 @@ fn build_docker_run_args(
 
     // Pass through Postgres env vars for the dbt-postgres adapter.
     for k in [
-        "PGHOST",
-        "PGUSER",
-        "PGPASSWORD",
-        "PGPORT",
-        "PGDATABASE",
+        "POSTGRES_HOST",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_PORT",
+        "POSTGRES_DATABASE",
     ] {
         if let Ok(v) = std::env::var(k) {
             if !v.trim().is_empty() {

@@ -1,6 +1,8 @@
 # Environment Variables
 
-All secrets and authentication credentials are configured via environment variables. They are never stored in the config file.
+This page lists the first-class environment variables that `skippr` passes through to `skippr-el`.
+
+Many connectors are configured directly in `skippr.yaml` instead of through dedicated env vars. If you do not want to store the secure value in `skippr.yaml`, use interpolation: replace the field value with your own `${ENV_VAR}` reference.
 
 ## Snowflake
 
@@ -10,6 +12,13 @@ All secrets and authentication credentials are configured via environment variab
 | `SNOWFLAKE_USER` | Login username |
 | `SNOWFLAKE_PRIVATE_KEY_PATH` | Path to `.p8` private key file (key-pair auth, recommended) |
 | `SNOWFLAKE_PASSWORD` | Password (only when MFA is not enforced) |
+| `SNOWFLAKE_WAREHOUSE` | Compute warehouse name |
+| `SNOWFLAKE_DATABASE` | Target database |
+| `SNOWFLAKE_SCHEMA` | Target schema |
+| `SNOWFLAKE_ROLE` | Optional role to assume |
+| `SNOWFLAKE_STAGE` | Optional stage for file uploads |
+| `SNOWFLAKE_STAGING_S3_BUCKET` | Optional S3 bucket for direct S3 staging |
+| `SNOWFLAKE_STAGING_S3_PREFIX` | Optional key prefix inside the staging bucket |
 
 Key-pair auth is recommended and required when MFA is enabled on the Snowflake account.
 
@@ -17,9 +26,14 @@ Key-pair auth is recommended and required when MFA is enabled on the Snowflake a
 
 | Variable | Description |
 |---|---|
+| `BIGQUERY_PROJECT` | GCP project ID |
+| `BIGQUERY_DATASET` | BigQuery dataset name |
+| `BIGQUERY_LOCATION` | Dataset location (for example `US` or `EU`) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to a GCP service account JSON key file |
 
-## Postgres
+## Postgres Warehouse
+
+These env vars apply to the Postgres warehouse destination. The Postgres source connector is configured via source fields like `host`, `port`, `user`, `password`, and `connection_string`.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -31,15 +45,18 @@ Key-pair auth is recommended and required when MFA is enabled on the Snowflake a
 | `POSTGRES_SCHEMA` | `public` | Target schema (overrides config file) |
 | `POSTGRES_SSLMODE` | | SSL mode (e.g. `disable`, `require`, `prefer`) |
 
-## Source credentials
+## Source Connectors
 
 | Variable | Description |
 |---|---|
 | `MSSQL_CONNECTION_STRING` | ADO.NET connection string for SQL Server |
-| `AWS_ACCESS_KEY_ID` | AWS access key (for S3 sources) |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key (for S3 sources) |
+| `MYSQL_CONNECTION_STRING` | MySQL connection string |
+| `MOTHERDUCK_TOKEN` | MotherDuck auth token for the MotherDuck source connector |
+| `AWS_ACCESS_KEY_ID` | AWS access key for AWS-backed sources such as S3 |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key for AWS-backed sources such as S3 |
+| `AWS_DEFAULT_REGION` | AWS region for AWS-backed sources such as S3, SQS, Kinesis, and DynamoDB |
 
-## Optional overrides
+## Optional Overrides
 
 | Variable | Default | Description |
 |---|---|---|

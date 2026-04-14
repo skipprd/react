@@ -164,7 +164,11 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
         WarehouseFile::Postgres { database, schema } => WarehouseResolved {
             kind: WarehouseKind::Postgres,
             container: resolve_env_ref(&database.unwrap_or_default()),
-            namespace: resolve_env_ref(&schema.unwrap_or_default()),
+            namespace: resolve_env_ref(
+                &schema
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "public".to_string()),
+            ),
             extras: serde_json::json!({}),
         },
         WarehouseFile::Mssql {
@@ -504,4 +508,28 @@ pub fn de_config_from_resolved(
     cfg: &react_core::resolved_config::ReactResolvedConfig,
 ) -> Option<ProvidersResolved> {
     serde_json::from_value::<ProvidersResolved>(cfg.suite_config.clone()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_warehouse_missing_schema_defaults_to_public() {
+        let resolved = resolve_providers_from_yaml(serde_json::json!({
+            "warehouse": {
+                "kind": "postgres",
+                "database": "skippr_test",
+                "schema": null
+            }
+        }))
+        .expect("providers should resolve");
+
+        let providers: ProvidersResolved =
+            serde_json::from_value(resolved).expect("resolved providers should deserialize");
+
+        assert_eq!(providers.warehouse.kind, WarehouseKind::Postgres);
+        assert_eq!(providers.warehouse.container, "skippr_test");
+        assert_eq!(providers.warehouse.namespace, "public");
+    }
 }

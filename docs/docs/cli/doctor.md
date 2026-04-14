@@ -10,6 +10,8 @@ skippr doctor
 
 ## Checks performed
 
+`skippr doctor` only validates connector env vars for warehouses that expose first-class runtime environment variables.
+
 | Check | What it verifies |
 |---|---|
 | Config file | `skippr.yaml` exists in the current directory |
@@ -19,6 +21,8 @@ skippr doctor
 | Python | `python3` or `python` is on PATH |
 | `LLM_API_KEY` | Environment variable is set |
 | Snowflake auth | `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and either `SNOWFLAKE_PRIVATE_KEY_PATH` or `SNOWFLAKE_PASSWORD` are set (Snowflake only) |
+| BigQuery auth | `GOOGLE_APPLICATION_CREDENTIALS` is set (BigQuery only) |
+| Postgres output | `POSTGRES_HOST`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` are set (Postgres warehouse only) |
 
 ## Example output
 

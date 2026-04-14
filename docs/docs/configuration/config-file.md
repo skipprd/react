@@ -2,6 +2,8 @@
 
 Skippr dbt is configured via `skippr.yaml` in the working directory.
 
+Connectors with first-class runtime env vars are listed in [Environment Variables](environment-variables.md). Other connectors are configured via `skippr.yaml` fields. If you do not want to store the secure value in `skippr.yaml`, use interpolation: replace the field value with your own `${ENV_VAR}` reference.
+
 ## Format
 
 ```yaml
@@ -97,9 +99,9 @@ Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, e
 | Field | Description |
 |---|---|
 | `kind` | `databricks` |
-| `workspace_url` | Databricks workspace URL (or set `DATABRICKS_WORKSPACE_URL`) |
-| `token` | Personal access token (or set `DATABRICKS_TOKEN`) |
-| `warehouse_id` | SQL warehouse ID (or set `DATABRICKS_WAREHOUSE_ID`) |
+| `workspace_url` | Databricks workspace URL |
+| `token` | Personal access token |
+| `warehouse_id` | SQL warehouse ID |
 | `catalog` | Unity Catalog name (e.g. `main`) |
 | `schema` | Target schema for bronze/raw data |
 
@@ -107,28 +109,31 @@ Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, e
 # Databricks warehouse
 warehouse:
   kind: databricks
-  workspace_url: ${DATABRICKS_WORKSPACE_URL}
-  token: ${DATABRICKS_TOKEN}
-  warehouse_id: ${DATABRICKS_WAREHOUSE_ID}
+  workspace_url: https://dbc-xxxxxxxx.cloud.databricks.com
+  token: dapi...
+  warehouse_id: abc123
   catalog: main
   schema: default
 ```
+
+If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `token` value with your own `${ENV_VAR}` reference.
 
 #### Azure Synapse
 
 | Field | Description |
 |---|---|
 | `kind` | `synapse` |
-| `connection_string` | Optional ADO.NET connection string (or set individual fields via env vars) |
+| `connection_string` | Optional ADO.NET connection string |
 | `schema` | Target schema (default: `dbo`) |
-
-Authentication is via environment variables: `SYNAPSE_HOST`, `SYNAPSE_USER`, `SYNAPSE_PASSWORD`, `SYNAPSE_DATABASE`.
 
 ```yaml
 warehouse:
   kind: synapse
+  connection_string: Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb
   schema: dbo
 ```
+
+If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference.
 
 #### Amazon Redshift
 
@@ -150,7 +155,7 @@ warehouse:
 | Field | Description |
 |---|---|
 | `kind` | `clickhouse` |
-| `url` | HTTP interface URL (e.g. `http://localhost:8123`; or set `CLICKHOUSE_URL`) |
+| `url` | HTTP interface URL (e.g. `http://localhost:8123`) |
 | `database` | Database name |
 | `user` | Username |
 | `password` | Password |
@@ -175,10 +180,12 @@ warehouse:
 ```yaml
 warehouse:
   kind: motherduck
-  motherduck_token: ${MOTHERDUCK_TOKEN}
+  motherduck_token: md:...
   database: my_database
   schema: main
 ```
+
+If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
 
 ### schema_sink (optional)
 
@@ -209,7 +216,7 @@ The data source for extraction. When absent, the pipeline skips extraction and s
 | Field | Description |
 |---|---|
 | `kind` | `mssql` |
-| `connection_string` | ADO.NET connection string. Use `${ENV_VAR}` to reference environment variables. |
+| `connection_string` | ADO.NET connection string. If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
 
 ##### MySQL
 

@@ -51,7 +51,8 @@ impl PostgresProvider {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
-                "postgres dbname is required (set providers.*.dbname or env PGDATABASE)".to_string()
+                "postgres dbname is required (set providers.*.dbname or env POSTGRES_DATABASE)"
+                    .to_string()
             })
     }
 
@@ -65,14 +66,14 @@ impl PostgresProvider {
             .filter(|s| !s.trim().is_empty())
         {
             cfg.host(h.trim());
-        } else if let Ok(h) = std::env::var("PGHOST") {
+        } else if let Ok(h) = std::env::var("POSTGRES_HOST") {
             if !h.trim().is_empty() {
                 cfg.host(h.trim());
             }
         }
         if let Some(p) = self.inner.settings.port {
             cfg.port(p);
-        } else if let Some(p) = std::env::var("PGPORT")
+        } else if let Some(p) = std::env::var("POSTGRES_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
         {
@@ -86,7 +87,7 @@ impl PostgresProvider {
             .filter(|s| !s.trim().is_empty())
         {
             cfg.user(u.trim());
-        } else if let Ok(u) = std::env::var("PGUSER") {
+        } else if let Ok(u) = std::env::var("POSTGRES_USER") {
             if !u.trim().is_empty() {
                 cfg.user(u.trim());
             }
@@ -99,7 +100,7 @@ impl PostgresProvider {
             .filter(|s| !s.trim().is_empty())
         {
             cfg.password(pw.trim());
-        } else if let Ok(pw) = std::env::var("PGPASSWORD") {
+        } else if let Ok(pw) = std::env::var("POSTGRES_PASSWORD") {
             if !pw.trim().is_empty() {
                 cfg.password(pw.trim());
             }
@@ -142,7 +143,7 @@ impl PostgresProvider {
             .settings
             .default_schema
             .clone()
-            .or_else(|| std::env::var("PGSCHEMA").ok())
+            .or_else(|| std::env::var("POSTGRES_SCHEMA").ok())
             .unwrap_or_else(|| "public".to_string());
         react_suite_data_engineer::providers::warehouse_utils::parse_fqn_common(
             s,

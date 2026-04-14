@@ -22,11 +22,11 @@ providers:
 The Postgres provider uses standard PostgreSQL connection parameters from environment variables:
 
 ```bash
-export PGHOST=localhost
-export PGPORT=5432
-export PGUSER=myuser
-export PGPASSWORD=mypassword
-export PGDATABASE=mydb
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_USER=myuser
+export POSTGRES_PASSWORD=mypassword
+export POSTGRES_DATABASE=mydb
 ```
 
 Alternatively, use a connection string:

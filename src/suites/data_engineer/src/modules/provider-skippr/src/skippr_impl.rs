@@ -198,6 +198,18 @@ impl SkipprCliProvider {
             }
             WarehouseKind::Postgres => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Postgres".into());
+                if let Some(v) = std::env::var("POSTGRES_HOST").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_HOST".into(), v);
+                }
+                if let Some(v) = std::env::var("POSTGRES_PORT").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_PORT".into(), v);
+                }
+                if let Some(v) = std::env::var("POSTGRES_USER").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_USER".into(), v);
+                }
+                if let Some(v) = std::env::var("POSTGRES_PASSWORD").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_PASSWORD".into(), v);
+                }
                 if let Some(v) = std::env::var("POSTGRES_DATABASE").ok().filter(|v| !v.trim().is_empty()) {
                     env.insert("POSTGRES_DATABASE".into(), v);
                 } else if !self.warehouse.container.is_empty() {
@@ -208,52 +220,24 @@ impl SkipprCliProvider {
                 } else if !self.warehouse.namespace.is_empty() {
                     env.insert("POSTGRES_SCHEMA".into(), resolve_env_ref(&self.warehouse.namespace));
                 }
+                if let Some(v) = std::env::var("POSTGRES_SSLMODE").ok().filter(|v| !v.trim().is_empty()) {
+                    env.insert("POSTGRES_SSLMODE".into(), v);
+                }
             }
             WarehouseKind::Databricks => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Databricks".into());
-                if let Some(v) = std::env::var("DATABRICKS_WORKSPACE_URL").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_WORKSPACE_URL".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("workspace_url").and_then(|v| v.as_str()) { env.insert("DATABRICKS_WORKSPACE_URL".into(), v.to_string()); }
-                if let Some(v) = std::env::var("DATABRICKS_TOKEN").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_TOKEN".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("token").and_then(|v| v.as_str()) { env.insert("DATABRICKS_TOKEN".into(), v.to_string()); }
-                if let Some(v) = std::env::var("DATABRICKS_WAREHOUSE_ID").ok().filter(|v| !v.trim().is_empty()) { env.insert("DATABRICKS_WAREHOUSE_ID".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("warehouse_id").and_then(|v| v.as_str()) { env.insert("DATABRICKS_WAREHOUSE_ID".into(), v.to_string()); }
             }
             WarehouseKind::Synapse => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Synapse".into());
-                if let Some(v) = std::env::var("SYNAPSE_CONNECTION_STRING").ok().filter(|v| !v.trim().is_empty()) { env.insert("SYNAPSE_CONNECTION_STRING".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("connection_string").and_then(|v| v.as_str()) { env.insert("SYNAPSE_CONNECTION_STRING".into(), resolve_env_ref(v)); }
             }
             WarehouseKind::Redshift => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Redshift".into());
-                for (env_key, json_key) in [
-                    ("REDSHIFT_DATABASE", "database"), ("REDSHIFT_CLUSTER_IDENTIFIER", "cluster_identifier"),
-                    ("REDSHIFT_WORKGROUP_NAME", "workgroup_name"), ("REDSHIFT_DB_USER", "db_user"),
-                    ("REDSHIFT_REGION", "region"), ("REDSHIFT_STAGING_S3_BUCKET", "staging_s3_bucket"),
-                    ("REDSHIFT_STAGING_S3_PREFIX", "staging_s3_prefix"), ("REDSHIFT_IAM_ROLE_ARN", "iam_role_arn"),
-                ] {
-                    if let Some(v) = std::env::var(env_key).ok().filter(|v| !v.trim().is_empty()) { env.insert(env_key.into(), v); }
-                    else if let Some(v) = self.warehouse.extras.get(json_key).and_then(|v| v.as_str()).filter(|v| !v.is_empty()) { env.insert(env_key.into(), resolve_env_ref(v)); }
-                }
-                if !self.warehouse.container.is_empty() && !env.contains_key("REDSHIFT_DATABASE") {
-                    env.insert("REDSHIFT_DATABASE".into(), resolve_env_ref(&self.warehouse.container));
-                }
             }
             WarehouseKind::Clickhouse => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Clickhouse".into());
-                if let Some(v) = std::env::var("CLICKHOUSE_URL").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_URL".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("url").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = std::env::var("CLICKHOUSE_DATABASE").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_DATABASE".into(), v); }
-                else if !self.warehouse.container.is_empty() { env.insert("CLICKHOUSE_DATABASE".into(), resolve_env_ref(&self.warehouse.container)); }
-                if let Some(v) = std::env::var("CLICKHOUSE_USER").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_USER".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("user").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_USER".into(), v.to_string()); }
-                if let Some(v) = std::env::var("CLICKHOUSE_PASSWORD").ok().filter(|v| !v.trim().is_empty()) { env.insert("CLICKHOUSE_PASSWORD".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("password").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_PASSWORD".into(), v.to_string()); }
             }
             WarehouseKind::Motherduck => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Motherduck".into());
-                if let Some(v) = std::env::var("MOTHERDUCK_TOKEN").ok().filter(|v| !v.trim().is_empty()) { env.insert("MOTHERDUCK_TOKEN".into(), v); }
-                else if let Some(v) = self.warehouse.extras.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
-                if !self.warehouse.container.is_empty() { env.insert("MOTHERDUCK_DATABASE".into(), resolve_env_ref(&self.warehouse.container)); }
             }
             WarehouseKind::Mssql => {}
         }
@@ -628,7 +612,10 @@ impl SkipprCliProvider {
             std::env::var(key).ok().filter(|v| !v.trim().is_empty())
         }
         fn extra_str(extras: &serde_json::Value, key: &str) -> Option<String> {
-            extras.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(resolve_env_ref)
         }
 
         match self.warehouse.kind {
@@ -758,9 +745,9 @@ impl SkipprCliProvider {
             WarehouseKind::Databricks => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("DATABRICKS_WORKSPACE_URL").or_else(|| extra_str(extras, "workspace_url")) { cfg.insert("workspace_url".into(), serde_json::Value::String(v)); }
-                if let Some(v) = getenv("DATABRICKS_TOKEN").or_else(|| extra_str(extras, "token")) { cfg.insert("token".into(), serde_json::Value::String(v)); }
-                if let Some(v) = getenv("DATABRICKS_WAREHOUSE_ID").or_else(|| extra_str(extras, "warehouse_id")) { cfg.insert("warehouse_id".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "workspace_url") { cfg.insert("workspace_url".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "token") { cfg.insert("token".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "warehouse_id") { cfg.insert("warehouse_id".into(), serde_json::Value::String(v)); }
                 if !self.warehouse.container.is_empty() { cfg.insert("catalog".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
                 if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
                 serde_json::Value::Object(cfg)
@@ -768,7 +755,7 @@ impl SkipprCliProvider {
             WarehouseKind::Synapse => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("SYNAPSE_CONNECTION_STRING").or_else(|| extra_str(extras, "connection_string")) { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "connection_string") { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
                 if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
                 serde_json::Value::Object(cfg)
             }
@@ -776,24 +763,24 @@ impl SkipprCliProvider {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
                 if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
-                for (json_key, env_key) in [("cluster_identifier", "REDSHIFT_CLUSTER_IDENTIFIER"), ("workgroup_name", "REDSHIFT_WORKGROUP_NAME"), ("db_user", "REDSHIFT_DB_USER"), ("region", "REDSHIFT_REGION"), ("staging_s3_bucket", "REDSHIFT_STAGING_S3_BUCKET"), ("staging_s3_prefix", "REDSHIFT_STAGING_S3_PREFIX"), ("iam_role_arn", "REDSHIFT_IAM_ROLE_ARN")] {
-                    if let Some(v) = getenv(env_key).or_else(|| extra_str(extras, json_key)) { cfg.insert(json_key.into(), serde_json::Value::String(v)); }
+                for json_key in ["cluster_identifier", "workgroup_name", "db_user", "region", "staging_s3_bucket", "staging_s3_prefix", "iam_role_arn"] {
+                    if let Some(v) = extra_str(extras, json_key) { cfg.insert(json_key.into(), serde_json::Value::String(v)); }
                 }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Clickhouse => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("CLICKHOUSE_URL").or_else(|| extra_str(extras, "url")) { cfg.insert("url".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "url") { cfg.insert("url".into(), serde_json::Value::String(v)); }
                 if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
-                if let Some(v) = getenv("CLICKHOUSE_USER").or_else(|| extra_str(extras, "user")) { cfg.insert("user".into(), serde_json::Value::String(v)); }
-                if let Some(v) = getenv("CLICKHOUSE_PASSWORD").or_else(|| extra_str(extras, "password")) { cfg.insert("password".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "user") { cfg.insert("user".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "password") { cfg.insert("password".into(), serde_json::Value::String(v)); }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Motherduck => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("MOTHERDUCK_TOKEN").or_else(|| extra_str(extras, "motherduck_token")) { cfg.insert("motherduck_token".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "motherduck_token") { cfg.insert("motherduck_token".into(), serde_json::Value::String(v)); }
                 if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
                 serde_json::Value::Object(cfg)
             }
@@ -905,6 +892,128 @@ fn parse_json_lines(stdout: &[u8]) -> Vec<serde_json::Value> {
     text.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_env(vars: &[(&str, Option<&str>)], test: impl FnOnce()) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let saved: Vec<(String, Option<String>)> = vars
+            .iter()
+            .map(|(key, _)| ((*key).to_string(), std::env::var(key).ok()))
+            .collect();
+
+        for (key, value) in vars {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+
+        test();
+
+        for (key, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(&key, value),
+                None => std::env::remove_var(&key),
+            }
+        }
+    }
+
+    fn postgres_provider() -> SkipprCliProvider {
+        SkipprCliProvider {
+            binary: "skippr-el".to_string(),
+            data_dir: PathBuf::from("/tmp/skippr-provider-test"),
+            el_config: ElToolResolved::default(),
+            warehouse: WarehouseResolved {
+                kind: WarehouseKind::Postgres,
+                container: "skippr_test".to_string(),
+                namespace: "public".to_string(),
+                extras: serde_json::json!({}),
+            },
+        }
+    }
+
+    fn databricks_provider(token: &str) -> SkipprCliProvider {
+        SkipprCliProvider {
+            binary: "skippr-el".to_string(),
+            data_dir: PathBuf::from("/tmp/skippr-provider-test"),
+            el_config: ElToolResolved::default(),
+            warehouse: WarehouseResolved {
+                kind: WarehouseKind::Databricks,
+                container: "main".to_string(),
+                namespace: "default".to_string(),
+                extras: serde_json::json!({
+                    "workspace_url": "https://dbc-example.cloud.databricks.com",
+                    "token": token,
+                    "warehouse_id": "abc123",
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn postgres_warehouse_uses_skippr_el_env_vars_for_runtime_config() {
+        with_env(
+            &[
+                ("POSTGRES_HOST", Some("localhost")),
+                ("POSTGRES_PORT", Some("15433")),
+                ("POSTGRES_USER", Some("postgres")),
+                ("POSTGRES_PASSWORD", Some("testpass")),
+                ("POSTGRES_DATABASE", Some("skippr_test")),
+                ("POSTGRES_SCHEMA", Some("public")),
+                ("POSTGRES_SSLMODE", Some("disable")),
+            ],
+            || {
+                let provider = postgres_provider();
+
+                let env = provider.env_vars();
+                assert_eq!(env.get("POSTGRES_HOST").map(String::as_str), Some("localhost"));
+                assert_eq!(env.get("POSTGRES_PORT").map(String::as_str), Some("15433"));
+                assert_eq!(env.get("POSTGRES_DATABASE").map(String::as_str), Some("skippr_test"));
+
+                let cfg = provider.build_output_config();
+                assert_eq!(cfg.get("host").and_then(|v| v.as_str()), Some("localhost"));
+                assert_eq!(cfg.get("port").and_then(|v| v.as_u64()), Some(15433));
+                assert_eq!(cfg.get("user").and_then(|v| v.as_str()), Some("postgres"));
+                assert_eq!(cfg.get("password").and_then(|v| v.as_str()), Some("testpass"));
+                assert_eq!(cfg.get("database").and_then(|v| v.as_str()), Some("skippr_test"));
+                assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("public"));
+                assert_eq!(cfg.get("sslmode").and_then(|v| v.as_str()), Some("disable"));
+            },
+        );
+    }
+
+    #[test]
+    fn databricks_warehouse_resolves_env_refs_from_config_fields() {
+        with_env(
+            &[("WAREHOUSE_TOKEN", Some("dapi-test-token"))],
+            || {
+                let provider = databricks_provider("${WAREHOUSE_TOKEN}");
+
+                let env = provider.env_vars();
+                assert_eq!(env.get("DATA_OUTPUT_PLUGIN_NAME").map(String::as_str), Some("Databricks"));
+                assert!(!env.contains_key("DATABRICKS_WORKSPACE_URL"));
+                assert!(!env.contains_key("DATABRICKS_TOKEN"));
+                assert!(!env.contains_key("DATABRICKS_WAREHOUSE_ID"));
+
+                let cfg = provider.build_output_config();
+                assert_eq!(
+                    cfg.get("workspace_url").and_then(|v| v.as_str()),
+                    Some("https://dbc-example.cloud.databricks.com"),
+                );
+                assert_eq!(cfg.get("token").and_then(|v| v.as_str()), Some("dapi-test-token"));
+                assert_eq!(cfg.get("warehouse_id").and_then(|v| v.as_str()), Some("abc123"));
+                assert_eq!(cfg.get("catalog").and_then(|v| v.as_str()), Some("main"));
+                assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("default"));
+            },
+        );
+    }
 }
 
 #[async_trait]

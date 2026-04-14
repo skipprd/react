@@ -421,8 +421,7 @@ jobs:
           }
           if ($elapsed -ge $timeout) { Write-Error "PostgreSQL TCP 5432 not ready"; exit 1 }
           # Create test database
-          $env:PGPASSWORD = "Skippr!Test123"
-          psql -U postgres -c "CREATE DATABASE testdb;"
+          psql "postgresql://postgres:Skippr!Test123@127.0.0.1:5432/postgres" -c "CREATE DATABASE testdb;"
           Write-Host "PostgreSQL testdb created."
 
       - name: Install dbt runtime
@@ -436,11 +435,6 @@ jobs:
         env:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
           MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
-          PGHOST: localhost
-          PGPORT: "5432"
-          PGUSER: postgres
-          PGPASSWORD: "Skippr!Test123"
-          PGDATABASE: testdb
           POSTGRES_HOST: localhost
           POSTGRES_PORT: "5432"
           POSTGRES_USER: postgres

@@ -119,45 +119,33 @@ export POSTGRES_PASSWORD="mypassword"
 
 ### Databricks
 
-```bash
-export DATABRICKS_HOST="https://myworkspace.cloud.databricks.com"
-export DATABRICKS_TOKEN="dapi..."
-export DATABRICKS_WAREHOUSE_ID="abc123def456"
-```
+Configure Databricks with `skippr connect warehouse databricks` or in `skippr.yaml` using `workspace_url`, `token`, `warehouse_id`, `catalog`, and `schema`.
+
+If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `token` value with your own `${ENV_VAR}` reference.
 
 ### Redshift
 
-Authentication uses the AWS default credential chain. Set a cluster or serverless workgroup:
+Authentication uses the AWS default credential chain.
 
-```bash
-export REDSHIFT_CLUSTER_IDENTIFIER="my-cluster"   # provisioned
-# or: export REDSHIFT_WORKGROUP_NAME="my-wg"      # serverless
-export REDSHIFT_DB_USER="admin"
-export REDSHIFT_DATABASE="analytics"
-```
+Configure Redshift with `skippr connect warehouse redshift` or in `skippr.yaml` using fields like `cluster_identifier` or `workgroup_name`, `db_user`, `database`, and `region`.
 
 ### ClickHouse
 
-```bash
-export CLICKHOUSE_URL="http://localhost:8123"
-export CLICKHOUSE_USER="default"
-export CLICKHOUSE_PASSWORD="mypassword"
-```
+Configure ClickHouse with `skippr connect warehouse clickhouse` or in `skippr.yaml` using `url`, `database`, `user`, and `password`.
+
+If you do not want to store the password in `skippr.yaml`, use interpolation: replace the `password` value with your own `${ENV_VAR}` reference.
 
 ### MotherDuck
 
-```bash
-export MOTHERDUCK_TOKEN="eyJ..."
-```
+Configure MotherDuck with `skippr connect warehouse motherduck` or in `skippr.yaml` using `motherduck_token`, `database`, and `schema`.
+
+If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
 
 ### Azure Synapse
 
-```bash
-export SYNAPSE_HOST="myworkspace.sql.azuresynapse.net"
-export SYNAPSE_USER="sqladmin"
-export SYNAPSE_PASSWORD="mypassword"
-export SYNAPSE_DATABASE="analytics"
-```
+Configure Synapse with `skippr connect warehouse synapse` or in `skippr.yaml` using `connection_string` and `schema`.
+
+If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference.
 
 ## Next steps
 

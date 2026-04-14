@@ -90,7 +90,7 @@ Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, `
 ```bash
 skippr connect warehouse databricks \
   --workspace-url https://dbc-xxxxxxxx.cloud.databricks.com \
-  --token "$DATABRICKS_TOKEN" \
+  --token "dapi..." \
   --warehouse-id abc123 \
   --catalog main \
   --schema default
@@ -98,9 +98,9 @@ skippr connect warehouse databricks \
 
 | Flag | Description |
 |---|---|
-| `--workspace-url` | Databricks workspace URL (or set `DATABRICKS_HOST`) |
-| `--token` | Personal access token (or set `DATABRICKS_TOKEN`) |
-| `--warehouse-id` | SQL warehouse ID (or set `DATABRICKS_WAREHOUSE_ID`) |
+| `--workspace-url` | Databricks workspace URL |
+| `--token` | Personal access token |
+| `--warehouse-id` | SQL warehouse ID |
 | `--catalog` | Unity Catalog name (default: `main`) |
 | `--schema` | Target schema for bronze/raw data (default: `default`) |
 
@@ -108,13 +108,13 @@ skippr connect warehouse databricks \
 
 ```bash
 skippr connect warehouse synapse \
-  --connection-string "${SYNAPSE_CONNECTION_STRING}" \
+  --connection-string "Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb" \
   --schema dbo
 ```
 
 | Flag | Description |
 |---|---|
-| `--connection-string` | ADO.NET connection string (or set individual `SYNAPSE_HOST`, `SYNAPSE_USER`, `SYNAPSE_PASSWORD`, `SYNAPSE_DATABASE` env vars) |
+| `--connection-string` | ADO.NET connection string |
 | `--schema` | Target schema (default: `dbo`) |
 
 ### Amazon Redshift
@@ -146,7 +146,7 @@ skippr connect warehouse clickhouse \
   --url http://localhost:8123 \
   --database default \
   --user default \
-  --password "$CLICKHOUSE_PASSWORD"
+  --password "secret"
 ```
 
 | Flag | Description |
@@ -160,14 +160,14 @@ skippr connect warehouse clickhouse \
 
 ```bash
 skippr connect warehouse motherduck \
-  --motherduck-token "$MOTHERDUCK_TOKEN" \
+  --motherduck-token "md:..." \
   --database my_database \
   --schema main
 ```
 
 | Flag | Description |
 |---|---|
-| `--motherduck-token` | MotherDuck auth token (required, or set `MOTHERDUCK_TOKEN`) |
+| `--motherduck-token` | MotherDuck auth token (required) |
 | `--database` | MotherDuck database name |
 | `--schema` | Target schema (default: `main`) |
 
@@ -184,7 +184,7 @@ skippr connect source mssql \
 
 | Flag | Description |
 |---|---|
-| `--connection-string` | ADO.NET connection string. Use `${ENV_VAR}` to reference an environment variable. |
+| `--connection-string` | ADO.NET connection string. If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
 
 ### MySQL
 

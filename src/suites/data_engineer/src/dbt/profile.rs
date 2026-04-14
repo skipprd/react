@@ -177,12 +177,12 @@ pub fn generate_profiles_yml(
             let dbname = if !wh.container.trim().is_empty() {
                 wh.container.trim().to_string()
             } else {
-                "{{ env_var('PGDATABASE') }}".to_string()
+                "{{ env_var('POSTGRES_DATABASE') }}".to_string()
             };
-            let host = "{{ env_var('PGHOST', 'localhost') }}";
-            let user = "{{ env_var('PGUSER', 'postgres') }}";
-            let pass = "{{ env_var('PGPASSWORD', '') }}";
-            let port = "{{ env_var('PGPORT', '5432') | int }}";
+            let host = "{{ env_var('POSTGRES_HOST', 'localhost') }}";
+            let user = "{{ env_var('POSTGRES_USER', 'postgres') }}";
+            let pass = "{{ env_var('POSTGRES_PASSWORD', '') }}";
+            let port = "{{ env_var('POSTGRES_PORT', '5432') | int }}";
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));

@@ -76,11 +76,11 @@ These variables carry sensitive values and should never be placed in YAML config
 
 | Variable | Required | Description |
 |---|---|---|
-| `PGHOST` | Yes (when `kind: postgres`) | PostgreSQL hostname (default: `localhost`) |
-| `PGPORT` | No | PostgreSQL port (default: `5432`) |
-| `PGUSER` | No | PostgreSQL username (default: `postgres`) |
-| `PGPASSWORD` | No | PostgreSQL password |
-| `PGDATABASE` | No | Fallback database if omitted from YAML |
+| `POSTGRES_HOST` | Yes (when `kind: postgres`) | PostgreSQL hostname (default: `localhost`) |
+| `POSTGRES_PORT` | No | PostgreSQL port (default: `5432`) |
+| `POSTGRES_USER` | No | PostgreSQL username (default: `postgres`) |
+| `POSTGRES_PASSWORD` | No | PostgreSQL password |
+| `POSTGRES_DATABASE` | No | Fallback database if omitted from YAML |
 | `DATABASE_URL` | No | Alternative: full connection string |
 
 ## Runtime
