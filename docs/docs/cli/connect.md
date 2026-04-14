@@ -184,7 +184,35 @@ skippr connect source mssql \
 
 | Flag | Description |
 |---|---|
-| `--connection-string` | ADO.NET connection string. If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
+| `--connection-string` | ADO.NET connection string. For security best practices, we strongly advise against storing the connection string in `skippr.yaml`. Use environment variable interpolation instead: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
+
+This writes the following to `skippr.yaml`:
+
+```yaml
+source:
+  kind: mssql
+  connection_string: ${MSSQL_CONNECTION_STRING}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows PowerShell
+
+```powershell
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows Command Prompt
+
+```cmd
+set MSSQL_CONNECTION_STRING=server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true
+```
 
 ### MySQL
 

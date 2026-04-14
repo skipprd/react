@@ -2,7 +2,35 @@
 
 This page lists the first-class environment variables that `skippr` passes through to `skippr-el`.
 
-Many connectors are configured directly in `skippr.yaml` instead of through dedicated env vars. If you do not want to store the secure value in `skippr.yaml`, use interpolation: replace the field value with your own `${ENV_VAR}` reference.
+Many connectors are configured directly in `skippr.yaml` instead of through dedicated env vars. For security best practices, we strongly advise against storing the secure value in `skippr.yaml`. Use environment variable interpolation instead: replace the field value with your own `${ENV_VAR}` reference.
+
+Example:
+
+```yaml
+source:
+  kind: mssql
+  connection_string: ${MSSQL_CONNECTION_STRING}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows PowerShell
+
+```powershell
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows Command Prompt
+
+```cmd
+set MSSQL_CONNECTION_STRING=server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true
+```
 
 ## Snowflake
 

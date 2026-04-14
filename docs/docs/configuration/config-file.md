@@ -2,7 +2,7 @@
 
 Skippr dbt is configured via `skippr.yaml` in the working directory.
 
-Connectors with first-class runtime env vars are listed in [Environment Variables](environment-variables.md). Other connectors are configured via `skippr.yaml` fields. If you do not want to store the secure value in `skippr.yaml`, use interpolation: replace the field value with your own `${ENV_VAR}` reference.
+Connectors with first-class runtime env vars are listed in [Environment Variables](environment-variables.md). Other connectors are configured via `skippr.yaml` fields. For security best practices, we strongly advise against storing the secure value in `skippr.yaml`. Use environment variable interpolation instead: replace the field value with your own `${ENV_VAR}` reference.
 
 ## Format
 
@@ -24,6 +24,26 @@ dbt:
   target_schema: custom_name
   silver_suffix: silver
   gold_suffix: gold
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows PowerShell
+
+```powershell
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows Command Prompt
+
+```cmd
+set MSSQL_CONNECTION_STRING=server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true
 ```
 
 ## Fields
@@ -110,13 +130,33 @@ Authentication is via environment variables (`POSTGRES_HOST`, `POSTGRES_USER`, e
 warehouse:
   kind: databricks
   workspace_url: https://dbc-xxxxxxxx.cloud.databricks.com
-  token: dapi...
+  token: ${DATABRICKS_TOKEN}
   warehouse_id: abc123
   catalog: main
   schema: default
 ```
 
-If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `token` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the token in `skippr.yaml`. Use environment variable interpolation instead: replace the `token` value with your own `${ENV_VAR}` reference.
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export DATABRICKS_TOKEN="dapi..."
+```
+
+Windows PowerShell
+
+```powershell
+$env:DATABRICKS_TOKEN = "dapi..."
+```
+
+Windows Command Prompt
+
+```cmd
+set DATABRICKS_TOKEN=dapi...
+```
 
 #### Azure Synapse
 
@@ -129,11 +169,31 @@ If you do not want to store the token in `skippr.yaml`, use interpolation: repla
 ```yaml
 warehouse:
   kind: synapse
-  connection_string: Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb
+  connection_string: ${SYNAPSE_CONNECTION_STRING}
   schema: dbo
 ```
 
-If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the connection string in `skippr.yaml`. Use environment variable interpolation instead: replace the `connection_string` value with your own `${ENV_VAR}` reference.
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export SYNAPSE_CONNECTION_STRING="Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb"
+```
+
+Windows PowerShell
+
+```powershell
+$env:SYNAPSE_CONNECTION_STRING = "Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb"
+```
+
+Windows Command Prompt
+
+```cmd
+set SYNAPSE_CONNECTION_STRING=Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb
+```
 
 #### Amazon Redshift
 
@@ -180,12 +240,32 @@ warehouse:
 ```yaml
 warehouse:
   kind: motherduck
-  motherduck_token: md:...
+  motherduck_token: ${MOTHERDUCK_TOKEN}
   database: my_database
   schema: main
 ```
 
-If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the token in `skippr.yaml`. Use environment variable interpolation instead: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MOTHERDUCK_TOKEN="md:..."
+```
+
+Windows PowerShell
+
+```powershell
+$env:MOTHERDUCK_TOKEN = "md:..."
+```
+
+Windows Command Prompt
+
+```cmd
+set MOTHERDUCK_TOKEN=md:...
+```
 
 ### schema_sink (optional)
 
@@ -216,7 +296,33 @@ The data source for extraction. When absent, the pipeline skips extraction and s
 | Field | Description |
 |---|---|
 | `kind` | `mssql` |
-| `connection_string` | ADO.NET connection string. If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
+| `connection_string` | ADO.NET connection string. For security best practices, we strongly advise against storing the connection string in `skippr.yaml`. Use environment variable interpolation instead: replace the `connection_string` value with your own `${ENV_VAR}` reference. |
+
+```yaml
+source:
+  kind: mssql
+  connection_string: ${MSSQL_CONNECTION_STRING}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MSSQL_CONNECTION_STRING="server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows PowerShell
+
+```powershell
+$env:MSSQL_CONNECTION_STRING = "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true"
+```
+
+Windows Command Prompt
+
+```cmd
+set MSSQL_CONNECTION_STRING=server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=YourPass;TrustServerCertificate=true
+```
 
 ##### MySQL
 

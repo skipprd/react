@@ -121,7 +121,35 @@ export POSTGRES_PASSWORD="mypassword"
 
 Configure Databricks with `skippr connect warehouse databricks` or in `skippr.yaml` using `workspace_url`, `token`, `warehouse_id`, `catalog`, and `schema`.
 
-If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `token` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the token in `skippr.yaml`. Use environment variable interpolation instead: replace the `token` value with your own `${ENV_VAR}` reference.
+
+The relevant part of `skippr.yaml` looks like this:
+
+```yaml
+warehouse:
+  kind: databricks
+  token: ${DATABRICKS_TOKEN}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export DATABRICKS_TOKEN="dapi..."
+```
+
+Windows PowerShell
+
+```powershell
+$env:DATABRICKS_TOKEN = "dapi..."
+```
+
+Windows Command Prompt
+
+```cmd
+set DATABRICKS_TOKEN=dapi...
+```
 
 ### Redshift
 
@@ -133,19 +161,103 @@ Configure Redshift with `skippr connect warehouse redshift` or in `skippr.yaml` 
 
 Configure ClickHouse with `skippr connect warehouse clickhouse` or in `skippr.yaml` using `url`, `database`, `user`, and `password`.
 
-If you do not want to store the password in `skippr.yaml`, use interpolation: replace the `password` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the password in `skippr.yaml`. Use environment variable interpolation instead: replace the `password` value with your own `${ENV_VAR}` reference.
+
+The relevant part of `skippr.yaml` looks like this:
+
+```yaml
+warehouse:
+  kind: clickhouse
+  password: ${CLICKHOUSE_PASSWORD}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export CLICKHOUSE_PASSWORD="secret"
+```
+
+Windows PowerShell
+
+```powershell
+$env:CLICKHOUSE_PASSWORD = "secret"
+```
+
+Windows Command Prompt
+
+```cmd
+set CLICKHOUSE_PASSWORD=secret
+```
 
 ### MotherDuck
 
 Configure MotherDuck with `skippr connect warehouse motherduck` or in `skippr.yaml` using `motherduck_token`, `database`, and `schema`.
 
-If you do not want to store the token in `skippr.yaml`, use interpolation: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the token in `skippr.yaml`. Use environment variable interpolation instead: replace the `motherduck_token` value with your own `${ENV_VAR}` reference.
+
+The relevant part of `skippr.yaml` looks like this:
+
+```yaml
+warehouse:
+  kind: motherduck
+  motherduck_token: ${MOTHERDUCK_TOKEN}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export MOTHERDUCK_TOKEN="md:..."
+```
+
+Windows PowerShell
+
+```powershell
+$env:MOTHERDUCK_TOKEN = "md:..."
+```
+
+Windows Command Prompt
+
+```cmd
+set MOTHERDUCK_TOKEN=md:...
+```
 
 ### Azure Synapse
 
 Configure Synapse with `skippr connect warehouse synapse` or in `skippr.yaml` using `connection_string` and `schema`.
 
-If you do not want to store the connection string in `skippr.yaml`, use interpolation: replace the `connection_string` value with your own `${ENV_VAR}` reference.
+For security best practices, we strongly advise against storing the connection string in `skippr.yaml`. Use environment variable interpolation instead: replace the `connection_string` value with your own `${ENV_VAR}` reference.
+
+The relevant part of `skippr.yaml` looks like this:
+
+```yaml
+warehouse:
+  kind: synapse
+  connection_string: ${SYNAPSE_CONNECTION_STRING}
+```
+
+Set the env var before running `skippr`:
+
+macOS / Linux
+
+```bash
+export SYNAPSE_CONNECTION_STRING="Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb"
+```
+
+Windows PowerShell
+
+```powershell
+$env:SYNAPSE_CONNECTION_STRING = "Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb"
+```
+
+Windows Command Prompt
+
+```cmd
+set SYNAPSE_CONNECTION_STRING=Server=myserver.database.windows.net;User Id=admin;Password=secret;Database=mydb
+```
 
 ## Next steps
 
