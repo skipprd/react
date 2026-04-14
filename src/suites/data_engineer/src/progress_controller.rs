@@ -842,6 +842,8 @@ pub struct RepairState {
     #[serde(default)]
     pub failure_context: Option<ValidationFailureContext>,
     #[serde(default)]
+    pub last_failure_hash: Option<String>,
+    #[serde(default)]
     pub mutated_since_fail: bool,
     #[serde(default)]
     pub pending_patch_impl: Option<PatchImplIntent>,
@@ -901,6 +903,11 @@ pub enum DataEngineerEvent {
         op: MutationOp,
         paths: Vec<String>,
         select_terms: Vec<String>,
+    },
+    ProbeAttemptRecorded {
+        sql: String,
+        ok: bool,
+        signature: ProbeSignature,
     },
 
     PatchImplIntentSet { phase: Phase },
@@ -969,6 +976,7 @@ impl ExecutionState {
 
         self.repair.status = RepairStatus::Idle;
         self.repair.failure_context = None;
+        self.repair.last_failure_hash = None;
         self.repair.mutated_since_fail = false;
         self.repair.pending_patch_impl = None;
         self.repair.infra_transient = false;
@@ -986,6 +994,7 @@ impl ExecutionState {
     pub fn apply_repair_succeeded(&mut self) {
         self.repair.status = RepairStatus::Idle;
         self.repair.failure_context = None;
+        self.repair.last_failure_hash = None;
         self.repair.mutated_since_fail = false;
         self.repair.pending_patch_impl = None;
         self.repair.infra_transient = false;
@@ -1125,18 +1134,25 @@ impl ExecutionState {
     pub fn apply_validate_failure(
         &mut self,
         brief: String,
-        _failure_hash: String,
+        failure_hash: String,
         compile_ok: bool,
         run_ok: bool,
         log_excerpts: Option<String>,
     ) {
-        let next_cycle = self.repair.cycle_count().saturating_add(1);
+        let repeated_failure = self.repair.last_failure_hash.as_deref() == Some(failure_hash.as_str());
+        let next_cycle = if repeated_failure {
+            self.repair.cycle_count().saturating_add(1)
+        } else {
+            self.clear_subjective_retry_kind(SubjectiveRetryKind::ValidateFailedRetry);
+            1
+        };
         self.repair.failure_context = Some(ValidationFailureContext {
             brief: brief.clone(),
             log_excerpts,
             compile_ok,
             run_ok,
         });
+        self.repair.last_failure_hash = Some(failure_hash);
         self.repair.mutated_since_fail = false;
         self.repair.status = RepairStatus::Pending { cycle: next_cycle };
         self.publish = PublishStatus::NotRequested;
@@ -1407,6 +1423,9 @@ impl ExecutionState {
         select_terms: Vec<String>,
     ) {
         self.repair.mutated_since_fail = true;
+        if matches!(self.telemetry.probe, ProbeStatus::ExhaustedRequireMutation { .. }) {
+            self.telemetry.probe = ProbeStatus::NotRequired;
+        }
         if let Some(ref mut intent) = self.repair.pending_patch_impl {
             intent.mutated_since_set = true;
         }
@@ -1454,6 +1473,9 @@ impl ExecutionState {
             }
             DataEngineerEvent::MutationRecorded { op, paths, select_terms } => {
                 self.set_last_mutation_summary(op, paths, select_terms);
+            }
+            DataEngineerEvent::ProbeAttemptRecorded { sql, ok, signature } => {
+                let _ = self.note_probe_attempt(&sql, ok, signature);
             }
             DataEngineerEvent::PatchImplIntentSet { phase } => {
                 self.set_pending_patch_impl_intent(phase);
@@ -1512,6 +1534,7 @@ impl ExecutionState {
             DataEngineerEvent::ValidateCheckFailed { failure_context } => {
                 let next_cycle = self.repair.cycle_count().saturating_add(1);
                 self.repair.failure_context = Some(failure_context);
+                self.repair.last_failure_hash = None;
                 self.repair.mutated_since_fail = false;
                 self.repair.status = RepairStatus::Pending { cycle: next_cycle };
             }
@@ -1895,16 +1918,24 @@ mod tests {
     }
 
     #[test]
-    fn successful_mutation_resets_probe_requirement_cycle() {
+    fn successful_mutation_unblocks_exhausted_probe_cycle() {
         let mut st = ExecutionState::new();
         st.repair.failure_context = Some(ValidationFailureContext {
             brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
         });
-        st.telemetry.probe = ProbeStatus::NotRequired;
+        st.telemetry.probe = ProbeStatus::ExhaustedRequireMutation {
+            attempts: ProbeAttempts::default(),
+        };
+        st.apply_event(DataEngineerEvent::MutationRecorded {
+            op: MutationOp::Patch,
+            paths: vec!["models/staging/stg_orders.sql".to_string()],
+            select_terms: Vec::new(),
+        });
         assert_eq!(
             st.probe_requirement_status(),
             ProbeRequirementStatus::NotRequired
         );
+        assert!(st.repair.mutated_since_fail);
     }
 
     #[test]
@@ -1976,7 +2007,68 @@ mod tests {
             false,
             None,
         );
-        assert_eq!(st.repair.cycle_count(), 3, "different errors still increment");
+        assert_eq!(
+            st.repair.cycle_count(),
+            1,
+            "a new failure signature should reset the repair-cycle stall counter"
+        );
+    }
+
+    #[test]
+    fn new_validate_failure_signature_clears_validate_retry_budget() {
+        let mut st = ExecutionState::new();
+
+        st.apply_validate_failure(
+            "error A".to_string(),
+            sha256_hex("error A"),
+            true,
+            false,
+            None,
+        );
+        st.bump_subjective_retry(SubjectiveRetryKind::ValidateFailedRetry, 4);
+        st.bump_subjective_retry(SubjectiveRetryKind::ValidateFailedRetry, 4);
+        assert_eq!(
+            st.subjective_retries()
+                .get(&SubjectiveRetryKind::ValidateFailedRetry)
+                .copied(),
+            Some(2)
+        );
+
+        st.apply_validate_failure(
+            "error B".to_string(),
+            sha256_hex("error B"),
+            true,
+            false,
+            None,
+        );
+        assert!(
+            st.subjective_retries()
+                .get(&SubjectiveRetryKind::ValidateFailedRetry)
+                .is_none(),
+            "new failure signatures should reset the validate retry budget"
+        );
+    }
+
+    #[test]
+    fn probe_attempt_recorded_advances_probe_requirement() {
+        let mut st = ExecutionState::new();
+        st.repair.failure_context = Some(ValidationFailureContext {
+            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
+        });
+        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+
+        st.apply_event(DataEngineerEvent::ProbeAttemptRecorded {
+            sql: "select * from x limit 10".to_string(),
+            ok: true,
+            signature: ProbeSignature::from_run_sql(
+                "select * from x limit 10",
+                &serde_json::json!({"ok":true}),
+            ),
+        });
+        assert_eq!(
+            st.probe_requirement_status(),
+            ProbeRequirementStatus::Allowed
+        );
     }
 
     #[test]

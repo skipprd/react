@@ -42,6 +42,37 @@ pub fn env_bool_truthy(key: &str) -> Option<bool> {
     })
 }
 
+pub fn parse_reasoning_effort_env(key: &str) -> Option<react_core::llm::ReasoningEffort> {
+    match std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("none") => Some(react_core::llm::ReasoningEffort::None),
+        Some("low") => Some(react_core::llm::ReasoningEffort::Low),
+        Some("medium") => Some(react_core::llm::ReasoningEffort::Medium),
+        Some("high") => Some(react_core::llm::ReasoningEffort::High),
+        Some("extra_high") | Some("xhigh") => Some(react_core::llm::ReasoningEffort::ExtraHigh),
+        _ => None,
+    }
+}
+
+pub fn author_reasoning_effort(is_cleanse: bool) -> react_core::llm::ReasoningEffort {
+    let track_key = if is_cleanse {
+        env_keys::LLM_AUTHOR_REASONING_EFFORT_CLEANSE
+    } else {
+        env_keys::LLM_AUTHOR_REASONING_EFFORT_MODEL
+    };
+    parse_reasoning_effort_env(track_key)
+        .or_else(|| parse_reasoning_effort_env(env_keys::LLM_AUTHOR_REASONING_EFFORT))
+        .unwrap_or(react_core::llm::ReasoningEffort::ExtraHigh)
+}
+
+pub fn repair_reasoning_effort() -> react_core::llm::ReasoningEffort {
+    parse_reasoning_effort_env(env_keys::LLM_REPAIR_REASONING_EFFORT)
+        .unwrap_or(react_core::llm::ReasoningEffort::ExtraHigh)
+}
+
 // ---------------------------------------------------------------------------
 // Centralized env-var key names
 // ---------------------------------------------------------------------------
@@ -76,6 +107,9 @@ pub mod env_keys {
     // Authoring LLM tokens
     pub const LLM_AUTHOR_MAX_TOKENS_CLEANSE: &str = "LLM_AUTHOR_MAX_TOKENS_CLEANSE";
     pub const LLM_AUTHOR_MAX_TOKENS_MODEL: &str = "LLM_AUTHOR_MAX_TOKENS_MODEL";
+    pub const LLM_AUTHOR_REASONING_EFFORT: &str = "LLM_AUTHOR_REASONING_EFFORT";
+    pub const LLM_AUTHOR_REASONING_EFFORT_CLEANSE: &str = "LLM_AUTHOR_REASONING_EFFORT_CLEANSE";
+    pub const LLM_AUTHOR_REASONING_EFFORT_MODEL: &str = "LLM_AUTHOR_REASONING_EFFORT_MODEL";
 
     // Review LLM tokens
     pub const LLM_REVIEW_REASONING_EFFORT: &str = "LLM_REVIEW_REASONING_EFFORT";
@@ -89,6 +123,9 @@ pub mod env_keys {
     // SQL-first
     pub const REACT_SQL_FIRST_MAX_OUTPUT_TOKENS: &str = "REACT_SQL_FIRST_MAX_OUTPUT_TOKENS";
     pub const REACT_SQL_FIRST_MAX_REPAIR_ATTEMPTS: &str = "REACT_SQL_FIRST_MAX_REPAIR_ATTEMPTS";
+
+    // Repair reasoning
+    pub const LLM_REPAIR_REASONING_EFFORT: &str = "LLM_REPAIR_REASONING_EFFORT";
 
     // Patch protocol
     pub const REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS: &str = "REACT_PATCH_LOOP_MAX_OUTPUT_TOKENS";

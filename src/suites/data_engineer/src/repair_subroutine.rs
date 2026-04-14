@@ -425,7 +425,7 @@ async fn extract_diagnosis_structured(
         prompt_id: "repair.gather_diagnosis",
         model: Some(dispatch.reason_model.clone()),
         expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
-        reasoning_effort: Some(react_core::llm::ReasoningEffort::Medium),
+        reasoning_effort: Some(crate::env_util::repair_reasoning_effort()),
         ..Default::default()
     };
 
@@ -573,7 +573,7 @@ async fn run_reason(
         prompt_id: "repair.fix_plan",
         model: Some(dispatch.reason_model.clone()),
         expected_format: react_core::llm::LlmExpectedFormat::JsonSchema(schema),
-        reasoning_effort: Some(react_core::llm::ReasoningEffort::High),
+        reasoning_effort: Some(crate::env_util::repair_reasoning_effort()),
         ..Default::default()
     };
 

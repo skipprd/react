@@ -164,19 +164,6 @@ impl DataEngineerSuite {
     pub(super) fn parse_reasoning_effort_env(
         var: &str,
     ) -> Option<react_core::llm::ReasoningEffort> {
-        match std::env::var(var)
-            .ok()
-            .map(|s| s.trim().to_lowercase())
-            .as_deref()
-        {
-            Some("none") => Some(react_core::llm::ReasoningEffort::None),
-            Some("low") => Some(react_core::llm::ReasoningEffort::Low),
-            Some("medium") => Some(react_core::llm::ReasoningEffort::Medium),
-            Some("high") => Some(react_core::llm::ReasoningEffort::High),
-            Some("extra_high") | Some("xhigh") => {
-                Some(react_core::llm::ReasoningEffort::ExtraHigh)
-            }
-            _ => None,
-        }
+        crate::env_util::parse_reasoning_effort_env(var)
     }
 }

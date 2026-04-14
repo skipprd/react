@@ -82,6 +82,7 @@ pub enum GuardBlockKind {
     MissingGoldModels,
     PrecheckFailed,
     ValidateExecutionFailed,
+    ValidateRetryExhausted,
     MissingThreadStep,
     PhaseExecutionError,
 }
@@ -99,6 +100,7 @@ impl GuardBlockKind {
             GuardBlockKind::MissingGoldModels => "missing_gold_models",
             GuardBlockKind::PrecheckFailed => "precheck_failed",
             GuardBlockKind::ValidateExecutionFailed => "validate_execution_failed",
+            GuardBlockKind::ValidateRetryExhausted => "validate_retry_exhausted",
             GuardBlockKind::MissingThreadStep => "missing_thread_step",
             GuardBlockKind::PhaseExecutionError => "phase_execution_error",
         }

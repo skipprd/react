@@ -20,6 +20,26 @@ enum ValidateEscalation {
 }
 
 impl DataEngineerSuite {
+    async fn finish_validate_failure(
+        thread_store: &ThreadStore,
+        thread_id: &str,
+        phase: Phase,
+        guard_kind: GuardBlockKind,
+        reason: String,
+    ) -> Result<PhaseOutcome, PhaseError> {
+        apply_guard_block(thread_store, thread_id, phase, guard_kind, reason.clone()).await?;
+        crate::state_manager::apply_execution_event(
+            &thread_store.control_store(),
+            thread_id,
+            crate::progress_controller::DataEngineerEvent::MarkedFailed {
+                reason: reason.clone(),
+            },
+        )
+        .await
+        .map_err(|e| format!("failed to persist mark_failed after validate terminal failure: {e}"))?;
+        Ok(PhaseOutcome::Failed { reason })
+    }
+
     async fn apply_validate_escalation(
         thread_store: &ThreadStore,
         thread_id: &str,
@@ -580,10 +600,18 @@ impl DataEngineerSuite {
         )
         .await?;
         if let crate::retry_budget::SubjectiveRetryOutcome::Exhausted(tries) = retry_outcome {
-            return Err(PhaseError::Fatal(format!(
-                "dbt_validate has failed {tries} consecutive times without progress; \
+            let reason = format!(
+                "dbt_validate has hit the same failure {tries} consecutive times without progress; \
                  manual intervention required.\n\n{brief}"
-            )));
+            );
+            return Self::finish_validate_failure(
+                thread_store,
+                thread_id,
+                phase,
+                GuardBlockKind::ValidateRetryExhausted,
+                reason,
+            )
+            .await;
         }
 
         crate::phase_contract::commit_phase_decision(

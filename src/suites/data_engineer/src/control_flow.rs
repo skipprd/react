@@ -505,6 +505,11 @@ pub(crate) enum ToolTelemetryAction {
         op: crate::progress_controller::MutationOp,
         paths: Vec<String>,
     },
+    ProbeAttemptRecord {
+        sql: String,
+        ok: bool,
+        signature: crate::progress_controller::ProbeSignature,
+    },
 }
 
 pub(crate) fn classify_tool_telemetry(
@@ -550,6 +555,30 @@ pub(crate) fn classify_tool_telemetry(
             actions.push(ToolTelemetryAction::MutationRecord {
                 op: crate::progress_controller::MutationOp::Patch,
                 paths: items,
+            });
+        }
+    }
+
+    if tool_name == "run_sql" {
+        let sql = args
+            .get("sql")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if !sql.is_empty() {
+            let observation = Value::Object(
+                obs.extra
+                    .clone()
+                    .into_iter()
+                    .collect::<serde_json::Map<String, Value>>(),
+            );
+            actions.push(ToolTelemetryAction::ProbeAttemptRecord {
+                sql: sql.to_string(),
+                ok: obs.ok,
+                signature: crate::progress_controller::ProbeSignature::from_run_sql(
+                    sql,
+                    &observation,
+                ),
             });
         }
     }
@@ -602,6 +631,21 @@ async fn apply_telemetry_action(store: &ThreadStore, thread_id: &str, action: To
             .await
             {
                 warn!("failed to persist non-file mutation summary: {e}");
+            }
+        }
+        ToolTelemetryAction::ProbeAttemptRecord { sql, ok, signature } => {
+            if let Err(e) = crate::state_manager::apply_execution_event(
+                &store.control_store(),
+                thread_id,
+                crate::progress_controller::DataEngineerEvent::ProbeAttemptRecorded {
+                    sql,
+                    ok,
+                    signature,
+                },
+            )
+            .await
+            {
+                warn!("failed to persist probe telemetry: {e}");
             }
         }
     }
