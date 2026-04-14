@@ -228,11 +228,6 @@ jobs:
           @echo off
           exit /b 0
           "@ | Set-Content -Path (Join-Path $projectDir "dbt.cmd") -Encoding ascii
-          @"
-          @echo off
-          where %1 >nul 2>nul
-          exit /b %errorlevel%
-          "@ | Set-Content -Path (Join-Path $projectDir "which.cmd") -Encoding ascii
 
           $env:PATH = "$projectDir;$env:GITHUB_WORKSPACE\bin;$env:PATH"
           $env:SKIPPR_API_KEY = "ci-smoke"

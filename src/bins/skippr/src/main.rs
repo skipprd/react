@@ -1141,7 +1141,8 @@ fn env_set(key: &str) -> bool {
 }
 
 fn which(bin: &str) -> bool {
-    std::process::Command::new("which")
+    let locator = if cfg!(windows) { "where" } else { "which" };
+    std::process::Command::new(locator)
         .arg(bin)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
