@@ -9,7 +9,7 @@ Twitter and LinkedIn posts built around the Codex parallel. Use on launch day an
 ### Thread opener
 
 > Codex reads your codebase and writes code.
-> Skippr reads your data sources and writes dbt models.
+> Skippr reads your data sources and writes the warehouse foundation.
 >
 > We just launched on @ProductHunt.
 > Like Codex, but for data.
@@ -18,36 +18,43 @@ Twitter and LinkedIn posts built around the Codex parallel. Use on launch day an
 
 ### Reply 1 — What it does
 
-> Here's what happens when you run `skippr run`:
+> What happens when you run `skippr run`:
 >
-> 1. Discovers source schemas
-> 2. Extracts & loads to bronze
-> 3. Maps columns to clean names/types
-> 4. Generates silver + gold dbt models
-> 5. Validates against your warehouse
-> 6. Auto-repairs failures
+> 1. Discovers schemas
+> 2. Lands bronze tables
+> 3. Maps names and types
+> 4. Generates dbt assets
+> 5. Validates and retries
 >
-> One command. Autonomous.
+> Same agent workflow. Different domain.
 
-### Reply 2 — The shift
+### Reply 2 — What the product is really for
 
-> The first 3 months of any data project is the same:
-> discover, extract, load, map schemas, write staging models, validate, fix.
+> We are positioning Skippr as an AI Data Agent.
 >
-> An agent can do that in minutes.
+> The point is not "AI for ETL."
 >
-> Data engineers then focus on domain logic, business metrics, quality rules — the work that actually needs a human.
+> The point is getting to AI-ready data quality and trust faster, without losing reviewability or ownership of the output.
 
-### Reply 3 — Who it's for
+### Reply 3 — Trust angle
 
-> If you're a developer with data in MSSQL or S3 and a warehouse in Snowflake/BigQuery/Postgres:
+> The trust model matters:
+>
+> - local-first data path
+> - cloud-backed auth / metering / AI
+> - schema metadata by default, not row data
+> - standard dbt output you keep
+
+### Reply 4 — Who it is for
+
+> If you are dealing with messy operational data and want a faster path to a trustworthy warehouse foundation:
 >
 > skippr init my-project
 > skippr connect warehouse snowflake
-> skippr connect source mssql
+> skippr connect source postgres
 > skippr run
 >
-> That's it. Production dbt models in minutes.
+> Then review what it generated.
 
 ---
 
@@ -55,9 +62,13 @@ Twitter and LinkedIn posts built around the Codex parallel. Use on launch day an
 
 > Yesterday we launched Skippr — like Codex, but for data.
 >
-> The response has been [amazing/humbling/wild].
+> The strongest reactions were not to the AI pitch.
+> They were to the trust story:
 >
-> Quick recap: an AI agent that takes you from raw source data to production dbt models. Autonomously. Your data stays on your machine.
+> schema handling
+> standard dbt output
+> local-first execution
+> CDC / WAL depth
 >
 > If you missed it: [PH_LINK]
 
@@ -67,11 +78,12 @@ Twitter and LinkedIn posts built around the Codex parallel. Use on launch day an
 
 > The question we keep getting: "Does this replace data engineers?"
 >
-> No. It replaces the first three months of setup work.
+> No.
 >
-> Discovery, extraction, loading, schema mapping, staging model generation. The tedious, identical part of every project.
+> It replaces the repetitive setup phase:
+> discover, ingest, map, scaffold, validate, repair.
 >
-> The agent handles that. You handle the judgment calls.
+> Humans still do the judgment-heavy work.
 
 ---
 
@@ -81,11 +93,9 @@ Something we've been working on for a while went live today.
 
 **Skippr — like Codex, but for data.**
 
-An AI agent that reads your data sources, extracts and loads your data, generates clean dbt models (bronze, silver, gold), validates them, and auto-repairs failures. All from a single CLI command.
+We are positioning it as an AI Data Agent: local-first CLI, standard dbt output, and a focus on turning raw source data into AI-ready warehouse assets you can actually trust.
 
-The output is standard dbt. You own it.
-
-We built this because the first three months of every data project is the same repetitive setup work. An agent can do that part. Data engineers can then focus on the work that actually requires human judgment.
+The extract/load/model wedge matters, but the bigger point is reducing the time between "we have data" and "this data is ready for analytics and AI."
 
 Live on Product Hunt today: [PH_LINK]
 
@@ -97,14 +107,14 @@ Why "like Codex, but for data"?
 
 Because the workflow is the same:
 
-1. You give the agent a task (here: connect to my sources, build a data stack)
-2. The agent does the work autonomously (extraction, loading, schema mapping, model generation, validation, repair)
-3. You review the output (a standard dbt project in your warehouse)
-4. Ship when ready
+1. You point an agent at the working context
+2. The agent does the repetitive first pass
+3. You review the output
+4. You ship when ready
 
-Codex produces PRs. Skippr produces dbt projects. Both are reviewable artifacts you own and extend.
+Codex gives you code. Skippr gives you a warehouse foundation and dbt assets.
 
-The parallel matters because it sets the right expectation: this isn't a dashboard you operate. It's an agent that does work while you do something else.
+That parallel sets the right expectation: this is not just a UI for moving tables around. It is an agent that does work and leaves you with artifacts you own.
 
 [PH_LINK]
 
@@ -112,14 +122,10 @@ The parallel matters because it sets the right expectation: this isn't a dashboa
 
 ## LinkedIn — Day 3
 
-The biggest question from our Product Hunt launch: "Does this replace data engineers?"
+The biggest question from our Product Hunt launch: "Why not just use an ELT tool plus dbt?"
 
-Short answer: no.
+Because most teams do not struggle to buy tools. They struggle to get to trustworthy output fast enough.
 
-Longer answer: the first three months of any data project — discovery, extraction, loading, schema mapping, staging model generation — is repetitive setup work. It's the same every time, regardless of the domain. An AI agent can do it in minutes.
+Schema cleanup, dbt scaffolding, validation, repair, and repeatability are where a lot of time disappears.
 
-What data engineers actually add value on: domain-specific business metrics, data quality rules, stakeholder requirements, edge cases that need context only a human has. That's the irreplaceable part.
-
-Skippr handles the foundation. Humans handle the judgment calls.
-
-The companies that adopt AI agents won't fire their data engineers. They'll ship more projects with the same team.
+Skippr is our attempt to compress that setup phase without making the output opaque or proprietary.

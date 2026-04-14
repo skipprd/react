@@ -6,32 +6,36 @@
 
 ## One-liner
 
-Skippr is an AI agent that builds your entire data stack — extraction, loading, cleansing, and dbt modeling — autonomously.
+Skippr is an AI Data Agent that turns raw source data into AI-ready warehouse assets from a local-first CLI with standard dbt output.
 
 ## Elevator pitch (30 seconds)
 
-Codex reads your codebase, writes code, tests it, and iterates. Skippr reads your data sources, writes extraction logic, generates dbt models, validates them, and iterates on failures. Point it at your databases, tell it where your warehouse is, run one command. You come back to clean, tested dbt models — bronze, silver, gold — materialised and ready to query.
+Codex reads your codebase, writes code, tests it, and iterates. Skippr reads your data sources, lands the warehouse foundation, generates dbt assets, validates them, and iterates on failures. Point it at your databases or files, connect a warehouse, and run one command. You come back to trustworthy warehouse assets and reviewable dbt output you can keep extending.
 
 ## Audience
 
-Developers and technical founders who know what Codex is and want an AI agent for their data stack.
+Developers, data engineers, analytics engineers, and technical founders who understand the value of agent workflows and care about trust, reviewability, and fast time to value.
 
 ## Key messages
 
-1. **Autonomous agent, not a platform.** Skippr is an AI agent that does the work, not a dashboard you have to operate.
-2. **Concrete output.** The output is standard dbt — nothing proprietary. You review it, extend it, ship it.
-3. **Minutes, not months.** The first three months of data engineering setup — discovery, extraction, loading, staging models — done in minutes.
-4. **Privacy by default.** Runs on your machine. Row-level data never leaves. Only schema metadata is used for AI mapping.
-5. **Four commands.** `skippr init`, `skippr connect warehouse`, `skippr connect source`, `skippr run`.
+1. **AI Data Agent, not just another ELT tool.** Skippr automates the repetitive extract, load, and model path rather than stopping at table sync.
+2. **AI-ready data quality and compliance.** The output is meant to be trustworthy enough for analytics, downstream AI, and more controlled environments.
+3. **Concrete output.** Standard dbt, reviewable artifacts, migration-friendly results.
+4. **Local-first, cloud-backed.** Data path stays in your environment; auth, metering, and AI services are cloud-backed.
+5. **Technical trust.** Schema handling, deterministic scaffolding, CDC depth, and reviewable outputs matter as much as the AI story.
+6. **Fast time to value.** One CLI, one run path, fast path from raw source data to modeled warehouse assets.
 
 ## Words to stop using
 
-"enterprise", "platform" (as identity), "mid-market", "no data team required", "data intelligence", "You choose the LLM", "BYO LLM", "Bring Your Own LLM"
+"entire data stack", "enterprise" (as the main identity), "mid-market", "no data team required", "magic", "fully local", "open core" unless specifically relevant
 
 ## Words to start using
 
-"agent", "autonomous", "dbt models", "bronze/silver/gold", "validates", "materialises" — always be specific about what Skippr produces.
+"AI Data Agent", "AI-ready data", "data quality", "compliance", "local-first", "cloud-backed", "warehouse assets", "standard dbt", "technical trust", "reviewable output"
 
 ## Copy principle
 
-Every claim should pass the "what exactly?" test. Bad: "AI-ready insights." Good: "Clean, tested dbt models — bronze, silver, gold — materialised in your warehouse."
+Every claim should pass the "what exactly?" test.
+
+Bad: "AI-ready insights."
+Good: "Clean names, correct types, standard dbt assets, and modeled warehouse outputs you can review and keep."

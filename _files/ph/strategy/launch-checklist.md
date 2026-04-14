@@ -104,7 +104,7 @@
 | Reddit r/dataengineering | 6 AM PT | Story-driven post, not promotional |
 | Reddit r/analytics | 6 AM PT | Problem-focused, mention PH casually |
 | dbt Slack #show-and-tell | 6 AM PT | Brief intro + link |
-| Hacker News (Show HN) | 9 AM PT | Title: "Show HN: Skippr — data platform that builds itself" |
+| Hacker News (Show HN) | 9 AM PT | Title: "Show HN: Skippr — like Codex, but for data" |
 | Email list (if any) | Launch | Short email with PH link |
 | Indie Hackers | 6 AM PT | Maker story format |
 

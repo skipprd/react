@@ -13,4 +13,4 @@ Max 60 characters. Pick one.
 
 **Recommended:** Option 1 — instantly positions Skippr via a reference developers already understand.
 
-**Runner-up:** Option 3 — specific, outcome-focused, no buzzwords.
+**Runner-up:** Option 3 — strongest outcome-focused option for people who care more about concrete delivery than the Codex reference.

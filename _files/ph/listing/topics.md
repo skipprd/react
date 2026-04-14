@@ -4,16 +4,16 @@ Select up to 3 topics when submitting.
 
 ## Primary (pick these first)
 
-- **Artificial Intelligence** — AI-driven automation is the core value prop
+- **Artificial Intelligence** — `AI Data Agent` is the primary product category
 - **Developer Tools** — CLI-first, built for technical users
-- **Data Engineering** — If available as a topic; otherwise use Analytics
+- **Data Engineering** — The wedge is still the extract/load/model workflow and technical trust story
 
 ## Secondary (if more slots available)
 
-- **Analytics** — Output is business-ready models and insights
-- **Privacy** — Local-first, data-never-leaves-your-machine angle
-- **Open Source** — If applicable at launch time
-- **SaaS** — If positioning with a hosted tier
+- **Analytics** — Output is modeled warehouse assets for analytics and AI
+- **Privacy** — Local-first, metadata-first trust angle
+- **SaaS** — Cloud-backed product with paid tiers
+- **Productivity** — If available, because time-to-value is a key message
 
 ## Suggested launch collections to target
 

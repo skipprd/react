@@ -6,9 +6,9 @@
 >
 > Like Codex, but for data.
 >
-> An AI agent that reads your data sources, extracts, loads, generates dbt models, validates them, and repairs failures — autonomously.
+> Skippr is an AI Data Agent that turns raw source data into AI-ready warehouse assets from one local-first CLI.
 >
-> Four commands. Minutes to production dbt models.
+> Standard dbt output. Technical trust. Free to start.
 >
 > [PH_LINK]
 
@@ -16,40 +16,48 @@
 
 ## Launch Thread (post as replies to the main tweet)
 
-### Tweet 2 — The Codex parallel
+### Tweet 2 — The category
 
-> Codex reads your codebase and writes code.
+> We think "AI Data Agent" is the right frame.
 >
-> Skippr reads your data sources and writes dbt models.
+> Not another dashboard.
+> Not just another ELT sync.
 >
-> Both are autonomous agents that produce artifacts you review and own.
->
-> Same workflow. Different domain.
+> An agent that does the repetitive extract, load, and model work, then gives you reviewable output you own.
 
 ### Tweet 3 — How it works
 
-> Four commands:
+> One run path:
 >
 > skippr init
 > skippr connect warehouse snowflake
-> skippr connect source mssql
+> skippr connect source postgres
 > skippr run
 >
-> The agent discovers your schemas, extracts the data, loads it into bronze, generates silver and gold dbt models, validates them, and auto-repairs failures.
+> The agent discovers schemas, lands bronze, maps names and types, generates dbt assets, validates them, and retries when needed.
 
-### Tweet 4 — Privacy angle
+### Tweet 4 — Trust model
 
-> Your data never touches a third-party service.
+> The trust model matters:
 >
-> All transfer is local: source → your machine → your warehouse.
->
-> AI mapping uses only schema metadata — table and column names. Never your rows.
+> - local-first data path
+> - schema metadata for AI by default
+> - standard dbt output you keep
+> - deeper CDC / WAL / exactly-once work where the connector pair supports it
 
-### Tweet 5 — CTA
+### Tweet 5 — Why now
+
+> The blocker for analytics and AI is rarely "we don't have data."
+>
+> It's "our data isn't ready."
+>
+> Clean names, correct types, trustworthy models, and reviewable outputs are what make data useful for AI. That's the setup work Skippr is built to compress.
+
+### Tweet 6 — CTA
 
 > We're live on Product Hunt today.
 >
-> If you work with data and wish the first three months of setup would just handle themselves — we'd love your feedback.
+> If you work with messy operational data, dbt, CDC, or warehouse setup pain, we'd love your feedback.
 >
 > [PH_LINK]
 
@@ -63,23 +71,23 @@ Variations for supporters to post in their own voice. Pick one.
 
 > Just found Skippr — like Codex but for data.
 >
-> An AI agent that builds your entire data stack: extraction, loading, dbt models — autonomously. Runs on your machine.
+> It's positioning itself as an AI Data Agent: local-first CLI, standard dbt output, and a lot more depth around trust than the usual "AI for data" pitch.
 >
-> Live on Product Hunt today → [PH_LINK]
+> Live on Product Hunt → [PH_LINK]
 
 ### Option B
 
-> If you've ever spent weeks building ELT pipelines and dbt models by hand, Skippr is worth a look.
+> If you've ever lost weeks to schema cleanup, dbt scaffolding, and getting raw data into a trustworthy warehouse shape, Skippr is worth a look.
 >
-> An AI agent that does the setup work. Standard dbt output you own.
+> AI Data Agent, free to start, local-first.
 >
 > [PH_LINK]
 
 ### Option C
 
-> "Like Codex, but for data" — that's Skippr.
+> "Like Codex, but for data" is a strong hook.
 >
-> Source → warehouse → bronze/silver/gold dbt models. Automated. Private. Minutes, not months.
+> Underneath that, Skippr is really about AI-ready data quality and trust: extract, load, map, model, validate, review.
 >
 > [PH_LINK]
 
@@ -92,5 +100,5 @@ Use 1–2 per tweet, not more.
 - #DataEngineering
 - #dbt
 - #AI
-- #BuildInPublic
 - #ProductHunt
+- #AnalyticsEngineering

@@ -10,11 +10,9 @@ Send 1–2 weeks before launch to warm up supporters. Personalise the opening li
 >
 > Quick heads up — we're launching Skippr on Product Hunt on [DATE].
 >
-> It's a CLI that automates the entire data pipeline: connects to your sources, loads data into a warehouse, and uses AI to generate clean dbt models — bronze, silver, gold — automatically. All local, all private.
+> The short version: it's an AI Data Agent for turning raw source data into AI-ready warehouse assets. Local-first CLI, standard dbt output, and a lot of focus on trust around schema handling and data flow.
 >
-> I'm not going to ask you to upvote — but if you have a minute on launch day to check it out and share your honest thoughts, that would mean a lot. Genuine feedback in the comments is what helps the most.
->
-> I'll send the link on the morning of. Thanks for even reading this!
+> No pressure at all, but if you have a minute on launch day to take a look and leave honest feedback, that would mean a lot.
 
 ---
 
@@ -24,7 +22,7 @@ Send 1–2 weeks before launch to warm up supporters. Personalise the opening li
 >
 > Here's the Product Hunt link: [PH_LINK]
 >
-> If it's interesting to you, a comment about what caught your eye (or didn't) would be incredibly valuable. No pressure at all — thanks for the support either way.
+> If it's relevant to you, we'd especially value a real comment on the positioning, trust model, or connector story. No pressure either way — thanks for the support.
 
 ---
 

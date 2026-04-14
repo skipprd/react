@@ -10,14 +10,14 @@
 
 **Headline:** Like Codex, but for data.
 
-**Body copy:** Codex reads your codebase and writes code. Skippr reads your data sources and writes dbt models. Both produce artifacts you review and own.
+**Body copy:** Skippr is an AI Data Agent that turns raw source data into AI-ready warehouse assets. Same agent workflow developers already understand. Different domain.
 
 **Visual direction:**
 - Centred headline in large, bold sans-serif
 - Split visual: left side shows a code editor (Codex territory), right side shows a terminal with dbt output (Skippr territory)
 - Subtle connecting element between the two halves — an AI "spark" or neural line
 - Skippr logo top-left or top-centre
-- Small subline below: "Runs on your machine. Your data stays local."
+- Small subline below: "Local-first execution. Reviewable output."
 
 **Purpose:** First impression. Instantly positions Skippr via a reference developers already understand.
 
@@ -25,108 +25,103 @@
 
 ## Slide 2 — The Problem
 
-**Headline:** Months of setup. Or minutes with an agent.
+**Headline:** Your data exists. It just is not AI-ready.
 
 **Body copy (left column — "Before"):**
-- Hire a data team
-- Provision infrastructure
-- Build extraction pipelines
-- Write transformation logic
-- Test and validate models
-- Maintain everything
+- Untangle source schemas
+- Handle drift and bad types
+- Build ingestion and dbt scaffolding
+- Validate outputs and fix failures
+- Add data quality and compliance review
+- Lose weeks before anyone can query anything
 
 **Body copy (right column — "After / Skippr"):**
 - `skippr init my-project`
+- `skippr connect ...`
 - `skippr run`
-- Done.
+- Review the dbt output.
 
 **Visual direction:**
 - Split layout: left side cluttered/grey (complexity), right side clean/bright (simplicity)
 - Left: tangled pipeline diagram or long checklist, muted colours
-- Right: clean terminal with 2 commands and a green checkmark, accent colour
+- Right: clean terminal with 3 commands and a green checkmark, accent colour
 
-**Purpose:** Contrast pain vs. solution. Makes the automation tangible.
+**Purpose:** Reframe the problem around time-to-trust, not just data movement.
 
 ---
 
-## Slide 3 — Agent in Action
+## Slide 3 — AI Data Agent in Action
 
-**Headline:** From source to production dbt models. Autonomously.
+**Headline:** From raw sources to trustworthy warehouse assets.
 
 **Visual direction:**
 - Horizontal pipeline flow diagram with 5 stages:
   1. **Discover** — icon: magnifying glass + database
   2. **Extract & Load** — icon: arrows flowing into warehouse
-  3. **Cleanse** — icon: filter / sparkle
+  3. **Map & Type** — icon: filter / sparkle
   4. **Model** — icon: layered blocks (bronze / silver / gold)
   5. **Validate & Repair** — icon: checkmark with retry arrow
 - Each stage connected by a subtle animated arrow or line
 - Below each icon: one-line description
   - "Reads schemas from your sources"
   - "Loads raw data into bronze tables"
-  - "Maps columns, casts types, renames"
-  - "Generates silver & gold dbt models"
-  - "Validates and auto-repairs failures"
-- Sources shown at left: MSSQL, S3 logos
-- Warehouses shown at right: Snowflake, BigQuery, Postgres logos
+  - "Normalises names and types"
+  - "Generates dbt assets you own"
+  - "Validates and retries when needed"
+- Sources shown at left: Postgres, MySQL, MSSQL, MongoDB, Kafka
+- Warehouses shown at right: Snowflake, BigQuery, Postgres
 
 **Purpose:** Show the full autonomous pipeline in one visual.
 
 ---
 
-## Slide 4 — Privacy
+## Slide 4 — Local-first, Cloud-backed
 
-**Headline:** Your data never leaves your machine.
+**Headline:** Local-first data path. Cloud-backed services.
 
-**Body copy:** All data transfer is local. Source to warehouse, directly. AI mapping uses only schema metadata — table and column names — never row-level data.
+**Body copy:** Source data moves from your environment to your warehouse. Skippr uses cloud-backed auth, metering, and AI services, but the product is not a hosted data plane. By default the AI sees schema metadata, not rows.
 
 **Visual direction:**
 - Centre: illustration of a laptop with a shield/lock icon
-- Left of laptop: source icons (database, S3 bucket) with arrows pointing IN to the laptop
-- Right of laptop: warehouse icons (Snowflake, BigQuery) with arrows pointing OUT from the laptop
-- Above: AI cloud icon with a small dotted line labelled "metadata only" — visually distinct from the bold data-flow arrows
-- Red X or crossed-out line showing data does NOT go to any third-party cloud
-- Callout badge: "Zero third-party data access"
+- Left of laptop: source icons (database, bucket, stream) with arrows pointing IN to the laptop
+- Right of laptop: warehouse icons (Snowflake, BigQuery, Postgres) with arrows pointing OUT from the laptop
+- Above: Skippr cloud icon with thin dotted lines labelled "auth", "metering", and "metadata-only AI"
+- Keep the data-flow arrows visually heavier than the cloud lines
+- Callout badge: "Metadata-first AI by default"
 
-**Purpose:** Address the #1 concern. Build trust immediately.
-
----
-
-## Slide 5 — Concrete Output
-
-**Headline:** Standard dbt. Nothing proprietary.
-
-**Body copy:** The agent generates a complete dbt project — source definitions, staging models, business-ready marts. You own it. Review it, extend it, plug it into CI/CD.
-
-**Visual direction:**
-- File tree showing generated dbt project structure:
-  ```
-  my-project/
-  ├── dbt_project.yml
-  ├── models/
-  │   ├── schema.yml
-  │   ├── staging/
-  │   │   ├── stg_customers.sql
-  │   │   └── stg_orders.sql
-  │   └── marts/
-  │       └── fct_revenue.sql
-  └── packages.yml
-  ```
-- Clean terminal-style presentation
-- Highlight: "12 silver models, 5 gold models — all validated"
-
-**Purpose:** Show developers exactly what they get. Concrete, tangible output.
+**Purpose:** Explain the actual trust model clearly instead of over-claiming.
 
 ---
 
-## Slide 6 — CLI in Action
+## Slide 5 — Technical Trust
 
-**Headline:** Four commands. Minutes to your first query.
+**Headline:** Technical trust, not black-box magic.
+
+**Body copy:** Skippr is built around the hard parts teams actually worry about: schema handling, deterministic dbt output, CDC, replay, and reviewable artifacts.
 
 **Visual direction:**
-- Full-width terminal screenshot (dark theme) showing:
+- Three or four callout cards on one dark canvas:
+  - "Schema discovery and mapping"
+  - "CDC / WAL / exactly-once semantics"
+  - "Deterministic dbt scaffolding"
+  - "Migration-friendly output"
+- Supporting micro-diagram showing source log -> local runner -> warehouse
+- Optional small code or SQL snippet to make it feel real, not abstract
 
-```
+**Purpose:** Signal that the product has real technical depth behind the AI story.
+
+---
+
+## Slide 6 — Concrete Output
+
+**Headline:** Standard dbt. Review it. Keep it.
+
+**Visual direction:**
+- Split layout:
+- Left: terminal screenshot showing `skippr init`, `skippr connect ...`, `skippr run`
+- Right: generated dbt file tree and a success summary
+
+```text
 $ skippr init bike-hire-analytics
   Project created.
 
@@ -139,6 +134,7 @@ $ skippr connect source mssql
 $ skippr run
   Planning extraction... ✓
   Syncing 47 tables to bronze... ✓
+  Mapping schemas and types... ✓
   Generating silver models... ✓
   Generating gold models... ✓
   Compiling dbt project... ✓
@@ -147,8 +143,18 @@ $ skippr run
   Done in 4m 32s.
 ```
 
-- Terminal styled with a modern font (JetBrains Mono or similar)
-- Green checkmarks for completed steps
-- Subtle glow or highlight on the final "Done" line
+- File tree callout:
 
-**Purpose:** Show real usage. Developers trust what they can see running.
+```text
+my-project/
+├── dbt_project.yml
+├── models/
+│   ├── schema.yml
+│   ├── staging/
+│   └── marts/
+└── packages.yml
+```
+
+- Small footer line: "Free to start. Public docs on GitHub."
+
+**Purpose:** End on something developers can picture themselves using immediately.

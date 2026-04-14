@@ -4,4 +4,4 @@
 
 ---
 
-Skippr is an AI agent that builds your entire data stack. Point it at your sources, tell it where your warehouse is, and run one command. It extracts, cleanses, and generates production dbt models — bronze, silver, gold — autonomously. Runs on your machine. Your data stays local.
+Skippr is an AI Data Agent that turns raw source data into AI-ready warehouse assets. It runs extract, load, schema mapping, CDC, and dbt generation from one local-first CLI, with standard dbt output, deterministic runs, and cloud-backed AI and auth services.
