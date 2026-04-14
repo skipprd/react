@@ -26,8 +26,47 @@ pub fn set_metering_thread_id(thread_id: &str) {
     global_metering().set_thread_id(thread_id);
 }
 
-pub fn report_llm_usage(input_tokens: u64, output_tokens: u64, model: String) {
-    let event = UsageEvent::LlmRequest { input_tokens, output_tokens, model };
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmRequestKind {
+    Chat,
+    Embed,
+}
+
+#[derive(Clone, Debug)]
+pub struct LlmUsageRecord {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub model: String,
+    pub kind: LlmRequestKind,
+    pub project_id: Option<String>,
+    pub thread_id: Option<String>,
+    pub prompt_id: Option<String>,
+    pub provider_usage: Option<serde_json::Value>,
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+pub fn report_llm_usage(usage: LlmUsageRecord) {
+    let event = UsageEvent::LlmRequest {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        model: usage.model,
+        kind: usage.kind,
+        project_id: normalize_optional_string(usage.project_id).unwrap_or_default(),
+        thread_id: normalize_optional_string(usage.thread_id),
+        prompt_id: normalize_optional_string(usage.prompt_id),
+        provider_usage: usage.provider_usage,
+    };
     let client = global_metering();
     if !client.is_enabled() {
         return;
@@ -58,7 +97,19 @@ pub enum UsageEvent {
     PlanApproved { tasks: u64, batches: u64, project_id: String },
     RepairCycle { cycle: u64, project_id: String },
     PipelineRun { project_id: String },
-    LlmRequest { input_tokens: u64, output_tokens: u64, model: String },
+    LlmRequest {
+        input_tokens: u64,
+        output_tokens: u64,
+        model: String,
+        kind: LlmRequestKind,
+        project_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        provider_usage: Option<serde_json::Value>,
+    },
     SchemaContractApplied { count: u64, project_id: String },
     ModelsValidated { count: u64, project_id: String },
     ModelsPublished { count: u64, project_id: String },
@@ -68,6 +119,24 @@ pub enum UsageEvent {
 }
 
 impl UsageEvent {
+    fn llm_token_totals(&self) -> Option<(u64, u64)> {
+        match self {
+            Self::LlmRequest {
+                input_tokens,
+                output_tokens,
+                ..
+            } => Some((*input_tokens, *output_tokens)),
+            _ => None,
+        }
+    }
+
+    fn explicit_thread_id(&self) -> Option<&str> {
+        match self {
+            Self::LlmRequest { thread_id, .. } => thread_id.as_deref(),
+            _ => None,
+        }
+    }
+
     pub fn cost(&self) -> f64 {
         match self {
             Self::FieldsDiscovered { count, .. } => *count as f64 * 0.10,
@@ -78,9 +147,12 @@ impl UsageEvent {
             Self::PlanApproved { .. } => 0.0,
             Self::RepairCycle { .. } => 0.0,
             Self::PipelineRun { .. } => 0.50,
-            Self::LlmRequest { input_tokens, output_tokens, .. } => {
-                (*input_tokens as f64 / 1000.0) * 0.05
-                    + (*output_tokens as f64 / 1000.0) * 0.20
+            Self::LlmRequest { .. } => {
+                let (input_tokens, output_tokens) = self
+                    .llm_token_totals()
+                    .expect("llm token totals are present for llm usage events");
+                (input_tokens as f64 / 1000.0) * 0.05
+                    + (output_tokens as f64 / 1000.0) * 0.20
             }
             Self::SchemaContractApplied { count, .. } => *count as f64 * 0.50,
             Self::ModelsValidated { count, .. } => *count as f64 * 0.75,
@@ -106,10 +178,15 @@ impl UsageEvent {
                 }
                 v
             }
-            Self::LlmRequest { input_tokens, output_tokens, .. } => vec![
-                ("llm_input_tokens", *input_tokens as f64),
-                ("llm_output_tokens", *output_tokens as f64),
-            ],
+            Self::LlmRequest { .. } => {
+                let (input_tokens, output_tokens) = self
+                    .llm_token_totals()
+                    .expect("llm token totals are present for llm usage events");
+                vec![
+                    ("llm_input_tokens", input_tokens as f64),
+                    ("llm_output_tokens", output_tokens as f64),
+                ]
+            }
             Self::PipelineRun { .. } => vec![("pipeline_run", 1.0)],
             Self::PlanApproved { tasks, .. } => vec![("plan_approved", *tasks as f64)],
             Self::RepairCycle { cycle, .. } => vec![("repair_cycle", *cycle as f64)],
@@ -135,10 +212,32 @@ impl UsageEvent {
             | Self::ModelsPublished { project_id, .. }
             | Self::CatalogEntryCurated { project_id, .. }
             | Self::PlanEnriched { project_id, .. }
-            | Self::PipelineCompleted { project_id, .. } => project_id,
-            Self::LlmRequest { .. } => "",
+            | Self::PipelineCompleted { project_id, .. }
+            | Self::LlmRequest { project_id, .. } => project_id,
         }
     }
+}
+
+fn build_server_payload(
+    event: &UsageEvent,
+    billing_unit: &str,
+    quantity: f64,
+    run_id: Option<&str>,
+    default_thread_id: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "user_id": "",
+        "billing_unit": billing_unit,
+        "quantity": quantity,
+        "metadata": serde_json::to_value(event).ok(),
+        "project_id": event.project_id(),
+        "phase": billing_unit,
+        "run_id": run_id,
+        "thread_id": event
+            .explicit_thread_id()
+            .or(default_thread_id)
+            .map(str::to_string),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +323,7 @@ impl TokenProvider {
     /// Send an authenticated request, refreshing the token once on 401/403/500.
     pub async fn send_authenticated(
         &self,
-        client: &reqwest::Client,
+        _client: &reqwest::Client,
         build: impl Fn(&str) -> reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, String> {
         let token = self.get_token().unwrap_or_default();
@@ -414,16 +513,13 @@ impl MeteringClient {
             self.budget.deduct(event.cost());
 
             for (billing_unit, quantity) in event.to_server_records() {
-                let payload = serde_json::json!({
-                    "user_id": "",
-                    "billing_unit": billing_unit,
-                    "quantity": quantity,
-                    "metadata": serde_json::to_value(event).ok(),
-                    "project_id": event.project_id(),
-                    "phase": billing_unit,
-                    "run_id": run_id,
-                    "thread_id": thread_id,
-                });
+                let payload = build_server_payload(
+                    event,
+                    billing_unit,
+                    quantity,
+                    run_id.as_deref(),
+                    thread_id.as_deref(),
+                );
 
                 let resp = self.tokens
                     .send_authenticated(client, |token| {
@@ -448,6 +544,26 @@ impl MeteringClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn llm_request_event(input_tokens: u64, output_tokens: u64) -> UsageEvent {
+        UsageEvent::LlmRequest {
+            input_tokens,
+            output_tokens,
+            model: "gpt-4o".into(),
+            kind: LlmRequestKind::Chat,
+            project_id: "test".into(),
+            thread_id: Some("thread-123".into()),
+            prompt_id: Some("prompt.test".into()),
+            provider_usage: Some(json!({
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "output_tokens_details": {
+                    "reasoning_tokens": output_tokens / 2
+                }
+            })),
+        }
+    }
 
     #[test]
     fn cost_calculations() {
@@ -458,7 +574,7 @@ mod tests {
             UsageEvent::PlanApproved { tasks: 2, batches: 1, project_id: "test".into() },
             UsageEvent::RepairCycle { cycle: 1, project_id: "test".into() },
             UsageEvent::PipelineRun { project_id: "test".into() },
-            UsageEvent::LlmRequest { input_tokens: 1000, output_tokens: 500, model: "gpt-4o".into() },
+            llm_request_event(1000, 500),
         ];
         let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
         assert!((costs[0] - 10.0).abs() < f64::EPSILON);    // 100 fields * $0.10
@@ -497,7 +613,19 @@ mod tests {
         assert_eq!(records[0], ("models_authored_silver", 3.0));
         assert_eq!(records[1], ("models_authored_gold", 2.0));
 
-        let ev = UsageEvent::LlmRequest { input_tokens: 5000, output_tokens: 1000, model: "m".into() };
+        let ev = UsageEvent::LlmRequest {
+            input_tokens: 5000,
+            output_tokens: 1000,
+            model: "m".into(),
+            kind: LlmRequestKind::Embed,
+            project_id: "p".into(),
+            thread_id: Some("thread-embed".into()),
+            prompt_id: None,
+            provider_usage: Some(json!({
+                "prompt_tokens": 5000,
+                "total_tokens": 5000
+            })),
+        };
         let records = ev.to_server_records();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0], ("llm_input_tokens", 5000.0));
@@ -559,5 +687,49 @@ mod tests {
         let records = ev.to_server_records();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0], ("models_authored_gold", 5.0));
+    }
+
+    #[test]
+    fn llm_request_metadata_preserves_provider_usage_breakdown() {
+        let ev = llm_request_event(320, 120);
+        let metadata = serde_json::to_value(&ev).expect("llm event should serialize");
+
+        let provider_usage = &metadata["LlmRequest"]["provider_usage"];
+        assert_eq!(provider_usage["input_tokens"], 320);
+        assert_eq!(provider_usage["output_tokens"], 120);
+        assert_eq!(
+            provider_usage["output_tokens_details"]["reasoning_tokens"],
+            60
+        );
+    }
+
+    #[test]
+    fn build_server_payload_prefers_event_thread_and_project_context() {
+        let ev = UsageEvent::LlmRequest {
+            input_tokens: 88,
+            output_tokens: 12,
+            model: "gpt-4o-mini".into(),
+            kind: LlmRequestKind::Chat,
+            project_id: "project-alpha".into(),
+            thread_id: Some("thread-from-event".into()),
+            prompt_id: Some("prompt.alpha".into()),
+            provider_usage: Some(json!({
+                "input_tokens": 88,
+                "output_tokens": 12
+            })),
+        };
+
+        let payload = build_server_payload(
+            &ev,
+            "llm_input_tokens",
+            88.0,
+            Some("run-42"),
+            Some("thread-from-client"),
+        );
+
+        assert_eq!(payload["project_id"], "project-alpha");
+        assert_eq!(payload["run_id"], "run-42");
+        assert_eq!(payload["thread_id"], "thread-from-event");
+        assert_eq!(payload["metadata"]["LlmRequest"]["prompt_id"], "prompt.alpha");
     }
 }

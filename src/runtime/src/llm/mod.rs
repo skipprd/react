@@ -94,11 +94,29 @@ pub mod thread_ctx;
 pub mod types;
 
 use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmUsageKind {
+    Chat,
+    Embed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LlmUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub model: String,
+    pub kind: LlmUsageKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_usage: Option<serde_json::Value>,
 }
 
 type LlmUsageHandler = Box<dyn Fn(LlmUsage) + Send + Sync>;

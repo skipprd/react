@@ -778,9 +778,23 @@ pub fn apply_authenticated_overlay(
 
     react::llm::set_llm_usage_handler(Box::new(|usage: react::llm::LlmUsage| {
         react_suite_data_engineer::metering::report_llm_usage(
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.model,
+            react_suite_data_engineer::metering::LlmUsageRecord {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                model: usage.model,
+                kind: match usage.kind {
+                    react::llm::LlmUsageKind::Chat => {
+                        react_suite_data_engineer::metering::LlmRequestKind::Chat
+                    }
+                    react::llm::LlmUsageKind::Embed => {
+                        react_suite_data_engineer::metering::LlmRequestKind::Embed
+                    }
+                },
+                project_id: usage.project_id,
+                thread_id: usage.thread_id,
+                prompt_id: usage.prompt_id,
+                provider_usage: usage.provider_usage,
+            },
         );
     }));
 

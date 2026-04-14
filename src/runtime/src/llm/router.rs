@@ -37,6 +37,108 @@ fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<Pa
     (core_msgs, parts)
 }
 
+const TOTAL_USAGE_PATHS: &[&[&str]] = &[&["total_tokens"]];
+const INPUT_USAGE_TOTAL_PATHS: &[&[&str]] = &[&["input_tokens"], &["prompt_tokens"]];
+const OUTPUT_USAGE_TOTAL_PATHS: &[&[&str]] = &[&["output_tokens"], &["completion_tokens"]];
+const INPUT_USAGE_DETAIL_PATHS: &[&[&str]] = &[
+    &["input_tokens_details", "cached_tokens"],
+    &["prompt_tokens_details", "cached_tokens"],
+    &["input_tokens_details", "audio_tokens"],
+    &["prompt_tokens_details", "audio_tokens"],
+];
+const OUTPUT_USAGE_DETAIL_PATHS: &[&[&str]] = &[
+    &["output_tokens_details", "reasoning_tokens"],
+    &["completion_tokens_details", "reasoning_tokens"],
+    &["output_tokens_details", "audio_tokens"],
+    &["completion_tokens_details", "audio_tokens"],
+    &["output_tokens_details", "accepted_prediction_tokens"],
+    &["completion_tokens_details", "accepted_prediction_tokens"],
+    &["output_tokens_details", "rejected_prediction_tokens"],
+    &["completion_tokens_details", "rejected_prediction_tokens"],
+    &["accepted_prediction_tokens"],
+    &["rejected_prediction_tokens"],
+];
+
+fn usage_u64_at(usage: &serde_json::Value, path: &[&str]) -> Option<u64> {
+    let mut cursor = usage;
+    for key in path {
+        cursor = cursor.get(*key)?;
+    }
+    cursor.as_u64()
+}
+
+fn first_usage_u64(usage: &serde_json::Value, paths: &[&[&str]]) -> Option<u64> {
+    paths.iter().find_map(|path| usage_u64_at(usage, path))
+}
+
+fn sum_usage_u64(usage: &serde_json::Value, paths: &[&[&str]]) -> u64 {
+    paths
+        .iter()
+        .filter_map(|path| usage_u64_at(usage, path))
+        .sum()
+}
+
+fn normalize_usage_tokens(usage: &serde_json::Value) -> Option<(u64, u64)> {
+    let total_tokens = first_usage_u64(usage, TOTAL_USAGE_PATHS).unwrap_or(0);
+    let output_tokens = first_usage_u64(usage, OUTPUT_USAGE_TOTAL_PATHS)
+        .unwrap_or_else(|| sum_usage_u64(usage, OUTPUT_USAGE_DETAIL_PATHS));
+    // Prefer top-level totals. Detail buckets are only a fallback so we do not double count
+    // providers that already fold reasoning/cache categories into the main token totals.
+    let input_tokens = first_usage_u64(usage, INPUT_USAGE_TOTAL_PATHS).unwrap_or_else(|| {
+        let fallback = sum_usage_u64(usage, INPUT_USAGE_DETAIL_PATHS);
+        if fallback > 0 {
+            fallback
+        } else if total_tokens > output_tokens {
+            total_tokens.saturating_sub(output_tokens)
+        } else {
+            0
+        }
+    });
+
+    if input_tokens == 0 && output_tokens == 0 {
+        None
+    } else {
+        Some((input_tokens, output_tokens))
+    }
+}
+
+fn current_project_id() -> Option<String> {
+    if let Some(cfg) = crate::runtime_settings::resolved_config() {
+        let project_id = cfg.scope.project_id.as_str().trim();
+        if !project_id.is_empty() {
+            return Some(project_id.to_string());
+        }
+    }
+
+    let project_id = crate::runtime_settings::get_project_id();
+    let trimmed = project_id.trim();
+    if trimmed.is_empty() || trimmed == "default" {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn build_llm_usage(
+    usage: &serde_json::Value,
+    model: &str,
+    kind: super::LlmUsageKind,
+    prompt_id: Option<String>,
+    thread_id: Option<String>,
+) -> Option<super::LlmUsage> {
+    let (input_tokens, output_tokens) = normalize_usage_tokens(usage)?;
+    Some(super::LlmUsage {
+        input_tokens,
+        output_tokens,
+        model: model.to_string(),
+        kind,
+        prompt_id,
+        thread_id,
+        project_id: current_project_id(),
+        provider_usage: Some(usage.clone()),
+    })
+}
+
 pub struct LlmRouter {
     adapter: Arc<dyn Adapter>,
     base_url: Option<String>,
@@ -403,21 +505,16 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
 
         let parsed = adapter.parse_chat_http(&ph)?;
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&ph.body_text) {
-            let usage = v.get("usage");
-            let input_tokens = usage
-                .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
-                .and_then(|x| x.as_u64())
-                .unwrap_or(0);
-            let output_tokens = usage
-                .and_then(|u| u.get("output_tokens").or_else(|| u.get("completion_tokens")))
-                .and_then(|x| x.as_u64())
-                .unwrap_or(0);
-            if input_tokens > 0 || output_tokens > 0 {
-                super::report_llm_usage(super::LlmUsage {
-                    input_tokens,
-                    output_tokens,
-                    model: req.model.clone(),
-                });
+            if let Some(usage) = v.get("usage").and_then(|usage| {
+                build_llm_usage(
+                    usage,
+                    &req.model,
+                    super::LlmUsageKind::Chat,
+                    req.prompt_id.clone(),
+                    obs_thread_id.clone(),
+                )
+            }) {
+                super::report_llm_usage(usage);
             }
         }
         // Observability response logging (no truncation). If not enabled, do not print parsed text at all by default.
@@ -540,7 +637,21 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                 full_url, ph.status, snippet
             ));
         }
-        adapter.parse_embed_http(&ph)
+        let parsed = adapter.parse_embed_http(&ph)?;
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&ph.body_text) {
+            if let Some(usage) = v.get("usage").and_then(|usage| {
+                build_llm_usage(
+                    usage,
+                    &req.model,
+                    super::LlmUsageKind::Embed,
+                    None,
+                    crate::llm::thread_ctx::current_thread_id(),
+                )
+            }) {
+                super::report_llm_usage(usage);
+            }
+        }
+        Ok(parsed)
     }
 
     fn request_json_with_retry(
@@ -743,5 +854,53 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             .as_ref()
             .map(|s| s.trim_end_matches('/').to_string())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn normalize_usage_supports_standard_chat_fields() {
+        let usage = json!({
+            "input_tokens": 120,
+            "output_tokens": 48,
+            "input_tokens_details": { "cached_tokens": 80 },
+            "output_tokens_details": { "reasoning_tokens": 21 }
+        });
+
+        assert_eq!(normalize_usage_tokens(&usage), Some((120, 48)));
+    }
+
+    #[test]
+    fn normalize_usage_supports_alternate_field_names() {
+        let usage = json!({
+            "prompt_tokens": 33,
+            "completion_tokens": 12,
+            "completion_tokens_details": { "reasoning_tokens": 5 }
+        });
+
+        assert_eq!(normalize_usage_tokens(&usage), Some((33, 12)));
+    }
+
+    #[test]
+    fn normalize_usage_uses_total_tokens_for_embedding_only_usage() {
+        let usage = json!({
+            "total_tokens": 19
+        });
+
+        assert_eq!(normalize_usage_tokens(&usage), Some((19, 0)));
+    }
+
+    #[test]
+    fn normalize_usage_falls_back_to_detail_buckets_when_totals_are_missing() {
+        let usage = json!({
+            "total_tokens": 42,
+            "completion_tokens_details": { "reasoning_tokens": 11 }
+        });
+
+        assert_eq!(normalize_usage_tokens(&usage), Some((31, 11)));
     }
 }
