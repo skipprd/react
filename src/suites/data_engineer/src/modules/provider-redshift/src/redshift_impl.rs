@@ -7,11 +7,11 @@ use tokio::sync::{RwLock, Semaphore};
 use aws_sdk_redshiftdata::types::StatusString;
 
 use react_core::discover::stats::FieldStats;
+use react_suite_data_engineer::providers::warehouse_utils;
 use react_suite_data_engineer::providers::{
     DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
     WarehouseNaming,
 };
-use react_suite_data_engineer::providers::warehouse_utils;
 
 const DEFAULT_MAX_CONCURRENCY: usize = 15;
 const MAX_CONCURRENCY_CAP: usize = 20;
@@ -114,13 +114,12 @@ impl RedshiftProvider {
             },
             MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         let aws_cfg = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
         let client = aws_sdk_redshiftdata::Client::new(&aws_cfg);
@@ -220,11 +219,7 @@ impl RedshiftProvider {
         let mut next_token: Option<String> = None;
 
         loop {
-            let mut req = self
-                .inner
-                .client
-                .get_statement_result()
-                .id(statement_id);
+            let mut req = self.inner.client.get_statement_result().id(statement_id);
 
             if let Some(token) = &next_token {
                 req = req.next_token(token);
@@ -362,7 +357,9 @@ impl RedshiftProvider {
             .collect();
 
         let mut cache = self.inner.cache.write().await;
-        cache.columns_by_fqn.insert(fqn, (Instant::now(), cols.clone()));
+        cache
+            .columns_by_fqn
+            .insert(fqn, (Instant::now(), cols.clone()));
         Ok(cols)
     }
 }
@@ -494,7 +491,8 @@ impl DatasetCatalogProvider for RedshiftProvider {
                         NULL AS __min_num, \
                         NULL AS __max_num \
                      FROM {tbl}",
-                    c = expr, tbl = tbl,
+                    c = expr,
+                    tbl = tbl,
                 )
             } else {
                 format!(
@@ -505,7 +503,10 @@ impl DatasetCatalogProvider for RedshiftProvider {
                         MIN({min_e}) AS __min_num, \
                         MAX({max_e}) AS __max_num \
                      FROM {tbl}",
-                    c = expr, min_e = min_expr, max_e = max_expr, tbl = tbl,
+                    c = expr,
+                    min_e = min_expr,
+                    max_e = max_expr,
+                    tbl = tbl,
                 )
             };
 
@@ -514,7 +515,10 @@ impl DatasetCatalogProvider for RedshiftProvider {
                 Err(e) => {
                     tracing::warn!(
                         "redshift stats: dataset='{}' field='{}' type='{}' failed: {}",
-                        dataset.fqn(), name, ty, e
+                        dataset.fqn(),
+                        name,
+                        ty,
+                        e
                     );
                     let mut fs = FieldStats::default();
                     fs.total = total_rows;

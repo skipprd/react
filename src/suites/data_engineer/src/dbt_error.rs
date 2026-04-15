@@ -130,7 +130,9 @@ pub fn compact_brief(errors: &[String], max_errors: usize, max_chars_each: usize
     lines.join("\n---\n")
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema, PartialEq, Eq,
+)]
 pub struct DbtFailureSummary {
     /// Human-readable condensed summary (may be multi-line).
     pub summary: String,
@@ -148,9 +150,19 @@ pub struct DbtFailureSummary {
 /// appears twice.  Output is capped at `max_chars` to keep prompts bounded.
 pub fn extract_error_context_lines(log_text: &str, context: usize, max_chars: usize) -> String {
     const PATTERNS: &[&str] = &[
-        "error", "fail", "fatal", "exception", "traceback",
-        "cannot", "invalid", "not found", "no such", "unknown",
-        "unresolved", "ambiguous", "mismatch",
+        "error",
+        "fail",
+        "fatal",
+        "exception",
+        "traceback",
+        "cannot",
+        "invalid",
+        "not found",
+        "no such",
+        "unknown",
+        "unresolved",
+        "ambiguous",
+        "mismatch",
     ];
 
     let lines: Vec<&str> = log_text.lines().collect();
@@ -429,7 +441,10 @@ mod tests {
 
     #[test]
     fn extract_error_context_lines_respects_max_chars() {
-        let log = (0..200).map(|i| format!("line {i} ERROR")).collect::<Vec<_>>().join("\n");
+        let log = (0..200)
+            .map(|i| format!("line {i} ERROR"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let result = extract_error_context_lines(&log, 0, 500);
         assert!(result.len() <= 510, "within max_chars + ellipsis");
     }
@@ -443,7 +458,10 @@ mod tests {
             }
         });
         let result = extract_log_excerpts(&obs, 1, 10000);
-        assert!(!result.contains("[compile/stdout]"), "no error keywords in compile stdout");
+        assert!(
+            !result.contains("[compile/stdout]"),
+            "no error keywords in compile stdout"
+        );
         assert!(result.contains("[run_or_build/stdout]"));
         assert!(result.contains("Runtime Error"));
     }

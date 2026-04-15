@@ -114,7 +114,11 @@ impl DataEngineerSuite {
                 DataEngineerEvent::PublishRetriesReset,
             )
             .await
-            .map_err(|e| PhaseError::Fatal(format!("failed to persist publish confirmed-success state: {e}")))?;
+            .map_err(|e| {
+                PhaseError::Fatal(format!(
+                    "failed to persist publish confirmed-success state: {e}"
+                ))
+            })?;
             let published_count = crate::plan::load_model_plan(&actx)
                 .await
                 .ok()
@@ -158,7 +162,11 @@ impl DataEngineerSuite {
                     DataEngineerEvent::PublishApprovalCleared,
                 )
                 .await
-                .map_err(|e| PhaseError::Fatal(format!("failed to persist publish approval fallback state: {e}")))?;
+                .map_err(|e| {
+                    PhaseError::Fatal(format!(
+                        "failed to persist publish approval fallback state: {e}"
+                    ))
+                })?;
                 return err;
             }
             state_manager::apply_execution_event(
@@ -167,7 +175,11 @@ impl DataEngineerSuite {
                 DataEngineerEvent::PublishApprovalCleared,
             )
             .await
-            .map_err(|e| PhaseError::Fatal(format!("failed to persist publish approval fallback state: {e}")))?;
+            .map_err(|e| {
+                PhaseError::Fatal(format!(
+                    "failed to persist publish approval fallback state: {e}"
+                ))
+            })?;
             commit_phase_decision(
                 thread_store,
                 thread_id,
@@ -194,7 +206,11 @@ impl DataEngineerSuite {
                 DataEngineerEvent::PublishApprovalCleared,
             )
             .await
-            .map_err(|e| PhaseError::Fatal(format!("failed to persist publish confirmed-failure state: {e}")))?;
+            .map_err(|e| {
+                PhaseError::Fatal(format!(
+                    "failed to persist publish confirmed-failure state: {e}"
+                ))
+            })?;
             return err;
         }
         state_manager::apply_execution_event(
@@ -203,7 +219,11 @@ impl DataEngineerSuite {
             DataEngineerEvent::PublishApprovalCleared,
         )
         .await
-        .map_err(|e| PhaseError::Fatal(format!("failed to persist publish confirmed-failure state: {e}")))?;
+        .map_err(|e| {
+            PhaseError::Fatal(format!(
+                "failed to persist publish confirmed-failure state: {e}"
+            ))
+        })?;
         commit_phase_decision(
             thread_store,
             thread_id,

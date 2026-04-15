@@ -155,7 +155,12 @@ pub fn detect_issues(log: &ThreadLog) -> Vec<Issue> {
 fn detect_loops(log: &ThreadLog, issues: &mut Vec<Issue>) {
     let window = 10;
     let threshold = 3;
-    let iterations = log.steps.len().saturating_sub(window).max(1).min(log.steps.len());
+    let iterations = log
+        .steps
+        .len()
+        .saturating_sub(window)
+        .max(1)
+        .min(log.steps.len());
 
     for start in 0..iterations {
         let end = (start + window).min(log.steps.len());
@@ -210,23 +215,17 @@ fn detect_high_error_rate(log: &ThreadLog, issues: &mut Vec<Issue>) {
     let mut ok_count: usize = 0;
     let mut fail_count: usize = 0;
 
-    let flush = |phase: &str,
-                 start: usize,
-                 end: usize,
-                 ok: usize,
-                 fail: usize,
-                 issues: &mut Vec<Issue>| {
-        let total = ok + fail;
-        if total >= 4 && fail as f64 / total as f64 > 0.5 {
-            issues.push(Issue {
-                kind: IssueKind::HighErrorRate,
-                description: format!(
-                    "Phase '{phase}': {fail}/{total} tool calls failed"
-                ),
-                step_range: (start, end),
-            });
-        }
-    };
+    let flush =
+        |phase: &str, start: usize, end: usize, ok: usize, fail: usize, issues: &mut Vec<Issue>| {
+            let total = ok + fail;
+            if total >= 4 && fail as f64 / total as f64 > 0.5 {
+                issues.push(Issue {
+                    kind: IssueKind::HighErrorRate,
+                    description: format!("Phase '{phase}': {fail}/{total} tool calls failed"),
+                    step_range: (start, end),
+                });
+            }
+        };
 
     for (idx, step) in log.steps.iter().enumerate() {
         if let ThreadStep::Phase { phase, .. } = step {
@@ -285,9 +284,7 @@ fn detect_excessive_llm_calls(log: &ThreadLog, issues: &mut Vec<Issue>) {
         if consecutive_llm >= threshold {
             issues.push(Issue {
                 kind: IssueKind::ExcessiveLlmCalls,
-                description: format!(
-                    "{consecutive_llm} LLM calls without a successful tool call"
-                ),
+                description: format!("{consecutive_llm} LLM calls without a successful tool call"),
                 step_range: (run_start, idx),
             });
             consecutive_llm = 0;

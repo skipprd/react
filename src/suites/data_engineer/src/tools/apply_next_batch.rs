@@ -38,11 +38,7 @@ fn mark_in_progress_cleanse_checklist(
     }
 }
 
-async fn emit_batch_failure(
-    ctx: &AgentCtx,
-    tier: ExecutionTier,
-    err: &str,
-) -> Result<(), String> {
+async fn emit_batch_failure(ctx: &AgentCtx, tier: ExecutionTier, err: &str) -> Result<(), String> {
     let brief = if err.trim().is_empty() {
         format!("batch authoring failed (tier={tier:?})")
     } else {
@@ -238,8 +234,7 @@ impl Tool for ApplyNextCleanseBatchTool {
                     false,
                     Some(FailureKind::Unknown),
                 );
-                emit_batch_failure(ctx, ExecutionTier::Cleanse, &err_brief)
-                .await?;
+                emit_batch_failure(ctx, ExecutionTier::Cleanse, &err_brief).await?;
                 plan::save_cleanse_plan(ctx, &plan).await.map_err(|e| {
                     format!("failed to save cleanse plan after batch tool failure: {e}")
                 })?;
@@ -461,12 +456,10 @@ impl Tool for ApplyNextModelBatchTool {
             }
         }
         if !gating_errors.is_empty() {
-            let err_brief =
-                "gold inputs are not grounded in known staging models or plan tasks";
+            let err_brief = "gold inputs are not grounded in known staging models or plan tasks";
             mark_needs_update_model(&mut plan, &batch_names, err_brief);
             controller_kernel::note_batch_result(&mut plan.progress, false);
-            emit_batch_failure(ctx, ExecutionTier::Model, err_brief)
-            .await?;
+            emit_batch_failure(ctx, ExecutionTier::Model, err_brief).await?;
             plan::save_model_plan(ctx, &plan).await.map_err(|e| {
                 format!("failed to save model plan after input gating failure: {e}")
             })?;
@@ -533,8 +526,7 @@ impl Tool for ApplyNextModelBatchTool {
                     false,
                     Some(FailureKind::Unknown),
                 );
-                emit_batch_failure(ctx, ExecutionTier::Model, &err_brief)
-                .await?;
+                emit_batch_failure(ctx, ExecutionTier::Model, &err_brief).await?;
                 plan::save_model_plan(ctx, &plan).await.map_err(|e| {
                     format!("failed to save model plan after batch tool failure: {e}")
                 })?;

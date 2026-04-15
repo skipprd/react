@@ -538,8 +538,11 @@ select
     had_whitespace_issue
 from typed"#;
         let cols = extract_final_select_output_columns(sql).unwrap();
-        assert!(cols.contains("order_status_case_normalized"),
-            "should find order_status_case_normalized; got: {:?}", cols);
+        assert!(
+            cols.contains("order_status_case_normalized"),
+            "should find order_status_case_normalized; got: {:?}",
+            cols
+        );
         assert!(cols.contains("placed_at_parse_failed"));
         assert!(cols.contains("total_amount_cast_failed"));
         assert!(cols.contains("total_amount_negative"));

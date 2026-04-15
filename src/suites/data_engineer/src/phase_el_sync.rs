@@ -10,9 +10,8 @@ impl DataEngineerSuite {
         thread_id: &str,
         sctx: &SuiteCtx,
     ) -> Result<PhaseOutcome, PhaseError> {
-        let skippr = crate::ctx_ext::sctx_skippr(sctx).ok_or_else(|| {
-            "skippr provider not configured for EL sync".to_string()
-        })?;
+        let skippr = crate::ctx_ext::sctx_skippr(sctx)
+            .ok_or_else(|| "skippr provider not configured for EL sync".to_string())?;
 
         let cfg = sctx
             .resolved_config()
@@ -73,9 +72,7 @@ impl DataEngineerSuite {
     }
 }
 
-fn warehouse_to_output_config(
-    wh: &crate::de_config::WarehouseResolved,
-) -> SkipprOutputConfig {
+fn warehouse_to_output_config(wh: &crate::de_config::WarehouseResolved) -> SkipprOutputConfig {
     use crate::de_config::WarehouseKind;
     let kind = match wh.kind {
         WarehouseKind::Snowflake => "snowflake",

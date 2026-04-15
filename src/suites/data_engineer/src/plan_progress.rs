@@ -1895,11 +1895,8 @@ pub fn update_model_progress_from_log(plan: &mut ModelPlan, log: &ThreadLog) {
                 }
             } else {
                 for t in plan.tasks.iter_mut() {
-                    let it = ensure_checklist_item(
-                        &mut t.checklist,
-                        CHECKLIST_VALIDATE,
-                        "Validate DBT",
-                    );
+                    let it =
+                        ensure_checklist_item(&mut t.checklist, CHECKLIST_VALIDATE, "Validate DBT");
                     set_checklist_status(
                         it,
                         ChecklistItemStatus::NeedsUpdate,

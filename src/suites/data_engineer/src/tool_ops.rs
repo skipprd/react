@@ -23,10 +23,10 @@ impl FileOpKind {
             Self::Other => "other",
         }
     }
-
 }
 
-pub const GENERAL_MUTATION_OPS: &[FileOpKind] = &[FileOpKind::Patch, FileOpKind::Rm, FileOpKind::Mv];
+pub const GENERAL_MUTATION_OPS: &[FileOpKind] =
+    &[FileOpKind::Patch, FileOpKind::Rm, FileOpKind::Mv];
 pub fn ops_label(ops: &[FileOpKind]) -> String {
     ops.iter()
         .map(|op| format!("op={}", op.as_str()))
@@ -62,10 +62,7 @@ mod tests {
     fn ops_label_renders_correctly() {
         assert_eq!(ops_label(&[FileOpKind::Patch]), "op=patch");
         assert_eq!(ops_label(&[FileOpKind::Rm, FileOpKind::Mv]), "op=rm|op=mv");
-        assert_eq!(
-            ops_label(GENERAL_MUTATION_OPS),
-            "op=patch|op=rm|op=mv"
-        );
+        assert_eq!(ops_label(GENERAL_MUTATION_OPS), "op=patch|op=rm|op=mv");
     }
 
     #[test]

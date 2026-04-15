@@ -1,2 +1,2 @@
-pub mod extract_text;
 pub mod assess_requirement;
+pub mod extract_text;

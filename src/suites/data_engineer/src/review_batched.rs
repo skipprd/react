@@ -1,11 +1,10 @@
 use serde::de::DeserializeOwned;
-use serde::{Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
 use crate::domain_types::{
-    ReviewArtifactRef, ReviewBatchOutput, ReviewSummaryOutput, ReviewTier,
-    ReviewUnifyOutput,
+    ReviewArtifactRef, ReviewBatchOutput, ReviewSummaryOutput, ReviewTier, ReviewUnifyOutput,
 };
 use react_core::agent::AgentCtx;
 use react_core::keyspace::encode_key_component;
@@ -17,10 +16,10 @@ use react_core::suite::{FlowFrame, FlowKind, SuiteCtx};
 
 use super::control_flow::Phase;
 use super::plan as de_plan;
+use super::plan_kind::PlanKind;
 use super::tools::files_tool::FilesTool;
 use super::tools::json_file::JsonFileTool;
 use super::tools::sql_schema::SqlSchemaTool;
-use super::plan_kind::PlanKind;
 use crate::{facts, naming};
 
 use super::review_persistence::*;
@@ -426,8 +425,8 @@ type CleanseBatchResolved = (
     String,                                     // dataset_id
     String,                                     // expected_path
     Vec<String>,                                // invariants
-    Option<de_plan::CleanseImplementationSpec>,  // implementation_spec
-    Vec<crate::plan_types::SourceColumnDef>,     // source_schema
+    Option<de_plan::CleanseImplementationSpec>, // implementation_spec
+    Vec<crate::plan_types::SourceColumnDef>,    // source_schema
 );
 
 fn resolve_cleanse_batch_paths(
@@ -453,11 +452,11 @@ fn resolve_cleanse_batch_paths(
 
 /// Resolved fields for a single model batch item.
 type ModelBatchResolved = (
-    String,                                     // name
-    String,                                     // expected_path
-    Vec<String>,                                // invariants
-    Option<de_plan::ModelImplementationSpec>,    // implementation_spec
-    Vec<crate::plan_types::SourceColumnDef>,     // source_schema
+    String,                                   // name
+    String,                                   // expected_path
+    Vec<String>,                              // invariants
+    Option<de_plan::ModelImplementationSpec>, // implementation_spec
+    Vec<crate::plan_types::SourceColumnDef>,  // source_schema
 );
 
 fn resolve_model_batch_paths(
@@ -1046,14 +1045,20 @@ pub async fn run_batched_review(
         Phase::CleanseReview => {
             // Use the same plan-loading path as authoring (oldest active, non-terminal)
             // to ensure review sees the exact same plan version.
-            if let Some(p) = de_plan::load_cleanse_plan(&actx).await.map_err(|e| e.to_string())? {
+            if let Some(p) = de_plan::load_cleanse_plan(&actx)
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 load_cleanse_plan_and_batches_from(p)
             } else {
                 (None, None, vec![], None)
             }
         }
         Phase::ModelReview => {
-            if let Some(p) = de_plan::load_model_plan(&actx).await.map_err(|e| e.to_string())? {
+            if let Some(p) = de_plan::load_model_plan(&actx)
+                .await
+                .map_err(|e| e.to_string())?
+            {
                 load_model_plan_and_batches_from(p)
             } else {
                 (None, None, vec![], None)

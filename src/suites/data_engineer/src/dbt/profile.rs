@@ -248,7 +248,9 @@ pub fn generate_profiles_yml(
                 let raw = std::env::var("SNOWFLAKE_PRIVATE_KEY_PATH").unwrap_or_default();
                 let abs = resolve_to_absolute_path(&raw);
                 std::env::set_var("SNOWFLAKE_PRIVATE_KEY_PATH", &abs);
-                out.push_str("      private_key_path: \"{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}\"\n");
+                out.push_str(
+                    "      private_key_path: \"{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}\"\n",
+                );
             } else {
                 out.push_str("      password: \"{{ env_var('SNOWFLAKE_PASSWORD') }}\"\n");
             }
@@ -312,7 +314,9 @@ pub fn generate_profiles_yml(
                 let raw = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").unwrap_or_default();
                 let abs = resolve_to_absolute_path(&raw);
                 std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", &abs);
-                out.push_str("      keyfile: \"{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}\"\n");
+                out.push_str(
+                    "      keyfile: \"{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}\"\n",
+                );
             } else {
                 out.push_str(&format!("      method: {}\n", yaml_escape_scalar("oauth")));
             }
@@ -377,10 +381,22 @@ pub fn generate_profiles_yml(
         }
         ActiveWarehouse::Databricks => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "databricks".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() {
+                "databricks".to_string()
+            } else {
+                providers.dbt.target.trim().to_string()
+            };
             let wh = &providers.warehouse;
-            let schema = if providers.dbt.naming.target_schema.trim().is_empty() { derive_scope_db_name(cfg) } else { providers.dbt.naming.target_schema.trim().to_string() };
-            let catalog = if !wh.container.trim().is_empty() { wh.container.trim().to_string() } else { "main".to_string() };
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
+                derive_scope_db_name(cfg)
+            } else {
+                providers.dbt.naming.target_schema.trim().to_string()
+            };
+            let catalog = if !wh.container.trim().is_empty() {
+                wh.container.trim().to_string()
+            } else {
+                "main".to_string()
+            };
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
@@ -390,16 +406,32 @@ pub fn generate_profiles_yml(
             out.push_str("      host: \"{{ env_var('DATABRICKS_HOST', env_var('DATABRICKS_WORKSPACE_URL', '')) }}\"\n");
             out.push_str("      http_path: \"{{ env_var('DATABRICKS_HTTP_PATH', '') }}\"\n");
             out.push_str("      token: \"{{ env_var('DATABRICKS_TOKEN') }}\"\n");
-            out.push_str(&format!("      catalog: {}\n", yaml_escape_scalar(&catalog)));
+            out.push_str(&format!(
+                "      catalog: {}\n",
+                yaml_escape_scalar(&catalog)
+            ));
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
-            if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
-            Ok(GeneratedProfiles { target, profiles_yml: out })
+            if let Some(t) = threads {
+                out.push_str(&format!("      threads: {}\n", t.max(1)));
+            }
+            Ok(GeneratedProfiles {
+                target,
+                profiles_yml: out,
+            })
         }
         ActiveWarehouse::Synapse => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "synapse".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() {
+                "synapse".to_string()
+            } else {
+                providers.dbt.target.trim().to_string()
+            };
             let wh = &providers.warehouse;
-            let schema = if providers.dbt.naming.target_schema.trim().is_empty() { derive_scope_db_name(cfg) } else { providers.dbt.naming.target_schema.trim().to_string() };
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
+                derive_scope_db_name(cfg)
+            } else {
+                providers.dbt.naming.target_schema.trim().to_string()
+            };
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
@@ -413,15 +445,32 @@ pub fn generate_profiles_yml(
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
             out.push_str("      user: \"{{ env_var('SYNAPSE_USER') }}\"\n");
             out.push_str("      password: \"{{ env_var('SYNAPSE_PASSWORD') }}\"\n");
-            if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
-            Ok(GeneratedProfiles { target, profiles_yml: out })
+            if let Some(t) = threads {
+                out.push_str(&format!("      threads: {}\n", t.max(1)));
+            }
+            Ok(GeneratedProfiles {
+                target,
+                profiles_yml: out,
+            })
         }
         ActiveWarehouse::Redshift => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "redshift".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() {
+                "redshift".to_string()
+            } else {
+                providers.dbt.target.trim().to_string()
+            };
             let wh = &providers.warehouse;
-            let schema = if providers.dbt.naming.target_schema.trim().is_empty() { derive_scope_db_name(cfg) } else { providers.dbt.naming.target_schema.trim().to_string() };
-            let dbname = if !wh.container.trim().is_empty() { wh.container.trim().to_string() } else { "{{ env_var('REDSHIFT_DATABASE') }}".to_string() };
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
+                derive_scope_db_name(cfg)
+            } else {
+                providers.dbt.naming.target_schema.trim().to_string()
+            };
+            let dbname = if !wh.container.trim().is_empty() {
+                wh.container.trim().to_string()
+            } else {
+                "{{ env_var('REDSHIFT_DATABASE') }}".to_string()
+            };
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
@@ -435,14 +484,27 @@ pub fn generate_profiles_yml(
             out.push_str("      user: \"{{ env_var('REDSHIFT_USER', '') }}\"\n");
             out.push_str("      password: \"{{ env_var('REDSHIFT_PASSWORD', '') }}\"\n");
             out.push_str("      method: \"{{ env_var('REDSHIFT_METHOD', 'database') }}\"\n");
-            if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
-            Ok(GeneratedProfiles { target, profiles_yml: out })
+            if let Some(t) = threads {
+                out.push_str(&format!("      threads: {}\n", t.max(1)));
+            }
+            Ok(GeneratedProfiles {
+                target,
+                profiles_yml: out,
+            })
         }
         ActiveWarehouse::Clickhouse => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "clickhouse".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() {
+                "clickhouse".to_string()
+            } else {
+                providers.dbt.target.trim().to_string()
+            };
             let wh = &providers.warehouse;
-            let schema = if !wh.container.trim().is_empty() { wh.container.trim().to_string() } else { "default".to_string() };
+            let schema = if !wh.container.trim().is_empty() {
+                wh.container.trim().to_string()
+            } else {
+                "default".to_string()
+            };
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
             out.push_str(&format!("  target: {}\n", yaml_escape_scalar(&target)));
@@ -454,15 +516,32 @@ pub fn generate_profiles_yml(
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
             out.push_str("      user: \"{{ env_var('CLICKHOUSE_USER', 'default') }}\"\n");
             out.push_str("      password: \"{{ env_var('CLICKHOUSE_PASSWORD', '') }}\"\n");
-            if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
-            Ok(GeneratedProfiles { target, profiles_yml: out })
+            if let Some(t) = threads {
+                out.push_str(&format!("      threads: {}\n", t.max(1)));
+            }
+            Ok(GeneratedProfiles {
+                target,
+                profiles_yml: out,
+            })
         }
         ActiveWarehouse::Motherduck => {
             let profile_name = cfg.scope.project_id.clone();
-            let target = if providers.dbt.target.trim().is_empty() { "motherduck".to_string() } else { providers.dbt.target.trim().to_string() };
+            let target = if providers.dbt.target.trim().is_empty() {
+                "motherduck".to_string()
+            } else {
+                providers.dbt.target.trim().to_string()
+            };
             let wh = &providers.warehouse;
-            let schema = if providers.dbt.naming.target_schema.trim().is_empty() { derive_scope_db_name(cfg) } else { providers.dbt.naming.target_schema.trim().to_string() };
-            let database = if wh.container.is_empty() { "my_db" } else { wh.container.as_str() };
+            let schema = if providers.dbt.naming.target_schema.trim().is_empty() {
+                derive_scope_db_name(cfg)
+            } else {
+                providers.dbt.naming.target_schema.trim().to_string()
+            };
+            let database = if wh.container.is_empty() {
+                "my_db"
+            } else {
+                wh.container.as_str()
+            };
             let md_path = format!("md:{}", database);
             let mut out = String::new();
             out.push_str(&format!("{}:\n", yaml_escape_key(profile_name.as_str())));
@@ -474,8 +553,13 @@ pub fn generate_profiles_yml(
             out.push_str(&format!("      schema: {}\n", yaml_escape_scalar(&schema)));
             out.push_str("      settings:\n");
             out.push_str("        motherduck_token: \"{{ env_var('MOTHERDUCK_TOKEN') }}\"\n");
-            if let Some(t) = threads { out.push_str(&format!("      threads: {}\n", t.max(1))); }
-            Ok(GeneratedProfiles { target, profiles_yml: out })
+            if let Some(t) = threads {
+                out.push_str(&format!("      threads: {}\n", t.max(1)));
+            }
+            Ok(GeneratedProfiles {
+                target,
+                profiles_yml: out,
+            })
         }
     }
 }
@@ -595,7 +679,10 @@ mod tests {
     #[test]
     fn resolve_to_absolute_path_normalizes_backslashes() {
         let result = resolve_to_absolute_path("some/relative/path.p8");
-        assert!(!result.contains('\\'), "resolved path should not contain backslashes: {result}");
+        assert!(
+            !result.contains('\\'),
+            "resolved path should not contain backslashes: {result}"
+        );
         assert!(result.contains('/'));
     }
 }

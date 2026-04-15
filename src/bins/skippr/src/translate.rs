@@ -11,7 +11,13 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
     }
 
     let warehouse_json = match &cfg.warehouse {
-        Some(WarehouseConfig::Athena { workgroup, region, result_s3, catalog, schema }) => {
+        Some(WarehouseConfig::Athena {
+            workgroup,
+            region,
+            result_s3,
+            catalog,
+            schema,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "athena".into());
             if let Some(v) = workgroup {
@@ -82,7 +88,13 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Databricks { workspace_url, token, warehouse_id, catalog, schema }) => {
+        Some(WarehouseConfig::Databricks {
+            workspace_url,
+            token,
+            warehouse_id,
+            catalog,
+            schema,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "databricks".into());
             if let Some(v) = workspace_url {
@@ -102,7 +114,10 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Synapse { connection_string, schema }) => {
+        Some(WarehouseConfig::Synapse {
+            connection_string,
+            schema,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "synapse".into());
             if let Some(v) = connection_string {
@@ -113,7 +128,17 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Redshift { database, cluster_identifier, workgroup_name, db_user, schema, region, staging_s3_bucket, staging_s3_prefix, iam_role_arn }) => {
+        Some(WarehouseConfig::Redshift {
+            database,
+            cluster_identifier,
+            workgroup_name,
+            db_user,
+            schema,
+            region,
+            staging_s3_bucket,
+            staging_s3_prefix,
+            iam_role_arn,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "redshift".into());
             if let Some(v) = database {
@@ -145,7 +170,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Clickhouse { url, database, user, password }) => {
+        Some(WarehouseConfig::Clickhouse {
+            url,
+            database,
+            user,
+            password,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "clickhouse".into());
             if let Some(v) = url {
@@ -162,7 +192,11 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        Some(WarehouseConfig::Motherduck { motherduck_token, database, schema }) => {
+        Some(WarehouseConfig::Motherduck {
+            motherduck_token,
+            database,
+            schema,
+        }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "motherduck".into());
             if let Some(v) = motherduck_token {
@@ -176,7 +210,11 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             }
             serde_json::Value::Object(m)
         }
-        None => return Err("warehouse is not configured. Run: skippr connect warehouse <kind>".to_string()),
+        None => {
+            return Err(
+                "warehouse is not configured. Run: skippr connect warehouse <kind>".to_string(),
+            )
+        }
     };
 
     let dbt_target = cfg.warehouse_kind_str().unwrap_or_default().to_string();
@@ -230,7 +268,10 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Mysql { connection_string, tables } => {
+                SourceConfig::Mysql {
+                    connection_string,
+                    tables,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "mysql".into());
                     if let Some(v) = connection_string {
@@ -241,7 +282,16 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::PostgresSource { host, port, user, password, database, connection_string, tables, query } => {
+                SourceConfig::PostgresSource {
+                    host,
+                    port,
+                    user,
+                    password,
+                    database,
+                    connection_string,
+                    tables,
+                    query,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "postgres".into());
                     if let Some(v) = host {
@@ -270,7 +320,14 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::RedshiftSource { cluster_identifier, workgroup_name, database, db_user, tables, region } => {
+                SourceConfig::RedshiftSource {
+                    cluster_identifier,
+                    workgroup_name,
+                    database,
+                    db_user,
+                    tables,
+                    region,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "redshift".into());
                     if let Some(v) = cluster_identifier {
@@ -293,7 +350,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Mongodb { connection_string, database, collection, filter } => {
+                SourceConfig::Mongodb {
+                    connection_string,
+                    database,
+                    collection,
+                    filter,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "mongodb".into());
                     if let Some(v) = connection_string {
@@ -310,7 +372,11 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Dynamodb { table_name, region, endpoint_url } => {
+                SourceConfig::Dynamodb {
+                    table_name,
+                    region,
+                    endpoint_url,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "dynamodb".into());
                     if let Some(v) = table_name {
@@ -324,7 +390,14 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::ClickhouseSource { url, database, user, password, tables, query } => {
+                SourceConfig::ClickhouseSource {
+                    url,
+                    database,
+                    user,
+                    password,
+                    tables,
+                    query,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "clickhouse".into());
                     if let Some(v) = url {
@@ -347,7 +420,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::MotherduckSource { motherduck_token, database, tables, query } => {
+                SourceConfig::MotherduckSource {
+                    motherduck_token,
+                    database,
+                    tables,
+                    query,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "motherduck".into());
                     if let Some(v) = motherduck_token {
@@ -364,7 +442,14 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Sftp { host, port, username, password, private_key_path, remote_path } => {
+                SourceConfig::Sftp {
+                    host,
+                    port,
+                    username,
+                    password,
+                    private_key_path,
+                    remote_path,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "sftp".into());
                     if let Some(v) = host {
@@ -395,14 +480,22 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::DeltaLake { table_uri, storage_options, version, filter } => {
+                SourceConfig::DeltaLake {
+                    table_uri,
+                    storage_options,
+                    version,
+                    filter,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "delta_lake".into());
                     if let Some(v) = table_uri {
                         m.insert("table_uri".into(), v.clone().into());
                     }
                     if let Some(opts) = storage_options {
-                        m.insert("storage_options".into(), serde_json::to_value(opts).unwrap_or_default());
+                        m.insert(
+                            "storage_options".into(),
+                            serde_json::to_value(opts).unwrap_or_default(),
+                        );
                     }
                     if let Some(v) = version {
                         m.insert("version".into(), (*v).into());
@@ -412,7 +505,17 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Kafka { brokers, topic, group_id, auto_offset_reset, security_protocol, sasl_mechanism, sasl_username, sasl_password, mode } => {
+                SourceConfig::Kafka {
+                    brokers,
+                    topic,
+                    group_id,
+                    auto_offset_reset,
+                    security_protocol,
+                    sasl_mechanism,
+                    sasl_username,
+                    sasl_password,
+                    mode,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "kafka".into());
                     if let Some(v) = brokers {
@@ -444,7 +547,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Sqs { queue_url, region, endpoint_url, mode } => {
+                SourceConfig::Sqs {
+                    queue_url,
+                    region,
+                    endpoint_url,
+                    mode,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "sqs".into());
                     if let Some(v) = queue_url {
@@ -461,7 +569,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Kinesis { stream_name, region, endpoint_url, mode } => {
+                SourceConfig::Kinesis {
+                    stream_name,
+                    region,
+                    endpoint_url,
+                    mode,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "kinesis".into());
                     if let Some(v) = stream_name {
@@ -478,7 +591,14 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Amqp { connection_string, queue, exchange, routing_key, prefetch_count, mode } => {
+                SourceConfig::Amqp {
+                    connection_string,
+                    queue,
+                    exchange,
+                    routing_key,
+                    prefetch_count,
+                    mode,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "amqp".into());
                     if let Some(v) = connection_string {
@@ -501,7 +621,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Sns { topic_arn, sqs_queue_url, region, endpoint_url } => {
+                SourceConfig::Sns {
+                    topic_arn,
+                    sqs_queue_url,
+                    region,
+                    endpoint_url,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "sns".into());
                     if let Some(v) = topic_arn {
@@ -518,7 +643,12 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Eventbridge { event_bus_name, sqs_queue_url, region, endpoint_url } => {
+                SourceConfig::Eventbridge {
+                    event_bus_name,
+                    sqs_queue_url,
+                    region,
+                    endpoint_url,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "eventbridge".into());
                     if let Some(v) = event_bus_name {
@@ -535,7 +665,16 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Mqtt { broker_url, port, topic, client_id, qos, username, password, mode } => {
+                SourceConfig::Mqtt {
+                    broker_url,
+                    port,
+                    topic,
+                    client_id,
+                    qos,
+                    username,
+                    password,
+                    mode,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "mqtt".into());
                     if let Some(v) = broker_url {
@@ -571,14 +710,27 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                         m.insert("url".into(), v.clone().into());
                     }
                     if let Some(v) = headers {
-                        m.insert("headers".into(), serde_json::to_value(v).unwrap_or_default());
+                        m.insert(
+                            "headers".into(),
+                            serde_json::to_value(v).unwrap_or_default(),
+                        );
                     }
                     if let Some(v) = mode {
                         m.insert("mode".into(), v.clone().into());
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::HttpClient { url, method, headers, body, auth_strategy, auth_user, auth_password, auth_token, scrape_interval_seconds } => {
+                SourceConfig::HttpClient {
+                    url,
+                    method,
+                    headers,
+                    body,
+                    auth_strategy,
+                    auth_user,
+                    auth_password,
+                    auth_token,
+                    scrape_interval_seconds,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "http_client".into());
                     if let Some(v) = url {
@@ -588,23 +740,40 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                         m.insert("method".into(), v.clone().into());
                     }
                     if let Some(v) = headers {
-                        m.insert("headers".into(), serde_json::to_value(v).unwrap_or_default());
+                        m.insert(
+                            "headers".into(),
+                            serde_json::to_value(v).unwrap_or_default(),
+                        );
                     }
                     if let Some(v) = body {
                         m.insert("body".into(), v.clone().into());
                     }
                     let mut auth = serde_json::Map::new();
-                    if let Some(v) = auth_strategy { auth.insert("strategy".into(), v.clone().into()); }
-                    if let Some(v) = auth_user { auth.insert("user".into(), v.clone().into()); }
-                    if let Some(v) = auth_password { auth.insert("password".into(), v.clone().into()); }
-                    if let Some(v) = auth_token { auth.insert("token".into(), v.clone().into()); }
-                    if !auth.is_empty() { m.insert("auth".into(), serde_json::Value::Object(auth)); }
+                    if let Some(v) = auth_strategy {
+                        auth.insert("strategy".into(), v.clone().into());
+                    }
+                    if let Some(v) = auth_user {
+                        auth.insert("user".into(), v.clone().into());
+                    }
+                    if let Some(v) = auth_password {
+                        auth.insert("password".into(), v.clone().into());
+                    }
+                    if let Some(v) = auth_token {
+                        auth.insert("token".into(), v.clone().into());
+                    }
+                    if !auth.is_empty() {
+                        m.insert("auth".into(), serde_json::Value::Object(auth));
+                    }
                     if let Some(v) = scrape_interval_seconds {
                         m.insert("scrape_interval_seconds".into(), (*v).into());
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::HttpServer { listen_address, path, auth_token } => {
+                SourceConfig::HttpServer {
+                    listen_address,
+                    path,
+                    auth_token,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "http_server".into());
                     if let Some(v) = listen_address {
@@ -618,7 +787,11 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
                     }
                     serde_json::Value::Object(m)
                 }
-                SourceConfig::Socket { mode, address, framing } => {
+                SourceConfig::Socket {
+                    mode,
+                    address,
+                    framing,
+                } => {
                     let mut m = serde_json::Map::new();
                     m.insert("kind".into(), "socket".into());
                     if let Some(v) = mode {
@@ -758,7 +931,9 @@ pub fn apply_authenticated_overlay(
     }
 
     if !creds.llm_api_key.is_empty() {
-        let existing = std::env::var("LLM_API_KEY").ok().filter(|v| !v.trim().is_empty());
+        let existing = std::env::var("LLM_API_KEY")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
         if existing.is_none() {
             std::env::set_var("LLM_API_KEY", &creds.llm_api_key);
         }
@@ -770,11 +945,7 @@ pub fn apply_authenticated_overlay(
         Some(creds.accounting_url.clone())
     };
 
-    react_suite_data_engineer::metering::init_metering(
-        accounting_url,
-        tokens,
-        initial_balance,
-    );
+    react_suite_data_engineer::metering::init_metering(accounting_url, tokens, initial_balance);
 
     react::llm::set_llm_usage_handler(Box::new(|usage: react::llm::LlmUsage| {
         react_suite_data_engineer::metering::report_llm_usage(
@@ -920,8 +1091,16 @@ mod tests {
     #[test]
     fn translate_mysql_source() {
         let cfg = make_cfg(
-            WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None },
-            SourceConfig::Mysql { connection_string: Some("mysql://root@localhost".into()), tables: Some(vec!["users".into()]) },
+            WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            },
+            SourceConfig::Mysql {
+                connection_string: Some("mysql://root@localhost".into()),
+                tables: Some(vec!["users".into()]),
+            },
         );
         let input = el_input(&cfg);
         assert_eq!(input["kind"], "mysql");
@@ -932,8 +1111,22 @@ mod tests {
     #[test]
     fn translate_postgres_source() {
         let cfg = make_cfg(
-            WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None },
-            SourceConfig::PostgresSource { host: Some("db.example.com".into()), port: Some(5432), user: Some("pguser".into()), password: None, database: Some("mydb".into()), connection_string: None, tables: None, query: None },
+            WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            },
+            SourceConfig::PostgresSource {
+                host: Some("db.example.com".into()),
+                port: Some(5432),
+                user: Some("pguser".into()),
+                password: None,
+                database: Some("mydb".into()),
+                connection_string: None,
+                tables: None,
+                query: None,
+            },
         );
         let input = el_input(&cfg);
         assert_eq!(input["kind"], "postgres");
@@ -944,8 +1137,23 @@ mod tests {
     #[test]
     fn translate_kafka_source() {
         let cfg = make_cfg(
-            WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None },
-            SourceConfig::Kafka { brokers: Some("localhost:9092".into()), topic: Some("events".into()), group_id: None, auto_offset_reset: None, security_protocol: None, sasl_mechanism: None, sasl_username: None, sasl_password: None, mode: Some("batch".into()) },
+            WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            },
+            SourceConfig::Kafka {
+                brokers: Some("localhost:9092".into()),
+                topic: Some("events".into()),
+                group_id: None,
+                auto_offset_reset: None,
+                security_protocol: None,
+                sasl_mechanism: None,
+                sasl_username: None,
+                sasl_password: None,
+                mode: Some("batch".into()),
+            },
         );
         let input = el_input(&cfg);
         assert_eq!(input["kind"], "kafka");
@@ -958,8 +1166,18 @@ mod tests {
         let mut opts = std::collections::HashMap::new();
         opts.insert("AWS_REGION".to_string(), "us-east-1".to_string());
         let cfg = make_cfg(
-            WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None },
-            SourceConfig::DeltaLake { table_uri: Some("s3://bucket/table".into()), storage_options: Some(opts), version: Some(5), filter: None },
+            WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            },
+            SourceConfig::DeltaLake {
+                table_uri: Some("s3://bucket/table".into()),
+                storage_options: Some(opts),
+                version: Some(5),
+                filter: None,
+            },
         );
         let input = el_input(&cfg);
         assert_eq!(input["kind"], "delta_lake");
@@ -971,8 +1189,16 @@ mod tests {
     #[test]
     fn translate_databricks_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Databricks { workspace_url: Some("https://dbc-xxx.cloud.databricks.com".into()), token: Some("dapi123".into()), warehouse_id: Some("abc123".into()), catalog: Some("main".into()), schema: Some("default".into()) },
-            SourceConfig::Mssql { connection_string: None },
+            WarehouseConfig::Databricks {
+                workspace_url: Some("https://dbc-xxx.cloud.databricks.com".into()),
+                token: Some("dapi123".into()),
+                warehouse_id: Some("abc123".into()),
+                catalog: Some("main".into()),
+                schema: Some("default".into()),
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
         );
         let wh = wh_json(&cfg);
         assert_eq!(wh["kind"], "databricks");
@@ -983,8 +1209,20 @@ mod tests {
     #[test]
     fn translate_redshift_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Redshift { database: Some("analytics".into()), cluster_identifier: Some("my-cluster".into()), workgroup_name: None, db_user: Some("admin".into()), schema: Some("public".into()), region: Some("us-east-1".into()), staging_s3_bucket: Some("staging".into()), staging_s3_prefix: None, iam_role_arn: None },
-            SourceConfig::Mssql { connection_string: None },
+            WarehouseConfig::Redshift {
+                database: Some("analytics".into()),
+                cluster_identifier: Some("my-cluster".into()),
+                workgroup_name: None,
+                db_user: Some("admin".into()),
+                schema: Some("public".into()),
+                region: Some("us-east-1".into()),
+                staging_s3_bucket: Some("staging".into()),
+                staging_s3_prefix: None,
+                iam_role_arn: None,
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
         );
         let wh = wh_json(&cfg);
         assert_eq!(wh["kind"], "redshift");
@@ -995,8 +1233,15 @@ mod tests {
     #[test]
     fn translate_clickhouse_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Clickhouse { url: Some("http://ch:8123".into()), database: Some("default".into()), user: Some("default".into()), password: None },
-            SourceConfig::Mssql { connection_string: None },
+            WarehouseConfig::Clickhouse {
+                url: Some("http://ch:8123".into()),
+                database: Some("default".into()),
+                user: Some("default".into()),
+                password: None,
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
         );
         let wh = wh_json(&cfg);
         assert_eq!(wh["kind"], "clickhouse");
@@ -1006,8 +1251,14 @@ mod tests {
     #[test]
     fn translate_motherduck_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Motherduck { motherduck_token: Some("tok".into()), database: Some("my_db".into()), schema: Some("main".into()) },
-            SourceConfig::Mssql { connection_string: None },
+            WarehouseConfig::Motherduck {
+                motherduck_token: Some("tok".into()),
+                database: Some("my_db".into()),
+                schema: Some("main".into()),
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
         );
         let wh = wh_json(&cfg);
         assert_eq!(wh["kind"], "motherduck");
@@ -1018,22 +1269,41 @@ mod tests {
     #[test]
     fn translate_synapse_warehouse() {
         let cfg = make_cfg(
-            WarehouseConfig::Synapse { connection_string: Some("Server=tcp:myserver.database.windows.net".into()), schema: Some("dbo".into()) },
-            SourceConfig::Mssql { connection_string: None },
+            WarehouseConfig::Synapse {
+                connection_string: Some("Server=tcp:myserver.database.windows.net".into()),
+                schema: Some("dbo".into()),
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
         );
         let wh = wh_json(&cfg);
         assert_eq!(wh["kind"], "synapse");
-        assert_eq!(wh["connection_string"], "Server=tcp:myserver.database.windows.net");
+        assert_eq!(
+            wh["connection_string"],
+            "Server=tcp:myserver.database.windows.net"
+        );
     }
 
     #[test]
     fn translate_glue_schema_sink() {
         let cfg = SkipprDbtConfig {
             project: "test_proj".into(),
-            warehouse: Some(WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None }),
-            source: Some(SourceConfig::S3 { s3_bucket: Some("b".into()), s3_prefix: None, transform: None }),
+            warehouse: Some(WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            }),
+            source: Some(SourceConfig::S3 {
+                s3_bucket: Some("b".into()),
+                s3_prefix: None,
+                transform: None,
+            }),
             dbt: None,
-            schema_sink: Some(SchemaSinkConfig::Glue { glue_database_name: "my_glue_db".into() }),
+            schema_sink: Some(SchemaSinkConfig::Glue {
+                glue_database_name: "my_glue_db".into(),
+            }),
         };
         let internal = to_internal(&cfg).unwrap();
         let p = internal.providers.unwrap();
@@ -1044,8 +1314,23 @@ mod tests {
     #[test]
     fn translate_http_client_source() {
         let cfg = make_cfg(
-            WarehouseConfig::Snowflake { database: None, schema: None, warehouse: None, role: None },
-            SourceConfig::HttpClient { url: Some("https://api.example.com/data".into()), method: Some("GET".into()), headers: None, body: None, auth_strategy: Some("bearer".into()), auth_user: None, auth_password: None, auth_token: Some("tok123".into()), scrape_interval_seconds: Some(60) },
+            WarehouseConfig::Snowflake {
+                database: None,
+                schema: None,
+                warehouse: None,
+                role: None,
+            },
+            SourceConfig::HttpClient {
+                url: Some("https://api.example.com/data".into()),
+                method: Some("GET".into()),
+                headers: None,
+                body: None,
+                auth_strategy: Some("bearer".into()),
+                auth_user: None,
+                auth_password: None,
+                auth_token: Some("tok123".into()),
+                scrape_interval_seconds: Some(60),
+            },
         );
         let input = el_input(&cfg);
         assert_eq!(input["kind"], "http_client");
@@ -1087,7 +1372,9 @@ mod tests {
         };
 
         let tokens = std::sync::Arc::new(react_suite_data_engineer::metering::TokenProvider::new(
-            Some("token".to_string()), None, None,
+            Some("token".to_string()),
+            None,
+            None,
         ));
         apply_authenticated_overlay(&mut internal, &creds, tokens, 0.0);
 

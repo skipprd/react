@@ -43,8 +43,8 @@ use crate::control_flow::DeterministicDbtValidateOnce;
 use crate::model_dispatch::ModelDispatch;
 use crate::progress_controller::ValidationFailureContext;
 use crate::repair_session::{
-    ApplyResult, FileOp, GatheredFile, PlannedFix, RepairIteration,
-    RepairSessionLog, ValidateOutcome,
+    ApplyResult, FileOp, GatheredFile, PlannedFix, RepairIteration, RepairSessionLog,
+    ValidateOutcome,
 };
 
 const GATHER_MAX_STEPS: usize = 14;
@@ -90,11 +90,11 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
             return PhaseOutcome::Return(vec![]);
         }
 
-        let fix_plan =
-            match run_reason(self.sctx, self.dispatch, &gathered, &log_snapshot, i).await {
-                Ok(p) => p,
-                Err(e) => return PhaseOutcome::Failed { reason: e },
-            };
+        let fix_plan = match run_reason(self.sctx, self.dispatch, &gathered, &log_snapshot, i).await
+        {
+            Ok(p) => p,
+            Err(e) => return PhaseOutcome::Failed { reason: e },
+        };
 
         let apply_results = apply_fixes(self.sctx, self.thread_id, &fix_plan).await;
 
@@ -114,8 +114,7 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
 
         if has_mutations {
             let actx = build_tool_ctx(self.sctx, self.thread_id);
-            let validate_result =
-                DeterministicDbtValidateOnce::run(&actx, true, false, None).await;
+            let validate_result = DeterministicDbtValidateOnce::run(&actx, true, false, None).await;
 
             let (passed, entry_clone) = {
                 let mut log = self.session_log.lock().unwrap();
@@ -158,10 +157,8 @@ impl<'a> PhaseExecutor for RepairExecutor<'a> {
                 index_to_vector_store(self.sctx, entry, passed).await;
             }
             if passed {
-                crate::phase_plan_lifecycle::refresh_model_plan_grounded_schemas(
-                    self.sctx, &actx,
-                )
-                .await;
+                crate::phase_plan_lifecycle::refresh_model_plan_grounded_schemas(self.sctx, &actx)
+                    .await;
                 return PhaseOutcome::Return(vec![]);
             }
         }
@@ -260,7 +257,8 @@ async fn run_gather(
     .resolved_config(sctx.resolved_config().clone())
     .build();
 
-    let system_prompt = format!("\
+    let system_prompt = format!(
+        "\
 You are a dbt repair investigator. Read the relevant SQL models, YAML schema files, \
 and query the vector store for similar past errors.\n\n\
 STRICT RULES:\n\
@@ -268,7 +266,8 @@ STRICT RULES:\n\
 - Read each file ONCE. Do not re-read files you have already read.\n\
 - If vect_query returns empty results, do NOT retry the same query.\n\
 - You have a strict budget of {GATHER_MAX_STEPS} tool calls. Be efficient.\n\
-- When you have read the failing model and its upstream refs, STOP.");
+- When you have read the failing model and its upstream refs, STOP."
+    );
 
     let history = session_log.format_for_prompt();
     let question = format!(
@@ -380,7 +379,9 @@ async fn collect_investigation_results(sctx: &SuiteCtx, thread_id: &str) -> Inve
             } else {
                 obs_text.clone()
             };
-            sections.push(format!("### Tool: {name}\nArgs: {args_brief}\n{obs_capped}"));
+            sections.push(format!(
+                "### Tool: {name}\nArgs: {args_brief}\n{obs_capped}"
+            ));
 
             if name == "file" && observation.ok {
                 let op = args.get("op").and_then(|v| v.as_str()).unwrap_or("");
@@ -493,11 +494,10 @@ async fn run_reason(
         .map(|cfg| crate::dialect::active_provider_dialect(cfg))
         .unwrap_or_else(|| "Unknown SQL dialect".into());
 
-    let schema =
-        react_core::schema_registry::OpenAiStrictSchema::for_type::<RepairFixPlanV1>(
-            "repair.fix_plan",
-        )
-        .map_err(|e| format!("schema build error: {e}"))?;
+    let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<RepairFixPlanV1>(
+        "repair.fix_plan",
+    )
+    .map_err(|e| format!("schema build error: {e}"))?;
 
     let upstream_block = if !gathered.upstream_schemas.is_empty() {
         let mut lines = vec![
@@ -528,7 +528,10 @@ async fn run_reason(
             } else {
                 "sql"
             };
-            lines.push(format!("\n### `{}`\n```{lang}\n{}\n```", gf.path, gf.content));
+            lines.push(format!(
+                "\n### `{}`\n```{lang}\n{}\n```",
+                gf.path, gf.content
+            ));
         }
         lines.join("\n")
     } else {
@@ -587,11 +590,7 @@ async fn run_reason(
 }
 
 /// Stage 3: Apply — mechanically apply each planned fix.
-async fn apply_fixes(
-    sctx: &SuiteCtx,
-    thread_id: &str,
-    fixes: &[PlannedFix],
-) -> Vec<ApplyResult> {
+async fn apply_fixes(sctx: &SuiteCtx, thread_id: &str, fixes: &[PlannedFix]) -> Vec<ApplyResult> {
     let actx = build_tool_ctx(sctx, thread_id);
     let datasets = crate::ctx_ext::sctx_datasets(sctx);
     let mut results = Vec::new();
@@ -615,11 +614,7 @@ async fn apply_fixes(
                     Ok(outcome) => {
                         let _ = actx
                             .storage()
-                            .put_bytes(
-                                &outcome.key,
-                                outcome.content.as_bytes(),
-                                "text/plain",
-                            )
+                            .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/plain")
                             .await;
                         ApplyResult {
                             path: fix.path.clone(),
@@ -639,7 +634,9 @@ async fn apply_fixes(
             FileOp::Write => {
                 match crate::project_fs::write_file(
                     &actx,
-                    datasets.as_ref().map(|a| a as &Arc<dyn crate::providers::DatasetCatalogProvider>),
+                    datasets
+                        .as_ref()
+                        .map(|a| a as &Arc<dyn crate::providers::DatasetCatalogProvider>),
                     &fix.path,
                     &fix.content,
                 )
@@ -805,7 +802,8 @@ mod tests {
 
     #[test]
     fn repair_fix_plan_v1_round_trips() {
-        let json = r#"{"fixes":[{"path":"models/stg_orders.sql","op":"write","content":"SELECT 1"}]}"#;
+        let json =
+            r#"{"fixes":[{"path":"models/stg_orders.sql","op":"write","content":"SELECT 1"}]}"#;
         let plan: RepairFixPlanV1 = serde_json::from_str(json).unwrap();
         assert_eq!(plan.fixes.len(), 1);
         assert_eq!(plan.fixes[0].path, "models/stg_orders.sql");
@@ -822,10 +820,9 @@ mod tests {
 
     #[test]
     fn gather_diagnosis_v1_schema_is_valid() {
-        let schema =
-            react_core::schema_registry::OpenAiStrictSchema::for_type::<GatherDiagnosisV1>(
-                "test.gather_diagnosis",
-            );
+        let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<GatherDiagnosisV1>(
+            "test.gather_diagnosis",
+        );
         assert!(schema.is_ok(), "schema generation must succeed");
     }
 }

@@ -164,7 +164,10 @@ impl Tool for KbIngestDirTool {
         let mut idx = 0usize;
         while idx < chunks.len() {
             let end = (idx + batch).min(chunks.len());
-            let texts: Vec<String> = chunks[idx..end].iter().map(|c| c.text().to_string()).collect();
+            let texts: Vec<String> = chunks[idx..end]
+                .iter()
+                .map(|c| c.text().to_string())
+                .collect();
             let vecs = ctx
                 .llm_embed(&texts)
                 .map_err(|e| format!("embed failed: {}", e))?;

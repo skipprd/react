@@ -162,7 +162,8 @@ where
                 .iter()
                 .filter(|file| {
                     available_root_set.contains(file.repo_root.as_str())
-                        && !current_keys.contains(&manifest_file_key(&file.repo_root, &file.rel_path))
+                        && !current_keys
+                            .contains(&manifest_file_key(&file.repo_root, &file.rel_path))
                 })
                 .cloned()
                 .collect();
@@ -233,8 +234,10 @@ where
                         end,
                         docs.len()
                     ));
-                    let texts: Vec<String> =
-                        docs[idx..end].iter().map(|d| d.text().to_string()).collect();
+                    let texts: Vec<String> = docs[idx..end]
+                        .iter()
+                        .map(|d| d.text().to_string())
+                        .collect();
                     let embeddings = ctx
                         .llm_embed(&texts)
                         .map_err(|e| format!("repo indexing embed failed: {e}"))?;
@@ -263,7 +266,8 @@ where
                 next_manifest_files.remove(&manifest_file_key(&file.repo_root, &file.rel_path));
             }
             for file in changed_manifest_files {
-                next_manifest_files.insert(manifest_file_key(&file.repo_root, &file.rel_path), file);
+                next_manifest_files
+                    .insert(manifest_file_key(&file.repo_root, &file.rel_path), file);
             }
 
             let mut next_manifest_files = next_manifest_files.into_values().collect::<Vec<_>>();
@@ -310,7 +314,10 @@ where
             end,
             docs.len()
         ));
-        let texts: Vec<String> = docs[idx..end].iter().map(|d| d.text().to_string()).collect();
+        let texts: Vec<String> = docs[idx..end]
+            .iter()
+            .map(|d| d.text().to_string())
+            .collect();
         let embeddings = ctx
             .llm_embed(&texts)
             .map_err(|e| format!("repo indexing embed failed: {e}"))?;
@@ -447,7 +454,11 @@ fn build_documents(files: &[FileSnapshot]) -> (Vec<AdminRepoDocument>, Vec<RepoI
                 file.repo_root, file.repo_label, file.rel_path, chunk
             );
             docs.push(AdminRepoDocument::new(
-                format!("{}{}", file_vector_prefix(&file.repo_root, &file.rel_path), chunk_index),
+                format!(
+                    "{}{}",
+                    file_vector_prefix(&file.repo_root, &file.rel_path),
+                    chunk_index
+                ),
                 text,
                 Vec::new(),
                 epoch,
@@ -559,7 +570,10 @@ fn build_manifest_fingerprint(files: &[RepoIndexManifestFile]) -> String {
 }
 
 fn manifest_roots(files: &[RepoIndexManifestFile]) -> Vec<String> {
-    let mut roots = files.iter().map(|file| file.repo_root.clone()).collect::<Vec<_>>();
+    let mut roots = files
+        .iter()
+        .map(|file| file.repo_root.clone())
+        .collect::<Vec<_>>();
     roots.sort();
     roots.dedup();
     roots
@@ -617,9 +631,8 @@ fn include_file(path: &Path) -> bool {
         .to_ascii_lowercase()
         .as_str()
     {
-        "rs" | "toml" | "lock" | "md" | "mdx" | "txt" | "yml" | "yaml" | "json" | "js"
-        | "jsx" | "ts" | "tsx" | "sql" | "sh" | "proto" | "graphql" | "gql" | "css"
-        | "html" => true,
+        "rs" | "toml" | "lock" | "md" | "mdx" | "txt" | "yml" | "yaml" | "json" | "js" | "jsx"
+        | "ts" | "tsx" | "sql" | "sh" | "proto" | "graphql" | "gql" | "css" | "html" => true,
         _ => false,
     }
 }
@@ -637,8 +650,8 @@ mod tests {
     use react_core::error::CoreError;
     use react_core::keyspace::DefaultKeyspace;
     use react_core::llm::{ChatMessage, LargeLanguageModel, LlmCallOptions, NullModel};
-    use react_core::provider_traits::{StoredVectorRecord, VectorStore};
     use react_core::provider_traits::NullSecretsProvider;
+    use react_core::provider_traits::{StoredVectorRecord, VectorStore};
     use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -675,7 +688,10 @@ mod tests {
         }
 
         async fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<(), CoreError> {
-            self.json.lock().unwrap().insert(key.to_string(), value.clone());
+            self.json
+                .lock()
+                .unwrap()
+                .insert(key.to_string(), value.clone());
             Ok(())
         }
 
@@ -685,7 +701,10 @@ mod tests {
             value: &serde_json::Value,
             _expected_etag: Option<&str>,
         ) -> Result<ConditionalWriteStatus, CoreError> {
-            self.json.lock().unwrap().insert(key.to_string(), value.clone());
+            self.json
+                .lock()
+                .unwrap()
+                .insert(key.to_string(), value.clone());
             Ok(ConditionalWriteStatus::Written)
         }
 
@@ -786,7 +805,11 @@ mod tests {
     struct MockLlm;
 
     impl LargeLanguageModel for MockLlm {
-        fn chat(&self, _messages: &[ChatMessage], _options: &LlmCallOptions) -> Result<String, String> {
+        fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            _options: &LlmCallOptions,
+        ) -> Result<String, String> {
             NullModel::new().chat(_messages, _options)
         }
 
@@ -817,9 +840,14 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_repo_indexed_reuses_manifest_when_inputs_do_not_change() {
-        let root = std::env::temp_dir().join(format!("skippr-admin-index-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("skippr-admin-index-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("src")).expect("mkdir");
-        fs::write(root.join("src/main.rs"), "fn main() { println!(\"hi\"); }\n").expect("write");
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() { println!(\"hi\"); }\n",
+        )
+        .expect("write");
 
         let storage: Arc<dyn StorageAdapter> = Arc::new(MockStorage::default());
         let vector = Arc::new(MockVectorStore::default());
@@ -870,10 +898,8 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_repo_indexed_only_updates_changed_files() {
-        let root = std::env::temp_dir().join(format!(
-            "skippr-admin-delta-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("skippr-admin-delta-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(root.join("src")).expect("mkdir");
         fs::write(root.join("src/a.rs"), "fn a() { println!(\"a1\"); }\n").expect("write a");
         fs::write(root.join("src/b.rs"), "fn b() { println!(\"b1\"); }\n").expect("write b");
@@ -918,7 +944,11 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(root.join("src")).expect("mkdir");
-        fs::write(root.join("src/main.rs"), "fn main() { println!(\"hi\"); }\n").expect("write");
+        fs::write(
+            root.join("src/main.rs"),
+            "fn main() { println!(\"hi\"); }\n",
+        )
+        .expect("write");
 
         let storage: Arc<dyn StorageAdapter> = Arc::new(MockStorage::default());
         let vector = Arc::new(MockVectorStore::default());

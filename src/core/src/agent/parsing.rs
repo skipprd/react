@@ -24,11 +24,12 @@ impl Agent {
         let cleaned = Self::strip_markdown_code_fences(raw);
         let trimmed = cleaned.trim();
 
-        let v: Value = json_repair::resilient_parse(trimmed)
-            .map_err(|_| CoreError::Agent(format!(
+        let v: Value = json_repair::resilient_parse(trimmed).map_err(|_| {
+            CoreError::Agent(format!(
                 "invalid JSON from model: {}",
                 serde_json::from_str::<Value>(trimmed).unwrap_err()
-            )))?;
+            ))
+        })?;
 
         if let Some(first_end) = json_repair::find_first_json_object_end(trimmed) {
             let tail = trimmed[first_end..].trim();
@@ -71,10 +72,10 @@ impl Agent {
                             .to_string(),
                     ));
                 }
-                let args: Value = json_repair::resilient_parse_string_field(&args_json)
-                    .map_err(|e| CoreError::Agent(format!(
-                        "agent.step.v1 validation error: args {e}"
-                    )))?;
+                let args: Value =
+                    json_repair::resilient_parse_string_field(&args_json).map_err(|e| {
+                        CoreError::Agent(format!("agent.step.v1 validation error: args {e}"))
+                    })?;
                 Ok(ParsedStep::Tool { name, args })
             }
             AgentStepTypeV1::Complete => {

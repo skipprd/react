@@ -83,7 +83,9 @@ impl VectorStore for AdminLanceVectorStore {
         scope: &RequestScope,
         thread_id: &str,
     ) -> Result<(), String> {
-        self.store_for(scope).delete_thread_embeddings(thread_id).await
+        self.store_for(scope)
+            .delete_thread_embeddings(thread_id)
+            .await
     }
 
     async fn delete_project_embeddings(&self, scope: &RequestScope) -> Result<(), String> {
@@ -94,7 +96,11 @@ impl VectorStore for AdminLanceVectorStore {
         self.store_for(scope).delete_namespace(namespace).await
     }
 
-    async fn delete_ids_with_prefix(&self, scope: &RequestScope, prefix: &str) -> Result<(), String> {
+    async fn delete_ids_with_prefix(
+        &self,
+        scope: &RequestScope,
+        prefix: &str,
+    ) -> Result<(), String> {
         self.store_for(scope).delete_ids_with_prefix(prefix).await
     }
 }

@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use crate::providers::{CatalogProvider, DatasetCatalogProvider};
 use react_core::agent::AgentCtx;
+use react_core::storage::retry_get_bytes;
 use react_core::tools::Tool;
 use std::fs;
 use std::path::PathBuf;
@@ -120,7 +121,7 @@ async fn probe_compiled_model_sql(
     let mut failures: Vec<serde_json::Value> = Vec::new();
     let mut probed = 0usize;
     for key in keys.iter() {
-        let bytes = match ctx.storage().get_bytes(key).await {
+        let bytes = match retry_get_bytes(ctx.storage().as_ref(), key).await {
             Ok(b) => b,
             Err(e) => {
                 failures.push(serde_json::json!({
@@ -271,11 +272,11 @@ impl Tool for DbtValidateTool {
                 },
                 exclude: None,
             };
-            let res1 = crate::transient_retry::retry_transient_default(
-                "dbt_validate_compile",
-                || async { dbt.validate_project(ctx.scope(), &compile_args).await },
-            )
-            .await?;
+            let res1 =
+                crate::transient_retry::retry_transient_default("dbt_validate_compile", || async {
+                    dbt.validate_project(ctx.scope(), &compile_args).await
+                })
+                .await?;
             let probe = probe_compiled_model_sql(ctx, project_name, &select_terms).await?;
             let probe_ok = probe.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
             ladder.push(ValidationLadderPhase {
@@ -391,11 +392,11 @@ impl Tool for DbtValidateTool {
                 select: None,
                 exclude: None,
             };
-            let res = crate::transient_retry::retry_transient_default(
-                "dbt_validate_default",
-                || async { dbt.validate_project(ctx.scope(), &validate_args).await },
-            )
-            .await?;
+            let res =
+                crate::transient_retry::retry_transient_default("dbt_validate_default", || async {
+                    dbt.validate_project(ctx.scope(), &validate_args).await
+                })
+                .await?;
             ladder.push(ValidationLadderPhase {
                 phase: "default".to_string(),
                 select_terms: vec![],
@@ -432,9 +433,7 @@ impl Tool for DbtValidateTool {
                     })
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
-                match crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000)
-                    .await
-                {
+                match crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000).await {
                     Ok(sum) => {
                         obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                         obj.insert(

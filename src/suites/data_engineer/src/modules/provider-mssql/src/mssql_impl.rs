@@ -9,11 +9,11 @@ use tokio::sync::Semaphore;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 use react_core::discover::stats::FieldStats;
+use react_suite_data_engineer::providers::warehouse_utils;
 use react_suite_data_engineer::providers::{
     DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
     WarehouseNaming,
 };
-use react_suite_data_engineer::providers::warehouse_utils;
 
 const DEFAULT_MSSQL_MAX_CONCURRENCY: usize = 15;
 const MSSQL_MAX_CONCURRENCY_CAP: usize = 20;
@@ -62,22 +62,16 @@ impl MssqlProvider {
             .unwrap_or_else(|| "localhost".to_string());
         let port = settings
             .port
-            .or_else(|| {
-                getenv_nonempty("MSSQL_PORT").and_then(|v| v.parse::<u16>().ok())
-            })
+            .or_else(|| getenv_nonempty("MSSQL_PORT").and_then(|v| v.parse::<u16>().ok()))
             .unwrap_or(1433);
         let user = settings
             .user
             .or_else(|| getenv_nonempty("MSSQL_USER"))
-            .ok_or_else(|| {
-                "MSSQL user is required (MSSQL_USER)".to_string()
-            })?;
+            .ok_or_else(|| "MSSQL user is required (MSSQL_USER)".to_string())?;
         let password = settings
             .password
             .or_else(|| getenv_nonempty("MSSQL_PASSWORD"))
-            .ok_or_else(|| {
-                "MSSQL password is required (MSSQL_PASSWORD)".to_string()
-            })?;
+            .ok_or_else(|| "MSSQL password is required (MSSQL_PASSWORD)".to_string())?;
         let database = settings
             .database
             .filter(|s| !s.trim().is_empty())
@@ -100,13 +94,12 @@ impl MssqlProvider {
             },
             MSSQL_MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_MSSQL_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         let mut config = Config::new();
         config.host(&host);

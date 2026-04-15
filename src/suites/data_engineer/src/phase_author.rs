@@ -1,6 +1,6 @@
 use super::*;
 use crate::control_flow::Phase;
-
+use react_core::storage::{retry_get_bytes, retry_head_etag, retry_list_prefix};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AuthorValidateTrigger {
@@ -88,18 +88,19 @@ fn review_patch_detail(
     execution_state: &crate::progress_controller::ExecutionState,
 ) -> Option<crate::phase_reason_detail::ReviewDecisionTransitionDetail> {
     match execution_state.phase.transition.as_ref()? {
-        crate::progress_controller::PhaseTransition::ReviewPatchImpl { meta, target_paths: _ } => {
-            Some(crate::phase_reason_detail::ReviewDecisionTransitionDetail {
-                meta: meta.clone(),
-                review_phase: String::new(),
-                answer: crate::domain_types::ReviewDecision::PatchImpl,
-                forced_progress_guard: false,
-                forced_progress_by_subjective_retry: false,
-                review_subjective_retry_count: 0,
-                trigger_step_idx: 0,
-                trigger_step: serde_json::Value::Null,
-            })
-        }
+        crate::progress_controller::PhaseTransition::ReviewPatchImpl {
+            meta,
+            target_paths: _,
+        } => Some(crate::phase_reason_detail::ReviewDecisionTransitionDetail {
+            meta: meta.clone(),
+            review_phase: String::new(),
+            answer: crate::domain_types::ReviewDecision::PatchImpl,
+            forced_progress_guard: false,
+            forced_progress_by_subjective_retry: false,
+            review_subjective_retry_count: 0,
+            trigger_step_idx: 0,
+            trigger_step: serde_json::Value::Null,
+        }),
         _ => None,
     }
 }
@@ -141,12 +142,18 @@ fn resolve_review_patch_target_paths<T>(
         if target.is_empty() {
             continue;
         }
-        if target.contains('/') || target.ends_with(".sql") || target.ends_with(".yml") || target.ends_with(".yaml") {
+        if target.contains('/')
+            || target.ends_with(".sql")
+            || target.ends_with(".yml")
+            || target.ends_with(".yaml")
+        {
             paths.insert(normalize_review_patch_target_path(target));
             continue;
         }
         for task in tasks {
-            if task_id_of(task) == target || path_matches_review_target(expected_path_of(task), target) {
+            if task_id_of(task) == target
+                || path_matches_review_target(expected_path_of(task), target)
+            {
                 if let Some(path) = expected_path_of(task) {
                     paths.insert(normalize_review_patch_target_path(path));
                 }
@@ -235,7 +242,7 @@ async fn append_review_patch_target_contents(
             continue;
         }
         let key = format!("{}/{}", base, rel);
-        let Ok(bytes) = actx.storage().get_bytes(&key).await else {
+        let Ok(bytes) = retry_get_bytes(actx.storage().as_ref(), &key).await else {
             continue;
         };
         let content = String::from_utf8_lossy(&bytes).to_string();
@@ -273,8 +280,12 @@ async fn transition_plan_missing(
             track.plan_phase(),
             Some(crate::progress_controller::PhaseTransition::PlanMissing {
                 kind: match track {
-                    crate::track_spec::TrackKind::Cleanse => crate::progress_controller::TrackKind::Cleanse,
-                    crate::track_spec::TrackKind::Model => crate::progress_controller::TrackKind::Model,
+                    crate::track_spec::TrackKind::Cleanse => {
+                        crate::progress_controller::TrackKind::Cleanse
+                    }
+                    crate::track_spec::TrackKind::Model => {
+                        crate::progress_controller::TrackKind::Model
+                    }
                 },
                 note: format!(
                     "authoring entered without an active {} plan; routing back to planning",
@@ -334,7 +345,9 @@ mod tests {
                     }],
                 }],
                 status: crate::plan::TaskStatus::InProgress,
-                checklist: crate::plan::canonical_task_checklist(crate::track_spec::TrackKind::Model),
+                checklist: crate::plan::canonical_task_checklist(
+                    crate::track_spec::TrackKind::Model,
+                ),
             }],
             batches: batches.clone(),
             work_groups: crate::plan::canonical_work_groups_from_batches(&batches, "model"),
@@ -425,9 +438,8 @@ mod tests {
     fn reconcile_existing_model_sql_checklist_marks_matching_paths_done() {
         let mut plan = sample_model_plan();
         let item_names = vec!["dim_customers".to_string()];
-        let existing_paths = std::collections::HashSet::from([String::from(
-            "./models/marts/dim_customers.sql",
-        )]);
+        let existing_paths =
+            std::collections::HashSet::from([String::from("./models/marts/dim_customers.sql")]);
 
         let changed = reconcile_existing_model_sql_checklist(
             &mut plan,
@@ -483,14 +495,20 @@ async fn transition_plan_not_approved(
         Some(phase),
         crate::phase_contract::PhaseDecision::loopback(
             track.plan_phase(),
-            Some(crate::progress_controller::PhaseTransition::PlanNotApproved {
-                status: match status {
-                    crate::plan_types::PlanStatus::Draft => crate::progress_controller::PlanStatus::Draft,
-                    crate::plan_types::PlanStatus::Approved
-                    | crate::plan_types::PlanStatus::Completed
-                    | crate::plan_types::PlanStatus::Cancelled => crate::progress_controller::PlanStatus::Unknown,
+            Some(
+                crate::progress_controller::PhaseTransition::PlanNotApproved {
+                    status: match status {
+                        crate::plan_types::PlanStatus::Draft => {
+                            crate::progress_controller::PlanStatus::Draft
+                        }
+                        crate::plan_types::PlanStatus::Approved
+                        | crate::plan_types::PlanStatus::Completed
+                        | crate::plan_types::PlanStatus::Cancelled => {
+                            crate::progress_controller::PlanStatus::Unknown
+                        }
+                    },
                 },
-            }),
+            ),
         ),
     )
     .await
@@ -508,10 +526,7 @@ async fn transition_to_track_validate_with_plan_key(
         thread_store,
         thread_id,
         Some(phase),
-        crate::phase_contract::PhaseDecision::forward(
-            track.validate_phase(),
-            Some(transition),
-        ),
+        crate::phase_contract::PhaseDecision::forward(track.validate_phase(), Some(transition)),
     )
     .await
 }
@@ -617,7 +632,7 @@ async fn reconcile_existing_model_sql_from_storage(
             continue;
         };
         let key = crate::project_fs::join_storage_key(actx, &expected_path);
-        match actx.storage().head_etag(&key).await {
+        match retry_head_etag(actx.storage().as_ref(), &key).await {
             Ok(Some(_)) => {
                 existing_model_paths.insert(normalize_review_patch_target_path(&expected_path));
             }
@@ -632,7 +647,12 @@ async fn reconcile_existing_model_sql_from_storage(
             }
         }
     }
-    reconcile_existing_model_sql_checklist(plan, item_names, checklist_item_id, &existing_model_paths)
+    reconcile_existing_model_sql_checklist(
+        plan,
+        item_names,
+        checklist_item_id,
+        &existing_model_paths,
+    )
 }
 
 fn build_schema_checklist_context(
@@ -689,19 +709,18 @@ async fn check_batch_lock_and_loopback(
         "{label} batch authoring did not converge within the local retry budget. \
 This is an implementation/authoring failure, not an implicit plan rewrite.\n\n{reason}"
     );
-    Ok(Some(apply_author_escalation(
-        thread_store,
-        thread_id,
-        phase,
-        AuthorEscalation::FatalLocal(detail),
-    )
-    .await?))
+    Ok(Some(
+        apply_author_escalation(
+            thread_store,
+            thread_id,
+            phase,
+            AuthorEscalation::FatalLocal(detail),
+        )
+        .await?,
+    ))
 }
 
-fn author_plan_defect(
-    phase: Phase,
-    message: impl Into<String>,
-) -> AuthorEscalation {
+fn author_plan_defect(phase: Phase, message: impl Into<String>) -> AuthorEscalation {
     AuthorEscalation::PlanDefect {
         violations: vec![crate::progress_controller::PlanViolation::new(
             phase,
@@ -875,8 +894,12 @@ async fn load_cleanse_author_context(
                 params.last_validate_failed,
             ) {
                 let transition = match trigger {
-                    AuthorValidateTrigger::WorkGroupValidate => crate::progress_controller::PhaseTransition::WorkGroupValidate,
-                    AuthorValidateTrigger::PlanTasksDone => crate::progress_controller::PhaseTransition::PlanTasksDone,
+                    AuthorValidateTrigger::WorkGroupValidate => {
+                        crate::progress_controller::PhaseTransition::WorkGroupValidate
+                    }
+                    AuthorValidateTrigger::PlanTasksDone => {
+                        crate::progress_controller::PhaseTransition::PlanTasksDone
+                    }
                 };
                 transition_to_track_validate_with_plan_key(
                     params.thread_store,
@@ -1062,7 +1085,7 @@ async fn load_model_author_context(
             {
                 let key =
                     crate::project_fs::join_storage_key(actx, crate::project_fs::MODELS_SCHEMA_YML);
-                if let Ok(bytes) = actx.storage().get_bytes(&key).await {
+                if let Ok(bytes) = retry_get_bytes(actx.storage().as_ref(), &key).await {
                     let content = String::from_utf8_lossy(&bytes).to_string();
                     if let Ok(vy) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
                         let mut names_in_schema: std::collections::HashSet<String> =
@@ -1082,8 +1105,10 @@ async fn load_model_author_context(
                         let all_present = ids.iter().all(|n| names_in_schema.contains(n));
                         if all_present {
                             let mut changed = false;
-                            let checklist_item_id =
-                                resolve_checklist_item_id(actx, crate::plan::CHECKLIST_SCHEMA_CONTRACT);
+                            let checklist_item_id = resolve_checklist_item_id(
+                                actx,
+                                crate::plan::CHECKLIST_SCHEMA_CONTRACT,
+                            );
                             for n in ids.iter() {
                                 if let Some(t) = plan.tasks.iter().find(|t| t.name == *n) {
                                     let done = t
@@ -1145,8 +1170,12 @@ async fn load_model_author_context(
                 params.last_validate_failed,
             ) {
                 let transition = match trigger {
-                    AuthorValidateTrigger::WorkGroupValidate => crate::progress_controller::PhaseTransition::WorkGroupValidate,
-                    AuthorValidateTrigger::PlanTasksDone => crate::progress_controller::PhaseTransition::PlanTasksDone,
+                    AuthorValidateTrigger::WorkGroupValidate => {
+                        crate::progress_controller::PhaseTransition::WorkGroupValidate
+                    }
+                    AuthorValidateTrigger::PlanTasksDone => {
+                        crate::progress_controller::PhaseTransition::PlanTasksDone
+                    }
                 };
                 transition_to_track_validate_with_plan_key(
                     params.thread_store,
@@ -1231,7 +1260,7 @@ async fn build_author_prompt(
             .trim_end_matches('/')
             .to_string();
         let pref = format!("{}/models/staging/", base);
-        if let Ok(keys) = actx.storage().list_prefix(&pref).await {
+        if let Ok(keys) = retry_list_prefix(actx.storage().as_ref(), &pref).await {
             let mut rels: Vec<String> = keys
                 .into_iter()
                 .filter(|k| k.ends_with(".sql") && !k.contains("/_versions/"))
@@ -1286,8 +1315,7 @@ async fn build_author_prompt(
             }
         } else {
             if let Some(p) = crate::plan::load_model_plan(actx).await? {
-                if let PlanState::ModelSqlItemNames(names) = plan_state
-                {
+                if let PlanState::ModelSqlItemNames(names) = plan_state {
                     {
                         let mut want_names: Vec<String> = names.clone();
                         for n in names.iter() {
@@ -1336,7 +1364,10 @@ async fn build_author_prompt(
         q.push_str("\n\n");
         q.push_str(&params.repair_ctx.format_error_context());
     }
-    if matches!(params.execution_state.phase.transition.as_ref(), Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl { .. })) {
+    if matches!(
+        params.execution_state.phase.transition.as_ref(),
+        Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl { .. })
+    ) {
         let review_detail = review_patch_detail(params.execution_state);
         if let Some(key) = review_detail
             .as_ref()
@@ -1344,7 +1375,7 @@ async fn build_author_prompt(
             .map(|review_ref| review_ref.key.trim().to_string())
             .filter(|s| !s.is_empty())
         {
-            if let Ok(bytes) = actx.storage().get_bytes(&key).await {
+            if let Ok(bytes) = retry_get_bytes(actx.storage().as_ref(), &key).await {
                 let txt = String::from_utf8_lossy(&bytes).to_string();
                 if !txt.trim().is_empty() {
                     q.push_str("\n\nPRIOR REVIEW FEEDBACK (must address by editing implementation; do NOT change the approved plan/spec):\n");
@@ -1599,9 +1630,7 @@ async fn handle_author_run_outcome(
                     crate::progress_controller::DataEngineerEvent::InfraTransientCleared,
                 )
                 .await
-                .map_err(|e| {
-                    format!("failed to persist infra-transient flag clear: {e}")
-                })?;
+                .map_err(|e| format!("failed to persist infra-transient flag clear: {e}"))?;
                 return Ok(PhaseOutcome::stayed_waiting(
                     "batch failed with transient infrastructure error; will retry",
                 ));
@@ -1652,13 +1681,19 @@ impl DataEngineerSuite {
                 | Some(crate::progress_controller::PhaseTransition::ValidateFail { .. })
         );
         let last_validate_failed = execution_state.last_validate_failed() || force_failed;
-        let mutated_since_fail = if force_failed { false } else { execution_state.repair.mutated_since_fail };
+        let mutated_since_fail = if force_failed {
+            false
+        } else {
+            execution_state.repair.mutated_since_fail
+        };
         let probe_status = execution_state.probe_requirement_status();
         let (probe_required, probe_satisfied) = match probe_status {
             crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
             crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
             crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
-            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => (false, true),
+            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => {
+                (false, true)
+            }
         };
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
             prompts::cleanse_system_prompt()
@@ -1715,22 +1750,11 @@ impl DataEngineerSuite {
             }
         };
 
-        let (registry, tools_card) = Self::build_tools_for_phase(
-            params.phase,
-            false,
-            sctx,
-            &plan_state,
-            false,
-        )?;
+        let (registry, tools_card) =
+            Self::build_tools_for_phase(params.phase, false, sctx, &plan_state, false)?;
 
-        let author_prompt = build_author_prompt(
-            &params,
-            &actx,
-            question,
-            &plan_context,
-            &plan_state,
-        )
-        .await?;
+        let author_prompt =
+            build_author_prompt(&params, &actx, question, &plan_context, &plan_state).await?;
 
         let pre_mutation_epoch = 0u64; // legacy parameter — mutation tracking now uses repair.mutated_since_fail
         match Agent::run_until_block_non_interactive(
@@ -1744,14 +1768,7 @@ impl DataEngineerSuite {
         .await
         {
             Ok(outcome) => {
-                handle_author_run_outcome(
-                    &params,
-                    &actx,
-                    sctx,
-                    pre_mutation_epoch,
-                    outcome,
-                )
-                .await
+                handle_author_run_outcome(&params, &actx, sctx, pre_mutation_epoch, outcome).await
             }
             Err(e) => Err(e.to_string().into()),
         }

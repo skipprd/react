@@ -10,7 +10,11 @@ pub fn derive_admin_scope(target: &RequestScope) -> Result<RequestScope, String>
         target.project_id.as_str()
     ))
     .map_err(|e| e.to_string())?;
-    Ok(RequestScope::new(target.tenant.clone(), workspace, project_id))
+    Ok(RequestScope::new(
+        target.tenant.clone(),
+        workspace,
+        project_id,
+    ))
 }
 
 #[cfg(test)]

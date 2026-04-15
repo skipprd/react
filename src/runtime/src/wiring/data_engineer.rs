@@ -4,16 +4,16 @@ use react_core::suite::SuiteCtx;
 use react_module_provider_athena::{AthenaProvider, AthenaSettings};
 use react_module_provider_bigquery::{BigQueryProvider, BigQuerySettings};
 use react_module_provider_catalog::DefaultCatalogProvider;
+use react_module_provider_clickhouse::{ClickHouseProvider, ClickHouseSettings};
+use react_module_provider_databricks::{DatabricksProvider, DatabricksSettings};
 use react_module_provider_dbt::{DbtProjectProvider, DbtRunnerConfig, DbtRunnerMode};
+use react_module_provider_motherduck::{MotherDuckProvider, MotherDuckSettings};
 use react_module_provider_mssql::{MssqlProvider, MssqlSettings};
 use react_module_provider_postgres::{PostgresProvider, PostgresSettings};
+use react_module_provider_redshift::{RedshiftProvider, RedshiftSettings};
 use react_module_provider_skippr::SkipprCliProvider;
 use react_module_provider_snowflake::{SnowflakeProvider, SnowflakeSettings};
-use react_module_provider_databricks::{DatabricksProvider, DatabricksSettings};
 use react_module_provider_synapse::{SynapseProvider, SynapseSettings};
-use react_module_provider_redshift::{RedshiftProvider, RedshiftSettings};
-use react_module_provider_clickhouse::{ClickHouseProvider, ClickHouseSettings};
-use react_module_provider_motherduck::{MotherDuckProvider, MotherDuckSettings};
 use react_suite_data_engineer::ctx_ext::{
     CatalogCap, DatasetsCap, DbtCap, ProvidersCfgCap, QueryCap, SkipprCap, WarehouseCap,
 };
@@ -130,28 +130,39 @@ fn resolve_snowflake_settings(providers: &de_cfg::ProvidersResolved) -> Snowflak
         })
         .unwrap_or(120);
 
-    let private_key_pem = getenv_nonempty("SNOWFLAKE_PRIVATE_KEY_PATH").and_then(|path| {
-        match std::fs::read_to_string(&path) {
-            Ok(contents) => Some(contents),
-            Err(e) => {
-                tracing::error!("failed to read SNOWFLAKE_PRIVATE_KEY_PATH={}: {}", path, e);
-                None
-            }
-        }
-    });
+    let private_key_pem =
+        getenv_nonempty("SNOWFLAKE_PRIVATE_KEY_PATH").and_then(
+            |path| match std::fs::read_to_string(&path) {
+                Ok(contents) => Some(contents),
+                Err(e) => {
+                    tracing::error!("failed to read SNOWFLAKE_PRIVATE_KEY_PATH={}: {}", path, e);
+                    None
+                }
+            },
+        );
 
     SnowflakeSettings {
         account: getenv_nonempty("SNOWFLAKE_ACCOUNT").or_else(|| {
-            extras.get("account").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("account")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         user: getenv_nonempty("SNOWFLAKE_USER").or_else(|| {
-            extras.get("user").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("user")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         password: getenv_nonempty("SNOWFLAKE_PASSWORD").or_else(|| {
-            extras.get("password").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("password")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         private_key_pem: private_key_pem.or_else(|| {
-            extras.get("private_key_path")
+            extras
+                .get("private_key_path")
                 .and_then(|v| v.as_str())
                 .and_then(|path| std::fs::read_to_string(path).ok())
         }),
@@ -215,13 +226,22 @@ fn resolve_databricks_settings(providers: &de_cfg::ProvidersResolved) -> Databri
 
     DatabricksSettings {
         workspace_url: getenv_nonempty("DATABRICKS_HOST").or_else(|| {
-            extras.get("workspace_url").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("workspace_url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         token: getenv_nonempty("DATABRICKS_TOKEN").or_else(|| {
-            extras.get("token").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("token")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         warehouse_id: getenv_nonempty("DATABRICKS_WAREHOUSE_ID").or_else(|| {
-            extras.get("warehouse_id").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("warehouse_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         catalog: Some(providers.warehouse.container.clone()).filter(|s| !s.is_empty()),
         schema: Some(providers.warehouse.namespace.clone()).filter(|s| !s.is_empty()),
@@ -249,7 +269,10 @@ fn resolve_synapse_settings(providers: &de_cfg::ProvidersResolved) -> SynapseSet
         .unwrap_or(120);
 
     let connection_string = getenv_nonempty("SYNAPSE_CONNECTION_STRING").or_else(|| {
-        extras.get("connection_string").and_then(|v| v.as_str()).map(|s| s.to_string())
+        extras
+            .get("connection_string")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     });
 
     let (host, port, user, password, database) = if let Some(_cs) = &connection_string {
@@ -304,17 +327,29 @@ fn resolve_redshift_settings(providers: &de_cfg::ProvidersResolved) -> RedshiftS
     RedshiftSettings {
         database: nonempty(&providers.warehouse.container),
         cluster_identifier: getenv_nonempty("REDSHIFT_CLUSTER_IDENTIFIER").or_else(|| {
-            extras.get("cluster_identifier").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("cluster_identifier")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         workgroup_name: getenv_nonempty("REDSHIFT_WORKGROUP_NAME").or_else(|| {
-            extras.get("workgroup_name").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("workgroup_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         db_user: getenv_nonempty("REDSHIFT_DB_USER").or_else(|| {
-            extras.get("db_user").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("db_user")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         schema: nonempty(&providers.warehouse.namespace),
         region: getenv_nonempty("AWS_REGION").or_else(|| {
-            extras.get("region").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("region")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         max_concurrency,
         discovery_cache_ttl_secs,
@@ -341,14 +376,23 @@ fn resolve_clickhouse_settings(providers: &de_cfg::ProvidersResolved) -> ClickHo
 
     ClickHouseSettings {
         url: getenv_nonempty("CLICKHOUSE_URL").or_else(|| {
-            extras.get("url").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         database: nonempty(&providers.warehouse.container),
         user: getenv_nonempty("CLICKHOUSE_USER").or_else(|| {
-            extras.get("user").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("user")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         password: getenv_nonempty("CLICKHOUSE_PASSWORD").or_else(|| {
-            extras.get("password").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("password")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         max_concurrency,
         discovery_cache_ttl_secs,
@@ -376,7 +420,10 @@ fn resolve_motherduck_settings(providers: &de_cfg::ProvidersResolved) -> MotherD
 
     MotherDuckSettings {
         motherduck_token: getenv_nonempty("MOTHERDUCK_TOKEN").or_else(|| {
-            extras.get("motherduck_token").and_then(|v| v.as_str()).map(|s| s.to_string())
+            extras
+                .get("motherduck_token")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         }),
         database: nonempty(&providers.warehouse.container),
         schema: nonempty(&providers.warehouse.namespace),

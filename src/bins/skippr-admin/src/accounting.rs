@@ -93,11 +93,7 @@ pub async fn get_profile(
     })
 }
 
-pub async fn get_balance(
-    client: &Client,
-    table: &str,
-    tenant_id: &str,
-) -> Result<Balance, String> {
+pub async fn get_balance(client: &Client, table: &str, tenant_id: &str) -> Result<Balance, String> {
     let result = client
         .get_item()
         .table_name(table)
@@ -170,9 +166,7 @@ pub async fn get_daily_costs_est(
     days: u64,
 ) -> Result<Vec<DailyCost>, String> {
     let today = Utc::now().date_naive();
-    let start_date = today
-        .checked_sub_days(Days::new(days - 1))
-        .unwrap_or(today);
+    let start_date = today.checked_sub_days(Days::new(days - 1)).unwrap_or(today);
 
     let pk = format!("TENANT#{tenant_id}");
     let sk_start = format!("LEDGER#{}", start_date.format("%Y-%m-%d"));

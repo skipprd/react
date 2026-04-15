@@ -235,31 +235,21 @@ impl Tool for GoldModelTool {
             } else {
                 it.grounded_inputs.clone()
             };
-            let grounded_by_input: std::collections::BTreeMap<String, crate::plan_types::GroundedModelInput> =
-                effective_grounded_inputs
-                    .iter()
-                    .cloned()
-                    .map(|g| (g.input_name.trim().to_string(), g))
-                    .collect();
+            let grounded_by_input: std::collections::BTreeMap<
+                String,
+                crate::plan_types::GroundedModelInput,
+            > = effective_grounded_inputs
+                .iter()
+                .cloned()
+                .map(|g| (g.input_name.trim().to_string(), g))
+                .collect();
             let max_fetch_concurrency = 3usize;
             let storage = ctx.storage().clone();
-            let mut set: JoinSet<(
-                usize,
-                String,
-                String,
-                String,
-                String,
-                Vec<(String, String)>,
-            )> = JoinSet::new();
+            let mut set: JoinSet<(usize, String, String, String, String, Vec<(String, String)>)> =
+                JoinSet::new();
             // (idx, input, rel_path, content, relation_fqn, schema_cols)
-            let mut fetched: Vec<(
-                usize,
-                String,
-                String,
-                String,
-                String,
-                Vec<(String, String)>,
-            )> = Vec::new();
+            let mut fetched: Vec<(usize, String, String, String, String, Vec<(String, String)>)> =
+                Vec::new();
             for (idx, inp) in it.inputs.iter().cloned().enumerate() {
                 let Some(grounded) = grounded_by_input.get(inp.trim()).cloned() else {
                     errors.push(format!(
@@ -1029,8 +1019,7 @@ mod tests {
                 grounded_inputs: vec![crate::plan_types::GroundedModelInput {
                     input_name: "stg_test_raw_raw_orders".to_string(),
                     model_rel_path: "models/staging/stg_test_raw_raw_orders.sql".to_string(),
-                    relation_fqn:
-                        "AwsDataCatalog.test_silver.stg_test_raw_raw_orders".to_string(),
+                    relation_fqn: "AwsDataCatalog.test_silver.stg_test_raw_raw_orders".to_string(),
                     source_schema: vec![crate::plan_types::SourceColumnDef {
                         name: "order_id".to_string(),
                         data_type: "bigint".to_string(),

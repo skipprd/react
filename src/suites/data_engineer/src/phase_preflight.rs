@@ -1,6 +1,7 @@
 use crate::progress_controller::PhaseTransition;
 use crate::{control_flow, DataEngineerSuite, PhaseError, PhaseOutcome};
 use react_core::session::ThreadStore;
+use react_core::storage::retry_head_etag;
 use react_core::suite::SuiteCtx;
 
 impl DataEngineerSuite {
@@ -34,7 +35,7 @@ impl DataEngineerSuite {
         let key = sctx
             .keyspace()
             .scoped_key(sctx.scope(), &["dbt", "dbt_project.yml"]);
-        match sctx.storage().head_etag(&key).await {
+        match retry_head_etag(sctx.storage().as_ref(), &key).await {
             Ok(Some(_)) => {}
             Ok(None) => {
                 return Err(format!(

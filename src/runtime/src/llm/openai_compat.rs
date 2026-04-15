@@ -350,7 +350,8 @@ impl LargeLanguageModel for OpenAICompatModel {
                                 status_cc,
                                 pretty_json(&body_text_cc)
                             );
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body_text_cc) {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body_text_cc)
+                            {
                                 if let Some(error_obj) = v.get("error") {
                                     if let Some((prefix, msg)) = classify_oai_error(error_obj) {
                                         return Err(format!("{prefix}: {msg}"));
@@ -358,7 +359,10 @@ impl LargeLanguageModel for OpenAICompatModel {
                                 }
                             }
                             if status_cc == 401 || status_cc == 403 {
-                                return Err(format!("LLM_FATAL_ERROR: http {}: {}", status_cc, snippet));
+                                return Err(format!(
+                                    "LLM_FATAL_ERROR: http {}: {}",
+                                    status_cc, snippet
+                                ));
                             }
                             return Err(format!(
                                 "http 400 (responses) and fallback chat {}: {}",

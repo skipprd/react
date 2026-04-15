@@ -956,10 +956,7 @@ fn build_docker_run_args(
             args.push("-v".to_string());
             args.push(format!("{}:{}:ro", host_key_path, container_key_path));
             args.push("-e".to_string());
-            args.push(format!(
-                "SNOWFLAKE_PRIVATE_KEY_PATH={}",
-                container_key_path
-            ));
+            args.push(format!("SNOWFLAKE_PRIVATE_KEY_PATH={}", container_key_path));
         }
     }
 

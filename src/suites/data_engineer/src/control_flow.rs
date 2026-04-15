@@ -164,8 +164,13 @@ impl Phase {
         use crate::progress_controller::ExecutionTier;
         match self {
             Phase::ElDiscover | Phase::ElSync | Phase::ElVerify => ExecutionTier::El,
-            Phase::CleansePlan | Phase::CleanseAuthor | Phase::CleanseValidate | Phase::CleanseReview => ExecutionTier::Cleanse,
-            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => ExecutionTier::Model,
+            Phase::CleansePlan
+            | Phase::CleanseAuthor
+            | Phase::CleanseValidate
+            | Phase::CleanseReview => ExecutionTier::Cleanse,
+            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => {
+                ExecutionTier::Model
+            }
             _ => ExecutionTier::Unknown,
         }
     }
@@ -247,7 +252,6 @@ pub(crate) fn allowed_next_phases(from: Phase) -> &'static [Phase] {
 pub(crate) fn replan_backtrack_counter_cap() -> usize {
     crate::env_util::max_replan_backtracks()
 }
-
 
 pub(crate) fn is_replan_backtrack(from: Phase, to: Phase) -> bool {
     use crate::track_spec::TrackKind;
@@ -366,8 +370,7 @@ impl DeterministicDbtValidateOnce {
                     .unwrap_or_default();
                 let logs = obj.get("logs").cloned().unwrap_or(Value::Null);
                 if let Ok(sum) =
-                    crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000)
-                        .await
+                    crate::dbt_error::summarize_dbt_failure_llm(ctx, &errors, &logs, 2000).await
                 {
                     obj.insert("error_summary".to_string(), serde_json::json!(sum.summary));
                     obj.insert(
@@ -413,23 +416,59 @@ pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
     }
 
     const SIMPLE_TOOLS: &[(&str, ToolLabel)] = &[
-        ("json_file",  ToolLabel { verb: "JSON",     arg_key: "path",  fallback: "JSON file" }),
-        ("sql_schema", ToolLabel { verb: "Describe",  arg_key: "table", fallback: "List tables" }),
-        ("sql_stats",  ToolLabel { verb: "Stats",     arg_key: "table", fallback: "Stats" }),
-        ("sql_sample", ToolLabel { verb: "Sample",    arg_key: "table", fallback: "Sample" }),
+        (
+            "json_file",
+            ToolLabel {
+                verb: "JSON",
+                arg_key: "path",
+                fallback: "JSON file",
+            },
+        ),
+        (
+            "sql_schema",
+            ToolLabel {
+                verb: "Describe",
+                arg_key: "table",
+                fallback: "List tables",
+            },
+        ),
+        (
+            "sql_stats",
+            ToolLabel {
+                verb: "Stats",
+                arg_key: "table",
+                fallback: "Stats",
+            },
+        ),
+        (
+            "sql_sample",
+            ToolLabel {
+                verb: "Sample",
+                arg_key: "table",
+                fallback: "Sample",
+            },
+        ),
     ];
 
     if name == "file" {
         let op = arg_str(args, "op");
         let key = if op == "list" { "prefix" } else { "path" };
         let verb = match op {
-            "get" => "Read", "list" => "List", "patch" => "Patch",
-            "write" => "Write", "rm" => "Remove", "mv" => "Move",
+            "get" => "Read",
+            "list" => "List",
+            "patch" => "Patch",
+            "write" => "Write",
+            "rm" => "Remove",
+            "mv" => "Move",
             other if !other.is_empty() => return format!("file {other}"),
             _ => return "file".to_string(),
         };
         let p = arg_str(args, key);
-        return if p.is_empty() { format!("{verb} file") } else { format!("{verb} {p}") };
+        return if p.is_empty() {
+            format!("{verb} file")
+        } else {
+            format!("{verb} {p}")
+        };
     }
 
     if name == "run_sql" {
@@ -439,7 +478,11 @@ pub(crate) fn de_clean_tool_name(name: &str, args: &Value) -> String {
     for (tool, label) in SIMPLE_TOOLS {
         if name == *tool {
             let v = arg_str(args, label.arg_key);
-            return if v.is_empty() { label.fallback.to_string() } else { format!("{} {v}", label.verb) };
+            return if v.is_empty() {
+                label.fallback.to_string()
+            } else {
+                format!("{} {v}", label.verb)
+            };
         }
     }
 

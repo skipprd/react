@@ -15,11 +15,7 @@ impl Tool for ListThreadsTool {
 
     async fn call(&self, _args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let target_scope = crate::capabilities::target_scope_for_agent(ctx);
-        let store = ThreadStore::new(
-            ctx.storage().clone(),
-            target_scope,
-            ctx.keyspace().clone(),
-        );
+        let store = ThreadStore::new(ctx.storage().clone(), target_scope, ctx.keyspace().clone());
         let ids = store.list().await;
         Ok(serde_json::json!({ "thread_ids": ids, "count": ids.len() }))
     }

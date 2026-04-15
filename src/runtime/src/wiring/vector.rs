@@ -13,7 +13,10 @@ pub struct LanceVectorStore {
 
 impl LanceVectorStore {
     pub fn new(uri_prefix: String) -> Self {
-        Self { uri_prefix, storage_options: Vec::new() }
+        Self {
+            uri_prefix,
+            storage_options: Vec::new(),
+        }
     }
 
     pub fn with_storage_options(mut self, opts: Vec<(String, String)>) -> Self {
@@ -32,7 +35,11 @@ impl LanceVectorStore {
 
 #[async_trait]
 impl VectorStore for LanceVectorStore {
-    async fn upsert(&self, scope: &RequestScope, items: &[StoredVectorRecord]) -> Result<(), String> {
+    async fn upsert(
+        &self,
+        scope: &RequestScope,
+        items: &[StoredVectorRecord],
+    ) -> Result<(), String> {
         let mapped: Vec<Chunk> = items
             .iter()
             .cloned()
@@ -55,10 +62,7 @@ impl VectorStore for LanceVectorStore {
         k: usize,
         namespace: Option<&str>,
     ) -> Result<Vec<ScoredVectorRecord>, String> {
-        let out = self
-            .store_for(scope)
-            .query(query_vec, k, namespace)
-            .await?;
+        let out = self.store_for(scope).query(query_vec, k, namespace).await?;
         Ok(out
             .into_iter()
             .map(|s| ScoredVectorRecord {
@@ -93,7 +97,11 @@ impl VectorStore for LanceVectorStore {
         self.store_for(scope).delete_namespace(namespace).await
     }
 
-    async fn delete_ids_with_prefix(&self, scope: &RequestScope, prefix: &str) -> Result<(), String> {
+    async fn delete_ids_with_prefix(
+        &self,
+        scope: &RequestScope,
+        prefix: &str,
+    ) -> Result<(), String> {
         self.store_for(scope).delete_ids_with_prefix(prefix).await
     }
 }

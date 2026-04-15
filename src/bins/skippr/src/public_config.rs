@@ -412,9 +412,7 @@ pub struct DbtConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SchemaSinkConfig {
-    Glue {
-        glue_database_name: String,
-    },
+    Glue { glue_database_name: String },
 }
 
 impl SkipprDbtConfig {

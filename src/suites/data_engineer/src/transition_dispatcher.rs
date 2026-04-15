@@ -10,8 +10,7 @@ use crate::control_flow::{
 use crate::progress_controller::ExecutionState;
 use crate::state_manager;
 
-pub type PhaseDirective =
-    react_core::workflow::PhaseDirective<Phase, String, GuardBlockKind>;
+pub type PhaseDirective = react_core::workflow::PhaseDirective<Phase, String, GuardBlockKind>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransitionError {
@@ -175,18 +174,7 @@ pub async fn apply_phase_directive(
             intent,
             reason_code: _,
             reason_detail: _,
-        } => {
-            dispatch_phase_transition(
-                store,
-                thread_id,
-                agent,
-                from_phase,
-                to,
-                intent,
-                None,
-            )
-            .await
-        }
+        } => dispatch_phase_transition(store, thread_id, agent, from_phase, to, intent, None).await,
         PhaseDirective::Block {
             phase,
             kind,

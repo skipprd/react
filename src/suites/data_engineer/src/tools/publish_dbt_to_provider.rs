@@ -74,11 +74,11 @@ impl Tool for PublishDbtToProviderTool {
             select: None,
             exclude: None,
         };
-        let compile_res = crate::transient_retry::retry_transient_default(
-            "publish_compile",
-            || async { dbt.validate_project(ctx.scope(), &compile_args).await },
-        )
-        .await?;
+        let compile_res =
+            crate::transient_retry::retry_transient_default("publish_compile", || async {
+                dbt.validate_project(ctx.scope(), &compile_args).await
+            })
+            .await?;
 
         if !compile_res.ok || !compile_res.compile_ok {
             emit_trace(ctx, "publish failed");
@@ -117,7 +117,9 @@ impl Tool for PublishDbtToProviderTool {
                     .await
                     .map_err(|e| format!("failed to load strict execution state for publish: {e}"))?
                     .unwrap_or_else(ExecutionState::new);
-                if let crate::progress_controller::PublishStatus::Succeeded { ref plan_sha256 } = es.publish {
+                if let crate::progress_controller::PublishStatus::Succeeded { ref plan_sha256 } =
+                    es.publish
+                {
                     last_published_digest = Some(plan_sha256.clone());
                 }
                 pending_plan_digest = es.publish.plan_sha256().map(|s| s.to_string());
@@ -201,11 +203,11 @@ impl Tool for PublishDbtToProviderTool {
             select: None,
             exclude: None,
         };
-        let build_res = crate::transient_retry::retry_transient_default(
-            "publish_build",
-            || async { dbt.validate_project(ctx.scope(), &build_args).await },
-        )
-        .await?;
+        let build_res =
+            crate::transient_retry::retry_transient_default("publish_build", || async {
+                dbt.validate_project(ctx.scope(), &build_args).await
+            })
+            .await?;
 
         if !build_res.ok || build_res.run_ok == Some(false) {
             emit_trace(ctx, "publish failed");

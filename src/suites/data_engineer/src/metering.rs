@@ -11,11 +11,7 @@ pub fn init_metering(
     tokens: Arc<TokenProvider>,
     initial_balance: f64,
 ) {
-    let _ = METERING_CLIENT.set(MeteringClient::new(
-        accounting_url,
-        tokens,
-        initial_balance,
-    ));
+    let _ = METERING_CLIENT.set(MeteringClient::new(accounting_url, tokens, initial_balance));
 }
 
 pub fn set_metering_run_id(run_id: &str) {
@@ -91,12 +87,31 @@ pub fn global_metering() -> &'static MeteringClient {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum UsageEvent {
-    FieldsDiscovered { count: u64, project_id: String },
-    TablesSynced { count: u64, project_id: String },
-    ModelsAuthored { silver: u64, gold: u64, project_id: String },
-    PlanApproved { tasks: u64, batches: u64, project_id: String },
-    RepairCycle { cycle: u64, project_id: String },
-    PipelineRun { project_id: String },
+    FieldsDiscovered {
+        count: u64,
+        project_id: String,
+    },
+    TablesSynced {
+        count: u64,
+        project_id: String,
+    },
+    ModelsAuthored {
+        silver: u64,
+        gold: u64,
+        project_id: String,
+    },
+    PlanApproved {
+        tasks: u64,
+        batches: u64,
+        project_id: String,
+    },
+    RepairCycle {
+        cycle: u64,
+        project_id: String,
+    },
+    PipelineRun {
+        project_id: String,
+    },
     LlmRequest {
         input_tokens: u64,
         output_tokens: u64,
@@ -110,12 +125,29 @@ pub enum UsageEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         provider_usage: Option<serde_json::Value>,
     },
-    SchemaContractApplied { count: u64, project_id: String },
-    ModelsValidated { count: u64, project_id: String },
-    ModelsPublished { count: u64, project_id: String },
-    CatalogEntryCurated { count: u64, project_id: String },
-    PlanEnriched { tasks: u64, project_id: String },
-    PipelineCompleted { project_id: String },
+    SchemaContractApplied {
+        count: u64,
+        project_id: String,
+    },
+    ModelsValidated {
+        count: u64,
+        project_id: String,
+    },
+    ModelsPublished {
+        count: u64,
+        project_id: String,
+    },
+    CatalogEntryCurated {
+        count: u64,
+        project_id: String,
+    },
+    PlanEnriched {
+        tasks: u64,
+        project_id: String,
+    },
+    PipelineCompleted {
+        project_id: String,
+    },
 }
 
 impl UsageEvent {
@@ -151,8 +183,7 @@ impl UsageEvent {
                 let (input_tokens, output_tokens) = self
                     .llm_token_totals()
                     .expect("llm token totals are present for llm usage events");
-                (input_tokens as f64 / 1000.0) * 0.05
-                    + (output_tokens as f64 / 1000.0) * 0.20
+                (input_tokens as f64 / 1000.0) * 0.05 + (output_tokens as f64 / 1000.0) * 0.20
             }
             Self::SchemaContractApplied { count, .. } => *count as f64 * 0.50,
             Self::ModelsValidated { count, .. } => *count as f64 * 0.75,
@@ -190,10 +221,14 @@ impl UsageEvent {
             Self::PipelineRun { .. } => vec![("pipeline_run", 1.0)],
             Self::PlanApproved { tasks, .. } => vec![("plan_approved", *tasks as f64)],
             Self::RepairCycle { cycle, .. } => vec![("repair_cycle", *cycle as f64)],
-            Self::SchemaContractApplied { count, .. } => vec![("schema_contract_applied", *count as f64)],
+            Self::SchemaContractApplied { count, .. } => {
+                vec![("schema_contract_applied", *count as f64)]
+            }
             Self::ModelsValidated { count, .. } => vec![("models_validated", *count as f64)],
             Self::ModelsPublished { count, .. } => vec![("models_published", *count as f64)],
-            Self::CatalogEntryCurated { count, .. } => vec![("catalog_entry_curated", *count as f64)],
+            Self::CatalogEntryCurated { count, .. } => {
+                vec![("catalog_entry_curated", *count as f64)]
+            }
             Self::PlanEnriched { tasks, .. } => vec![("plan_enriched", *tasks as f64)],
             Self::PipelineCompleted { .. } => vec![("pipeline_completed", 1.0)],
         }
@@ -296,7 +331,8 @@ impl TokenProvider {
         let url = format!("{}/auth/refresh", base_url);
         let body = serde_json::json!({ "refresh_token": rt });
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
             .json(&body)
             .send()
@@ -359,11 +395,7 @@ pub struct Budget {
 }
 
 impl Budget {
-    pub fn new(
-        initial: f64,
-        accounting_url: Option<String>,
-        tokens: Arc<TokenProvider>,
-    ) -> Self {
+    pub fn new(initial: f64, accounting_url: Option<String>, tokens: Arc<TokenProvider>) -> Self {
         let http = accounting_url.as_ref().map(|_| reqwest::Client::new());
         Self {
             estimate: Mutex::new(initial),
@@ -425,9 +457,12 @@ impl Budget {
         };
         let url = format!("{}/usage/check", base_url);
 
-        let resp = self.tokens
+        let resp = self
+            .tokens
             .send_authenticated(client, |token| {
-                client.get(&url).header("Authorization", format!("Bearer {}", token))
+                client
+                    .get(&url)
+                    .header("Authorization", format!("Bearer {}", token))
             })
             .await?;
 
@@ -459,11 +494,7 @@ impl MeteringClient {
         initial_balance: f64,
     ) -> Self {
         let http = accounting_url.as_ref().map(|_| reqwest::Client::new());
-        let budget = Budget::new(
-            initial_balance,
-            accounting_url.clone(),
-            Arc::clone(&tokens),
-        );
+        let budget = Budget::new(initial_balance, accounting_url.clone(), Arc::clone(&tokens));
         Self {
             accounting_url,
             tokens,
@@ -521,7 +552,8 @@ impl MeteringClient {
                     thread_id.as_deref(),
                 );
 
-                let resp = self.tokens
+                let resp = self
+                    .tokens
                     .send_authenticated(client, |token| {
                         client
                             .post(&record_url)
@@ -568,46 +600,86 @@ mod tests {
     #[test]
     fn cost_calculations() {
         let events = vec![
-            UsageEvent::FieldsDiscovered { count: 100, project_id: "test".into() },
-            UsageEvent::TablesSynced { count: 10, project_id: "test".into() },
-            UsageEvent::ModelsAuthored { silver: 5, gold: 3, project_id: "test".into() },
-            UsageEvent::PlanApproved { tasks: 2, batches: 1, project_id: "test".into() },
-            UsageEvent::RepairCycle { cycle: 1, project_id: "test".into() },
-            UsageEvent::PipelineRun { project_id: "test".into() },
+            UsageEvent::FieldsDiscovered {
+                count: 100,
+                project_id: "test".into(),
+            },
+            UsageEvent::TablesSynced {
+                count: 10,
+                project_id: "test".into(),
+            },
+            UsageEvent::ModelsAuthored {
+                silver: 5,
+                gold: 3,
+                project_id: "test".into(),
+            },
+            UsageEvent::PlanApproved {
+                tasks: 2,
+                batches: 1,
+                project_id: "test".into(),
+            },
+            UsageEvent::RepairCycle {
+                cycle: 1,
+                project_id: "test".into(),
+            },
+            UsageEvent::PipelineRun {
+                project_id: "test".into(),
+            },
             llm_request_event(1000, 500),
         ];
         let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
-        assert!((costs[0] - 10.0).abs() < f64::EPSILON);    // 100 fields * $0.10
-        assert!((costs[1] - 15.0).abs() < f64::EPSILON);    // 10 tables * $1.50
-        assert!((costs[2] - 19.0).abs() < f64::EPSILON);    // 5*$2.00 + 3*$3.00
+        assert!((costs[0] - 10.0).abs() < f64::EPSILON); // 100 fields * $0.10
+        assert!((costs[1] - 15.0).abs() < f64::EPSILON); // 10 tables * $1.50
+        assert!((costs[2] - 19.0).abs() < f64::EPSILON); // 5*$2.00 + 3*$3.00
         assert!((costs[3] - 0.0).abs() < f64::EPSILON);
         assert!((costs[4] - 0.0).abs() < f64::EPSILON);
         assert!((costs[5] - 0.50).abs() < f64::EPSILON);
-        assert!((costs[6] - 0.15).abs() < f64::EPSILON);    // 1K*$0.05 + 0.5K*$0.20
+        assert!((costs[6] - 0.15).abs() < f64::EPSILON); // 1K*$0.05 + 0.5K*$0.20
     }
 
     #[test]
     fn cost_calculations_new_events() {
         let events = vec![
-            UsageEvent::SchemaContractApplied { count: 4, project_id: "t".into() },
-            UsageEvent::ModelsValidated { count: 6, project_id: "t".into() },
-            UsageEvent::ModelsPublished { count: 3, project_id: "t".into() },
-            UsageEvent::CatalogEntryCurated { count: 2, project_id: "t".into() },
-            UsageEvent::PlanEnriched { tasks: 10, project_id: "t".into() },
-            UsageEvent::PipelineCompleted { project_id: "t".into() },
+            UsageEvent::SchemaContractApplied {
+                count: 4,
+                project_id: "t".into(),
+            },
+            UsageEvent::ModelsValidated {
+                count: 6,
+                project_id: "t".into(),
+            },
+            UsageEvent::ModelsPublished {
+                count: 3,
+                project_id: "t".into(),
+            },
+            UsageEvent::CatalogEntryCurated {
+                count: 2,
+                project_id: "t".into(),
+            },
+            UsageEvent::PlanEnriched {
+                tasks: 10,
+                project_id: "t".into(),
+            },
+            UsageEvent::PipelineCompleted {
+                project_id: "t".into(),
+            },
         ];
         let costs: Vec<f64> = events.iter().map(|e| e.cost()).collect();
-        assert!((costs[0] - 2.0).abs() < f64::EPSILON);     // 4 * $0.50
-        assert!((costs[1] - 4.5).abs() < f64::EPSILON);     // 6 * $0.75
-        assert!((costs[2] - 3.0).abs() < f64::EPSILON);     // 3 * $1.00
-        assert!((costs[3] - 0.5).abs() < f64::EPSILON);     // 2 * $0.25
-        assert!((costs[4] - 1.0).abs() < f64::EPSILON);     // 10 * $0.10
-        assert!((costs[5] - 0.5).abs() < f64::EPSILON);     // flat $0.50
+        assert!((costs[0] - 2.0).abs() < f64::EPSILON); // 4 * $0.50
+        assert!((costs[1] - 4.5).abs() < f64::EPSILON); // 6 * $0.75
+        assert!((costs[2] - 3.0).abs() < f64::EPSILON); // 3 * $1.00
+        assert!((costs[3] - 0.5).abs() < f64::EPSILON); // 2 * $0.25
+        assert!((costs[4] - 1.0).abs() < f64::EPSILON); // 10 * $0.10
+        assert!((costs[5] - 0.5).abs() < f64::EPSILON); // flat $0.50
     }
 
     #[test]
     fn to_server_records_expands_compound_events() {
-        let ev = UsageEvent::ModelsAuthored { silver: 3, gold: 2, project_id: "p".into() };
+        let ev = UsageEvent::ModelsAuthored {
+            silver: 3,
+            gold: 2,
+            project_id: "p".into(),
+        };
         let records = ev.to_server_records();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0], ("models_authored_silver", 3.0));
@@ -634,13 +706,21 @@ mod tests {
 
     #[test]
     fn to_server_records_simple_events() {
-        let ev = UsageEvent::TablesSynced { count: 10, project_id: "p".into() };
+        let ev = UsageEvent::TablesSynced {
+            count: 10,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("tables_synced", 10.0)]);
 
-        let ev = UsageEvent::FieldsDiscovered { count: 50, project_id: "p".into() };
+        let ev = UsageEvent::FieldsDiscovered {
+            count: 50,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("fields_discovered", 50.0)]);
 
-        let ev = UsageEvent::PipelineRun { project_id: "p".into() };
+        let ev = UsageEvent::PipelineRun {
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("pipeline_run", 1.0)]);
     }
 
@@ -662,28 +742,52 @@ mod tests {
 
     #[test]
     fn to_server_records_new_events() {
-        let ev = UsageEvent::SchemaContractApplied { count: 3, project_id: "p".into() };
-        assert_eq!(ev.to_server_records(), vec![("schema_contract_applied", 3.0)]);
+        let ev = UsageEvent::SchemaContractApplied {
+            count: 3,
+            project_id: "p".into(),
+        };
+        assert_eq!(
+            ev.to_server_records(),
+            vec![("schema_contract_applied", 3.0)]
+        );
 
-        let ev = UsageEvent::ModelsValidated { count: 5, project_id: "p".into() };
+        let ev = UsageEvent::ModelsValidated {
+            count: 5,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("models_validated", 5.0)]);
 
-        let ev = UsageEvent::ModelsPublished { count: 2, project_id: "p".into() };
+        let ev = UsageEvent::ModelsPublished {
+            count: 2,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("models_published", 2.0)]);
 
-        let ev = UsageEvent::CatalogEntryCurated { count: 1, project_id: "p".into() };
+        let ev = UsageEvent::CatalogEntryCurated {
+            count: 1,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("catalog_entry_curated", 1.0)]);
 
-        let ev = UsageEvent::PlanEnriched { tasks: 8, project_id: "p".into() };
+        let ev = UsageEvent::PlanEnriched {
+            tasks: 8,
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("plan_enriched", 8.0)]);
 
-        let ev = UsageEvent::PipelineCompleted { project_id: "p".into() };
+        let ev = UsageEvent::PipelineCompleted {
+            project_id: "p".into(),
+        };
         assert_eq!(ev.to_server_records(), vec![("pipeline_completed", 1.0)]);
     }
 
     #[test]
     fn models_authored_zero_silver_omitted() {
-        let ev = UsageEvent::ModelsAuthored { silver: 0, gold: 5, project_id: "p".into() };
+        let ev = UsageEvent::ModelsAuthored {
+            silver: 0,
+            gold: 5,
+            project_id: "p".into(),
+        };
         let records = ev.to_server_records();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0], ("models_authored_gold", 5.0));
@@ -730,6 +834,9 @@ mod tests {
         assert_eq!(payload["project_id"], "project-alpha");
         assert_eq!(payload["run_id"], "run-42");
         assert_eq!(payload["thread_id"], "thread-from-event");
-        assert_eq!(payload["metadata"]["LlmRequest"]["prompt_id"], "prompt.alpha");
+        assert_eq!(
+            payload["metadata"]["LlmRequest"]["prompt_id"],
+            "prompt.alpha"
+        );
     }
 }

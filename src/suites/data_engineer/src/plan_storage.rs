@@ -1,4 +1,5 @@
 use react_core::agent::AgentCtx;
+use react_core::storage::{retry_get_bytes, retry_list_prefix};
 use std::time::Duration;
 
 use crate::plan_grounding::{
@@ -57,7 +58,11 @@ async fn save_plan_bytes_with_retry(
         if attempt_idx > 0 {
             tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
         }
-        match ctx.storage().put_bytes(plan_key, bytes, "application/json").await {
+        match ctx
+            .storage()
+            .put_bytes(plan_key, bytes, "application/json")
+            .await
+        {
             Ok(()) => return Ok(()),
             Err(e) => {
                 let err = e.to_string();
@@ -95,9 +100,7 @@ pub fn new_model_plan_key(ctx: &AgentCtx) -> String {
 
 async fn list_plan_keys(ctx: &AgentCtx, suffix: &str) -> Result<Vec<String>, PlanError> {
     let pref = plans_thread_prefix(ctx);
-    let mut keys = ctx
-        .storage()
-        .list_prefix(&pref)
+    let mut keys = retry_list_prefix(ctx.storage().as_ref(), &pref)
         .await
         .map_err(|e| PlanError::StorageFailed(e.to_string()))?;
     keys.retain(|k| k.ends_with(suffix));
@@ -112,7 +115,7 @@ async fn list_plan_keys(ctx: &AgentCtx, suffix: &str) -> Result<Vec<String>, Pla
 pub async fn load_cleanse_plan(ctx: &AgentCtx) -> Result<Option<CleansePlan>, PlanError> {
     let keys = list_plan_keys(ctx, "_cleanse.json").await?;
     for k in &keys {
-        let bytes = match ctx.storage().get_bytes(k).await {
+        let bytes = match retry_get_bytes(ctx.storage().as_ref(), k).await {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("skipping plan key {k}: storage read failed: {e}");
@@ -137,7 +140,7 @@ pub async fn load_cleanse_plan_by_key(
     ctx: &AgentCtx,
     key: &str,
 ) -> Result<Option<CleansePlan>, PlanError> {
-    let bytes = match ctx.storage().get_bytes(key).await {
+    let bytes = match retry_get_bytes(ctx.storage().as_ref(), key).await {
         Ok(b) => b,
         Err(e) => {
             return Err(PlanError::StorageFailed(format!(
@@ -195,7 +198,7 @@ pub async fn save_cleanse_plan_grounded(
 pub async fn load_model_plan(ctx: &AgentCtx) -> Result<Option<ModelPlan>, PlanError> {
     let keys = list_plan_keys(ctx, "_model.json").await?;
     for k in &keys {
-        let bytes = match ctx.storage().get_bytes(k).await {
+        let bytes = match retry_get_bytes(ctx.storage().as_ref(), k).await {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("skipping plan key {k}: storage read failed: {e}");
@@ -220,7 +223,7 @@ pub async fn load_model_plan_by_key(
     ctx: &AgentCtx,
     key: &str,
 ) -> Result<Option<ModelPlan>, PlanError> {
-    let bytes = match ctx.storage().get_bytes(key).await {
+    let bytes = match retry_get_bytes(ctx.storage().as_ref(), key).await {
         Ok(b) => b,
         Err(e) => {
             return Err(PlanError::StorageFailed(format!(
@@ -275,7 +278,9 @@ mod tests {
     use react_core::keyspace::{DefaultKeyspace, Keyspace};
     use react_core::llm::{LargeLanguageModel, NullModel};
     use react_core::scope::RequestScope;
-    use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
+    use react_core::storage::{
+        ConditionalWriteStatus, StorageAdapter, SAFE_STORAGE_RETRY_DELAYS_MS,
+    };
     use react_core::CoreError;
     use react_module_storage_memory::InMemoryStorageAdapter;
     use serde_json::Value;
@@ -285,8 +290,10 @@ mod tests {
     struct FlakyPutBytesStorage {
         inner: Arc<InMemoryStorageAdapter>,
         target_key: String,
-        remaining_failures: Arc<Mutex<usize>>,
-        attempts: Arc<Mutex<usize>>,
+        remaining_put_failures: Arc<Mutex<usize>>,
+        put_attempts: Arc<Mutex<usize>>,
+        remaining_get_failures: Arc<Mutex<usize>>,
+        get_attempts: Arc<Mutex<usize>>,
     }
 
     impl FlakyPutBytesStorage {
@@ -294,13 +301,30 @@ mod tests {
             Self {
                 inner: Arc::new(InMemoryStorageAdapter::default()),
                 target_key,
-                remaining_failures: Arc::new(Mutex::new(remaining_failures)),
-                attempts: Arc::new(Mutex::new(0)),
+                remaining_put_failures: Arc::new(Mutex::new(remaining_failures)),
+                put_attempts: Arc::new(Mutex::new(0)),
+                remaining_get_failures: Arc::new(Mutex::new(0)),
+                get_attempts: Arc::new(Mutex::new(0)),
             }
         }
 
-        fn attempts(&self) -> usize {
-            *self.attempts.lock().expect("attempt mutex poisoned")
+        fn with_get_failures(target_key: String, remaining_failures: usize) -> Self {
+            Self {
+                inner: Arc::new(InMemoryStorageAdapter::default()),
+                target_key,
+                remaining_put_failures: Arc::new(Mutex::new(0)),
+                put_attempts: Arc::new(Mutex::new(0)),
+                remaining_get_failures: Arc::new(Mutex::new(remaining_failures)),
+                get_attempts: Arc::new(Mutex::new(0)),
+            }
+        }
+
+        fn put_attempts(&self) -> usize {
+            *self.put_attempts.lock().expect("attempt mutex poisoned")
+        }
+
+        fn get_attempts(&self) -> usize {
+            *self.get_attempts.lock().expect("attempt mutex poisoned")
         }
     }
 
@@ -326,6 +350,19 @@ mod tests {
         }
 
         async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+            if key == self.target_key {
+                *self.get_attempts.lock().expect("attempt mutex poisoned") += 1;
+                let mut remaining = self
+                    .remaining_get_failures
+                    .lock()
+                    .expect("remaining_get_failures mutex poisoned");
+                if *remaining > 0 {
+                    *remaining -= 1;
+                    return Err(CoreError::Storage(format!(
+                        "synthetic get_bytes failure for '{key}'"
+                    )));
+                }
+            }
             self.inner.get_bytes(key).await
         }
 
@@ -336,11 +373,11 @@ mod tests {
             content_type: &str,
         ) -> Result<(), CoreError> {
             if key == self.target_key {
-                *self.attempts.lock().expect("attempt mutex poisoned") += 1;
+                *self.put_attempts.lock().expect("attempt mutex poisoned") += 1;
                 let mut remaining = self
-                    .remaining_failures
+                    .remaining_put_failures
                     .lock()
-                    .expect("remaining_failures mutex poisoned");
+                    .expect("remaining_put_failures mutex poisoned");
                 if *remaining > 0 {
                     *remaining -= 1;
                     return Err(CoreError::Storage(format!(
@@ -427,7 +464,9 @@ mod tests {
                     }],
                 }],
                 status: crate::plan::TaskStatus::InProgress,
-                checklist: crate::plan::canonical_task_checklist(crate::track_spec::TrackKind::Model),
+                checklist: crate::plan::canonical_task_checklist(
+                    crate::track_spec::TrackKind::Model,
+                ),
             }],
             batches: batches.clone(),
             work_groups: crate::plan::canonical_work_groups_from_batches(&batches, "model"),
@@ -450,7 +489,7 @@ mod tests {
             .await
             .expect("transient save failures should be retried");
 
-        assert_eq!(storage.attempts(), PLAN_SAVE_RETRY_DELAYS_MS.len());
+        assert_eq!(storage.put_attempts(), PLAN_SAVE_RETRY_DELAYS_MS.len());
         let bytes = ctx
             .storage()
             .get_bytes(&plan_key)
@@ -459,5 +498,30 @@ mod tests {
         let saved = serde_json::from_slice::<crate::plan::ModelPlan>(&bytes)
             .expect("persisted bytes should deserialize");
         assert_eq!(saved.plan_key, plan_key);
+    }
+
+    #[tokio::test]
+    async fn load_model_plan_by_key_retries_transient_get_bytes_failures() {
+        let plan_key = "t/w/p/plans/tid/retry_model_read.json".to_string();
+        let storage = Arc::new(FlakyPutBytesStorage::with_get_failures(
+            plan_key.clone(),
+            SAFE_STORAGE_RETRY_DELAYS_MS.len() - 1,
+        ));
+        let ctx = test_ctx(storage.clone(), "tid");
+        let plan = sample_model_plan(plan_key.clone());
+        let bytes = serde_json::to_vec_pretty(&plan).expect("plan to json");
+        storage
+            .inner
+            .put_bytes(&plan_key, &bytes, "application/json")
+            .await
+            .expect("seed plan bytes");
+
+        let loaded = load_model_plan_by_key(&ctx, &plan_key)
+            .await
+            .expect("transient read failures should be retried")
+            .expect("plan should exist");
+
+        assert_eq!(loaded.plan_key, plan_key);
+        assert_eq!(storage.get_attempts(), SAFE_STORAGE_RETRY_DELAYS_MS.len());
     }
 }

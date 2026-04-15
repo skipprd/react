@@ -356,7 +356,6 @@ impl WarehouseNaming for BigQueryProvider {
             "BigQuery rule: use SAFE_CAST(...) for tolerant casts (not try_cast).",
         ]
     }
-
 }
 
 #[async_trait]

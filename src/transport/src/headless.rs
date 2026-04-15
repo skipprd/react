@@ -265,9 +265,8 @@ pub async fn run_headless(
             if mode == "failed" {
                 let summary = match reader.get_log(&thread_id).await {
                     Ok(log) => {
-                        let st = crate::ws::thread_state::materialize_state_from_log(
-                            &thread_id, &log,
-                        );
+                        let st =
+                            crate::ws::thread_state::materialize_state_from_log(&thread_id, &log);
                         let events = react_view::build_thread_events_from_log(&log, 500);
                         summarize_failure_state(&st, &events)
                     }

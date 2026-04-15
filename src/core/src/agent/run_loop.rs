@@ -166,11 +166,7 @@ impl Agent {
             Self::transcript_add(&mut transcript, l, &ctx.trace_tx);
         }
 
-        Self::transcript_add(
-            &mut transcript,
-            format!("User: {question}"),
-            &ctx.trace_tx,
-        );
+        Self::transcript_add(&mut transcript, format!("User: {question}"), &ctx.trace_tx);
 
         for step_idx in 0..ctx.max_steps {
             if let Some(tx) = ctx.progress_tx.as_ref() {
@@ -341,11 +337,7 @@ impl Agent {
         );
 
         if obs_env.ok {
-            Self::transcript_add(
-                transcript,
-                format!("Observation: {raw_obs}"),
-                &ctx.trace_tx,
-            );
+            Self::transcript_add(transcript, format!("Observation: {raw_obs}"), &ctx.trace_tx);
         } else {
             let max_prompt_chars = crate::error_context::estimate_max_prompt_chars();
             let used_chars: usize = transcript.iter().map(|l| l.chars().count() + 1).sum();

@@ -7,8 +7,8 @@ use tracing::{info, warn};
 
 use react_core::agent::AgentCtx;
 use react_core::provider_traits::{
-    ScoredTypedVectorDocument, TypedVectorDocument, VectorCollection, query_typed_documents,
-    upsert_typed_documents,
+    query_typed_documents, upsert_typed_documents, ScoredTypedVectorDocument, TypedVectorDocument,
+    VectorCollection,
 };
 
 pub struct DbtExampleCollection;
@@ -64,7 +64,9 @@ pub async fn search_examples(
     if v.is_empty() {
         return Ok(Vec::new());
     }
-    let mut hits = query_typed_documents::<DbtExampleCollection>(vector.as_ref(), ctx.scope(), &v, k * 3).await?;
+    let mut hits =
+        query_typed_documents::<DbtExampleCollection>(vector.as_ref(), ctx.scope(), &v, k * 3)
+            .await?;
     hits.truncate(k.max(1));
     Ok(hits)
 }

@@ -128,9 +128,7 @@ mod tests {
         let event = validate_event_from_contract(&contract);
         match event {
             ControllerEvent::ValidateFailed {
-                compile_ok,
-                run_ok,
-                ..
+                compile_ok, run_ok, ..
             } => {
                 assert!(compile_ok);
                 assert!(!run_ok);

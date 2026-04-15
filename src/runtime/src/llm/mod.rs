@@ -53,7 +53,11 @@ pub fn config_from_resolved(cfg: &crate::config::ReactResolvedConfig) -> LlmConf
     };
     LlmConfig {
         provider,
-        reason_model: cfg.llm.reason_model.clone().or_else(|| rs::llm_reason_model()),
+        reason_model: cfg
+            .llm
+            .reason_model
+            .clone()
+            .or_else(|| rs::llm_reason_model()),
         task_model: cfg.llm.task_model.clone().or_else(|| rs::llm_task_model()),
         embed_model: cfg
             .llm

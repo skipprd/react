@@ -157,7 +157,9 @@ impl RunThreadLogs {
                     g.and_then(|g| g.clone())
                 };
                 if let Some(tid) = tid {
-                    let _ = logs.upload_snapshot(storage.clone(), keyspace.clone(), &tid).await;
+                    let _ = logs
+                        .upload_snapshot(storage.clone(), keyspace.clone(), &tid)
+                        .await;
                 }
             }
         });

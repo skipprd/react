@@ -291,9 +291,13 @@ async fn hard_mutation_mode_single_target_repair_rejects_other_paths() {
     // Seed valid hard-repair execution state for deterministic single-target tool calls.
     if let Some(store) = actx.thread_store().as_ref() {
         let mut seeded = crate::progress_controller::ExecutionState::new();
-        seeded.repair.failure_context = Some(crate::progress_controller::ValidationFailureContext {
-            brief: "test".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
-        });
+        seeded.repair.failure_context =
+            Some(crate::progress_controller::ValidationFailureContext {
+                brief: "test".to_string(),
+                log_excerpts: None,
+                compile_ok: false,
+                run_ok: false,
+            });
         seeded.repair.status = crate::progress_controller::RepairStatus::Pending { cycle: 1 };
         seeded
             .save(&store.control_store(), "t")
@@ -481,15 +485,17 @@ fn review_question_includes_prior_review_and_mutation_diff_when_available() {
 
     let prior_review_answer = "Please add tests.";
     let mut st = ExecutionState::new();
-    st.phase.transition = Some(crate::progress_controller::PhaseTransition::ReviewPatchImpl {
-        meta: crate::domain_types::ReviewDecisionMeta {
-            decision: crate::domain_types::ReviewDecision::PatchImpl,
-            dataset_ids: vec!["x".to_string()],
-            tier: crate::domain_types::ReviewTier::Silver,
-            review_ref: None,
+    st.phase.transition = Some(
+        crate::progress_controller::PhaseTransition::ReviewPatchImpl {
+            meta: crate::domain_types::ReviewDecisionMeta {
+                decision: crate::domain_types::ReviewDecision::PatchImpl,
+                dataset_ids: vec!["x".to_string()],
+                tier: crate::domain_types::ReviewTier::Silver,
+                review_ref: None,
+            },
+            target_paths: vec!["x".to_string()],
         },
-        target_paths: vec!["x".to_string()],
-    });
+    );
     st.telemetry.last_mutation_summary = Some(LastMutationSummary {
         op: crate::progress_controller::MutationOp::Patch,
         affected_paths: vec!["models/staging/stg_test_raw_raw_orders.sql".to_string()],
@@ -534,9 +540,8 @@ fn review_question_includes_entry_reason_when_review_started_from_validate_pass(
     use crate::progress_controller::ExecutionState;
 
     let mut st = ExecutionState::new();
-    st.phase.transition = Some(crate::progress_controller::PhaseTransition::ValidatePassToReview {
-        step_idx: 1,
-    });
+    st.phase.transition =
+        Some(crate::progress_controller::PhaseTransition::ValidatePassToReview { step_idx: 1 });
 
     let q = DataEngineerSuite::build_review_question_with_context(
         "orig goal",
@@ -561,7 +566,11 @@ fn patch_impl_intent_requires_mutation_advance() {
         &st,
         Phase::ModelAuthor
     ));
-    st.repair.pending_patch_impl.as_mut().unwrap().mutated_since_set = true;
+    st.repair
+        .pending_patch_impl
+        .as_mut()
+        .unwrap()
+        .mutated_since_set = true;
     assert!(!crate::phase_gate::patch_impl_intent_unsatisfied(
         &st,
         Phase::ModelAuthor
@@ -581,7 +590,10 @@ async fn authoring_complete_reason_detail_uses_latest_log_state() {
     // Seed failing validate state directly in canonical control state.
     let mut state = crate::progress_controller::ExecutionState::new();
     state.repair.failure_context = Some(crate::progress_controller::ValidationFailureContext {
-        brief: "test".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+        brief: "test".to_string(),
+        log_excerpts: None,
+        compile_ok: false,
+        run_ok: false,
     });
     state
         .save(&store.control_store(), tid)
@@ -782,7 +794,10 @@ fn billable_phases_use_metered_commit() {
         ("phase_el_sync.rs", include_str!("phase_el_sync.rs")),
         ("phase_author.rs", include_str!("phase_author.rs")),
         ("agent_modes.rs", include_str!("agent_modes.rs")),
-        ("plan_review_helpers.rs", include_str!("plan_review_helpers.rs")),
+        (
+            "plan_review_helpers.rs",
+            include_str!("plan_review_helpers.rs"),
+        ),
     ] {
         assert!(
             src.contains("commit_metered_decision"),
@@ -794,11 +809,31 @@ fn billable_phases_use_metered_commit() {
 #[test]
 fn billable_phases_construct_usage_events() {
     for (name, src, expected_event) in [
-        ("phase_el_discover.rs", include_str!("phase_el_discover.rs"), "UsageEvent::FieldsDiscovered"),
-        ("phase_el_sync.rs", include_str!("phase_el_sync.rs"), "UsageEvent::TablesSynced"),
-        ("phase_author.rs", include_str!("phase_author.rs"), "UsageEvent::ModelsAuthored"),
-        ("agent_modes.rs", include_str!("agent_modes.rs"), "UsageEvent::RepairCycle"),
-        ("plan_review_helpers.rs", include_str!("plan_review_helpers.rs"), "UsageEvent::PlanApproved"),
+        (
+            "phase_el_discover.rs",
+            include_str!("phase_el_discover.rs"),
+            "UsageEvent::FieldsDiscovered",
+        ),
+        (
+            "phase_el_sync.rs",
+            include_str!("phase_el_sync.rs"),
+            "UsageEvent::TablesSynced",
+        ),
+        (
+            "phase_author.rs",
+            include_str!("phase_author.rs"),
+            "UsageEvent::ModelsAuthored",
+        ),
+        (
+            "agent_modes.rs",
+            include_str!("agent_modes.rs"),
+            "UsageEvent::RepairCycle",
+        ),
+        (
+            "plan_review_helpers.rs",
+            include_str!("plan_review_helpers.rs"),
+            "UsageEvent::PlanApproved",
+        ),
     ] {
         assert!(
             src.contains(expected_event),

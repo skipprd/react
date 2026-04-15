@@ -1,16 +1,18 @@
 use async_trait::async_trait;
-use snowflake_connector_rs::{SnowflakeAuthMethod, SnowflakeClient, SnowflakeClientConfig, SnowflakeSession};
+use snowflake_connector_rs::{
+    SnowflakeAuthMethod, SnowflakeClient, SnowflakeClientConfig, SnowflakeSession,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use react_core::discover::stats::FieldStats;
+use react_suite_data_engineer::providers::warehouse_utils;
 use react_suite_data_engineer::providers::{
     DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
     WarehouseNaming,
 };
-use react_suite_data_engineer::providers::warehouse_utils;
 
 const DEFAULT_SNOWFLAKE_MAX_CONCURRENCY: usize = 15;
 const SNOWFLAKE_MAX_CONCURRENCY_CAP: usize = 20;
@@ -89,9 +91,7 @@ impl SnowflakeProvider {
         let warehouse = settings
             .warehouse
             .or_else(|| getenv_nonempty("SNOWFLAKE_WAREHOUSE"));
-        let role = settings
-            .role
-            .or_else(|| getenv_nonempty("SNOWFLAKE_ROLE"));
+        let role = settings.role.or_else(|| getenv_nonempty("SNOWFLAKE_ROLE"));
 
         let max_concurrency = warehouse_utils::clamp_concurrency(
             if settings.max_concurrency == 0 {
@@ -101,13 +101,12 @@ impl SnowflakeProvider {
             },
             SNOWFLAKE_MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_SNOWFLAKE_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         let auth_method = if let Some(pem) = private_key_pem {
             tracing::info!(target: "snowflake", "using key-pair authentication");
@@ -187,7 +186,11 @@ impl SnowflakeProvider {
         };
 
         let header: Vec<String> = if let Some(first) = rows.first() {
-            first.column_names().into_iter().map(|s| s.to_string()).collect()
+            first
+                .column_names()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect()
         } else {
             Vec::new()
         };
@@ -197,10 +200,7 @@ impl SnowflakeProvider {
             .map(|row| {
                 header
                     .iter()
-                    .map(|col| {
-                        row.get::<String>(col)
-                            .unwrap_or_default()
-                    })
+                    .map(|col| row.get::<String>(col).unwrap_or_default())
                     .collect()
             })
             .collect();
@@ -233,12 +233,7 @@ impl SnowflakeProvider {
     }
 
     async fn cached_schemas(&self) -> Result<Vec<String>, String> {
-        if let Some(schema) = self
-            .inner
-            .schema
-            .as_ref()
-            .filter(|s| !s.trim().is_empty())
-        {
+        if let Some(schema) = self.inner.schema.as_ref().filter(|s| !s.trim().is_empty()) {
             return Ok(vec![schema.trim().to_string()]);
         }
         {
@@ -418,10 +413,9 @@ impl DatasetCatalogProvider for SnowflakeProvider {
         let schemas = self.cached_schemas().await?;
         let mut out: Vec<DatasetId> = Vec::new();
         for schema in schemas {
-            let tables = self
-                .cached_tables(&schema)
-                .await
-                .map_err(|e| format!("snowflake discovery failed for schema '{}': {}", schema, e))?;
+            let tables = self.cached_tables(&schema).await.map_err(|e| {
+                format!("snowflake discovery failed for schema '{}': {}", schema, e)
+            })?;
             for t in tables {
                 out.push(DatasetId {
                     catalog: self.inner.database.clone(),

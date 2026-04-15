@@ -21,11 +21,7 @@ impl Tool for SummarizeThreadTool {
             .ok_or("thread_id is required")?;
         let target_scope = crate::capabilities::target_scope_for_agent(ctx);
 
-        let store = ThreadStore::new(
-            ctx.storage().clone(),
-            target_scope,
-            ctx.keyspace().clone(),
-        );
+        let store = ThreadStore::new(ctx.storage().clone(), target_scope, ctx.keyspace().clone());
 
         let log = store
             .get(thread_id)

@@ -1,6 +1,7 @@
 use crate::providers::WarehouseProvider;
 use crate::references::DatasetRef;
 use react_core::agent::AgentCtx;
+use react_core::storage::{retry_get_bytes, retry_list_prefix};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -225,7 +226,7 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
 
     // 1) models/staging/*.sql
     let staging_prefix = format!("{}models/staging/", base);
-    let keys = match ctx.storage().list_prefix(&staging_prefix).await {
+    let keys = match retry_list_prefix(ctx.storage().as_ref(), &staging_prefix).await {
         Ok(k) => k,
         Err(e) => {
             tracing::warn!(
@@ -254,7 +255,7 @@ pub async fn discover_staging_models_from_storage(ctx: &AgentCtx) -> GroundedSta
 
     // 2) target/manifest.json (best-effort enrichment)
     let manifest_key = format!("{}target/manifest.json", base);
-    if let Ok(bytes) = ctx.storage().get_bytes(&manifest_key).await {
+    if let Ok(bytes) = retry_get_bytes(ctx.storage().as_ref(), &manifest_key).await {
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
             if let Some(nodes) = v.get("nodes").and_then(|n| n.as_object()) {
                 for (_uid, node) in nodes.iter() {
@@ -318,10 +319,7 @@ pub async fn build_catalog_column_context(
                         .iter()
                         .map(|f| SourceColumnDef {
                             name: f.name.clone(),
-                            data_type: f
-                                .data_type
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string()),
+                            data_type: f.data_type.clone().unwrap_or_else(|| "unknown".to_string()),
                         })
                         .collect();
                     if !cols.is_empty() {
@@ -329,10 +327,7 @@ pub async fn build_catalog_column_context(
                     }
                 }
                 Ok(None) => {
-                    tracing::debug!(
-                        "build_catalog_column_context: no catalog entry for {}",
-                        id
-                    );
+                    tracing::debug!("build_catalog_column_context: no catalog entry for {}", id);
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -383,9 +378,7 @@ pub async fn build_catalog_column_context(
 }
 
 /// Render a `SourceSchema` map into a bounded prompt block for LLM injection.
-pub fn render_source_schema_prompt_block(
-    schema: &crate::plan_types::SourceSchema,
-) -> String {
+pub fn render_source_schema_prompt_block(schema: &crate::plan_types::SourceSchema) -> String {
     if schema.is_empty() {
         return String::new();
     }
@@ -403,7 +396,9 @@ pub fn render_source_schema_prompt_block(
 
 /// Resolve the effective dbt target_schema, falling back to `scope.project_id`
 /// (matching the dbt profile generation logic) when not explicitly configured.
-fn effective_target_schema(ctx: &AgentCtx) -> Option<(String, crate::de_config::ProvidersResolved)> {
+fn effective_target_schema(
+    ctx: &AgentCtx,
+) -> Option<(String, crate::de_config::ProvidersResolved)> {
     let cfg = crate::resolved_config_from_ctx(ctx)?;
     let p = crate::de_config::de_config_from_resolved(cfg)?;
     let ts = p.dbt.naming.target_schema.trim().to_string();
@@ -466,10 +461,9 @@ pub async fn record_staging_output_schemas(
             continue;
         }
         let fqn = format!("{}.{}", relation_prefix, name);
-        match crate::transient_retry::retry_transient_default(
-            "staging_output_schema",
-            || async { wh.schema(&fqn).await },
-        )
+        match crate::transient_retry::retry_transient_default("staging_output_schema", || async {
+            wh.schema(&fqn).await
+        })
         .await
         {
             Ok(cols) if !cols.is_empty() => {

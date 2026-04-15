@@ -8,8 +8,8 @@ use react_core::session::{Observation, ThreadStep, ThreadStore};
 use super::control_flow::Phase;
 use super::domain_types::{ReviewDecision, ReviewTier};
 use super::plan as de_plan;
-use super::review_batched::{utc_ts, MAX_BATCHES_SAVED, REVIEW_SNAPSHOT_VERSION};
 use super::plan_kind::PlanKind;
+use super::review_batched::{utc_ts, MAX_BATCHES_SAVED, REVIEW_SNAPSHOT_VERSION};
 
 pub(super) async fn append_review_step(
     store: &ThreadStore,

@@ -21,7 +21,14 @@ pub struct ScoredVectorRecord {
 }
 
 pub trait VectorCollection: Send + Sync + 'static {
-    type Metadata: Clone + std::fmt::Debug + PartialEq + Send + Sync + Serialize + DeserializeOwned + 'static;
+    type Metadata: Clone
+        + std::fmt::Debug
+        + PartialEq
+        + Send
+        + Sync
+        + Serialize
+        + DeserializeOwned
+        + 'static;
 
     const NAMESPACE: &'static str;
 }
@@ -93,8 +100,8 @@ impl<C: VectorCollection> TypedVectorDocument<C> {
                 record.namespace
             ));
         }
-        let metadata =
-            serde_json::from_str::<C::Metadata>(&record.metadata_json).map_err(|e| e.to_string())?;
+        let metadata = serde_json::from_str::<C::Metadata>(&record.metadata_json)
+            .map_err(|e| e.to_string())?;
         Ok(Self::new(
             record.id,
             record.text,
@@ -151,7 +158,11 @@ pub async fn delete_collection<C: VectorCollection>(
 /// Vector store is optional but often shared across multiple suite tools.
 #[async_trait]
 pub trait VectorStore: Send + Sync {
-    async fn upsert(&self, scope: &RequestScope, items: &[StoredVectorRecord]) -> Result<(), String>;
+    async fn upsert(
+        &self,
+        scope: &RequestScope,
+        items: &[StoredVectorRecord],
+    ) -> Result<(), String>;
     async fn query(
         &self,
         scope: &RequestScope,
@@ -166,7 +177,11 @@ pub trait VectorStore: Send + Sync {
     ) -> Result<(), String>;
     async fn delete_project_embeddings(&self, scope: &RequestScope) -> Result<(), String>;
     async fn delete_namespace(&self, scope: &RequestScope, namespace: &str) -> Result<(), String>;
-    async fn delete_ids_with_prefix(&self, scope: &RequestScope, prefix: &str) -> Result<(), String>;
+    async fn delete_ids_with_prefix(
+        &self,
+        scope: &RequestScope,
+        prefix: &str,
+    ) -> Result<(), String>;
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use super::*;
-use crate::phase_contract::{commit_phase_decision, commit_metered_decision, PhaseDecision};
+use crate::phase_contract::{commit_metered_decision, commit_phase_decision, PhaseDecision};
+use react_core::storage::retry_list_prefix;
 
 impl DataEngineerSuite {
     pub(super) fn collect_targeted_semantic_tasks(
@@ -94,9 +95,11 @@ impl DataEngineerSuite {
                 Some(phase),
                 PhaseDecision::annotation(
                     phase,
-                    Some(crate::progress_controller::PhaseTransition::PlanPrunedEmpty {
-                        plan_key: doc.plan_key().to_string(),
-                    }),
+                    Some(
+                        crate::progress_controller::PhaseTransition::PlanPrunedEmpty {
+                            plan_key: doc.plan_key().to_string(),
+                        },
+                    ),
                 ),
             )
             .await?;
@@ -133,10 +136,12 @@ impl DataEngineerSuite {
                 Some(phase),
                 PhaseDecision::annotation(
                     phase,
-                    Some(crate::progress_controller::PhaseTransition::PlanSemanticInvalid {
-                        plan_key: doc.plan_key().to_string(),
-                        errors: v.errors.clone(),
-                    }),
+                    Some(
+                        crate::progress_controller::PhaseTransition::PlanSemanticInvalid {
+                            plan_key: doc.plan_key().to_string(),
+                            errors: v.errors.clone(),
+                        },
+                    ),
                 ),
             )
             .await?;
@@ -165,10 +170,7 @@ impl DataEngineerSuite {
             thread_store,
             thread_id,
             Some(phase),
-            PhaseDecision::forward(
-                track.author_phase(),
-                Some(transition),
-            ),
+            PhaseDecision::forward(track.author_phase(), Some(transition)),
             vec![crate::metering::UsageEvent::PlanApproved {
                 tasks: tasks_count,
                 batches: batches_count,
@@ -210,7 +212,9 @@ impl DataEngineerSuite {
             crate::progress_controller::ProbeRequirementStatus::NotRequired => (false, true),
             crate::progress_controller::ProbeRequirementStatus::Required => (true, false),
             crate::progress_controller::ProbeRequirementStatus::Allowed => (true, true),
-            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => (false, true),
+            crate::progress_controller::ProbeRequirementStatus::ExhaustedRequireMutation => {
+                (false, true)
+            }
         };
         crate::phase_reason_detail::to_value(
             &crate::phase_reason_detail::AuthoringCompleteReasonDetail {
@@ -238,7 +242,7 @@ impl DataEngineerSuite {
             format!("{}/models/marts/", base),
         ];
         for pref in prefixes.iter() {
-            if let Ok(keys) = actx.storage().list_prefix(pref).await {
+            if let Ok(keys) = retry_list_prefix(actx.storage().as_ref(), pref).await {
                 for k in keys {
                     if !k.ends_with(".sql") {
                         continue;
@@ -357,7 +361,9 @@ impl DataEngineerSuite {
         if entry_transition.is_some() || !entry_reason_detail.is_null() {
             ctx_lines.push(format!(
                 "Why we are reviewing now:\n- entry_reason_code: {}\n- entry_reason_detail: {}",
-                entry_transition.map(|t| t.as_reason_str()).unwrap_or("null"),
+                entry_transition
+                    .map(|t| t.as_reason_str())
+                    .unwrap_or("null"),
                 entry_reason_detail
             ));
         }

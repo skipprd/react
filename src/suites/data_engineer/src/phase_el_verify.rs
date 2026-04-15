@@ -9,9 +9,8 @@ impl DataEngineerSuite {
         thread_id: &str,
         sctx: &SuiteCtx,
     ) -> Result<PhaseOutcome, PhaseError> {
-        let skippr = crate::ctx_ext::sctx_skippr(sctx).ok_or_else(|| {
-            "skippr provider not configured for EL verify".to_string()
-        })?;
+        let skippr = crate::ctx_ext::sctx_skippr(sctx)
+            .ok_or_else(|| "skippr provider not configured for EL verify".to_string())?;
 
         let pipeline_name = sctx.scope().project_id.as_str();
 
@@ -42,7 +41,7 @@ impl DataEngineerSuite {
                 let fq_table = if let Some(ref w) = wh {
                     if !w.container.is_empty() && !w.namespace.is_empty() {
                         format!(
-                            "\"{}\".\"{}\".\"{}\""  ,
+                            "\"{}\".\"{}\".\"{}\"",
                             w.container,
                             w.namespace,
                             table_name.to_uppercase()
@@ -64,15 +63,15 @@ impl DataEngineerSuite {
                             error = %e,
                             "destination table verification failed"
                         );
-                        verification_errors.push(format!(
-                            "table '{}' not queryable: {}",
-                            table_name, e
-                        ));
+                        verification_errors
+                            .push(format!("table '{}' not queryable: {}", table_name, e));
                     }
                 }
             }
         } else {
-            tracing::info!("no query provider available for destination verification; skipping table checks");
+            tracing::info!(
+                "no query provider available for destination verification; skipping table checks"
+            );
         }
 
         if !verification_errors.is_empty() {

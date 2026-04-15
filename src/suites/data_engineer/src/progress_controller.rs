@@ -73,10 +73,15 @@ impl PublishStatus {
 
     pub fn retry_count_for_kind(&self, kind: PublishRetryKind) -> usize {
         match (self, kind) {
-            (Self::AwaitingApproval { approval_retries, .. }, PublishRetryKind::AwaitApprovalLoop) => {
-                *approval_retries
+            (
+                Self::AwaitingApproval {
+                    approval_retries, ..
+                },
+                PublishRetryKind::AwaitApprovalLoop,
+            ) => *approval_retries,
+            (Self::Failed { publish_retries }, PublishRetryKind::PublishFailureLoop) => {
+                *publish_retries
             }
-            (Self::Failed { publish_retries }, PublishRetryKind::PublishFailureLoop) => *publish_retries,
             _ => 0,
         }
     }
@@ -126,23 +131,63 @@ pub struct ProbeAttempts {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "transition")]
 pub enum PhaseTransition {
-    PreflightOk { dbt_project_key: String, has_query_provider: bool, has_dbt_provider: bool },
-    PlanAutoApproved { source: AutoApprovalSource },
+    PreflightOk {
+        dbt_project_key: String,
+        has_query_provider: bool,
+        has_dbt_provider: bool,
+    },
+    PlanAutoApproved {
+        source: AutoApprovalSource,
+    },
     PlanAlreadyApproved,
-    PlanMissing { kind: TrackKind, note: String },
-    PlanNotApproved { status: PlanStatus },
-    PlanInvalidEmpty { plan_key: String, tasks_len: usize, batches_len: usize },
-    PlanPrunedEmpty { plan_key: String },
-    PlanSemanticInvalid { plan_key: String, errors: Vec<String> },
-    PlanRevisionRequested { violations: Vec<PlanViolation>, strategy: PlanRevisionStrategy },
-    ValidatePassToAuthoring { signal: String, plan_key: Option<String>, pending_count: usize },
-    ValidatePassToReview { step_idx: usize },
-    ValidateFail { errors: Vec<String> },
-    PrecheckFailed { reason: String },
-    ValidateExecutionFailed { reason: String },
-    ValidateContractError { reason: String },
+    PlanMissing {
+        kind: TrackKind,
+        note: String,
+    },
+    PlanNotApproved {
+        status: PlanStatus,
+    },
+    PlanInvalidEmpty {
+        plan_key: String,
+        tasks_len: usize,
+        batches_len: usize,
+    },
+    PlanPrunedEmpty {
+        plan_key: String,
+    },
+    PlanSemanticInvalid {
+        plan_key: String,
+        errors: Vec<String>,
+    },
+    PlanRevisionRequested {
+        violations: Vec<PlanViolation>,
+        strategy: PlanRevisionStrategy,
+    },
+    ValidatePassToAuthoring {
+        signal: String,
+        plan_key: Option<String>,
+        pending_count: usize,
+    },
+    ValidatePassToReview {
+        step_idx: usize,
+    },
+    ValidateFail {
+        errors: Vec<String>,
+    },
+    PrecheckFailed {
+        reason: String,
+    },
+    ValidateExecutionFailed {
+        reason: String,
+    },
+    ValidateContractError {
+        reason: String,
+    },
     ReviewProceed,
-    ReviewPatchImpl { meta: ReviewDecisionMeta, target_paths: Vec<String> },
+    ReviewPatchImpl {
+        meta: ReviewDecisionMeta,
+        target_paths: Vec<String>,
+    },
     ReviewProjectSummary,
     ReviewBatch,
     ReviewFinalUnify,
@@ -152,18 +197,30 @@ pub enum PhaseTransition {
     AuthoringComplete,
     PublishApproved,
     PublishSuccess,
-    PublishFail { retry_count: usize },
+    PublishFail {
+        retry_count: usize,
+    },
     PublishConfirmedSuccess,
     PublishConfirmedFail,
     PhaseBlocked,
     RepairCompleted,
-    RepairExhausted { reason: String },
+    RepairExhausted {
+        reason: String,
+    },
 
-    ElDiscoverOk { namespaces_count: usize },
-    ElSyncOk { tables_synced: usize },
-    ElSyncFailed { reason: String },
+    ElDiscoverOk {
+        namespaces_count: usize,
+    },
+    ElSyncOk {
+        tables_synced: usize,
+    },
+    ElSyncFailed {
+        reason: String,
+    },
     ElVerifyOk,
-    ElVerifyFailed { reason: String },
+    ElVerifyFailed {
+        reason: String,
+    },
 }
 
 impl PhaseTransition {
@@ -254,7 +311,9 @@ impl RepairContext {
     }
 
     pub fn log_excerpts(&self) -> Option<&str> {
-        self.failure.as_ref().and_then(|f| f.log_excerpts.as_deref())
+        self.failure
+            .as_ref()
+            .and_then(|f| f.log_excerpts.as_deref())
     }
 
     pub fn repair_cycles(&self) -> usize {
@@ -347,7 +406,6 @@ pub struct RecentFailedFileOp {
     pub count: usize,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PublishPlanState {
@@ -416,7 +474,6 @@ impl Default for ExecutionTier {
         Self::Unknown
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(try_from = "String", into = "String")]
@@ -547,7 +604,6 @@ impl From<RepairTargetPath> for String {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProbeOutcomeKind {
@@ -643,7 +699,6 @@ impl ProbeSignature {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -863,7 +918,6 @@ impl RepairState {
             RepairStatus::Exhausted { cycles_used } => *cycles_used,
         }
     }
-
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -877,10 +931,11 @@ pub struct ManifestState {
     pub model_plan_bootstrapped: bool,
 }
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum DataEngineerEvent {
-    ValidatePassed { tier: ExecutionTier },
+    ValidatePassed {
+        tier: ExecutionTier,
+    },
     ValidateFailed {
         tier: ExecutionTier,
         brief: String,
@@ -910,7 +965,9 @@ pub enum DataEngineerEvent {
         signature: ProbeSignature,
     },
 
-    PatchImplIntentSet { phase: Phase },
+    PatchImplIntentSet {
+        phase: Phase,
+    },
     PatchImplIntentCleared,
 
     PlanRevisionRequested {
@@ -918,20 +975,40 @@ pub enum DataEngineerEvent {
         strategy: PlanRevisionStrategy,
     },
 
-    PublishPlanPending { sha256: String },
-    PublishCompleted { sha256: String },
-    PublishApprovalSet { decision: PublishApprovalDecision },
+    PublishPlanPending {
+        sha256: String,
+    },
+    PublishCompleted {
+        sha256: String,
+    },
+    PublishApprovalSet {
+        decision: PublishApprovalDecision,
+    },
     PublishApprovalCleared,
-    PublishRetryBumped { kind: PublishRetryKind, cap: usize },
+    PublishRetryBumped {
+        kind: PublishRetryKind,
+        cap: usize,
+    },
     PublishRetriesReset,
 
-    MarkedFailed { reason: String },
+    MarkedFailed {
+        reason: String,
+    },
 
-    PlanBootstrapDone { phase: Phase },
-    PlanBootstrapReset { phase: Phase },
+    PlanBootstrapDone {
+        phase: Phase,
+    },
+    PlanBootstrapReset {
+        phase: Phase,
+    },
 
-    SubjectiveRetryBumped { kind: SubjectiveRetryKind, cap: usize },
-    SubjectiveRetriesCleared { kinds: Vec<SubjectiveRetryKind> },
+    SubjectiveRetryBumped {
+        kind: SubjectiveRetryKind,
+        cap: usize,
+    },
+    SubjectiveRetriesCleared {
+        kinds: Vec<SubjectiveRetryKind>,
+    },
 
     ManifestLookupRecorded {
         path_kind: ManifestLookupPathKind,
@@ -1139,7 +1216,8 @@ impl ExecutionState {
         run_ok: bool,
         log_excerpts: Option<String>,
     ) {
-        let repeated_failure = self.repair.last_failure_hash.as_deref() == Some(failure_hash.as_str());
+        let repeated_failure =
+            self.repair.last_failure_hash.as_deref() == Some(failure_hash.as_str());
         let next_cycle = if repeated_failure {
             self.repair.cycle_count().saturating_add(1)
         } else {
@@ -1157,7 +1235,9 @@ impl ExecutionState {
         self.repair.status = RepairStatus::Pending { cycle: next_cycle };
         self.publish = PublishStatus::NotRequested;
         self.telemetry.probe = if compile_ok {
-            ProbeStatus::Required { attempts: ProbeAttempts::default() }
+            ProbeStatus::Required {
+                attempts: ProbeAttempts::default(),
+            }
         } else {
             ProbeStatus::NotRequired
         };
@@ -1182,15 +1262,18 @@ impl ExecutionState {
         attempts.total = attempts.total.saturating_add(1);
         let outcome = if !ok {
             attempts.failed = attempts.failed.saturating_add(1);
-            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            attempts.repeated_signature_streak =
+                attempts.repeated_signature_streak.saturating_add(1);
             ProbeOutcomeKind::Failed
         } else if !meaningful_sql {
             attempts.non_meaningful = attempts.non_meaningful.saturating_add(1);
-            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            attempts.repeated_signature_streak =
+                attempts.repeated_signature_streak.saturating_add(1);
             ProbeOutcomeKind::NonMeaningful
         } else if attempts.last_signature.as_ref() == Some(&signature) {
             attempts.meaningful = attempts.meaningful.saturating_add(1);
-            attempts.repeated_signature_streak = attempts.repeated_signature_streak.saturating_add(1);
+            attempts.repeated_signature_streak =
+                attempts.repeated_signature_streak.saturating_add(1);
             ProbeOutcomeKind::MeaningfulSameSignal
         } else {
             attempts.meaningful = attempts.meaningful.saturating_add(1);
@@ -1228,7 +1311,9 @@ impl ExecutionState {
                 }
             }
             ProbeStatus::Satisfied { .. } => ProbeRequirementStatus::Allowed,
-            ProbeStatus::ExhaustedRequireMutation { .. } => ProbeRequirementStatus::ExhaustedRequireMutation,
+            ProbeStatus::ExhaustedRequireMutation { .. } => {
+                ProbeRequirementStatus::ExhaustedRequireMutation
+            }
         }
     }
 
@@ -1267,7 +1352,6 @@ impl ExecutionState {
             });
         });
     }
-
 
     pub fn clear_pending_patch_impl(&mut self) {
         self.with_repair_state_mut(|repair| {
@@ -1308,14 +1392,20 @@ impl ExecutionState {
         let capped = cap.max(1);
         match kind {
             PublishRetryKind::AwaitApprovalLoop => {
-                if let PublishStatus::AwaitingApproval { approval_retries, .. } = &mut self.publish {
+                if let PublishStatus::AwaitingApproval {
+                    approval_retries, ..
+                } = &mut self.publish
+                {
                     *approval_retries = (*approval_retries).saturating_add(1).min(capped);
                     let count = *approval_retries;
                     self.debug_assert_invariants();
                     return count;
                 }
                 let sha = self.publish.plan_sha256().map(|s| s.to_string());
-                self.publish = PublishStatus::AwaitingApproval { plan_sha256: sha, approval_retries: 1 };
+                self.publish = PublishStatus::AwaitingApproval {
+                    plan_sha256: sha,
+                    approval_retries: 1,
+                };
                 self.debug_assert_invariants();
                 1
             }
@@ -1336,7 +1426,10 @@ impl ExecutionState {
     pub fn reset_publish_retry(&mut self, kind: PublishRetryKind) {
         match kind {
             PublishRetryKind::AwaitApprovalLoop => {
-                if let PublishStatus::AwaitingApproval { approval_retries, .. } = &mut self.publish {
+                if let PublishStatus::AwaitingApproval {
+                    approval_retries, ..
+                } = &mut self.publish
+                {
                     *approval_retries = 0;
                 }
             }
@@ -1423,7 +1516,10 @@ impl ExecutionState {
         select_terms: Vec<String>,
     ) {
         self.repair.mutated_since_fail = true;
-        if matches!(self.telemetry.probe, ProbeStatus::ExhaustedRequireMutation { .. }) {
+        if matches!(
+            self.telemetry.probe,
+            ProbeStatus::ExhaustedRequireMutation { .. }
+        ) {
             self.telemetry.probe = ProbeStatus::NotRequired;
         }
         if let Some(ref mut intent) = self.repair.pending_patch_impl {
@@ -1442,15 +1538,27 @@ impl ExecutionState {
         match event {
             DataEngineerEvent::ValidatePassed { tier: _ } => self.apply_validate_success(),
             DataEngineerEvent::ValidateFailed {
-                tier: _, brief, failure_hash, compile_ok, run_ok, log_excerpts,
+                tier: _,
+                brief,
+                failure_hash,
+                compile_ok,
+                run_ok,
+                log_excerpts,
             } => {
                 self.apply_validate_failure(brief, failure_hash, compile_ok, run_ok, log_excerpts);
             }
-            DataEngineerEvent::BatchAuthoringFailed { tier: _, kind, brief } => {
+            DataEngineerEvent::BatchAuthoringFailed {
+                tier: _,
+                kind,
+                brief,
+            } => {
                 if kind == FailureKind::InfraTransient {
                     self.repair.infra_transient = true;
                     self.repair.failure_context = Some(ValidationFailureContext {
-                        brief, log_excerpts: None, compile_ok: false, run_ok: false,
+                        brief,
+                        log_excerpts: None,
+                        compile_ok: false,
+                        run_ok: false,
                     });
                     self.debug_assert_invariants();
                     return;
@@ -1469,9 +1577,15 @@ impl ExecutionState {
             }
             DataEngineerEvent::RepairExhausted => {
                 let cycles = self.repair.cycle_count();
-                self.repair.status = RepairStatus::Exhausted { cycles_used: cycles };
+                self.repair.status = RepairStatus::Exhausted {
+                    cycles_used: cycles,
+                };
             }
-            DataEngineerEvent::MutationRecorded { op, paths, select_terms } => {
+            DataEngineerEvent::MutationRecorded {
+                op,
+                paths,
+                select_terms,
+            } => {
                 self.set_last_mutation_summary(op, paths, select_terms);
             }
             DataEngineerEvent::ProbeAttemptRecorded { sql, ok, signature } => {
@@ -1483,7 +1597,10 @@ impl ExecutionState {
             DataEngineerEvent::PatchImplIntentCleared => {
                 self.clear_pending_patch_impl();
             }
-            DataEngineerEvent::PlanRevisionRequested { violations, strategy } => {
+            DataEngineerEvent::PlanRevisionRequested {
+                violations,
+                strategy,
+            } => {
                 self.set_pending_plan_revision(violations, strategy);
             }
             DataEngineerEvent::PublishPlanPending { sha256 } => {
@@ -1522,7 +1639,11 @@ impl ExecutionState {
                     self.clear_subjective_retry_kind(kind);
                 }
             }
-            DataEngineerEvent::ManifestLookupRecorded { path_kind, success, failure_kind } => {
+            DataEngineerEvent::ManifestLookupRecorded {
+                path_kind,
+                success,
+                failure_kind,
+            } => {
                 self.note_manifest_lookup_attempt(path_kind, success, failure_kind);
             }
             DataEngineerEvent::PlanRevisionConsumed => {
@@ -1561,7 +1682,6 @@ impl ExecutionState {
             violations.push("transition set while current_phase is Preflight".to_string());
         }
     }
-
 
     fn collect_probe_lifecycle_violations(&self, violations: &mut Vec<String>) {
         let is_active_probe = !matches!(self.telemetry.probe, ProbeStatus::NotRequired);
@@ -1717,7 +1837,10 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.status = RepairStatus::Pending { cycle: 1 };
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "some error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+            brief: "some error".to_string(),
+            log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
         st.subjective_retries
             .insert(SubjectiveRetryKind::PlanSemanticInvalid, 3);
@@ -1743,7 +1866,10 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.status = RepairStatus::Pending { cycle: 2 };
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "precheck error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+            brief: "precheck error".to_string(),
+            log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
         st.subjective_retries
             .insert(SubjectiveRetryKind::ValidatePrecheckFailed, 2);
@@ -1779,8 +1905,14 @@ mod tests {
             None,
         );
         assert!(st.hard_mutation_repair_mode());
-        assert!(matches!(st.repair.status, RepairStatus::Pending { cycle: 1 }));
-        assert_eq!(st.repair.failure_context.as_ref().unwrap().brief, "schema fail");
+        assert!(matches!(
+            st.repair.status,
+            RepairStatus::Pending { cycle: 1 }
+        ));
+        assert_eq!(
+            st.repair.failure_context.as_ref().unwrap().brief,
+            "schema fail"
+        );
         assert_eq!(st.repair.cycle_count(), 1);
     }
 
@@ -1856,9 +1988,14 @@ mod tests {
     fn gate_authoring_probe_rejects_when_probe_required() {
         let mut st = ExecutionState::new();
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
+            brief: "test".to_string(),
+            log_excerpts: None,
+            compile_ok: true,
+            run_ok: false,
         });
-        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+        st.telemetry.probe = ProbeStatus::Required {
+            attempts: ProbeAttempts::default(),
+        };
         assert!(gate_authoring_probe(&st).is_err());
     }
 
@@ -1874,9 +2011,14 @@ mod tests {
     fn probe_status_allows_multiple_meaningful_probes_and_exhausts_on_repeats() {
         let mut st = ExecutionState::new();
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
+            brief: "test".to_string(),
+            log_excerpts: None,
+            compile_ok: true,
+            run_ok: false,
         });
-        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+        st.telemetry.probe = ProbeStatus::Required {
+            attempts: ProbeAttempts::default(),
+        };
 
         let sig1 = ProbeSignature::from_run_sql(
             "select * from x limit 10",
@@ -1921,7 +2063,10 @@ mod tests {
     fn successful_mutation_unblocks_exhausted_probe_cycle() {
         let mut st = ExecutionState::new();
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
+            brief: "test".to_string(),
+            log_excerpts: None,
+            compile_ok: true,
+            run_ok: false,
         });
         st.telemetry.probe = ProbeStatus::ExhaustedRequireMutation {
             attempts: ProbeAttempts::default(),
@@ -1973,8 +2118,14 @@ mod tests {
             1
         );
         st.reset_publish_retry(PublishRetryKind::AwaitApprovalLoop);
-        if let PublishStatus::AwaitingApproval { approval_retries, .. } = &st.publish {
-            assert_eq!(*approval_retries, 0, "approval retries should be reset to 0");
+        if let PublishStatus::AwaitingApproval {
+            approval_retries, ..
+        } = &st.publish
+        {
+            assert_eq!(
+                *approval_retries, 0,
+                "approval retries should be reset to 0"
+            );
         }
     }
 
@@ -2053,9 +2204,14 @@ mod tests {
     fn probe_attempt_recorded_advances_probe_requirement() {
         let mut st = ExecutionState::new();
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "test".to_string(), log_excerpts: None, compile_ok: true, run_ok: false,
+            brief: "test".to_string(),
+            log_excerpts: None,
+            compile_ok: true,
+            run_ok: false,
         });
-        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+        st.telemetry.probe = ProbeStatus::Required {
+            attempts: ProbeAttempts::default(),
+        };
 
         st.apply_event(DataEngineerEvent::ProbeAttemptRecorded {
             sql: "select * from x limit 10".to_string(),
@@ -2099,7 +2255,11 @@ mod tests {
             st.repair.infra_transient,
             "flag must be set for step-boundary short-circuit"
         );
-        assert_eq!(st.repair.cycle_count(), 0, "repair_cycles must not increment");
+        assert_eq!(
+            st.repair.cycle_count(),
+            0,
+            "repair_cycles must not increment"
+        );
         assert_eq!(
             st.repair.failure_context.as_ref().unwrap().brief,
             "service error"
@@ -2152,7 +2312,10 @@ mod tests {
         let mut st = ExecutionState::new();
         st.repair.status = RepairStatus::Pending { cycle: 1 };
         st.repair.failure_context = Some(ValidationFailureContext {
-            brief: "some error".to_string(), log_excerpts: None, compile_ok: false, run_ok: false,
+            brief: "some error".to_string(),
+            log_excerpts: None,
+            compile_ok: false,
+            run_ok: false,
         });
         st.apply_event(DataEngineerEvent::BatchAuthoringRecovered);
         assert!(!st.hard_mutation_repair_mode());
@@ -2186,7 +2349,9 @@ mod tests {
     #[test]
     fn invariants_reject_probe_active_when_last_validate_not_failed() {
         let mut st = ExecutionState::new();
-        st.telemetry.probe = ProbeStatus::Required { attempts: ProbeAttempts::default() };
+        st.telemetry.probe = ProbeStatus::Required {
+            attempts: ProbeAttempts::default(),
+        };
         let err = st.validate_invariants().expect_err("invariants must fail");
         assert!(err.contains("probe status can only be active while last_validate_failed is true"));
     }

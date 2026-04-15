@@ -13,4 +13,3 @@ Good args example:
         crate::patch_contract::single_file_patch_good_example_json()
     )
 }
-

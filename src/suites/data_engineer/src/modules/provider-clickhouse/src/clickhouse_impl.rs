@@ -5,11 +5,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, Semaphore};
 
 use react_core::discover::stats::FieldStats;
+use react_suite_data_engineer::providers::warehouse_utils;
 use react_suite_data_engineer::providers::{
     DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
     WarehouseNaming,
 };
-use react_suite_data_engineer::providers::warehouse_utils;
 
 const DEFAULT_MAX_CONCURRENCY: usize = 15;
 const MAX_CONCURRENCY_CAP: usize = 20;
@@ -79,13 +79,12 @@ impl ClickHouseProvider {
             },
             MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
@@ -120,7 +119,10 @@ impl ClickHouseProvider {
 
         tracing::info!(target: "clickhouse", sql_len = sql.len(), "query_started");
 
-        let full_sql = format!("{} FORMAT TabSeparatedWithNames", sql.trim().trim_end_matches(';'));
+        let full_sql = format!(
+            "{} FORMAT TabSeparatedWithNames",
+            sql.trim().trim_end_matches(';')
+        );
 
         let mut req = self
             .inner
@@ -249,7 +251,9 @@ impl ClickHouseProvider {
             .collect();
 
         let mut cache = self.inner.cache.write().await;
-        cache.columns_by_fqn.insert(fqn, (Instant::now(), cols.clone()));
+        cache
+            .columns_by_fqn
+            .insert(fqn, (Instant::now(), cols.clone()));
         Ok(cols)
     }
 }
@@ -400,7 +404,8 @@ impl DatasetCatalogProvider for ClickHouseProvider {
                         NULL AS __min_num, \
                         NULL AS __max_num \
                      FROM {tbl}",
-                    c = expr, tbl = tbl,
+                    c = expr,
+                    tbl = tbl,
                 )
             } else {
                 format!(
@@ -411,7 +416,10 @@ impl DatasetCatalogProvider for ClickHouseProvider {
                         min({min_e}) AS __min_num, \
                         max({max_e}) AS __max_num \
                      FROM {tbl}",
-                    c = expr, min_e = min_expr, max_e = max_expr, tbl = tbl,
+                    c = expr,
+                    min_e = min_expr,
+                    max_e = max_expr,
+                    tbl = tbl,
                 )
             };
 
@@ -420,7 +428,10 @@ impl DatasetCatalogProvider for ClickHouseProvider {
                 Err(e) => {
                     tracing::warn!(
                         "clickhouse stats: dataset='{}' field='{}' type='{}' failed: {}",
-                        dataset.fqn(), name, ty, e
+                        dataset.fqn(),
+                        name,
+                        ty,
+                        e
                     );
                     let mut fs = FieldStats::default();
                     fs.total = total_rows;

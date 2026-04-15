@@ -39,8 +39,7 @@ mod inner {
         serde_json::json!({})
     }
 
-    fn save_tuning_map(_obj: &serde_json::Value) {
-    }
+    fn save_tuning_map(_obj: &serde_json::Value) {}
 
     fn load_with_autotune(
         backend: &LlamaBackend,

@@ -26,10 +26,9 @@ impl TrackKind {
             | Phase::CleanseAuthor
             | Phase::CleanseValidate
             | Phase::CleanseReview => Some(Self::Cleanse),
-            Phase::ModelPlan
-            | Phase::ModelAuthor
-            | Phase::ModelValidate
-            | Phase::ModelReview => Some(Self::Model),
+            Phase::ModelPlan | Phase::ModelAuthor | Phase::ModelValidate | Phase::ModelReview => {
+                Some(Self::Model)
+            }
             _ => None,
         }
     }

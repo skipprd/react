@@ -2,7 +2,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
-use crate::storage::ConditionalWriteStatus;
+use crate::storage::{
+    retry_delete_object, retry_get_json, retry_head_etag, retry_list_prefix,
+    retry_put_json_if_etag_matches, ConditionalWriteStatus,
+};
 
 use super::{
     session_write_lock, CacheEntry, LoadState, Observation, ThreadLog, ThreadStep, ThreadStore,
@@ -73,7 +76,7 @@ impl ThreadStore {
     }
 
     async fn load_thread_log_for_write(&self, key: &str) -> CoreResult<LoadState<ThreadLog>> {
-        let current_etag = self.storage.head_etag(key).await?;
+        let current_etag = retry_head_etag(self.storage.as_ref(), key).await?;
         let Some(etag) = current_etag else {
             return Ok(LoadState::Missing);
         };
@@ -82,12 +85,12 @@ impl ThreadStore {
                 entry.log.clone()
             } else {
                 drop(entry);
-                let v = self.storage.get_json(key).await?;
+                let v = retry_get_json(self.storage.as_ref(), key).await?;
                 serde_json::from_value::<ThreadLog>(v)
                     .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
             }
         } else {
-            let v = self.storage.get_json(key).await?;
+            let v = retry_get_json(self.storage.as_ref(), key).await?;
             serde_json::from_value::<ThreadLog>(v)
                 .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
         };
@@ -111,9 +114,7 @@ impl ThreadStore {
                 "thread_log('{thread_id}'): failed to serialize thread log: {e}"
             ))
         })?;
-        match self
-            .storage
-            .put_json_if_etag_matches(key, &val, expected_etag)
+        match retry_put_json_if_etag_matches(self.storage.as_ref(), key, &val, expected_etag)
             .await?
         {
             ConditionalWriteStatus::Written => Ok(()),
@@ -232,9 +233,8 @@ impl ThreadStore {
                 return Ok(entry.log.clone());
             }
         }
-        let v = self
-            .storage
-            .get_json(&key)
+        let v = self.storage.as_ref();
+        let v = retry_get_json(v, &key)
             .await
             .map_err(|e| CoreError::Session(format!("get('{thread_id}'): {e}")))?;
         let log = serde_json::from_value::<ThreadLog>(v)
@@ -253,7 +253,7 @@ impl ThreadStore {
     pub async fn list(&self) -> Vec<String> {
         let prefix = self.list_prefix();
         let mut out: Vec<String> = Vec::new();
-        if let Ok(keys) = self.storage.list_prefix(&prefix).await {
+        if let Ok(keys) = retry_list_prefix(self.storage.as_ref(), &prefix).await {
             for k in keys {
                 if let Some(name) = k
                     .strip_prefix(&prefix)
@@ -279,10 +279,10 @@ impl ThreadStore {
                 .trim_end_matches('/'),
             thread_id
         );
-        self.storage.delete_object(&key).await?;
-        if let Ok(keys) = self.storage.list_prefix(&thread_prefix).await {
+        retry_delete_object(self.storage.as_ref(), &key).await?;
+        if let Ok(keys) = retry_list_prefix(self.storage.as_ref(), &thread_prefix).await {
             for k in keys {
-                let _ = self.storage.delete_object(&k).await;
+                let _ = retry_delete_object(self.storage.as_ref(), &k).await;
             }
         }
         self.cache.remove(&key);

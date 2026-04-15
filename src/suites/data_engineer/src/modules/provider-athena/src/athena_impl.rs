@@ -419,7 +419,6 @@ impl WarehouseNaming for AthenaProvider {
             "Trino/Athena rule: you cannot reference a SELECT-list alias in another expression in the same SELECT list. If one derived field depends on another, compute base fields in a CTE/subquery and use an outer SELECT.",
         ]
     }
-
 }
 
 #[async_trait]

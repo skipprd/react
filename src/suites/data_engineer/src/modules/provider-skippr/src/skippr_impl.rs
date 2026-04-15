@@ -18,11 +18,7 @@ pub struct SkipprCliProvider {
 }
 
 impl SkipprCliProvider {
-    pub fn new(
-        el_config: ElToolResolved,
-        warehouse: WarehouseResolved,
-        data_dir: PathBuf,
-    ) -> Self {
+    pub fn new(el_config: ElToolResolved, warehouse: WarehouseResolved, data_dir: PathBuf) -> Self {
         let binary = if el_config.skippr_binary.is_empty() {
             "skippr-el".to_string()
         } else {
@@ -80,96 +76,175 @@ impl SkipprCliProvider {
             }
 
             if kind.eq_ignore_ascii_case("postgres") {
-                if let Some(v) = input.get("host").and_then(|v| v.as_str()) { env.insert("POSTGRES_HOST".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("user").and_then(|v| v.as_str()) { env.insert("POSTGRES_USER".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("password").and_then(|v| v.as_str()) { env.insert("POSTGRES_PASSWORD".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("POSTGRES_DATABASE".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("POSTGRES_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("host").and_then(|v| v.as_str()) {
+                    env.insert("POSTGRES_HOST".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("user").and_then(|v| v.as_str()) {
+                    env.insert("POSTGRES_USER".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("password").and_then(|v| v.as_str()) {
+                    env.insert("POSTGRES_PASSWORD".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) {
+                    env.insert("POSTGRES_DATABASE".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) {
+                    env.insert("POSTGRES_CONNECTION_STRING".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("redshift") {
-                if let Some(v) = input.get("cluster_identifier").and_then(|v| v.as_str()) { env.insert("REDSHIFT_CLUSTER_IDENTIFIER".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("REDSHIFT_DATABASE".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("cluster_identifier").and_then(|v| v.as_str()) {
+                    env.insert("REDSHIFT_CLUSTER_IDENTIFIER".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) {
+                    env.insert("REDSHIFT_DATABASE".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("mongodb") {
-                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("MONGODB_CONNECTION_STRING".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) {
+                    env.insert("MONGODB_CONNECTION_STRING".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("dynamodb") {
-                if let Some(v) = input.get("table_name").and_then(|v| v.as_str()) { env.insert("DYNAMODB_TABLE_NAME".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("table_name").and_then(|v| v.as_str()) {
+                    env.insert("DYNAMODB_TABLE_NAME".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("clickhouse") {
-                if let Some(v) = input.get("url").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_DATABASE".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("user").and_then(|v| v.as_str()) { env.insert("CLICKHOUSE_USER".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("url").and_then(|v| v.as_str()) {
+                    env.insert("CLICKHOUSE_URL".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) {
+                    env.insert("CLICKHOUSE_DATABASE".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("user").and_then(|v| v.as_str()) {
+                    env.insert("CLICKHOUSE_USER".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("motherduck") {
-                if let Some(v) = input.get("motherduck_token").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("database").and_then(|v| v.as_str()) { env.insert("MOTHERDUCK_DATABASE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("motherduck_token").and_then(|v| v.as_str()) {
+                    env.insert("MOTHERDUCK_TOKEN".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("database").and_then(|v| v.as_str()) {
+                    env.insert("MOTHERDUCK_DATABASE".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("sftp") {
-                if let Some(v) = input.get("host").and_then(|v| v.as_str()) { env.insert("SFTP_HOST".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("username").and_then(|v| v.as_str()) { env.insert("SFTP_USERNAME".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("password").and_then(|v| v.as_str()) { env.insert("SFTP_PASSWORD".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("remote_path").and_then(|v| v.as_str()) { env.insert("SFTP_REMOTE_PATH".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("host").and_then(|v| v.as_str()) {
+                    env.insert("SFTP_HOST".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("username").and_then(|v| v.as_str()) {
+                    env.insert("SFTP_USERNAME".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("password").and_then(|v| v.as_str()) {
+                    env.insert("SFTP_PASSWORD".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("remote_path").and_then(|v| v.as_str()) {
+                    env.insert("SFTP_REMOTE_PATH".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("kafka") {
-                if let Some(v) = input.get("brokers").and_then(|v| v.as_str()) { env.insert("KAFKA_BROKERS".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) { env.insert("KAFKA_TOPIC".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("brokers").and_then(|v| v.as_str()) {
+                    env.insert("KAFKA_BROKERS".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) {
+                    env.insert("KAFKA_TOPIC".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("sqs") {
-                if let Some(v) = input.get("queue_url").and_then(|v| v.as_str()) { env.insert("SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("queue_url").and_then(|v| v.as_str()) {
+                    env.insert("SQS_QUEUE_URL".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("kinesis") {
-                if let Some(v) = input.get("stream_name").and_then(|v| v.as_str()) { env.insert("KINESIS_STREAM_NAME".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("stream_name").and_then(|v| v.as_str()) {
+                    env.insert("KINESIS_STREAM_NAME".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("amqp") {
-                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) { env.insert("AMQP_CONNECTION_STRING".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("queue").and_then(|v| v.as_str()) { env.insert("AMQP_QUEUE".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("connection_string").and_then(|v| v.as_str()) {
+                    env.insert("AMQP_CONNECTION_STRING".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("queue").and_then(|v| v.as_str()) {
+                    env.insert("AMQP_QUEUE".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("sns") {
-                if let Some(v) = input.get("topic_arn").and_then(|v| v.as_str()) { env.insert("SNS_TOPIC_ARN".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) { env.insert("SNS_SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("topic_arn").and_then(|v| v.as_str()) {
+                    env.insert("SNS_TOPIC_ARN".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) {
+                    env.insert("SNS_SQS_QUEUE_URL".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("eventbridge") {
-                if let Some(v) = input.get("event_bus_name").and_then(|v| v.as_str()) { env.insert("EVENTBRIDGE_EVENT_BUS_NAME".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) { env.insert("EVENTBRIDGE_SQS_QUEUE_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("region").and_then(|v| v.as_str()) { env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("event_bus_name").and_then(|v| v.as_str()) {
+                    env.insert("EVENTBRIDGE_EVENT_BUS_NAME".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("sqs_queue_url").and_then(|v| v.as_str()) {
+                    env.insert("EVENTBRIDGE_SQS_QUEUE_URL".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("region").and_then(|v| v.as_str()) {
+                    env.insert("AWS_DEFAULT_REGION".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("mqtt") {
-                if let Some(v) = input.get("broker_url").and_then(|v| v.as_str()) { env.insert("MQTT_BROKER_URL".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) { env.insert("MQTT_TOPIC".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("broker_url").and_then(|v| v.as_str()) {
+                    env.insert("MQTT_BROKER_URL".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("topic").and_then(|v| v.as_str()) {
+                    env.insert("MQTT_TOPIC".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("websocket") {
-                if let Some(v) = input.get("url").and_then(|v| v.as_str()) { env.insert("WEBSOCKET_URL".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("url").and_then(|v| v.as_str()) {
+                    env.insert("WEBSOCKET_URL".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("socket") {
-                if let Some(v) = input.get("mode").and_then(|v| v.as_str()) { env.insert("SOCKET_MODE".into(), resolve_env_ref(v)); }
-                if let Some(v) = input.get("address").and_then(|v| v.as_str()) { env.insert("SOCKET_ADDRESS".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("mode").and_then(|v| v.as_str()) {
+                    env.insert("SOCKET_MODE".into(), resolve_env_ref(v));
+                }
+                if let Some(v) = input.get("address").and_then(|v| v.as_str()) {
+                    env.insert("SOCKET_ADDRESS".into(), resolve_env_ref(v));
+                }
             }
 
             if kind.eq_ignore_ascii_case("delta_lake") {
-                if let Some(v) = input.get("table_uri").and_then(|v| v.as_str()) { env.insert("DELTA_TABLE_URI".into(), resolve_env_ref(v)); }
+                if let Some(v) = input.get("table_uri").and_then(|v| v.as_str()) {
+                    env.insert("DELTA_TABLE_URI".into(), resolve_env_ref(v));
+                }
             }
-
         }
 
         match self.warehouse.kind {
@@ -182,45 +257,89 @@ impl SkipprCliProvider {
             }
             WarehouseKind::Bigquery => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Bigquery".into());
-                if let Some(v) = std::env::var("BIGQUERY_PROJECT").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("BIGQUERY_PROJECT")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("BIGQUERY_PROJECT".into(), v);
                 } else if !self.warehouse.container.is_empty() {
-                    env.insert("BIGQUERY_PROJECT".into(), resolve_env_ref(&self.warehouse.container));
+                    env.insert(
+                        "BIGQUERY_PROJECT".into(),
+                        resolve_env_ref(&self.warehouse.container),
+                    );
                 }
-                if let Some(v) = std::env::var("BIGQUERY_DATASET").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("BIGQUERY_DATASET")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("BIGQUERY_DATASET".into(), v);
                 } else if !self.warehouse.namespace.is_empty() {
-                    env.insert("BIGQUERY_DATASET".into(), resolve_env_ref(&self.warehouse.namespace));
+                    env.insert(
+                        "BIGQUERY_DATASET".into(),
+                        resolve_env_ref(&self.warehouse.namespace),
+                    );
                 }
-                if let Some(loc) = self.warehouse.extras.get("location").and_then(|v| v.as_str()) {
+                if let Some(loc) = self
+                    .warehouse
+                    .extras
+                    .get("location")
+                    .and_then(|v| v.as_str())
+                {
                     env.insert("BIGQUERY_LOCATION".into(), loc.to_string());
                 }
             }
             WarehouseKind::Postgres => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Postgres".into());
-                if let Some(v) = std::env::var("POSTGRES_HOST").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_HOST")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_HOST".into(), v);
                 }
-                if let Some(v) = std::env::var("POSTGRES_PORT").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_PORT")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_PORT".into(), v);
                 }
-                if let Some(v) = std::env::var("POSTGRES_USER").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_USER")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_USER".into(), v);
                 }
-                if let Some(v) = std::env::var("POSTGRES_PASSWORD").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_PASSWORD")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_PASSWORD".into(), v);
                 }
-                if let Some(v) = std::env::var("POSTGRES_DATABASE").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_DATABASE")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_DATABASE".into(), v);
                 } else if !self.warehouse.container.is_empty() {
-                    env.insert("POSTGRES_DATABASE".into(), resolve_env_ref(&self.warehouse.container));
+                    env.insert(
+                        "POSTGRES_DATABASE".into(),
+                        resolve_env_ref(&self.warehouse.container),
+                    );
                 }
-                if let Some(v) = std::env::var("POSTGRES_SCHEMA").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_SCHEMA")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_SCHEMA".into(), v);
                 } else if !self.warehouse.namespace.is_empty() {
-                    env.insert("POSTGRES_SCHEMA".into(), resolve_env_ref(&self.warehouse.namespace));
+                    env.insert(
+                        "POSTGRES_SCHEMA".into(),
+                        resolve_env_ref(&self.warehouse.namespace),
+                    );
                 }
-                if let Some(v) = std::env::var("POSTGRES_SSLMODE").ok().filter(|v| !v.trim().is_empty()) {
+                if let Some(v) = std::env::var("POSTGRES_SSLMODE")
+                    .ok()
+                    .filter(|v| !v.trim().is_empty())
+                {
                     env.insert("POSTGRES_SSLMODE".into(), v);
                 }
             }
@@ -246,7 +365,10 @@ impl SkipprCliProvider {
             if cdc.enabled {
                 env.insert("CDC_ENABLED".into(), "true".into());
                 if !cdc.business_key_columns.is_empty() {
-                    env.insert("CDC_BUSINESS_KEY_COLUMNS".into(), cdc.business_key_columns.join(","));
+                    env.insert(
+                        "CDC_BUSINESS_KEY_COLUMNS".into(),
+                        cdc.business_key_columns.join(","),
+                    );
                 }
             }
         }
@@ -266,7 +388,8 @@ impl SkipprCliProvider {
     }
 
     async fn run_skippr(&self, args: &[&str]) -> Result<std::process::Output, String> {
-        self.run_skippr_with_timeout(args, std::time::Duration::from_secs(120)).await
+        self.run_skippr_with_timeout(args, std::time::Duration::from_secs(120))
+            .await
     }
 
     async fn run_skippr_with_timeout(
@@ -436,11 +559,20 @@ impl SkipprCliProvider {
                         if let Some(kind) = val.get("event").and_then(|v| v.as_str()) {
                             match kind {
                                 "sync_status" => {
-                                    let msgs = val.get("total_rows").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let bytes = val.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let rows_written = val.get("rows_written").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let elapsed = val.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let uploads = val.get("uploads_in_flight").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let msgs =
+                                        val.get("total_rows").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let bytes =
+                                        val.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let rows_written = val
+                                        .get("rows_written")
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0);
+                                    let elapsed =
+                                        val.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let uploads = val
+                                        .get("uploads_in_flight")
+                                        .and_then(|v| v.as_u64())
+                                        .unwrap_or(0);
                                     tracing::info!(
                                         messages = msgs,
                                         source_bytes = bytes,
@@ -540,7 +672,10 @@ impl SkipprCliProvider {
                     cdc_block.insert(
                         "business_key_columns".into(),
                         serde_json::Value::Array(
-                            cdc.business_key_columns.iter().map(|c| serde_json::Value::String(c.clone())).collect(),
+                            cdc.business_key_columns
+                                .iter()
+                                .map(|c| serde_json::Value::String(c.clone()))
+                                .collect(),
                         ),
                     );
                 }
@@ -550,8 +685,7 @@ impl SkipprCliProvider {
 
         let mut dest_block = serde_json::json!({ output_kind: output_config });
 
-        let has_schema_sink = config.schema_sink.is_some()
-            || self.el_config.schema_sink.is_some();
+        let has_schema_sink = config.schema_sink.is_some() || self.el_config.schema_sink.is_some();
 
         if has_schema_sink {
             dest_block["schema_sink"] = serde_json::Value::String("schema_sinks.schema".into());
@@ -575,28 +709,41 @@ impl SkipprCliProvider {
         });
 
         if has_schema_sink {
-            let ss = config.schema_sink.as_ref().map(|s| {
-                let mut m = serde_json::Map::new();
-                let kind = capitalize_first(&s.kind);
-                let mut inner = serde_json::Map::new();
-                if let Some(ref db) = s.glue_database_name {
-                    inner.insert("glue_database_name".into(), serde_json::Value::String(db.clone()));
-                }
-                m.insert(kind, serde_json::Value::Object(inner));
-                serde_json::Value::Object(m)
-            }).or_else(|| {
-                self.el_config.schema_sink.as_ref().map(|ss_val| {
-                    let kind = ss_val.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
-                    let cap = capitalize_first(kind);
-                    let mut inner = serde_json::Map::new();
-                    if let Some(v) = ss_val.get("glue_database_name").and_then(|v| v.as_str()) {
-                        inner.insert("glue_database_name".into(), serde_json::Value::String(v.to_string()));
-                    }
+            let ss = config
+                .schema_sink
+                .as_ref()
+                .map(|s| {
                     let mut m = serde_json::Map::new();
-                    m.insert(cap, serde_json::Value::Object(inner));
+                    let kind = capitalize_first(&s.kind);
+                    let mut inner = serde_json::Map::new();
+                    if let Some(ref db) = s.glue_database_name {
+                        inner.insert(
+                            "glue_database_name".into(),
+                            serde_json::Value::String(db.clone()),
+                        );
+                    }
+                    m.insert(kind, serde_json::Value::Object(inner));
                     serde_json::Value::Object(m)
                 })
-            });
+                .or_else(|| {
+                    self.el_config.schema_sink.as_ref().map(|ss_val| {
+                        let kind = ss_val
+                            .get("kind")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let cap = capitalize_first(kind);
+                        let mut inner = serde_json::Map::new();
+                        if let Some(v) = ss_val.get("glue_database_name").and_then(|v| v.as_str()) {
+                            inner.insert(
+                                "glue_database_name".into(),
+                                serde_json::Value::String(v.to_string()),
+                            );
+                        }
+                        let mut m = serde_json::Map::new();
+                        m.insert(cap, serde_json::Value::Object(inner));
+                        serde_json::Value::Object(m)
+                    })
+                });
 
             if let Some(ss_block) = ss {
                 root["schema_sinks"] = serde_json::json!({ "schema": ss_block });
@@ -622,29 +769,25 @@ impl SkipprCliProvider {
             WarehouseKind::Snowflake => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = getenv("SNOWFLAKE_ACCOUNT")
-                    .or_else(|| extra_str(extras, "account"))
+                if let Some(v) =
+                    getenv("SNOWFLAKE_ACCOUNT").or_else(|| extra_str(extras, "account"))
                 {
                     cfg.insert("account".into(), serde_json::Value::String(v));
                 }
-                if let Some(v) = getenv("SNOWFLAKE_USER")
-                    .or_else(|| extra_str(extras, "user"))
-                {
+                if let Some(v) = getenv("SNOWFLAKE_USER").or_else(|| extra_str(extras, "user")) {
                     cfg.insert("user".into(), serde_json::Value::String(v));
                 }
-                if let Some(v) = getenv("SNOWFLAKE_PASSWORD")
-                    .or_else(|| extra_str(extras, "password"))
+                if let Some(v) =
+                    getenv("SNOWFLAKE_PASSWORD").or_else(|| extra_str(extras, "password"))
                 {
                     cfg.insert("password".into(), serde_json::Value::String(v));
                 }
-                if let Some(v) = getenv("SNOWFLAKE_WAREHOUSE")
-                    .or_else(|| extra_str(extras, "warehouse"))
+                if let Some(v) =
+                    getenv("SNOWFLAKE_WAREHOUSE").or_else(|| extra_str(extras, "warehouse"))
                 {
                     cfg.insert("warehouse".into(), serde_json::Value::String(v));
                 }
-                if let Some(v) = getenv("SNOWFLAKE_ROLE")
-                    .or_else(|| extra_str(extras, "role"))
-                {
+                if let Some(v) = getenv("SNOWFLAKE_ROLE").or_else(|| extra_str(extras, "role")) {
                     cfg.insert("role".into(), serde_json::Value::String(v));
                 }
                 if let Some(v) = getenv("SNOWFLAKE_DATABASE") {
@@ -692,8 +835,8 @@ impl SkipprCliProvider {
                         serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
                     );
                 }
-                if let Some(v) = getenv("BIGQUERY_LOCATION")
-                    .or_else(|| extra_str(extras, "location"))
+                if let Some(v) =
+                    getenv("BIGQUERY_LOCATION").or_else(|| extra_str(extras, "location"))
                 {
                     cfg.insert("location".into(), serde_json::Value::String(v));
                 }
@@ -745,43 +888,99 @@ impl SkipprCliProvider {
             WarehouseKind::Databricks => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = extra_str(extras, "workspace_url") { cfg.insert("workspace_url".into(), serde_json::Value::String(v)); }
-                if let Some(v) = extra_str(extras, "token") { cfg.insert("token".into(), serde_json::Value::String(v)); }
-                if let Some(v) = extra_str(extras, "warehouse_id") { cfg.insert("warehouse_id".into(), serde_json::Value::String(v)); }
-                if !self.warehouse.container.is_empty() { cfg.insert("catalog".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
-                if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
+                if let Some(v) = extra_str(extras, "workspace_url") {
+                    cfg.insert("workspace_url".into(), serde_json::Value::String(v));
+                }
+                if let Some(v) = extra_str(extras, "token") {
+                    cfg.insert("token".into(), serde_json::Value::String(v));
+                }
+                if let Some(v) = extra_str(extras, "warehouse_id") {
+                    cfg.insert("warehouse_id".into(), serde_json::Value::String(v));
+                }
+                if !self.warehouse.container.is_empty() {
+                    cfg.insert(
+                        "catalog".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
+                    );
+                }
+                if !self.warehouse.namespace.is_empty() {
+                    cfg.insert(
+                        "schema".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
+                    );
+                }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Synapse => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = extra_str(extras, "connection_string") { cfg.insert("connection_string".into(), serde_json::Value::String(v)); }
-                if !self.warehouse.namespace.is_empty() { cfg.insert("schema".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace))); }
+                if let Some(v) = extra_str(extras, "connection_string") {
+                    cfg.insert("connection_string".into(), serde_json::Value::String(v));
+                }
+                if !self.warehouse.namespace.is_empty() {
+                    cfg.insert(
+                        "schema".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.namespace)),
+                    );
+                }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Redshift => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
-                for json_key in ["cluster_identifier", "workgroup_name", "db_user", "region", "staging_s3_bucket", "staging_s3_prefix", "iam_role_arn"] {
-                    if let Some(v) = extra_str(extras, json_key) { cfg.insert(json_key.into(), serde_json::Value::String(v)); }
+                if !self.warehouse.container.is_empty() {
+                    cfg.insert(
+                        "database".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
+                    );
+                }
+                for json_key in [
+                    "cluster_identifier",
+                    "workgroup_name",
+                    "db_user",
+                    "region",
+                    "staging_s3_bucket",
+                    "staging_s3_prefix",
+                    "iam_role_arn",
+                ] {
+                    if let Some(v) = extra_str(extras, json_key) {
+                        cfg.insert(json_key.into(), serde_json::Value::String(v));
+                    }
                 }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Clickhouse => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = extra_str(extras, "url") { cfg.insert("url".into(), serde_json::Value::String(v)); }
-                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
-                if let Some(v) = extra_str(extras, "user") { cfg.insert("user".into(), serde_json::Value::String(v)); }
-                if let Some(v) = extra_str(extras, "password") { cfg.insert("password".into(), serde_json::Value::String(v)); }
+                if let Some(v) = extra_str(extras, "url") {
+                    cfg.insert("url".into(), serde_json::Value::String(v));
+                }
+                if !self.warehouse.container.is_empty() {
+                    cfg.insert(
+                        "database".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
+                    );
+                }
+                if let Some(v) = extra_str(extras, "user") {
+                    cfg.insert("user".into(), serde_json::Value::String(v));
+                }
+                if let Some(v) = extra_str(extras, "password") {
+                    cfg.insert("password".into(), serde_json::Value::String(v));
+                }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Motherduck => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
-                if let Some(v) = extra_str(extras, "motherduck_token") { cfg.insert("motherduck_token".into(), serde_json::Value::String(v)); }
-                if !self.warehouse.container.is_empty() { cfg.insert("database".into(), serde_json::Value::String(resolve_env_ref(&self.warehouse.container))); }
+                if let Some(v) = extra_str(extras, "motherduck_token") {
+                    cfg.insert("motherduck_token".into(), serde_json::Value::String(v));
+                }
+                if !self.warehouse.container.is_empty() {
+                    cfg.insert(
+                        "database".into(),
+                        serde_json::Value::String(resolve_env_ref(&self.warehouse.container)),
+                    );
+                }
                 serde_json::Value::Object(cfg)
             }
             WarehouseKind::Athena | WarehouseKind::Mssql => serde_json::json!({}),
@@ -844,32 +1043,27 @@ fn insert_snowflake_env(wh: &WarehouseResolved, env: &mut HashMap<String, String
         std::env::var(key).ok().filter(|v| !v.trim().is_empty())
     }
     fn extra_str(extras: &serde_json::Value, key: &str) -> Option<String> {
-        extras.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+        extras
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
-    if let Some(v) = getenv("SNOWFLAKE_ACCOUNT")
-        .or_else(|| extra_str(&wh.extras, "account"))
-    {
+    if let Some(v) = getenv("SNOWFLAKE_ACCOUNT").or_else(|| extra_str(&wh.extras, "account")) {
         env.insert("SNOWFLAKE_ACCOUNT".into(), v);
     }
-    if let Some(v) = getenv("SNOWFLAKE_USER")
-        .or_else(|| extra_str(&wh.extras, "user"))
-    {
+    if let Some(v) = getenv("SNOWFLAKE_USER").or_else(|| extra_str(&wh.extras, "user")) {
         env.insert("SNOWFLAKE_USER".into(), v);
     }
-    if let Some(v) = getenv("SNOWFLAKE_PASSWORD")
-        .or_else(|| extra_str(&wh.extras, "password"))
-    {
+    if let Some(v) = getenv("SNOWFLAKE_PASSWORD").or_else(|| extra_str(&wh.extras, "password")) {
         env.insert("SNOWFLAKE_PASSWORD".into(), v);
     }
-    if let Some(v) = getenv("SNOWFLAKE_PRIVATE_KEY_PATH")
-        .or_else(|| extra_str(&wh.extras, "private_key_path"))
+    if let Some(v) =
+        getenv("SNOWFLAKE_PRIVATE_KEY_PATH").or_else(|| extra_str(&wh.extras, "private_key_path"))
     {
         env.insert("SNOWFLAKE_PRIVATE_KEY_PATH".into(), resolve_to_absolute(&v));
     }
-    if let Some(v) = getenv("SNOWFLAKE_WAREHOUSE")
-        .or_else(|| extra_str(&wh.extras, "warehouse"))
-    {
+    if let Some(v) = getenv("SNOWFLAKE_WAREHOUSE").or_else(|| extra_str(&wh.extras, "warehouse")) {
         env.insert("SNOWFLAKE_WAREHOUSE".into(), v);
     }
     if let Some(v) = getenv("SNOWFLAKE_ROLE").or_else(|| extra_str(&wh.extras, "role")) {
@@ -973,16 +1167,28 @@ mod tests {
                 let provider = postgres_provider();
 
                 let env = provider.env_vars();
-                assert_eq!(env.get("POSTGRES_HOST").map(String::as_str), Some("localhost"));
+                assert_eq!(
+                    env.get("POSTGRES_HOST").map(String::as_str),
+                    Some("localhost")
+                );
                 assert_eq!(env.get("POSTGRES_PORT").map(String::as_str), Some("15433"));
-                assert_eq!(env.get("POSTGRES_DATABASE").map(String::as_str), Some("skippr_test"));
+                assert_eq!(
+                    env.get("POSTGRES_DATABASE").map(String::as_str),
+                    Some("skippr_test")
+                );
 
                 let cfg = provider.build_output_config();
                 assert_eq!(cfg.get("host").and_then(|v| v.as_str()), Some("localhost"));
                 assert_eq!(cfg.get("port").and_then(|v| v.as_u64()), Some(15433));
                 assert_eq!(cfg.get("user").and_then(|v| v.as_str()), Some("postgres"));
-                assert_eq!(cfg.get("password").and_then(|v| v.as_str()), Some("testpass"));
-                assert_eq!(cfg.get("database").and_then(|v| v.as_str()), Some("skippr_test"));
+                assert_eq!(
+                    cfg.get("password").and_then(|v| v.as_str()),
+                    Some("testpass")
+                );
+                assert_eq!(
+                    cfg.get("database").and_then(|v| v.as_str()),
+                    Some("skippr_test")
+                );
                 assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("public"));
                 assert_eq!(cfg.get("sslmode").and_then(|v| v.as_str()), Some("disable"));
             },
@@ -991,28 +1197,34 @@ mod tests {
 
     #[test]
     fn databricks_warehouse_resolves_env_refs_from_config_fields() {
-        with_env(
-            &[("WAREHOUSE_TOKEN", Some("dapi-test-token"))],
-            || {
-                let provider = databricks_provider("${WAREHOUSE_TOKEN}");
+        with_env(&[("WAREHOUSE_TOKEN", Some("dapi-test-token"))], || {
+            let provider = databricks_provider("${WAREHOUSE_TOKEN}");
 
-                let env = provider.env_vars();
-                assert_eq!(env.get("DATA_OUTPUT_PLUGIN_NAME").map(String::as_str), Some("Databricks"));
-                assert!(!env.contains_key("DATABRICKS_WORKSPACE_URL"));
-                assert!(!env.contains_key("DATABRICKS_TOKEN"));
-                assert!(!env.contains_key("DATABRICKS_WAREHOUSE_ID"));
+            let env = provider.env_vars();
+            assert_eq!(
+                env.get("DATA_OUTPUT_PLUGIN_NAME").map(String::as_str),
+                Some("Databricks")
+            );
+            assert!(!env.contains_key("DATABRICKS_WORKSPACE_URL"));
+            assert!(!env.contains_key("DATABRICKS_TOKEN"));
+            assert!(!env.contains_key("DATABRICKS_WAREHOUSE_ID"));
 
-                let cfg = provider.build_output_config();
-                assert_eq!(
-                    cfg.get("workspace_url").and_then(|v| v.as_str()),
-                    Some("https://dbc-example.cloud.databricks.com"),
-                );
-                assert_eq!(cfg.get("token").and_then(|v| v.as_str()), Some("dapi-test-token"));
-                assert_eq!(cfg.get("warehouse_id").and_then(|v| v.as_str()), Some("abc123"));
-                assert_eq!(cfg.get("catalog").and_then(|v| v.as_str()), Some("main"));
-                assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("default"));
-            },
-        );
+            let cfg = provider.build_output_config();
+            assert_eq!(
+                cfg.get("workspace_url").and_then(|v| v.as_str()),
+                Some("https://dbc-example.cloud.databricks.com"),
+            );
+            assert_eq!(
+                cfg.get("token").and_then(|v| v.as_str()),
+                Some("dapi-test-token")
+            );
+            assert_eq!(
+                cfg.get("warehouse_id").and_then(|v| v.as_str()),
+                Some("abc123")
+            );
+            assert_eq!(cfg.get("catalog").and_then(|v| v.as_str()), Some("main"));
+            assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("default"));
+        });
     }
 }
 
@@ -1131,9 +1343,11 @@ impl SkipprProvider for SkipprCliProvider {
             .map(|arr| {
                 arr.iter()
                     .filter_map(|ns| {
-                        let namespace = ns.get("name")
-                            .or_else(|| ns.get("namespace"))
-                            ?.as_str()?.to_string();
+                        let namespace = ns
+                            .get("name")
+                            .or_else(|| ns.get("namespace"))?
+                            .as_str()?
+                            .to_string();
                         let fields = ns
                             .get("fields")
                             .and_then(|v| v.as_array())
@@ -1153,8 +1367,14 @@ impl SkipprProvider for SkipprCliProvider {
                             })
                             .unwrap_or_default();
                         let offset = ns.get("offset").cloned();
-                        let cdc_enabled = ns.get("cdc_enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                        let last_checkpoint = ns.get("last_checkpoint").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let cdc_enabled = ns
+                            .get("cdc_enabled")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        let last_checkpoint = ns
+                            .get("last_checkpoint")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                         Some(SkipprNamespaceStatus {
                             namespace,
                             fields,
@@ -1201,14 +1421,7 @@ impl SkipprProvider for SkipprCliProvider {
         let idle_timeout = std::time::Duration::from_secs(120);
         let (events, stderr_bytes, success) = self
             .run_skippr_streaming(
-                &[
-                    "sync",
-                    "--pipeline",
-                    pipeline,
-                    "--once",
-                    "--output",
-                    "json",
-                ],
+                &["sync", "--pipeline", pipeline, "--once", "--output", "json"],
                 idle_timeout,
             )
             .await?;

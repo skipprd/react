@@ -187,12 +187,9 @@ pub async fn run_headless_from_config(
     }
 
     let run_logs = if cfg.storage.mode == rc::StorageMode::Local {
-        cfg.storage
-            .path
-            .as_ref()
-            .and_then(|root| {
-                crate::thread_logs::RunThreadLogs::new_local(root.clone(), cfg.scope.clone()).ok()
-            })
+        cfg.storage.path.as_ref().and_then(|root| {
+            crate::thread_logs::RunThreadLogs::new_local(root.clone(), cfg.scope.clone()).ok()
+        })
     } else {
         crate::thread_logs::RunThreadLogs::new_buffered(cfg.scope.clone()).ok()
     };

@@ -13,15 +13,27 @@ pub struct PhaseDecision {
 
 impl PhaseDecision {
     pub fn forward(to: Phase, transition: Option<PhaseTransition>) -> Self {
-        Self { to, intent: TransitionIntent::Forward, transition }
+        Self {
+            to,
+            intent: TransitionIntent::Forward,
+            transition,
+        }
     }
 
     pub fn loopback(to: Phase, transition: Option<PhaseTransition>) -> Self {
-        Self { to, intent: TransitionIntent::Loopback, transition }
+        Self {
+            to,
+            intent: TransitionIntent::Loopback,
+            transition,
+        }
     }
 
     pub fn annotation(phase: Phase, transition: Option<PhaseTransition>) -> Self {
-        Self { to: phase, intent: TransitionIntent::Annotation, transition }
+        Self {
+            to: phase,
+            intent: TransitionIntent::Annotation,
+            transition,
+        }
     }
 }
 
@@ -31,7 +43,11 @@ pub async fn commit_phase_decision(
     from_phase: Option<Phase>,
     decision: PhaseDecision,
 ) -> Result<(), String> {
-    let PhaseDecision { to, intent, transition } = decision;
+    let PhaseDecision {
+        to,
+        intent,
+        transition,
+    } = decision;
     crate::transition_dispatcher::dispatch_phase_transition(
         thread_store,
         thread_id,
@@ -105,7 +121,10 @@ pub async fn commit_plan_revision_loopback(
     crate::state_manager::apply_execution_event(
         &thread_store.control_store(),
         thread_id,
-        crate::progress_controller::DataEngineerEvent::PlanRevisionRequested { violations, strategy },
+        crate::progress_controller::DataEngineerEvent::PlanRevisionRequested {
+            violations,
+            strategy,
+        },
     )
     .await
     .map(|_| ())

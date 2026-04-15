@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
+use react_core::storage::{retry_get_bytes, retry_list_prefix};
 use react_core::tools::Tool;
 
 pub struct ArtifactsTool;
@@ -40,7 +41,9 @@ async fn list_artifacts(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
             }
         }
         let prefix = format!("{}/{}/", base, dir_name);
-        let keys = ctx.storage().list_prefix(&prefix).await.unwrap_or_default();
+        let keys = retry_list_prefix(ctx.storage().as_ref(), &prefix)
+            .await
+            .unwrap_or_default();
         for k in keys {
             if k.contains("/_versions/") {
                 continue;
@@ -103,7 +106,7 @@ async fn get_artifact(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         .trim_end_matches('/')
         .to_string();
     let key = format!("{}/{}", base, rel_path);
-    match ctx.storage().get_bytes(&key).await {
+    match retry_get_bytes(ctx.storage().as_ref(), &key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
             Ok(

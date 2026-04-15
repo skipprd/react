@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CoreError, CoreResult};
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
-use crate::storage::StorageAdapter;
+use crate::storage::{
+    retry_get_json, retry_head_etag, retry_list_prefix, retry_put_json, StorageAdapter,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,8 +54,13 @@ impl ThreadFeedbackStore {
         comment: impl Into<String>,
     ) -> CoreResult<ThreadFeedback> {
         let comment = normalize_comment(comment.into())?;
-        ensure_thread_exists(self.storage.as_ref(), self.keyspace.as_ref(), &self.scope, thread_id)
-            .await?;
+        ensure_thread_exists(
+            self.storage.as_ref(),
+            self.keyspace.as_ref(),
+            &self.scope,
+            thread_id,
+        )
+        .await?;
         let feedback = ThreadFeedback {
             feedback_id: uuid::Uuid::new_v4().to_string(),
             thread_id: thread_id.to_string(),
@@ -75,7 +82,9 @@ impl ThreadFeedbackStore {
     }
 
     pub async fn list_for_thread(&self, thread_id: &str) -> CoreResult<Vec<ThreadFeedback>> {
-        let prefix = self.keyspace.thread_feedback_prefix(&self.scope, thread_id)?;
+        let prefix = self
+            .keyspace
+            .thread_feedback_prefix(&self.scope, thread_id)?;
         let mut feedback = self.load_prefix(&prefix).await?;
         feedback.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(feedback)
@@ -103,13 +112,13 @@ impl ThreadFeedbackStore {
     }
 
     async fn load_prefix(&self, prefix: &str) -> CoreResult<Vec<ThreadFeedback>> {
-        let keys = self.storage.list_prefix(prefix).await?;
+        let keys = retry_list_prefix(self.storage.as_ref(), prefix).await?;
         let mut out = Vec::new();
         for key in keys {
             if !key.ends_with(".json") {
                 continue;
             }
-            let value = self.storage.get_json(&key).await?;
+            let value = retry_get_json(self.storage.as_ref(), &key).await?;
             let feedback: ThreadFeedback = serde_json::from_value(value)?;
             out.push(feedback);
         }
@@ -123,7 +132,7 @@ impl ThreadFeedbackStore {
             &feedback.feedback_id,
         )?;
         let value = serde_json::to_value(feedback)?;
-        self.storage.put_json(&key, &value).await
+        retry_put_json(self.storage.as_ref(), &key, &value).await
     }
 }
 
@@ -142,7 +151,7 @@ async fn ensure_thread_exists(
     thread_id: &str,
 ) -> CoreResult<()> {
     let thread_key = keyspace.thread_key(scope, thread_id)?;
-    match storage.head_etag(&thread_key).await? {
+    match retry_head_etag(storage, &thread_key).await? {
         Some(_) => Ok(()),
         None => Err(CoreError::generic(format!(
             "thread '{thread_id}' was not found in project storage"
@@ -175,7 +184,11 @@ mod tests {
         let store = ThreadFeedbackStore::new(storage.clone(), scope.clone(), keyspace.clone());
 
         let submitted = store
-            .submit("thread-1", ThreadFeedbackVerdict::Bad, "Needs a schema retry")
+            .submit(
+                "thread-1",
+                ThreadFeedbackVerdict::Bad,
+                "Needs a schema retry",
+            )
             .await
             .unwrap();
         assert_eq!(submitted.thread_id, "thread-1");

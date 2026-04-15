@@ -244,7 +244,11 @@ impl Tool for CatalogNoteTool {
             }
         }
         if !vec1.is_empty() {
-            let id = format!("catalog_note:{}:{}", dataset_id, field_opt.clone().unwrap_or_default());
+            let id = format!(
+                "catalog_note:{}:{}",
+                dataset_id,
+                field_opt.clone().unwrap_or_default()
+            );
             let doc = crate::vector_docs::CatalogNoteDocument::new(
                 id,
                 digest.clone(),
@@ -261,8 +265,12 @@ impl Tool for CatalogNoteTool {
                     tags,
                 },
             );
-            if let Err(e) =
-                react_core::provider_traits::upsert_typed_documents(vector.as_ref(), ctx.scope(), &[doc]).await
+            if let Err(e) = react_core::provider_traits::upsert_typed_documents(
+                vector.as_ref(),
+                ctx.scope(),
+                &[doc],
+            )
+            .await
             {
                 // Non-fatal, but never silent.
                 warn!("catalog_note: vector upsert failed: {}", e);

@@ -12,7 +12,6 @@ pub fn sql_first_max_repair_attempts(default: usize) -> usize {
     super::env_util::sql_first_max_repair_attempts(default)
 }
 
-
 #[derive(serde::Serialize, Deserialize, schemars::JsonSchema)]
 struct SqlFirstDraftPayload {
     sql: String,
@@ -159,11 +158,10 @@ pub async fn llm_draft_sql_json(
             content: user_json,
         },
     ];
-    let schema =
-        react_core::schema_registry::OpenAiStrictSchema::for_type::<SqlFirstDraftPayload>(
-            "data_engineer.sql_first_draft",
-        )
-        .map_err(|e| e.to_string())?;
+    let schema = react_core::schema_registry::OpenAiStrictSchema::for_type::<SqlFirstDraftPayload>(
+        "data_engineer.sql_first_draft",
+    )
+    .map_err(|e| e.to_string())?;
 
     let opts = LlmCallOptions {
         prompt_id,

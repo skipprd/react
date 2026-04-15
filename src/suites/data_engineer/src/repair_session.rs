@@ -129,7 +129,12 @@ impl RepairSessionLog {
                 if !iter.planned_fixes.is_empty() {
                     out.push_str("\n**Planned fixes:**\n");
                     for fix in &iter.planned_fixes {
-                        out.push_str(&format!("- `{}` ({:?}): wrote {} chars\n", fix.path, fix.op, fix.content.len()));
+                        out.push_str(&format!(
+                            "- `{}` ({:?}): wrote {} chars\n",
+                            fix.path,
+                            fix.op,
+                            fix.content.len()
+                        ));
                     }
                 }
 
@@ -142,10 +147,7 @@ impl RepairSessionLog {
                             .as_deref()
                             .map(|e| format!(" — {}", e))
                             .unwrap_or_default();
-                        out.push_str(&format!(
-                            "- `{}` ({:?}): {}{}\n",
-                            r.path, r.op, status, err
-                        ));
+                        out.push_str(&format!("- `{}` ({:?}): {}{}\n", r.path, r.op, status, err));
                     }
                 }
 

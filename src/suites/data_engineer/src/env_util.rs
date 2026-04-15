@@ -150,9 +150,7 @@ pub mod env_keys {
 // Centralized reader functions (with defaults, clamping, etc.)
 // ---------------------------------------------------------------------------
 
-const MODEL_PHASE_STEP_OVERRIDES: &[(&str, usize)] = &[
-    ("gpt-5.4", 140),
-];
+const MODEL_PHASE_STEP_OVERRIDES: &[(&str, usize)] = &[("gpt-5.4", 140)];
 
 pub fn max_phase_steps_for_model(model: &str) -> usize {
     if let Some(v) = env_usize(env_keys::AGENT_MAX_PHASE_STEPS) {

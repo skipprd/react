@@ -66,10 +66,7 @@ impl DataEngineerSuite {
                         thread_store,
                         thread_id,
                         Some(phase),
-                        PhaseDecision::forward(
-                            next,
-                            Some(PhaseTransition::ReviewProceed),
-                        ),
+                        PhaseDecision::forward(next, Some(PhaseTransition::ReviewProceed)),
                     )
                     .await?;
                     return Ok(PhaseOutcome::TransitionCommitted);
@@ -121,14 +118,18 @@ impl DataEngineerSuite {
                 ))
             }
         };
-        let review_ref_from_trigger = trigger_step
-            .get("phase_reason_detail")
-            .cloned()
-            .filter(|v| !v.is_null())
-            .and_then(|v| {
-                serde_json::from_value::<crate::phase_reason_detail::ReviewDecisionTransitionDetail>(v).ok()
-            })
-            .and_then(|detail| detail.meta.review_ref);
+        let review_ref_from_trigger =
+            trigger_step
+                .get("phase_reason_detail")
+                .cloned()
+                .filter(|v| !v.is_null())
+                .and_then(|v| {
+                    serde_json::from_value::<
+                        crate::phase_reason_detail::ReviewDecisionTransitionDetail,
+                    >(v)
+                    .ok()
+                })
+                .and_then(|detail| detail.meta.review_ref);
         if meta.review_ref.is_none() {
             meta.review_ref = review_ref_from_trigger;
         }
@@ -153,10 +154,14 @@ impl DataEngineerSuite {
                         phase.as_str(),
                         tries
                     );
-                    Self::clear_subjective_retries(thread_store, thread_id, vec![
-                        crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
-                        crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
-                    ])
+                    Self::clear_subjective_retries(
+                        thread_store,
+                        thread_id,
+                        vec![
+                            crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
+                            crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
+                        ],
+                    )
                     .await?;
                     review_retry_count = tries;
                     meta.decision = ReviewDecision::Proceed;
@@ -168,10 +173,14 @@ impl DataEngineerSuite {
             }
         } else {
             review_retry_count = 0;
-            Self::clear_subjective_retries(thread_store, thread_id, vec![
-                crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
-                crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
-            ])
+            Self::clear_subjective_retries(
+                thread_store,
+                thread_id,
+                vec![
+                    crate::progress_controller::SubjectiveRetryKind::ReviewPatchImpl,
+                    crate::progress_controller::SubjectiveRetryKind::ReviewPlanChange,
+                ],
+            )
             .await?;
         }
         out_frames.push(FlowFrame::Review {
@@ -227,10 +236,7 @@ impl DataEngineerSuite {
                     thread_store,
                     thread_id,
                     Some(phase),
-                    PhaseDecision::forward(
-                        next,
-                        Some(PhaseTransition::ReviewProceed),
-                    ),
+                    PhaseDecision::forward(next, Some(PhaseTransition::ReviewProceed)),
                 )
                 .await?;
                 Ok(PhaseOutcome::TransitionCommitted)
@@ -263,7 +269,9 @@ impl DataEngineerSuite {
                 crate::state_manager::apply_execution_event(
                     &thread_store.control_store(),
                     thread_id,
-                    crate::progress_controller::DataEngineerEvent::PatchImplIntentSet { phase: back },
+                    crate::progress_controller::DataEngineerEvent::PatchImplIntentSet {
+                        phase: back,
+                    },
                 )
                 .await
                 .map(|_| ())?;

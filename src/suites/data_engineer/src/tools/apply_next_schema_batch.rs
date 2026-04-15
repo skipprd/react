@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::providers::DatasetCatalogProvider;
 use react_core::agent::AgentCtx;
 use react_core::llm::LlmCallOptions;
+use react_core::storage::{retry_get_bytes, retry_put_bytes};
 use react_core::tools::Tool;
 
 use crate::chunk_progress_contract;
@@ -349,7 +350,7 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             let yml_rel = format!("models/staging/{}.yml", model_name);
 
             let sql_key = project_fs::join_storage_key(ctx, &sql_rel);
-            let sql_text = match ctx.storage().get_bytes(&sql_key).await {
+            let sql_text = match retry_get_bytes(ctx.storage().as_ref(), &sql_key).await {
                 Ok(b) => String::from_utf8_lossy(&b).to_string(),
                 Err(_) => {
                     failed.push(ds.clone());
@@ -385,10 +386,13 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
                             rewrite_final_select_wildcard(&sql_text, &from_plan)
                         {
                             if rewritten_sql != sql_text {
-                                if let Err(write_err) = ctx
-                                    .storage()
-                                    .put_bytes(&sql_key, rewritten_sql.as_bytes(), "text/sql")
-                                    .await
+                                if let Err(write_err) = retry_put_bytes(
+                                    ctx.storage().as_ref(),
+                                    &sql_key,
+                                    rewritten_sql.as_bytes(),
+                                    "text/sql",
+                                )
+                                .await
                                 {
                                     tracing::warn!(
                                         "{ds}: auto-heal wildcard rewrite failed: {write_err}"
@@ -483,10 +487,13 @@ impl Tool for ApplyNextCleanseSchemaBatchTool {
             }
 
             let yml_key = project_fs::join_storage_key(ctx, &yml_rel);
-            if let Err(e) = ctx
-                .storage()
-                .put_bytes(&yml_key, outcome.content.as_bytes(), "text/yaml")
-                .await
+            if let Err(e) = retry_put_bytes(
+                ctx.storage().as_ref(),
+                &yml_key,
+                outcome.content.as_bytes(),
+                "text/yaml",
+            )
+            .await
             {
                 failed.push(ds.clone());
                 errors.push(format!("{ds}: failed to write {yml_rel}: {e}"));
@@ -730,7 +737,7 @@ impl Tool for ApplyNextModelSchemaBatchTool {
                 let mut allowed = schema_policy::ModelAllowedColumns::default();
                 if let Some(ref rel) = t.expected_model_path {
                     let key_sql = project_fs::join_storage_key(ctx, rel);
-                    match ctx.storage().get_bytes(&key_sql).await {
+                    match retry_get_bytes(ctx.storage().as_ref(), &key_sql).await {
                         Ok(b) => {
                             let sql_text = String::from_utf8_lossy(&b).to_string();
                             match files_tool::extract_final_select_output_columns(&sql_text) {
@@ -824,10 +831,13 @@ impl Tool for ApplyNextModelSchemaBatchTool {
         };
 
         let key = project_fs::join_storage_key(ctx, expected_rel);
-        if let Err(e) = ctx
-            .storage()
-            .put_bytes(&key, sanitized_text.as_bytes(), "text/yaml")
-            .await
+        if let Err(e) = retry_put_bytes(
+            ctx.storage().as_ref(),
+            &key,
+            sanitized_text.as_bytes(),
+            "text/yaml",
+        )
+        .await
         {
             return crate::tools::batch_schema_runner::fail_model_schema_batch(
                 ctx,

@@ -290,10 +290,7 @@ fn strict_cleanse_grounding_errors(plan: &CleansePlan) -> Vec<String> {
             continue;
         }
         if t.implementation_spec.is_none() {
-            errors.push(format!(
-                "{}: implementation_spec is required",
-                t.dataset_id
-            ));
+            errors.push(format!("{}: implementation_spec is required", t.dataset_id));
         }
         if t.source_schema.is_empty() {
             errors.push(format!(

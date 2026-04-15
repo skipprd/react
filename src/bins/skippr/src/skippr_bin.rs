@@ -194,10 +194,7 @@ fn extract_skippr_el_from_tarball(tarball: &[u8], dest: &PathBuf) -> Result<(), 
             .path()
             .map_err(|e| format!("failed to read entry path: {}", e))?;
 
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if file_name == target_name {
             let mut buf = Vec::new();

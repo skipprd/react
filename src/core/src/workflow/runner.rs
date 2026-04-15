@@ -166,13 +166,8 @@ mod tests {
             }
         }
 
-        async fn on_budget_exhausted(
-            &self,
-            _out_frames: &mut Vec<FlowFrame>,
-            _total_steps: usize,
-        ) {
-            self.budget_exhausted_called
-                .fetch_add(1, Ordering::Relaxed);
+        async fn on_budget_exhausted(&self, _out_frames: &mut Vec<FlowFrame>, _total_steps: usize) {
+            self.budget_exhausted_called.fetch_add(1, Ordering::Relaxed);
         }
 
         async fn step_count(&self) -> usize {

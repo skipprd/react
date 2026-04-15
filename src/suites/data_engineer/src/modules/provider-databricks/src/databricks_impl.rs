@@ -5,11 +5,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, Semaphore};
 
 use react_core::discover::stats::FieldStats;
+use react_suite_data_engineer::providers::warehouse_utils;
 use react_suite_data_engineer::providers::{
     DatasetCatalogProvider, DatasetFieldStats, DatasetId, DatasetStats, QueryProvider, QueryResult,
     WarehouseNaming,
 };
-use react_suite_data_engineer::providers::warehouse_utils;
 
 const DEFAULT_MAX_CONCURRENCY: usize = 15;
 const MAX_CONCURRENCY_CAP: usize = 20;
@@ -88,13 +88,12 @@ impl DatabricksProvider {
             },
             MAX_CONCURRENCY_CAP,
         );
-        let ttl_secs = warehouse_utils::clamp_cache_ttl_secs(
-            if settings.discovery_cache_ttl_secs == 0 {
+        let ttl_secs =
+            warehouse_utils::clamp_cache_ttl_secs(if settings.discovery_cache_ttl_secs == 0 {
                 DEFAULT_DISCOVERY_CACHE_TTL_SECS
             } else {
                 settings.discovery_cache_ttl_secs
-            },
-        );
+            });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
@@ -226,7 +225,11 @@ impl DatabricksProvider {
                         .pointer("/status/error/message")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown error");
-                    return Err(format!("databricks: query {}: {}", state.to_lowercase(), msg));
+                    return Err(format!(
+                        "databricks: query {}: {}",
+                        state.to_lowercase(),
+                        msg
+                    ));
                 }
                 _ => continue,
             }
@@ -239,7 +242,11 @@ impl DatabricksProvider {
             .and_then(|v| v.as_array())
             .map(|cols| {
                 cols.iter()
-                    .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|c| {
+                        c.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -362,7 +369,9 @@ impl DatabricksProvider {
             .collect();
 
         let mut cache = self.inner.cache.write().await;
-        cache.columns_by_fqn.insert(fqn, (Instant::now(), cols.clone()));
+        cache
+            .columns_by_fqn
+            .insert(fqn, (Instant::now(), cols.clone()));
         Ok(cols)
     }
 }
@@ -511,7 +520,10 @@ impl DatasetCatalogProvider for DatabricksProvider {
                 Err(e) => {
                     tracing::warn!(
                         "databricks stats: dataset='{}' field='{}' type='{}' failed: {}",
-                        dataset.fqn(), name, ty, e
+                        dataset.fqn(),
+                        name,
+                        ty,
+                        e
                     );
                     let mut fs = FieldStats::default();
                     fs.total = total_rows;

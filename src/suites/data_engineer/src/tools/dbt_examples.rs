@@ -54,12 +54,7 @@ impl Tool for SearchDbtExamplesTool {
             if !is_allowed {
                 continue;
             }
-            let s3_uri = sc
-                .item
-                .metadata()
-                .s3_uri
-                .clone()
-                .unwrap_or_default();
+            let s3_uri = sc.item.metadata().s3_uri.clone().unwrap_or_default();
             let preview = if sc.item.text().len() > 280 {
                 format!("{}...", &sc.item.text()[..280])
             } else {

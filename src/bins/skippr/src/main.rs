@@ -1,5 +1,5 @@
-mod auth;
 mod api_client;
+mod auth;
 mod public_config;
 mod skippr_bin;
 mod translate;
@@ -503,7 +503,8 @@ async fn load_reset_server_credentials() -> Result<api_client::CredentialsRespon
             .await
             .map_err(|e| format!("API key authentication failed: {e}"))?
     } else if let Some(creds) = auth::load_credentials() {
-        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds).await
+        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds)
+            .await
     } else {
         return Err(
             "Authentication required to reset cloud project data. Run 'skippr user login' or set SKIPPR_API_KEY."
@@ -581,9 +582,7 @@ async fn delete_remote_project_data(
     Ok((remote_desc, deleted))
 }
 
-fn ensure_local_environment(
-    project_root: &std::path::Path,
-) -> Result<(PathBuf, PathBuf), String> {
+fn ensure_local_environment(project_root: &std::path::Path) -> Result<(PathBuf, PathBuf), String> {
     let skippr_dir = skippr_dir_from_project_root(project_root);
     let env_example = env_example_path_from_project_root(project_root);
 
@@ -630,13 +629,14 @@ async fn cmd_init(name: &str, reset: bool, explicit_config: &Option<PathBuf>) {
         }
 
         eprintln!("[skippr] deleting remote metadata and state data...");
-        let (remote_desc, deleted_remote) = match delete_remote_project_data(name, &project_root).await {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("[skippr] ERROR: {}", e);
-                std::process::exit(1);
-            }
-        };
+        let (remote_desc, deleted_remote) =
+            match delete_remote_project_data(name, &project_root).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[skippr] ERROR: {}", e);
+                    std::process::exit(1);
+                }
+            };
         eprintln!(
             "[skippr] deleted {} remote objects from {}",
             deleted_remote.len(),
@@ -652,7 +652,10 @@ async fn cmd_init(name: &str, reset: bool, explicit_config: &Option<PathBuf>) {
             }
         };
         if deleted_local.is_empty() {
-            println!("Nothing to reset locally — {} does not exist.", skippr_dir.display());
+            println!(
+                "Nothing to reset locally — {} does not exist.",
+                skippr_dir.display()
+            );
         } else {
             for deleted in deleted_local {
                 println!("Removed {}", deleted.display());
@@ -715,15 +718,28 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
     };
 
     let wh = match kind {
-        WarehouseKind::Athena { workgroup, region, result_s3, catalog, schema } => {
+        WarehouseKind::Athena {
+            workgroup,
+            region,
+            result_s3,
+            catalog,
+            schema,
+        } => {
             let workgroup = workgroup.or_else(|| prompt("Athena workgroup (optional)"));
             let region = region.or_else(|| prompt("AWS region"));
-            let result_s3 = result_s3.or_else(|| prompt("S3 result location (optional, e.g. s3://bucket/path)"));
+            let result_s3 = result_s3
+                .or_else(|| prompt("S3 result location (optional, e.g. s3://bucket/path)"));
             let catalog = athena_catalog_or_default(
                 catalog.or_else(|| prompt("Glue catalog (default: AwsDataCatalog)")),
             );
             let schema = schema.or_else(|| prompt("Default database/schema (optional)"));
-            WarehouseConfig::Athena { workgroup, region, result_s3, catalog, schema }
+            WarehouseConfig::Athena {
+                workgroup,
+                region,
+                result_s3,
+                catalog,
+                schema,
+            }
         }
         WarehouseKind::Snowflake {
             database,
@@ -763,24 +779,64 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             );
             WarehouseConfig::Postgres { database, schema }
         }
-        WarehouseKind::Databricks { workspace_url, token, warehouse_id, catalog, schema } => {
-            WarehouseConfig::Databricks { workspace_url, token, warehouse_id, catalog, schema }
-        }
-        WarehouseKind::Synapse { connection_string, schema } => {
-            WarehouseConfig::Synapse { connection_string, schema }
-        }
-        WarehouseKind::Redshift { database, cluster_identifier, workgroup_name, db_user, schema, region } => {
-            WarehouseConfig::Redshift {
-                database, cluster_identifier, workgroup_name, db_user, schema, region,
-                staging_s3_bucket: None, staging_s3_prefix: None, iam_role_arn: None,
-            }
-        }
-        WarehouseKind::Clickhouse { url, database, user, password } => {
-            WarehouseConfig::Clickhouse { url, database, user, password }
-        }
-        WarehouseKind::Motherduck { motherduck_token, database, schema } => {
-            WarehouseConfig::Motherduck { motherduck_token, database, schema }
-        }
+        WarehouseKind::Databricks {
+            workspace_url,
+            token,
+            warehouse_id,
+            catalog,
+            schema,
+        } => WarehouseConfig::Databricks {
+            workspace_url,
+            token,
+            warehouse_id,
+            catalog,
+            schema,
+        },
+        WarehouseKind::Synapse {
+            connection_string,
+            schema,
+        } => WarehouseConfig::Synapse {
+            connection_string,
+            schema,
+        },
+        WarehouseKind::Redshift {
+            database,
+            cluster_identifier,
+            workgroup_name,
+            db_user,
+            schema,
+            region,
+        } => WarehouseConfig::Redshift {
+            database,
+            cluster_identifier,
+            workgroup_name,
+            db_user,
+            schema,
+            region,
+            staging_s3_bucket: None,
+            staging_s3_prefix: None,
+            iam_role_arn: None,
+        },
+        WarehouseKind::Clickhouse {
+            url,
+            database,
+            user,
+            password,
+        } => WarehouseConfig::Clickhouse {
+            url,
+            database,
+            user,
+            password,
+        },
+        WarehouseKind::Motherduck {
+            motherduck_token,
+            database,
+            schema,
+        } => WarehouseConfig::Motherduck {
+            motherduck_token,
+            database,
+            schema,
+        },
     };
 
     let kind_label = wh.kind_str();
@@ -826,7 +882,8 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
         } => {
             let bucket = bucket.or_else(|| prompt("S3 bucket"));
             let prefix = prefix.or_else(|| prompt("S3 prefix"));
-            let namespace_fields = namespace_fields.or_else(|| prompt("Namespace fields (optional, e.g. event_type)"));
+            let namespace_fields =
+                namespace_fields.or_else(|| prompt("Namespace fields (optional, e.g. event_type)"));
             let transform = namespace_fields.map(|nf| S3Transform {
                 namespace_fields: Some(nf),
             });
@@ -836,75 +893,232 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
                 transform,
             }
         }
-        SourceKind::Mysql { connection_string, tables } => {
-            SourceConfig::Mysql { connection_string, tables }
-        }
-        SourceKind::PostgresSource { host, port, user, password, database, connection_string, tables, query } => {
-            SourceConfig::PostgresSource { host, port, user, password, database, connection_string, tables, query }
-        }
-        SourceKind::RedshiftSource { cluster_identifier, workgroup_name, database, db_user, tables, region } => {
-            SourceConfig::RedshiftSource { cluster_identifier, workgroup_name, database, db_user, tables, region }
-        }
-        SourceKind::Mongodb { connection_string, database, collection, filter } => {
-            SourceConfig::Mongodb { connection_string, database, collection, filter }
-        }
-        SourceKind::Dynamodb { table_name, region, endpoint_url } => {
-            SourceConfig::Dynamodb { table_name, region, endpoint_url }
-        }
-        SourceKind::ClickhouseSource { url, database, user, password, tables, query } => {
-            SourceConfig::ClickhouseSource { url, database, user, password, tables, query }
-        }
-        SourceKind::MotherduckSource { motherduck_token, database, tables, query } => {
-            SourceConfig::MotherduckSource { motherduck_token, database, tables, query }
-        }
-        SourceKind::Sftp { host, port, username, password, private_key_path, remote_path } => {
-            SourceConfig::Sftp { host, port, username, password, private_key_path, remote_path }
-        }
-        SourceKind::File { path } => {
-            SourceConfig::File { path }
-        }
-        SourceKind::DeltaLake { table_uri, filter } => {
-            SourceConfig::DeltaLake { table_uri, storage_options: None, version: None, filter }
-        }
-        SourceKind::Kafka { brokers, topic, group_id, mode } => {
-            SourceConfig::Kafka { brokers, topic, group_id, auto_offset_reset: None, security_protocol: None, sasl_mechanism: None, sasl_username: None, sasl_password: None, mode }
-        }
-        SourceKind::Sqs { queue_url, region, mode } => {
-            SourceConfig::Sqs { queue_url, region, endpoint_url: None, mode }
-        }
-        SourceKind::Kinesis { stream_name, region, mode } => {
-            SourceConfig::Kinesis { stream_name, region, endpoint_url: None, mode }
-        }
-        SourceKind::Amqp { connection_string, queue, mode } => {
-            SourceConfig::Amqp { connection_string, queue, exchange: None, routing_key: None, prefetch_count: None, mode }
-        }
-        SourceKind::Sns { topic_arn, sqs_queue_url, region } => {
-            SourceConfig::Sns { topic_arn, sqs_queue_url, region, endpoint_url: None }
-        }
-        SourceKind::Eventbridge { event_bus_name, sqs_queue_url, region } => {
-            SourceConfig::Eventbridge { event_bus_name, sqs_queue_url, region, endpoint_url: None }
-        }
-        SourceKind::Mqtt { broker_url, topic, mode } => {
-            SourceConfig::Mqtt { broker_url, port: None, topic, client_id: None, qos: None, username: None, password: None, mode }
-        }
-        SourceKind::Websocket { url, mode } => {
-            SourceConfig::Websocket { url, headers: None, mode }
-        }
-        SourceKind::HttpClient { url, method, scrape_interval_seconds } => {
-            SourceConfig::HttpClient { url, method, headers: None, body: None, auth_strategy: None, auth_user: None, auth_password: None, auth_token: None, scrape_interval_seconds }
-        }
-        SourceKind::HttpServer { listen_address, path } => {
-            SourceConfig::HttpServer { listen_address, path, auth_token: None }
-        }
-        SourceKind::Socket { mode, address } => {
-            SourceConfig::Socket { mode, address, framing: None }
-        }
-        SourceKind::Statsd { listen_address } => {
-            SourceConfig::Statsd { listen_address }
-        }
-        SourceKind::Stdin { mode } => {
-            SourceConfig::Stdin { mode }
-        }
+        SourceKind::Mysql {
+            connection_string,
+            tables,
+        } => SourceConfig::Mysql {
+            connection_string,
+            tables,
+        },
+        SourceKind::PostgresSource {
+            host,
+            port,
+            user,
+            password,
+            database,
+            connection_string,
+            tables,
+            query,
+        } => SourceConfig::PostgresSource {
+            host,
+            port,
+            user,
+            password,
+            database,
+            connection_string,
+            tables,
+            query,
+        },
+        SourceKind::RedshiftSource {
+            cluster_identifier,
+            workgroup_name,
+            database,
+            db_user,
+            tables,
+            region,
+        } => SourceConfig::RedshiftSource {
+            cluster_identifier,
+            workgroup_name,
+            database,
+            db_user,
+            tables,
+            region,
+        },
+        SourceKind::Mongodb {
+            connection_string,
+            database,
+            collection,
+            filter,
+        } => SourceConfig::Mongodb {
+            connection_string,
+            database,
+            collection,
+            filter,
+        },
+        SourceKind::Dynamodb {
+            table_name,
+            region,
+            endpoint_url,
+        } => SourceConfig::Dynamodb {
+            table_name,
+            region,
+            endpoint_url,
+        },
+        SourceKind::ClickhouseSource {
+            url,
+            database,
+            user,
+            password,
+            tables,
+            query,
+        } => SourceConfig::ClickhouseSource {
+            url,
+            database,
+            user,
+            password,
+            tables,
+            query,
+        },
+        SourceKind::MotherduckSource {
+            motherduck_token,
+            database,
+            tables,
+            query,
+        } => SourceConfig::MotherduckSource {
+            motherduck_token,
+            database,
+            tables,
+            query,
+        },
+        SourceKind::Sftp {
+            host,
+            port,
+            username,
+            password,
+            private_key_path,
+            remote_path,
+        } => SourceConfig::Sftp {
+            host,
+            port,
+            username,
+            password,
+            private_key_path,
+            remote_path,
+        },
+        SourceKind::File { path } => SourceConfig::File { path },
+        SourceKind::DeltaLake { table_uri, filter } => SourceConfig::DeltaLake {
+            table_uri,
+            storage_options: None,
+            version: None,
+            filter,
+        },
+        SourceKind::Kafka {
+            brokers,
+            topic,
+            group_id,
+            mode,
+        } => SourceConfig::Kafka {
+            brokers,
+            topic,
+            group_id,
+            auto_offset_reset: None,
+            security_protocol: None,
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
+            mode,
+        },
+        SourceKind::Sqs {
+            queue_url,
+            region,
+            mode,
+        } => SourceConfig::Sqs {
+            queue_url,
+            region,
+            endpoint_url: None,
+            mode,
+        },
+        SourceKind::Kinesis {
+            stream_name,
+            region,
+            mode,
+        } => SourceConfig::Kinesis {
+            stream_name,
+            region,
+            endpoint_url: None,
+            mode,
+        },
+        SourceKind::Amqp {
+            connection_string,
+            queue,
+            mode,
+        } => SourceConfig::Amqp {
+            connection_string,
+            queue,
+            exchange: None,
+            routing_key: None,
+            prefetch_count: None,
+            mode,
+        },
+        SourceKind::Sns {
+            topic_arn,
+            sqs_queue_url,
+            region,
+        } => SourceConfig::Sns {
+            topic_arn,
+            sqs_queue_url,
+            region,
+            endpoint_url: None,
+        },
+        SourceKind::Eventbridge {
+            event_bus_name,
+            sqs_queue_url,
+            region,
+        } => SourceConfig::Eventbridge {
+            event_bus_name,
+            sqs_queue_url,
+            region,
+            endpoint_url: None,
+        },
+        SourceKind::Mqtt {
+            broker_url,
+            topic,
+            mode,
+        } => SourceConfig::Mqtt {
+            broker_url,
+            port: None,
+            topic,
+            client_id: None,
+            qos: None,
+            username: None,
+            password: None,
+            mode,
+        },
+        SourceKind::Websocket { url, mode } => SourceConfig::Websocket {
+            url,
+            headers: None,
+            mode,
+        },
+        SourceKind::HttpClient {
+            url,
+            method,
+            scrape_interval_seconds,
+        } => SourceConfig::HttpClient {
+            url,
+            method,
+            headers: None,
+            body: None,
+            auth_strategy: None,
+            auth_user: None,
+            auth_password: None,
+            auth_token: None,
+            scrape_interval_seconds,
+        },
+        SourceKind::HttpServer {
+            listen_address,
+            path,
+        } => SourceConfig::HttpServer {
+            listen_address,
+            path,
+            auth_token: None,
+        },
+        SourceKind::Socket { mode, address } => SourceConfig::Socket {
+            mode,
+            address,
+            framing: None,
+        },
+        SourceKind::Statsd { listen_address } => SourceConfig::Statsd { listen_address },
+        SourceKind::Stdin { mode } => SourceConfig::Stdin { mode },
     };
 
     let kind_label = match &src {
@@ -1096,7 +1310,9 @@ fn check_snowflake_env(ok: &mut bool) {
     } else if has_pw {
         check_pass("SNOWFLAKE_PASSWORD is set (password auth)");
     } else {
-        check_fail("Snowflake auth not configured — set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD");
+        check_fail(
+            "Snowflake auth not configured — set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD",
+        );
         *ok = false;
     }
 }
@@ -1210,7 +1426,8 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         }
     } else if let Some(creds) = auth::load_credentials() {
         eprintln!("[skippr] authenticated via stored credentials");
-        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds).await
+        refresh_user_credentials_or_exit(&api_client::ApiClient::new(&auth::auth_base_url()), creds)
+            .await
     } else {
         eprintln!("[skippr] ERROR: Authentication required.");
         eprintln!("[skippr]   Run 'skippr user login' to authenticate interactively,");
@@ -1230,14 +1447,20 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
                 eprintln!("[skippr]   skippr user buy-credits --amount 25");
                 std::process::exit(1);
             } else if bal < LOW_BALANCE_USD_THRESHOLD {
-                eprintln!("[skippr] WARNING: Low balance (${:.2}). The run may exhaust your balance.", bal);
+                eprintln!(
+                    "[skippr] WARNING: Low balance (${:.2}). The run may exhaust your balance.",
+                    bal
+                );
             } else {
                 eprintln!("[skippr] balance: ${:.2}", bal);
             }
             bal
         }
         Err(e) => {
-            eprintln!("[skippr] ERROR: Could not verify account balance ({}). Refusing to run.", e);
+            eprintln!(
+                "[skippr] ERROR: Could not verify account balance ({}). Refusing to run.",
+                e
+            );
             eprintln!("[skippr]   Check your connection and login status (skippr user login).");
             std::process::exit(1);
         }
@@ -1266,9 +1489,11 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
 
     let metering = react_suite_data_engineer::metering::global_metering();
     let _ = metering
-        .record_batch(&[react_suite_data_engineer::metering::UsageEvent::PipelineRun {
-            project_id: cfg.project.clone(),
-        }])
+        .record_batch(&[
+            react_suite_data_engineer::metering::UsageEvent::PipelineRun {
+                project_id: cfg.project.clone(),
+            },
+        ])
         .await;
 
     let resolved = match react::config::resolve_config(
@@ -1386,9 +1611,10 @@ async fn cmd_feedback(
 }
 
 fn find_latest_thread_in_skippr_dir(skippr_dir: &std::path::Path, project: &str) -> Option<String> {
-    let scope =
-        react_core::scope::RequestScope::parse("_", "dev", project.trim()).ok()?;
-    find_latest_thread_in_local_storage(skippr_dir, &scope).ok().flatten()
+    let scope = react_core::scope::RequestScope::parse("_", "dev", project.trim()).ok()?;
+    find_latest_thread_in_local_storage(skippr_dir, &scope)
+        .ok()
+        .flatten()
 }
 
 fn find_latest_thread_in_local_storage(
@@ -1542,9 +1768,7 @@ async fn find_latest_thread_for_resolved_config(
                 .ok_or_else(|| "missing storage.path for local mode".to_string())?;
             find_latest_thread_in_local_storage(std::path::Path::new(root), &cfg.scope)
         }
-        react_core::resolved_config::StorageMode::S3 => {
-            find_latest_thread_in_s3_storage(cfg).await
-        }
+        react_core::resolved_config::StorageMode::S3 => find_latest_thread_in_s3_storage(cfg).await,
     }
 }
 
@@ -1667,11 +1891,7 @@ async fn main() {
         },
         Cmd::Doctor => cmd_doctor(&cli.config),
         Cmd::Run => cmd_run(cli.log, &cli.config).await,
-        Cmd::Feedback {
-            good,
-            bad,
-            comment,
-        } => cmd_feedback(good, bad, comment, &cli.config).await,
+        Cmd::Feedback { good, bad, comment } => cmd_feedback(good, bad, comment, &cli.config).await,
         Cmd::User { action } => match action {
             UserAction::Login => cmd_user_login().await,
             UserAction::Logout => cmd_user_logout(),
@@ -1772,14 +1992,22 @@ async fn refresh_user_credentials_or_exit(
     }
 }
 
-async fn load_authenticated_user_credentials(client: &api_client::ApiClient) -> auth::StoredCredentials {
+async fn load_authenticated_user_credentials(
+    client: &api_client::ApiClient,
+) -> auth::StoredCredentials {
     let creds = load_stored_credentials_or_exit();
     refresh_user_credentials_or_exit(client, creds).await
 }
 
-fn create_token_provider(creds: &auth::StoredCredentials) -> std::sync::Arc<react_suite_data_engineer::metering::TokenProvider> {
+fn create_token_provider(
+    creds: &auth::StoredCredentials,
+) -> std::sync::Arc<react_suite_data_engineer::metering::TokenProvider> {
     let base_url = auth::auth_base_url();
-    let rt = if creds.refresh_token.is_empty() { None } else { Some(creds.refresh_token.clone()) };
+    let rt = if creds.refresh_token.is_empty() {
+        None
+    } else {
+        Some(creds.refresh_token.clone())
+    };
     std::sync::Arc::new(react_suite_data_engineer::metering::TokenProvider::new(
         Some(creds.access_token.clone()),
         rt,
@@ -1826,7 +2054,11 @@ async fn cmd_user_account() {
                     println!("  {:<12} {:>8}", dc.date, format!("${:.2}", dc.cost));
                 }
                 println!("  {}", "-".repeat(22));
-                println!("  {:<12} {:>8}", format!("~{}", today.format("%B")), format!("${:.2}", account.monthly_cost_est));
+                println!(
+                    "  {:<12} {:>8}",
+                    format!("~{}", today.format("%B")),
+                    format!("${:.2}", account.monthly_cost_est)
+                );
                 println!();
             }
         }
@@ -1874,7 +2106,10 @@ async fn cmd_user_buy_credits(amount: Option<f64>) {
             println!();
             match browser_result {
                 Ok(()) => println!("  Opened your default browser to complete your purchase."),
-                Err(err) => println!("  Could not open your default browser automatically: {}", err),
+                Err(err) => println!(
+                    "  Could not open your default browser automatically: {}",
+                    err
+                ),
             }
             println!();
             println!("  Open this URL to complete your purchase:");
@@ -1961,10 +2196,14 @@ async fn cmd_user_list_api_keys() {
                 println!("  No API keys found.");
                 println!("  Create one with: skippr user create-api-key --name \"my-key\"");
             } else {
-                println!("  {:<38} {:<20} {:<10} {}", "Key ID", "Name", "Status", "Created");
+                println!(
+                    "  {:<38} {:<20} {:<10} {}",
+                    "Key ID", "Name", "Status", "Created"
+                );
                 println!("  {}", "-".repeat(80));
                 for k in &keys {
-                    println!("  {:<38} {:<20} {:<10} {}",
+                    println!(
+                        "  {:<38} {:<20} {:<10} {}",
                         k.key_id,
                         k.name,
                         k.status,
@@ -1989,7 +2228,10 @@ fn print_low_balance_warning(balance: &api_client::Balance) {
         eprintln!("  Run: skippr user buy-credits --amount 25");
         eprintln!();
     } else if balance.balance < LOW_BALANCE_USD_THRESHOLD {
-        eprintln!("  WARNING: Low balance (${:.2}). Consider adding funds.", balance.balance);
+        eprintln!(
+            "  WARNING: Low balance (${:.2}). Consider adding funds.",
+            balance.balance
+        );
         eprintln!("  Run: skippr user buy-credits --amount 25");
         eprintln!();
     }
@@ -2074,10 +2316,7 @@ mod tests {
 
     #[test]
     fn postgres_schema_or_default_uses_public_when_missing() {
-        assert_eq!(
-            postgres_schema_or_default(None).as_deref(),
-            Some("public")
-        );
+        assert_eq!(postgres_schema_or_default(None).as_deref(), Some("public"));
         assert_eq!(
             postgres_schema_or_default(Some("".into())).as_deref(),
             Some("public")
@@ -2229,7 +2468,10 @@ mod tests {
     fn ensure_local_environment_recreates_skippr_dir_and_env_example() {
         let dir = tempfile::tempdir().unwrap();
         let (skippr_dir, env_example) = ensure_local_environment(dir.path()).expect("env");
-        assert!(skippr_dir.exists(), "expected .skippr directory to be created");
+        assert!(
+            skippr_dir.exists(),
+            "expected .skippr directory to be created"
+        );
         assert!(env_example.exists(), "expected .env.example to be created");
         let contents = fs::read_to_string(env_example).unwrap();
         assert!(contents.contains("MSSQL_CONNECTION_STRING="));
@@ -2287,7 +2529,10 @@ mod tests {
         fs::write(&companion, "{}").unwrap();
 
         let thread = find_latest_thread_in_skippr_dir(dir.path(), "test-project");
-        assert_eq!(thread.as_deref(), Some("22222222-2222-2222-2222-222222222222"));
+        assert_eq!(
+            thread.as_deref(),
+            Some("22222222-2222-2222-2222-222222222222")
+        );
     }
 
     #[test]
@@ -2311,8 +2556,7 @@ mod tests {
                 ),
             },
             react_module_storage_s3::ObjectMeta {
-                key: "t/w/p/threads/33333333-3333-3333-3333-333333333333.control.json"
-                    .to_string(),
+                key: "t/w/p/threads/33333333-3333-3333-3333-333333333333.control.json".to_string(),
                 last_modified: Some(
                     chrono::DateTime::parse_from_rfc3339("2026-04-04T13:00:00Z")
                         .unwrap()
@@ -2330,12 +2574,16 @@ mod tests {
         ];
 
         let thread = latest_primary_thread_id_from_s3_objects(&objects, "t/w/p/threads/");
-        assert_eq!(thread.as_deref(), Some("44444444-4444-4444-4444-444444444444"));
+        assert_eq!(
+            thread.as_deref(),
+            Some("44444444-4444-4444-4444-444444444444")
+        );
     }
 
     #[test]
     fn resolve_feedback_comment_trims_inline_comment() {
-        let comment = resolve_feedback_comment(Some("  this run looked good  ".to_string())).unwrap();
+        let comment =
+            resolve_feedback_comment(Some("  this run looked good  ".to_string())).unwrap();
         assert_eq!(comment, "this run looked good");
     }
 

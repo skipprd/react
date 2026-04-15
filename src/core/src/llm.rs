@@ -5,8 +5,7 @@ use std::sync::Arc;
 ///
 /// This is a **hard contract** between callers and providers/adapters.
 /// Callers MUST set this explicitly; do not infer it from prompt text.
-#[derive(Clone, Debug, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum LlmExpectedFormat {
     #[default]
     Text,
@@ -33,13 +32,11 @@ pub enum ReasoningEffort {
     ExtraHigh,
 }
 
-
 /// Per-call overrides for LLM sampling/limits and response contract.
 ///
 /// When optional fields are `None`, implementations should fall back to configured defaults
 /// (e.g., env/config values).
-#[derive(Clone, Debug)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LlmCallOptions {
     /// Stable identifier for the prompt/call site.
     ///
@@ -65,7 +62,6 @@ pub struct LlmCallOptions {
     /// `tokio::time::timeout`. The transport-level HTTP timeout remains as a safety net.
     pub timeout_secs: Option<u64>,
 }
-
 
 /// High-level abstraction for large language models used by the ReAct runtime.
 /// Implementations may be local (llama.cpp) or remote (OpenAI-compatible HTTP).

@@ -57,17 +57,23 @@ pub async fn build_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<SuiteCtx, 
                 .clone()
                 .ok_or_else(|| "missing storage.bucket for s3 mode".to_string())?;
             let (storage, lance_prefix, lance_opts) = if let Some(creds) = s3_creds {
-                let storage = Arc::new(S3StorageAdapter::from_credentials(
-                    b.clone(),
-                    &creds.access_key_id,
-                    &creds.secret_access_key,
-                    creds.session_token.as_deref(),
-                    &creds.region,
-                ).await) as Arc<dyn react_core::storage::StorageAdapter>;
+                let storage = Arc::new(
+                    S3StorageAdapter::from_credentials(
+                        b.clone(),
+                        &creds.access_key_id,
+                        &creds.secret_access_key,
+                        creds.session_token.as_deref(),
+                        &creds.region,
+                    )
+                    .await,
+                ) as Arc<dyn react_core::storage::StorageAdapter>;
                 let prefix = format!("s3://{}", b);
                 let mut opts = vec![
                     ("aws_access_key_id".into(), creds.access_key_id.clone()),
-                    ("aws_secret_access_key".into(), creds.secret_access_key.clone()),
+                    (
+                        "aws_secret_access_key".into(),
+                        creds.secret_access_key.clone(),
+                    ),
                     ("aws_region".into(), creds.region.clone()),
                 ];
                 if let Some(tok) = &creds.session_token {

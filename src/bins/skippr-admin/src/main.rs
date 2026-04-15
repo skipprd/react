@@ -25,7 +25,11 @@ struct Cli {
     #[arg(long, env = "SKIPPR_BUCKET")]
     bucket: String,
 
-    #[arg(long, env = "SKIPPR_ACCOUNTING_TABLE", default_value = "skippr-accounting")]
+    #[arg(
+        long,
+        env = "SKIPPR_ACCOUNTING_TABLE",
+        default_value = "skippr-accounting"
+    )]
     table: String,
 }
 
@@ -42,7 +46,11 @@ async fn main() {
     let ddb_client = aws_sdk_dynamodb::Client::new(&aws_cfg);
 
     fn setenv(key: &str, val: &str) {
-        if std::env::var(key).ok().filter(|v| !v.trim().is_empty()).is_none() {
+        if std::env::var(key)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .is_none()
+        {
             std::env::set_var(key, val);
         }
     }
@@ -67,9 +75,7 @@ async fn main() {
     state.refresh_children().await;
 
     let helper = nav::ShellHelper::new(shared);
-    let config = rustyline::Config::builder()
-        .auto_add_history(true)
-        .build();
+    let config = rustyline::Config::builder().auto_add_history(true).build();
     let mut rl = rustyline::Editor::with_config(config).expect("failed to create readline editor");
     rl.set_helper(Some(helper));
 
@@ -86,8 +92,7 @@ async fn main() {
                 commands::dispatch(trimmed, &mut state, &app).await;
             }
             Err(
-                rustyline::error::ReadlineError::Interrupted
-                | rustyline::error::ReadlineError::Eof,
+                rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof,
             ) => {
                 println!("Bye.");
                 break;

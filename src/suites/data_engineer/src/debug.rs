@@ -86,7 +86,13 @@ fn detect_sql_validation_loops(log: &ThreadLog, issues: &mut Vec<Issue>) {
     let window = 15;
     let threshold = 5;
 
-    for start in 0..log.steps.len().saturating_sub(window).max(1).min(log.steps.len()) {
+    for start in 0..log
+        .steps
+        .len()
+        .saturating_sub(window)
+        .max(1)
+        .min(log.steps.len())
+    {
         let end = (start + window).min(log.steps.len());
         let sql_run_count = log.steps[start..end]
             .iter()
@@ -123,10 +129,7 @@ fn detect_phase_regression_cleanse_model(log: &ThreadLog, issues: &mut Vec<Issue
             if seen_model && phase.starts_with("cleanse_") {
                 issues.push(Issue {
                     kind: IssueKind::PhaseRegression,
-                    description: format!(
-                        "Regressed from model phases back to '{}'",
-                        phase
-                    ),
+                    description: format!("Regressed from model phases back to '{}'", phase),
                     step_range: (idx, idx),
                 });
             }

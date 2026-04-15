@@ -8,8 +8,10 @@ use react_core::session::{ThreadLog, ThreadStep, ThreadStore, ToolStepStatus};
 use react_core::suite::{DebugProviderRegistry, FlowFrame, Suite, SuiteCtx};
 use react_core::thread_feedback::{ThreadFeedback, ThreadFeedbackStore, ThreadFeedbackVerdict};
 use react_suite_data_engineer::debug::DataEngineerDebugProvider;
+use react_suite_debugger::capabilities::{
+    target_scope_for_suite, DebugTargetScope, SuiteDebuggerConfig,
+};
 use react_suite_debugger::SuiteDebugger;
-use react_suite_debugger::capabilities::{DebugTargetScope, SuiteDebuggerConfig, target_scope_for_suite};
 use react_suite_kb::debug::KbDebugProvider;
 
 const MAX_RELATED_THREADS: usize = 12;
@@ -130,8 +132,7 @@ pub async fn run_debug(
                 println!("\n{text}\n");
             }
             Err(
-                rustyline::error::ReadlineError::Interrupted
-                | rustyline::error::ReadlineError::Eof,
+                rustyline::error::ReadlineError::Interrupted | rustyline::error::ReadlineError::Eof,
             ) => {
                 break;
             }
@@ -321,10 +322,16 @@ async fn load_related_thread_evidence(
             continue;
         };
         let summary = analysis::summarize(&log);
-        let step_excerpt = build_related_step_excerpt(&log, &summary, MAX_RELATED_THREAD_STEP_LINES);
-        let raw_log_excerpt =
-            read_raw_log_excerpt(storage, keyspace, scope, &related_id, RELATED_THREAD_LOG_BYTES)
-                .await;
+        let step_excerpt =
+            build_related_step_excerpt(&log, &summary, MAX_RELATED_THREAD_STEP_LINES);
+        let raw_log_excerpt = read_raw_log_excerpt(
+            storage,
+            keyspace,
+            scope,
+            &related_id,
+            RELATED_THREAD_LOG_BYTES,
+        )
+        .await;
         out.push(RelatedThreadEvidence {
             thread_id: related_id,
             summary,
@@ -335,7 +342,11 @@ async fn load_related_thread_evidence(
     out
 }
 
-fn related_thread_ids_from_keys(keys: &[String], prefix: &str, parent_thread_id: &str) -> Vec<String> {
+fn related_thread_ids_from_keys(
+    keys: &[String],
+    prefix: &str,
+    parent_thread_id: &str,
+) -> Vec<String> {
     let related_prefix = format!("{parent_thread_id}__");
     let mut out: Vec<String> = keys
         .iter()
@@ -442,12 +453,11 @@ fn format_step(idx: usize, step: &ThreadStep) -> String {
                 ToolStepStatus::Running => "RUNNING",
             };
             let args_short = truncate_json(args, 200);
-            let obs_short = truncate_json(&serde_json::to_value(observation).unwrap_or_default(), 300);
+            let obs_short =
+                truncate_json(&serde_json::to_value(observation).unwrap_or_default(), 300);
             format!("[{idx}] {ts} TOOL_END {name} [{status_str}] args={args_short} obs={obs_short}")
         }
-        ThreadStep::ToolStart {
-            name, args, ts, ..
-        } => {
+        ThreadStep::ToolStart { name, args, ts, .. } => {
             let args_short = truncate_json(args, 200);
             format!("[{idx}] {ts} TOOL_START {name} args={args_short}")
         }
@@ -580,7 +590,9 @@ fn extract_text(frames: &[FlowFrame]) -> String {
 pub fn wire_debug_capabilities(ctx: &mut SuiteCtx, target_scope: RequestScope) {
     let registry = build_debug_provider_registry();
     ctx.set_capability(Arc::new(registry));
-    ctx.set_capability(Arc::new(DebugTargetScope { scope: target_scope }));
+    ctx.set_capability(Arc::new(DebugTargetScope {
+        scope: target_scope,
+    }));
     ctx.set_capability(Arc::new(SuiteDebuggerConfig {
         reasoning_effort: react_core::llm::ReasoningEffort::ExtraHigh,
         max_output_tokens: 64_000,

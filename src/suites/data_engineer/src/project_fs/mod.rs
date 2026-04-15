@@ -3,6 +3,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use react_core::agent::AgentCtx;
+use react_core::storage::{
+    retry_delete_object, retry_get_bytes, retry_list_prefix, retry_put_bytes,
+};
 
 pub mod diff;
 pub mod patch;
@@ -35,9 +38,7 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
         normalize_rel_path(prefix)?
     };
     let key_prefix = join_storage_key(ctx, &rel_prefix.trim_start_matches('/'));
-    let mut keys = ctx
-        .storage()
-        .list_prefix(&key_prefix)
+    let mut keys = retry_list_prefix(ctx.storage().as_ref(), &key_prefix)
         .await
         .unwrap_or_default();
     keys.sort();
@@ -62,7 +63,7 @@ pub async fn list_files(ctx: &AgentCtx, prefix: &str, limit: usize) -> Result<Va
 pub async fn get_file(ctx: &AgentCtx, path: &str, max_chars: usize) -> Result<Value, String> {
     let rel = normalize_rel_path(path)?;
     let key = join_storage_key(ctx, &rel);
-    match ctx.storage().get_bytes(&key).await {
+    match retry_get_bytes(ctx.storage().as_ref(), &key).await {
         Ok(bytes) => {
             let text = String::from_utf8_lossy(&bytes).to_string();
             let base_sha256 = {
@@ -129,7 +130,7 @@ pub async fn remove_file(
     let rel = normalize_rel_path(path)?;
     let key = join_storage_key(ctx, &rel);
 
-    let existing = ctx.storage().get_bytes(&key).await.ok();
+    let existing = retry_get_bytes(ctx.storage().as_ref(), &key).await.ok();
     let existed = existing.is_some();
     let base_sha256 = existing
         .as_ref()
@@ -146,8 +147,7 @@ pub async fn remove_file(
     }
 
     if existed {
-        ctx.storage()
-            .delete_object(&key)
+        retry_delete_object(ctx.storage().as_ref(), &key)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -180,9 +180,7 @@ pub async fn move_file(
     let from_key = join_storage_key(ctx, &from_rel);
     let to_key = join_storage_key(ctx, &to_rel);
 
-    let bytes = ctx
-        .storage()
-        .get_bytes(&from_key)
+    let bytes = retry_get_bytes(ctx.storage().as_ref(), &from_key)
         .await
         .map_err(|_| format!("not found: {}", from_rel))?;
     let base_sha256 = sha256_hex(String::from_utf8_lossy(&bytes).as_ref());
@@ -195,16 +193,17 @@ pub async fn move_file(
         }
     }
 
-    if ctx.storage().get_bytes(&to_key).await.is_ok() {
+    if retry_get_bytes(ctx.storage().as_ref(), &to_key)
+        .await
+        .is_ok()
+    {
         return Err(format!("destination already exists: {}", to_rel));
     }
 
-    ctx.storage()
-        .put_bytes(&to_key, &bytes, "text/plain")
+    retry_put_bytes(ctx.storage().as_ref(), &to_key, &bytes, "text/plain")
         .await
         .map_err(|e| e.to_string())?;
-    ctx.storage()
-        .delete_object(&from_key)
+    retry_delete_object(ctx.storage().as_ref(), &from_key)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -236,7 +235,7 @@ pub async fn write_file(
 
     let final_content = yaml::postprocess_content(ctx, datasets, &rel, content).await?;
 
-    let existing = ctx.storage().get_bytes(&key).await.ok();
+    let existing = retry_get_bytes(ctx.storage().as_ref(), &key).await.ok();
     let existed = existing.is_some();
     let old_content = existing
         .as_ref()
@@ -247,10 +246,14 @@ pub async fn write_file(
     let mutated = base_sha256 != new_sha256;
 
     if mutated {
-        ctx.storage()
-            .put_bytes(&key, final_content.as_bytes(), "text/plain")
-            .await
-            .map_err(|e| e.to_string())?;
+        retry_put_bytes(
+            ctx.storage().as_ref(),
+            &key,
+            final_content.as_bytes(),
+            "text/plain",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
     }
 
     Ok(serde_json::json!({

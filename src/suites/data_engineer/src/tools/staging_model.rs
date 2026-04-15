@@ -12,6 +12,7 @@ use crate::providers::DatasetCatalogProvider;
 use crate::references::DatasetRef;
 use crate::sql_first;
 use react_core::agent::AgentCtx;
+use react_core::storage::{retry_get_bytes, retry_list_prefix, retry_put_bytes};
 use react_core::tools::Tool;
 
 use super::model_authoring_engine::{
@@ -307,10 +308,11 @@ impl Tool for StagingModelTool {
             .to_string();
         let schema_rel = project_fs::MODELS_SCHEMA_YML.to_string();
         let schema_key = format!("{}/{}", base, schema_rel);
-        let existing_schema: Option<String> = match ctx.storage().get_bytes(&schema_key).await {
-            Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
-            Err(_) => None,
-        };
+        let existing_schema: Option<String> =
+            match retry_get_bytes(ctx.storage().as_ref(), &schema_key).await {
+                Ok(bytes) => Some(String::from_utf8_lossy(&bytes).to_string()),
+                Err(_) => None,
+            };
         if existing_schema.is_none() {
             let seed = "version: 2\n".to_string();
             let patch_text = project_fs::hunks_only_full_replace_patch("", &seed);
@@ -338,10 +340,13 @@ impl Tool for StagingModelTool {
                     }));
                 }
             };
-            if let Err(e) = ctx
-                .storage()
-                .put_bytes(&schema_key, outcome.content.as_bytes(), "text/yaml")
-                .await
+            if let Err(e) = retry_put_bytes(
+                ctx.storage().as_ref(),
+                &schema_key,
+                outcome.content.as_bytes(),
+                "text/yaml",
+            )
+            .await
             {
                 return Ok(serde_json::json!({
                     "ok": false,
@@ -398,10 +403,13 @@ impl Tool for StagingModelTool {
                         }));
                     }
                 };
-                if let Err(e) = ctx
-                    .storage()
-                    .put_bytes(&schema_key, outcome.content.as_bytes(), "text/yaml")
-                    .await
+                if let Err(e) = retry_put_bytes(
+                    ctx.storage().as_ref(),
+                    &schema_key,
+                    outcome.content.as_bytes(),
+                    "text/yaml",
+                )
+                .await
                 {
                     return Ok(serde_json::json!({
                         "ok": false,
@@ -432,7 +440,7 @@ impl Tool for StagingModelTool {
         let staging_prefix = format!("{}/models/staging/", base);
         let mut staging_files: Vec<(String, String)> = Vec::new(); // (rel_path, content)
         let mut unreadable_staging_rel_paths: Vec<String> = Vec::new();
-        if let Ok(keys) = ctx.storage().list_prefix(&staging_prefix).await {
+        if let Ok(keys) = retry_list_prefix(ctx.storage().as_ref(), &staging_prefix).await {
             for k in keys {
                 if !k.ends_with(".sql") {
                     continue;
@@ -445,7 +453,7 @@ impl Tool for StagingModelTool {
                     .strip_prefix(&(base.clone() + "/"))
                     .unwrap_or(k.as_str())
                     .to_string();
-                match ctx.storage().get_bytes(&k).await {
+                match retry_get_bytes(ctx.storage().as_ref(), &k).await {
                     Ok(bytes) => {
                         let content = String::from_utf8_lossy(&bytes).to_string();
                         staging_files.push((rel_path, content));
@@ -548,9 +556,7 @@ impl Tool for StagingModelTool {
                     "errors": errors,
                 }));
             }
-            let existing_opt = ctx
-                .storage()
-                .get_bytes(&key)
+            let existing_opt = retry_get_bytes(ctx.storage().as_ref(), &key)
                 .await
                 .ok()
                 .map(|b| String::from_utf8_lossy(&b).to_string());
@@ -566,10 +572,13 @@ impl Tool for StagingModelTool {
                 project_fs::PatchApplyKind::UnifiedDiff,
             )
             .await?;
-            if let Err(e) = ctx
-                .storage()
-                .put_bytes(&key, outcome.content.as_bytes(), "text/sql")
-                .await
+            if let Err(e) = retry_put_bytes(
+                ctx.storage().as_ref(),
+                &key,
+                outcome.content.as_bytes(),
+                "text/sql",
+            )
+            .await
             {
                 emit_trace(ctx, format!("failed to save {}: {}", rel_path, e));
                 return Err(e.to_string());
@@ -644,9 +653,7 @@ impl Tool for StagingModelTool {
                 &provider_prompt_rules,
             );
 
-            let existing_sql = ctx
-                .storage()
-                .get_bytes(&key)
+            let existing_sql = retry_get_bytes(ctx.storage().as_ref(), &key)
                 .await
                 .ok()
                 .map(|b| String::from_utf8_lossy(&b).to_string())

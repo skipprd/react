@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use react_core::agent::{Agent, AgentCtxBuilder, DefaultPolicy, InterruptKind, RunOutcome};
 use react_core::session::{analysis, ThreadStore};
-use react_core::suite::{
-    DebugProviderRegistry, FlowFrame, FlowKind, Suite, SuiteCtx,
-};
+use react_core::suite::{DebugProviderRegistry, FlowFrame, FlowKind, Suite, SuiteCtx};
 use react_core::tools::ToolRegistry;
 use react_core::workflow::{PhaseExecutor, PhaseOutcome, WorkflowConfig};
 
@@ -102,15 +100,8 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
 
         let llm_opts = build_llm_options(self.thread_id, &debugger_cfg);
 
-        match Agent::run_until_block(
-            &registry,
-            &actx,
-            &sys,
-            &tools_card,
-            self.question,
-            llm_opts,
-        )
-        .await
+        match Agent::run_until_block(&registry, &actx, &sys, &tools_card, self.question, llm_opts)
+            .await
         {
             Ok(RunOutcome::Complete {
                 thread_id: _tid,
@@ -234,8 +225,7 @@ impl Suite for SuiteDebugger {
             )
             .await;
         let frames = Self::run_debug(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames)
-            .await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }
 
@@ -257,8 +247,7 @@ impl Suite for SuiteDebugger {
             )
             .await;
         let frames = Self::run_debug(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames)
-            .await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }
 
@@ -280,8 +269,7 @@ impl Suite for SuiteDebugger {
             )
             .await;
         let frames = Self::run_debug(thread_id, text, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames)
-            .await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
         Ok(frames)
     }
 }
@@ -289,11 +277,7 @@ impl Suite for SuiteDebugger {
 fn extract_target_thread_id(question: &str) -> Option<String> {
     for word in question.split_whitespace() {
         let cleaned = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
-        if cleaned.len() >= 8
-            && cleaned
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() || c == '-')
-        {
+        if cleaned.len() >= 8 && cleaned.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
             return Some(cleaned.to_string());
         }
     }

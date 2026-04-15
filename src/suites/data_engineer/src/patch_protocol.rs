@@ -324,8 +324,7 @@ pub async fn llm_patch_loop_single_file(
         reasoning_effort: Some(react_core::llm::ReasoningEffort::Low),
         ..Default::default()
     });
-    call_opts.expected_format =
-        react_core::llm::LlmExpectedFormat::JsonSchema(patch_schema);
+    call_opts.expected_format = react_core::llm::LlmExpectedFormat::JsonSchema(patch_schema);
     if call_opts.max_output_tokens.is_none() {
         call_opts.max_output_tokens = Some(default_patch_loop_max_output_tokens());
     }

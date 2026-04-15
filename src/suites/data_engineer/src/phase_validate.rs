@@ -36,7 +36,9 @@ impl DataEngineerSuite {
             },
         )
         .await
-        .map_err(|e| format!("failed to persist mark_failed after validate terminal failure: {e}"))?;
+        .map_err(|e| {
+            format!("failed to persist mark_failed after validate terminal failure: {e}")
+        })?;
         Ok(PhaseOutcome::Failed { reason })
     }
 
@@ -61,9 +63,7 @@ impl DataEngineerSuite {
                     },
                 )
                 .await
-                .map_err(|e| {
-                    format!("failed to record failure context before loopback: {e}")
-                })?;
+                .map_err(|e| format!("failed to record failure context before loopback: {e}"))?;
                 crate::retry_budget::guard_block_loopback_to_author(
                     thread_store,
                     thread_id,
@@ -168,7 +168,14 @@ impl DataEngineerSuite {
     async fn reduce_validate_pass_plan_state(
         actx: &AgentCtx,
         phase: Phase,
-    ) -> Result<(Option<crate::plan::PlanCompletionSnapshot>, Option<String>, u64), String> {
+    ) -> Result<
+        (
+            Option<crate::plan::PlanCompletionSnapshot>,
+            Option<String>,
+            u64,
+        ),
+        String,
+    > {
         let mut completion_snapshot: Option<crate::plan::PlanCompletionSnapshot> = None;
         let mut active_plan_key: Option<String> = None;
         let mut validated_count: u64 = 0;
@@ -287,9 +294,11 @@ impl DataEngineerSuite {
             Some(phase),
             crate::phase_contract::PhaseDecision::forward(
                 to_phase,
-                Some(crate::progress_controller::PhaseTransition::ValidatePassToReview {
-                    step_idx: trigger_step_idx,
-                }),
+                Some(
+                    crate::progress_controller::PhaseTransition::ValidatePassToReview {
+                        step_idx: trigger_step_idx,
+                    },
+                ),
             ),
             vec![crate::metering::UsageEvent::ModelsValidated {
                 count: validated_count,
@@ -415,7 +424,9 @@ impl DataEngineerSuite {
                         thread_id,
                         phase,
                         reason.clone(),
-                        crate::progress_controller::PhaseTransition::ValidateExecutionFailed { reason },
+                        crate::progress_controller::PhaseTransition::ValidateExecutionFailed {
+                            reason,
+                        },
                     )
                     .await;
                 }
@@ -470,10 +481,7 @@ impl DataEngineerSuite {
                 compile_ok,
                 run_ok,
             } => (brief, failure_hash, compile_ok, run_ok),
-            crate::controller_event::ControllerEvent::ValidateContractError {
-                reason,
-                brief,
-            } => {
+            crate::controller_event::ControllerEvent::ValidateContractError { reason, brief } => {
                 tracing::warn!(
                     "data_engineer: validate contract error: {} ({}) (thread_id={} phase={})",
                     reason,
@@ -481,13 +489,16 @@ impl DataEngineerSuite {
                     thread_id,
                     phase.as_str()
                 );
-                let err_reason = format!("validate_outcome_v2_contract_error: {} ({})", reason, brief);
+                let err_reason =
+                    format!("validate_outcome_v2_contract_error: {} ({})", reason, brief);
                 return Self::handle_validate_execution_failure(
                     thread_store,
                     thread_id,
                     phase,
                     err_reason.clone(),
-                    crate::progress_controller::PhaseTransition::ValidateContractError { reason: err_reason },
+                    crate::progress_controller::PhaseTransition::ValidateContractError {
+                        reason: err_reason,
+                    },
                 )
                 .await;
             }
@@ -525,7 +536,11 @@ impl DataEngineerSuite {
             };
             let log_excerpts = {
                 let raw = crate::dbt_error::extract_log_excerpts(&obs.observation, 3, 6000);
-                if raw.trim().is_empty() { None } else { Some(raw) }
+                if raw.trim().is_empty() {
+                    None
+                } else {
+                    Some(raw)
+                }
             };
             crate::state_manager::apply_execution_event(
                 &thread_store.control_store(),
@@ -571,7 +586,9 @@ impl DataEngineerSuite {
         // Keep bounded to avoid unbounded plan growth.
         if phase == Phase::CleanseValidate {
             if let Some(mut p) = crate::plan::load_cleanse_plan(&actx).await? {
-                p.project_snapshot.validate_fail_facts.push(facts_bundle.clone());
+                p.project_snapshot
+                    .validate_fail_facts
+                    .push(facts_bundle.clone());
                 if p.project_snapshot.validate_fail_facts.len() > MAX_VALIDATE_FAIL_FACTS {
                     p.project_snapshot.validate_fail_facts.remove(0);
                 }
@@ -583,7 +600,9 @@ impl DataEngineerSuite {
             }
         } else {
             if let Some(mut p) = crate::plan::load_model_plan(&actx).await? {
-                p.project_snapshot.validate_fail_facts.push(facts_bundle.clone());
+                p.project_snapshot
+                    .validate_fail_facts
+                    .push(facts_bundle.clone());
                 if p.project_snapshot.validate_fail_facts.len() > MAX_VALIDATE_FAIL_FACTS {
                     p.project_snapshot.validate_fail_facts.remove(0);
                 }
@@ -620,9 +639,7 @@ impl DataEngineerSuite {
             Some(phase),
             crate::phase_contract::PhaseDecision::loopback(
                 to_phase,
-                Some(crate::progress_controller::PhaseTransition::ValidateFail {
-                    errors: errs,
-                }),
+                Some(crate::progress_controller::PhaseTransition::ValidateFail { errors: errs }),
             ),
         )
         .await?;
@@ -664,7 +681,9 @@ mod tests {
     fn validate_execution_failure_exhaustion_is_not_plan_rewrite() {
         let escalation = DataEngineerSuite::validate_execution_failure_escalation(
             "dbt_validate execution failed".to_string(),
-            crate::progress_controller::PhaseTransition::ValidateExecutionFailed { reason: "dbt_validate execution failed".to_string() },
+            crate::progress_controller::PhaseTransition::ValidateExecutionFailed {
+                reason: "dbt_validate execution failed".to_string(),
+            },
             crate::retry_budget::SubjectiveRetryOutcome::Exhausted(3),
         );
         match escalation {

@@ -1,4 +1,5 @@
 use react_core::agent::AgentCtx;
+use react_core::storage::retry_get_bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -187,7 +188,7 @@ pub async fn load_manifest_index(ctx: &AgentCtx) -> BTreeMap<String, (String, St
         .to_string()
         + "/";
     let key = format!("{}target/manifest.json", base);
-    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
+    let Ok(bytes) = retry_get_bytes(ctx.storage().as_ref(), &key).await else {
         return out;
     };
     let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
@@ -252,7 +253,7 @@ pub async fn load_manifest_source_index(ctx: &AgentCtx) -> BTreeMap<(String, Str
         .to_string()
         + "/";
     let key = format!("{}target/manifest.json", base);
-    let Ok(bytes) = ctx.storage().get_bytes(&key).await else {
+    let Ok(bytes) = retry_get_bytes(ctx.storage().as_ref(), &key).await else {
         return out;
     };
     let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {

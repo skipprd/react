@@ -81,12 +81,11 @@ impl react_core::tools::Tool for ThreadDerivedDbtValidateTool {
         let runtime_validate = build || run;
         if let (Some(store), Some(tid)) = (ctx.thread_store().as_ref(), ctx.thread_id().as_deref())
         {
-            let es =
-                crate::progress_controller::ExecutionState::load(&store.control_store(), tid)
-                    .await
-                    .map_err(|e| {
-                        format!("failed to load execution state for tool policy guard: {e}")
-                    })?;
+            let es = crate::progress_controller::ExecutionState::load(&store.control_store(), tid)
+                .await
+                .map_err(|e| {
+                    format!("failed to load execution state for tool policy guard: {e}")
+                })?;
             if let Some(ref st) = es {
                 let last_validate_failed = st.last_validate_failed();
                 let mutated_since_fail = st.repair.mutated_since_fail;

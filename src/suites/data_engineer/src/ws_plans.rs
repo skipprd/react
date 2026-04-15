@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 
+use react_core::storage::{retry_get_bytes, retry_list_prefix};
 use react_core::suite::SuiteCtx;
 
 use super::plan as de_plan;
@@ -144,13 +145,15 @@ pub async fn load_latest_plans_ws(ctx: &SuiteCtx, thread_id: &str) -> Vec<Value>
         .trim_end_matches('/')
         .to_string();
     let pref = format!("{}/plans/{}/", base, thread_id.trim());
-    let mut keys = ctx.storage().list_prefix(&pref).await.unwrap_or_default();
+    let mut keys = retry_list_prefix(ctx.storage().as_ref(), &pref)
+        .await
+        .unwrap_or_default();
     keys.sort();
 
     let mut cleanse_active: Option<Value> = None;
     let mut newest_terminal_cleanse: Option<de_plan::CleansePlan> = None;
     for k in keys.iter().filter(|k| k.ends_with("_cleanse.json")) {
-        if let Ok(bytes) = ctx.storage().get_bytes(k).await {
+        if let Ok(bytes) = retry_get_bytes(ctx.storage().as_ref(), k).await {
             match serde_json::from_slice::<de_plan::CleansePlan>(&bytes) {
                 Ok(mut p) => {
                     if p.plan_key.trim().is_empty() {
@@ -184,7 +187,7 @@ pub async fn load_latest_plans_ws(ctx: &SuiteCtx, thread_id: &str) -> Vec<Value>
     let mut model_active: Option<Value> = None;
     let mut newest_terminal_model: Option<de_plan::ModelPlan> = None;
     for k in keys.iter().filter(|k| k.ends_with("_model.json")) {
-        if let Ok(bytes) = ctx.storage().get_bytes(k).await {
+        if let Ok(bytes) = retry_get_bytes(ctx.storage().as_ref(), k).await {
             match serde_json::from_slice::<de_plan::ModelPlan>(&bytes) {
                 Ok(mut p) => {
                     if p.plan_key.trim().is_empty() {

@@ -18,10 +18,7 @@ impl ModelDispatch {
             .reason_model
             .clone()
             .unwrap_or_else(|| "gpt-4o-mini".to_string());
-        let task = cfg
-            .task_model
-            .clone()
-            .unwrap_or_else(|| reason.clone());
+        let task = cfg.task_model.clone().unwrap_or_else(|| reason.clone());
         Self {
             reason_model: reason,
             task_model: task,
@@ -39,7 +36,6 @@ impl ModelDispatch {
             ..Default::default()
         }
     }
-
 }
 
 #[cfg(test)]
@@ -68,5 +64,4 @@ mod tests {
         assert_eq!(d.task_model, "gpt-4.1");
         assert_eq!(d.reason_model, "gpt-5.4");
     }
-
 }

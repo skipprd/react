@@ -246,8 +246,7 @@ pub fn resilient_parse_string_field(raw_json: &str) -> Result<Value, String> {
     }
 
     let both = escape_control_chars_in_json_strings(&repaired_esc);
-    serde_json::from_str::<Value>(&both)
-        .map_err(|e| format!("not valid JSON string: {e}"))
+    serde_json::from_str::<Value>(&both).map_err(|e| format!("not valid JSON string: {e}"))
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::agent::AgentCtx;
+use react_core::storage::retry_get_bytes;
 use react_core::tools::Tool;
 
 pub struct JsonFileTool;
@@ -34,7 +35,7 @@ async fn get_item(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
 
     let rel = crate::project_fs::normalize_rel_path(path)?;
     let key = crate::project_fs::join_storage_key(ctx, &rel);
-    let bytes = match ctx.storage().get_bytes(&key).await {
+    let bytes = match retry_get_bytes(ctx.storage().as_ref(), &key).await {
         Ok(b) => b,
         Err(e) => {
             return Ok(
@@ -89,7 +90,7 @@ async fn query(args: Value, ctx: &AgentCtx) -> Result<Value, String> {
 
     let rel = crate::project_fs::normalize_rel_path(path)?;
     let key = crate::project_fs::join_storage_key(ctx, &rel);
-    let bytes = match ctx.storage().get_bytes(&key).await {
+    let bytes = match retry_get_bytes(ctx.storage().as_ref(), &key).await {
         Ok(b) => b,
         Err(e) => {
             return Ok(

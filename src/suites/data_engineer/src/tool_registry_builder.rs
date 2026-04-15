@@ -243,12 +243,8 @@ impl DataEngineerSuite {
                 );
             }
             control_flow::Phase::CleanseAuthor | control_flow::Phase::ModelAuthor => {
-                let batch_tool_name = register_batch_tool_for_plan_state(
-                    &mut reg,
-                    phase,
-                    plan_state,
-                    &datasets_opt,
-                );
+                let batch_tool_name =
+                    register_batch_tool_for_plan_state(&mut reg, phase, plan_state, &datasets_opt);
 
                 reg.register(SqlRunTool {
                     query: query.clone(),
@@ -336,7 +332,8 @@ impl DataEngineerSuite {
                                 datasets: crate::ctx_ext::sctx_datasets(sctx),
                             },
                             policy: FileAccessPolicy::ReadOnly {
-                                error_message: "file is read-only in this context; use op='get' or op='list'",
+                                error_message:
+                                    "file is read-only in this context; use op='get' or op='list'",
                             },
                         });
                         tools_card = Self::build_tools_card(
@@ -377,8 +374,7 @@ impl DataEngineerSuite {
                     }
                 }
             }
-            control_flow::Phase::CleanseReview
-            | control_flow::Phase::ModelReview => {
+            control_flow::Phase::CleanseReview | control_flow::Phase::ModelReview => {
                 // Review phases: keep read-only; do not allow arbitrary SQL execution.
                 reg.register(PolicyFilesTool {
                     inner: FilesTool {

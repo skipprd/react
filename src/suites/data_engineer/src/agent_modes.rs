@@ -82,8 +82,7 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
 
         let phase = execution_state.phase.current_phase;
         let thread_log = self.thread_store.get(self.thread_id).await.ok();
-        let thread_state_step_count =
-            thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
+        let thread_state_step_count = thread_log.as_ref().map(|log| log.steps.len()).unwrap_or(0);
 
         match crate::phase_gate::evaluate_pre_turn_directive(
             &execution_state,
@@ -175,7 +174,10 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
                 es.hard_mutation_repair_mode(),
             );
             es.mark_failed(&detail);
-            if let Err(e) = es.save(&self.thread_store.control_store(), self.thread_id).await {
+            if let Err(e) = es
+                .save(&self.thread_store.control_store(), self.thread_id)
+                .await
+            {
                 tracing::error!("failed to persist budget-exhaustion mark_failed: {e}");
             }
         }
@@ -190,7 +192,6 @@ impl<'a> react_core::workflow::PhaseExecutor for DataEngineerExecutor<'a> {
             .unwrap_or(0)
     }
 }
-
 
 impl DataEngineerSuite {
     /// Collect recent failed file mutations from the thread log, scoped to a
@@ -209,8 +210,8 @@ impl DataEngineerSuite {
         let mut current_track: Option<TrackKind> = None;
         for step in log.steps.iter() {
             if let ThreadStep::Phase { phase, .. } = step {
-                current_track = control_flow::Phase::from_str(phase.trim())
-                    .and_then(TrackKind::from_any_phase);
+                current_track =
+                    control_flow::Phase::from_str(phase.trim()).and_then(TrackKind::from_any_phase);
                 continue;
             }
             if current_track != Some(track) {
@@ -240,7 +241,11 @@ impl DataEngineerSuite {
             }
             let path = match op.as_str() {
                 "mv" => {
-                    let from = args.get("from").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let from = args
+                        .get("from")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
                     let to = args.get("to").and_then(|v| v.as_str()).unwrap_or("").trim();
                     if from.is_empty() && to.is_empty() {
                         continue;
@@ -751,7 +756,9 @@ impl DataEngineerSuite {
     ) -> Result<PhaseOutcome, PhaseError> {
         use crate::control_flow::Phase;
         match phase {
-            Phase::ElDiscover => Self::execute_el_discover_phase(thread_store, thread_id, sctx).await,
+            Phase::ElDiscover => {
+                Self::execute_el_discover_phase(thread_store, thread_id, sctx).await
+            }
             Phase::ElSync => Self::execute_el_sync_phase(thread_store, thread_id, sctx).await,
             Phase::ElVerify => Self::execute_el_verify_phase(thread_store, thread_id, sctx).await,
             Phase::Preflight => Self::execute_preflight_phase(thread_store, thread_id, sctx).await,
@@ -846,14 +853,16 @@ impl DataEngineerSuite {
                 task_model: "gpt-4o-mini".into(),
             });
 
-        let error_context = execution_state.repair.failure_context.clone().unwrap_or_else(|| {
-            crate::progress_controller::ValidationFailureContext {
+        let error_context = execution_state
+            .repair
+            .failure_context
+            .clone()
+            .unwrap_or_else(|| crate::progress_controller::ValidationFailureContext {
                 brief: String::new(),
                 log_excerpts: None,
                 compile_ok: false,
                 run_ok: false,
-            }
-        });
+            });
 
         let repair_cycle = execution_state.repair.cycle_count();
         let result = crate::repair_subroutine::run_repair(
@@ -909,9 +918,11 @@ impl DataEngineerSuite {
                     Some(current_phase),
                     crate::phase_contract::PhaseDecision::forward(
                         validate_phase,
-                        Some(crate::progress_controller::PhaseTransition::RepairExhausted {
-                            reason: e.clone(),
-                        }),
+                        Some(
+                            crate::progress_controller::PhaseTransition::RepairExhausted {
+                                reason: e.clone(),
+                            },
+                        ),
                     ),
                     vec![crate::metering::UsageEvent::RepairCycle {
                         cycle: 1,

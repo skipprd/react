@@ -38,14 +38,8 @@ pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'sta
     if msg.trim().is_empty() {
         return None;
     }
-    let code = error_obj
-        .get("code")
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
-    let etype = error_obj
-        .get("type")
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
+    let code = error_obj.get("code").and_then(|x| x.as_str()).unwrap_or("");
+    let etype = error_obj.get("type").and_then(|x| x.as_str()).unwrap_or("");
     let lower = msg.to_ascii_lowercase();
 
     let is_permanent = code == "insufficient_quota"

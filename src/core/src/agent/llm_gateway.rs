@@ -174,8 +174,7 @@ impl AgentCtx {
                 Err(e) => e.to_string(),
                 Ok(text) => text.trim().to_string(),
             };
-            let backoff_ms =
-                Self::LLM_TRANSIENT_BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(3));
+            let backoff_ms = Self::LLM_TRANSIENT_BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(3));
             tracing::warn!(
                 prompt_id = %options.prompt_id,
                 attempt,
@@ -440,4 +439,3 @@ impl AgentCtx {
         self.llm.embed(texts).map_err(CoreError::generic)
     }
 }
-

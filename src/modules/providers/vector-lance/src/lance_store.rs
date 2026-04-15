@@ -122,7 +122,8 @@ impl LanceDbStore {
             ],
         )
         .map_err(|e| e.to_string())?;
-        let db = self.connect_builder()
+        let db = self
+            .connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -161,7 +162,8 @@ impl LanceDbStore {
         use futures::StreamExt;
         use lancedb::query::{ExecutableQuery, QueryBase};
 
-        let db = self.connect_builder()
+        let db = self
+            .connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -224,7 +226,8 @@ impl LanceDbStore {
         use futures::StreamExt;
         use lancedb::query::{ExecutableQuery, QueryBase};
 
-        let db = self.connect_builder()
+        let db = self
+            .connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -311,7 +314,8 @@ impl LanceDbStore {
     }
 
     async fn delete_where(&self, table_name: &str, predicate: &str) -> Result<(), String> {
-        let db = self.connect_builder()
+        let db = self
+            .connect_builder()
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
@@ -327,25 +331,31 @@ impl LanceDbStore {
 
     pub async fn delete_thread_embeddings(&self, thread_id: &str) -> Result<(), String> {
         let pred = format!("id LIKE '%:{}:%'", Self::escape_sql_literal(thread_id));
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str()).await?;
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str())
+            .await?;
         self.delete_where(EMBEDDINGS_TABLE_V1, pred.as_str()).await
     }
 
     pub async fn delete_pipeline_embeddings(&self) -> Result<(), String> {
-        self.delete_where(EMBEDDINGS_TABLE_V2, "id IS NOT NULL").await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, "id IS NOT NULL").await
+        self.delete_where(EMBEDDINGS_TABLE_V2, "id IS NOT NULL")
+            .await?;
+        self.delete_where(EMBEDDINGS_TABLE_V1, "id IS NOT NULL")
+            .await
     }
 
     pub async fn delete_namespace(&self, namespace: &str) -> Result<(), String> {
         let pred_v2 = self.delete_predicate("namespace", namespace);
         let pred_v1 = self.delete_predicate("kind", namespace);
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred_v2.as_str()).await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, pred_v1.as_str()).await
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred_v2.as_str())
+            .await?;
+        self.delete_where(EMBEDDINGS_TABLE_V1, pred_v1.as_str())
+            .await
     }
 
     pub async fn delete_ids_with_prefix(&self, prefix: &str) -> Result<(), String> {
         let pred = self.like_prefix_predicate("id", prefix);
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str()).await?;
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str())
+            .await?;
         self.delete_where(EMBEDDINGS_TABLE_V1, pred.as_str()).await
     }
 }

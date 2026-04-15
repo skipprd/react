@@ -57,12 +57,14 @@ impl DataEngineerSuite {
 
         let namespaces_count = pipeline_status.namespaces.len();
         if namespaces_count == 0 {
-            return Err(
-                "skippr discover completed but found no namespaces (tables)".to_string().into(),
-            );
+            return Err("skippr discover completed but found no namespaces (tables)"
+                .to_string()
+                .into());
         }
 
-        let total_fields: u64 = pipeline_status.namespaces.iter()
+        let total_fields: u64 = pipeline_status
+            .namespaces
+            .iter()
             .map(|ns| ns.fields.len() as u64)
             .sum();
 
@@ -93,9 +95,7 @@ impl DataEngineerSuite {
     }
 }
 
-fn warehouse_to_output_config(
-    wh: &crate::de_config::WarehouseResolved,
-) -> SkipprOutputConfig {
+fn warehouse_to_output_config(wh: &crate::de_config::WarehouseResolved) -> SkipprOutputConfig {
     use crate::de_config::WarehouseKind;
     let kind = match wh.kind {
         WarehouseKind::Snowflake => "snowflake",

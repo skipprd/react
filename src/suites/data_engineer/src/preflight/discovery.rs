@@ -1,4 +1,5 @@
 use react_core::provider_traits::VectorCollection;
+use react_core::storage::{retry_get_json, retry_put_json};
 
 /// Limits for dataset discovery (kept minimal; expand as needed).
 #[derive(Clone, Debug, Default)]
@@ -105,7 +106,7 @@ pub async fn run_discovery_cached(
         root, thread_id, qhash, k
     );
 
-    if let Ok(v) = sctx.storage().get_json(&key).await {
+    if let Ok(v) = retry_get_json(sctx.storage().as_ref(), &key).await {
         if let Some(arr) = v.get("datasets").and_then(|x| x.as_array()) {
             let mut out: Vec<(String, f32)> = Vec::new();
             for it in arr {
@@ -137,6 +138,6 @@ pub async fn run_discovery_cached(
         })).collect::<Vec<_>>(),
         "ts": chrono::Utc::now().to_rfc3339(),
     });
-    let _ = sctx.storage().put_json(&key, &payload).await;
+    let _ = retry_put_json(sctx.storage().as_ref(), &key, &payload).await;
     bundle
 }

@@ -105,9 +105,10 @@ impl Tool for AssessRequirementTool {
             model: None,
         };
 
-        let response = ctx.llm_chat(&messages, &options).await.map_err(|e| {
-            format!("LLM assessment failed: {}", e)
-        })?;
+        let response = ctx
+            .llm_chat(&messages, &options)
+            .await
+            .map_err(|e| format!("LLM assessment failed: {}", e))?;
 
         let parsed: Value = serde_json::from_str(&response).unwrap_or_else(|_| {
             serde_json::json!({

@@ -4,6 +4,7 @@ use crate::phase_plan_lifecycle::TrackPlanDoc;
 use crate::plan_progress::MAX_BATCH_SIZE;
 use crate::plan_types::TrackPlan;
 use react_core::keyspace::encode_key_component;
+use react_core::storage::{retry_get_json, retry_head_etag};
 
 // ---------------------------------------------------------------------------
 // Context struct: groups the recurring plan-phase parameters
@@ -385,9 +386,7 @@ async fn consume_plan_revision(
 /// If an approved/draft plan already exists for this track, handle it and
 /// return an outcome.  Returns `Ok(None)` when no existing plan is found
 /// (or the existing plan doesn't warrant an early return).
-async fn check_existing_plan(
-    pctx: &PlanPhaseCtx<'_>,
-) -> Result<Option<PhaseOutcome>, PhaseError> {
+async fn check_existing_plan(pctx: &PlanPhaseCtx<'_>) -> Result<Option<PhaseOutcome>, PhaseError> {
     let Some(mut existing_plan) = load_active_plan_for_track_spec(&pctx.actx, pctx.track).await
     else {
         return Ok(None);
@@ -407,11 +406,13 @@ async fn check_existing_plan(
                 Some(pctx.phase),
                 PhaseDecision::annotation(
                     pctx.phase,
-                    Some(crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
-                        plan_key,
-                        tasks_len: existing_plan.tasks_len(),
-                        batches_len: existing_plan.batches_len(),
-                    }),
+                    Some(
+                        crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
+                            plan_key,
+                            tasks_len: existing_plan.tasks_len(),
+                            batches_len: existing_plan.batches_len(),
+                        },
+                    ),
                 ),
             )
             .await?;
@@ -467,11 +468,13 @@ async fn check_existing_plan(
                 Some(pctx.phase),
                 PhaseDecision::annotation(
                     pctx.phase,
-                    Some(crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
-                        plan_key,
-                        tasks_len: existing_plan.tasks_len(),
-                        batches_len: existing_plan.batches_len(),
-                    }),
+                    Some(
+                        crate::progress_controller::PhaseTransition::PlanInvalidEmpty {
+                            plan_key,
+                            tasks_len: existing_plan.tasks_len(),
+                            batches_len: existing_plan.batches_len(),
+                        },
+                    ),
                 ),
             )
             .await?;
@@ -583,7 +586,7 @@ async fn build_plan_query(
                 ),
             ],
         );
-        if let Ok(v) = sctx.storage().get_json(&global_key).await {
+        if let Ok(v) = retry_get_json(sctx.storage().as_ref(), &global_key).await {
             q.push_str("\n\nIMMUTABLE CONTEXT (global_semantic_context):\n");
             q.push_str(&serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string()));
             q.push('\n');
@@ -658,9 +661,13 @@ async fn compile_and_ground_cleanse_plan(
     plan.status = crate::plan::PlanStatus::Draft;
     plan.plan_key = crate::plan::new_cleanse_plan_key(&pctx.actx);
     plan.progress.last_applied_step_idx = pctx.thread_state_step_count;
+    let dbt_project_key = pctx
+        .actx
+        .keyspace()
+        .scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"]);
     plan.project_snapshot = crate::plan_types::PlanSnapshot::from_value(serde_json::json!({
         "dbt_prefix": pctx.actx.keyspace().scoped_prefix(pctx.actx.scope(), &["dbt"]),
-        "dbt_project_yml_etag": pctx.actx.storage().head_etag(&pctx.actx.keyspace().scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+        "dbt_project_yml_etag": retry_head_etag(pctx.actx.storage().as_ref(), &dbt_project_key).await.ok().flatten(),
         "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
         "plan_design_critique": {
             "ok": design_critique.ok,
@@ -758,9 +765,10 @@ async fn compile_and_ground_cleanse_plan(
     )
     .await?;
 
-    let _grounded_proof = crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
-        .await
-        .map_err(|e| format!("failed to checkpoint grounded/pruned cleanse draft plan: {e}"))?;
+    let _grounded_proof =
+        crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
+            .await
+            .map_err(|e| format!("failed to checkpoint grounded/pruned cleanse draft plan: {e}"))?;
 
     // Semantic validation (with one targeted-enrichment retry).
     tracing::info!("data_engineer: [cleanse] validating plan semantics");
@@ -787,9 +795,10 @@ async fn compile_and_ground_cleanse_plan(
         }
     };
 
-    let _grounded_proof = crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
-        .await
-        .map_err(|e| format!("failed to checkpoint normalized cleanse draft plan: {e}"))?;
+    let _grounded_proof =
+        crate::plan::save_cleanse_plan_grounded(&pctx.actx, &plan, &grounded.allowed)
+            .await
+            .map_err(|e| format!("failed to checkpoint normalized cleanse draft plan: {e}"))?;
 
     use crate::progress_controller::SubjectiveRetryKind;
     finalize_plan_and_approve(
@@ -826,9 +835,10 @@ async fn compile_and_ground_model_plan(
     critique_disposition: crate::enrichment::DesignCritiqueDisposition,
     discovery: &crate::dataset_truth::PlanDiscoveryContext,
 ) -> Result<PhaseOutcome, PhaseError> {
-    let staged = discovery.staging.as_ref().expect(
-        "compile_and_ground_model_plan requires discovery.staging to be populated",
-    );
+    let staged = discovery
+        .staging
+        .as_ref()
+        .expect("compile_and_ground_model_plan requires discovery.staging to be populated");
     if staged.allowed_models.is_empty() {
         use crate::retry_budget::SubjectiveRetryOutcome;
         match DataEngineerSuite::check_subjective_retry_budget(
@@ -854,13 +864,9 @@ async fn compile_and_ground_model_plan(
     }
 
     tracing::info!("data_engineer: [model] compiling plan from candidate models");
-    let candidates = DataEngineerSuite::generate_model_candidates(
-        &pctx.actx,
-        q,
-        design_memo,
-        design_critique,
-    )
-    .await?;
+    let candidates =
+        DataEngineerSuite::generate_model_candidates(&pctx.actx, q, design_memo, design_critique)
+            .await?;
     let mut plan = DataEngineerSuite::compile_model_candidates_plan(&candidates);
 
     for t in plan.tasks.iter_mut() {
@@ -884,9 +890,13 @@ async fn compile_and_ground_model_plan(
     plan.status = crate::plan::PlanStatus::Draft;
     plan.plan_key = crate::plan::new_model_plan_key(&pctx.actx);
     plan.progress.last_applied_step_idx = pctx.thread_state_step_count;
+    let dbt_project_key = pctx
+        .actx
+        .keyspace()
+        .scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"]);
     plan.project_snapshot = crate::plan_types::PlanSnapshot::from_value(serde_json::json!({
         "dbt_prefix": pctx.actx.keyspace().scoped_prefix(pctx.actx.scope(), &["dbt"]),
-        "dbt_project_yml_etag": pctx.actx.storage().head_etag(&pctx.actx.keyspace().scoped_key(pctx.actx.scope(), &["dbt", "dbt_project.yml"])).await.ok().flatten(),
+        "dbt_project_yml_etag": retry_head_etag(pctx.actx.storage().as_ref(), &dbt_project_key).await.ok().flatten(),
         "plan_design_memo": DataEngineerSuite::excerpt(design_memo, 12_000),
         "plan_design_critique": {
             "ok": design_critique.ok,
@@ -973,9 +983,10 @@ async fn compile_and_ground_model_plan(
         }
     }
 
-    let _grounded_proof = crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
-        .await
-        .map_err(|e| format!("failed to checkpoint grounded/enriched model draft plan: {e}"))?;
+    let _grounded_proof =
+        crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
+            .await
+            .map_err(|e| format!("failed to checkpoint grounded/enriched model draft plan: {e}"))?;
 
     // Semantic validation (with one targeted-enrichment retry).
     tracing::info!("data_engineer: [model] validating plan semantics");
@@ -1016,9 +1027,10 @@ async fn compile_and_ground_model_plan(
         }
     };
 
-    let _grounded_proof = crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
-        .await
-        .map_err(|e| format!("failed to checkpoint normalized model draft plan: {e}"))?;
+    let _grounded_proof =
+        crate::plan::save_model_plan_grounded(&pctx.actx, &plan, &staged.allowed_models)
+            .await
+            .map_err(|e| format!("failed to checkpoint normalized model draft plan: {e}"))?;
 
     use crate::progress_controller::SubjectiveRetryKind;
     finalize_plan_and_approve(
@@ -1134,8 +1146,7 @@ impl DataEngineerSuite {
             tracing::info!(
                 "data_engineer: deterministic bootstrap sufficient for cleanse plan, skipping ReAct discovery"
             );
-            let critiqued =
-                Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
+            let critiqued = Self::produce_critiqued_design_memo(&pctx.actx, track, &q).await?;
             return compile_and_ground_cleanse_plan(
                 &pctx,
                 sctx,
@@ -1145,7 +1156,7 @@ impl DataEngineerSuite {
                 critiqued.disposition,
                 &discovery,
             )
-                .await;
+            .await;
         }
 
         let sys = crate::prompts::with_time_context(if track.is_cleanse() {
@@ -1180,9 +1191,10 @@ impl DataEngineerSuite {
         } else {
             discovery.dataset_fqns.len()
         };
-        pctx.actx.set_max_steps(
-            crate::env_util::plan_discovery_steps_for_sources(source_count),
-        );
+        pctx.actx
+            .set_max_steps(crate::env_util::plan_discovery_steps_for_sources(
+                source_count,
+            ));
         tracing::info!(
             "data_engineer: plan discovery step budget = {} (source_count={})",
             pctx.actx.max_steps(),
@@ -1191,7 +1203,12 @@ impl DataEngineerSuite {
 
         // 8. Run the planning agent (full ReAct discovery).
         match Agent::run_until_block_non_interactive(
-            &registry, &pctx.actx, &sys, &tools_card, &q, llm_options,
+            &registry,
+            &pctx.actx,
+            &sys,
+            &tools_card,
+            &q,
+            llm_options,
         )
         .await
         {
@@ -1205,8 +1222,14 @@ impl DataEngineerSuite {
                 // and enrich the planning context so the design memo references
                 // the exact staging names.
                 let q_memo = if !track.is_cleanse() {
-                    let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
-                    let enriched = crate::dataset_truth::enrich_query_with_staging_models(&q, &staged, &discovery.source_schemas);
+                    let staged =
+                        crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx)
+                            .await;
+                    let enriched = crate::dataset_truth::enrich_query_with_staging_models(
+                        &q,
+                        &staged,
+                        &discovery.source_schemas,
+                    );
                     discovery.staging = Some(staged);
                     enriched
                 } else {
@@ -1246,8 +1269,14 @@ impl DataEngineerSuite {
                 );
 
                 let q_memo = if !track.is_cleanse() {
-                    let staged = crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx).await;
-                    let enriched = crate::dataset_truth::enrich_query_with_staging_models(&q, &staged, &discovery.source_schemas);
+                    let staged =
+                        crate::dataset_truth::discover_staging_models_from_storage(&pctx.actx)
+                            .await;
+                    let enriched = crate::dataset_truth::enrich_query_with_staging_models(
+                        &q,
+                        &staged,
+                        &discovery.source_schemas,
+                    );
                     discovery.staging = Some(staged);
                     enriched
                 } else {

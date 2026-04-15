@@ -10,6 +10,6 @@ pub mod vector;
 pub use secrets::{NullSecretsProvider, SecretsProvider};
 pub use state::StateStore;
 pub use vector::{
-    ScoredTypedVectorDocument, ScoredVectorRecord, StoredVectorRecord, TypedVectorDocument,
-    VectorCollection, VectorStore, delete_collection, query_typed_documents, upsert_typed_documents,
+    delete_collection, query_typed_documents, upsert_typed_documents, ScoredTypedVectorDocument,
+    ScoredVectorRecord, StoredVectorRecord, TypedVectorDocument, VectorCollection, VectorStore,
 };

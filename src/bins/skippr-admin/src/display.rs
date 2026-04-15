@@ -99,10 +99,7 @@ pub fn print_thread_summary(thread_id: &str, summary: &ThreadSummary) {
 
     if !summary.tool_calls.is_empty() {
         println!("  Tool Usage:");
-        println!(
-            "  {:<20} {:>6} {:>6} {:>6}",
-            "Tool", "Calls", "OK", "Fail"
-        );
+        println!("  {:<20} {:>6} {:>6} {:>6}", "Tool", "Calls", "OK", "Fail");
         println!("  {}", "-".repeat(42));
         for t in &summary.tool_calls {
             println!(

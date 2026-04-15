@@ -227,7 +227,13 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "discovery_cache_ttl_secs": discovery_cache_ttl_secs,
             }),
         },
-        WarehouseFile::Databricks { workspace_url, token, warehouse_id, catalog, schema } => WarehouseResolved {
+        WarehouseFile::Databricks {
+            workspace_url,
+            token,
+            warehouse_id,
+            catalog,
+            schema,
+        } => WarehouseResolved {
             kind: WarehouseKind::Databricks,
             container: resolve_env_ref(&catalog.unwrap_or_else(|| "main".to_string())),
             namespace: resolve_env_ref(&schema.unwrap_or_else(|| "default".to_string())),
@@ -237,7 +243,10 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "warehouse_id": warehouse_id,
             }),
         },
-        WarehouseFile::Synapse { connection_string, schema } => WarehouseResolved {
+        WarehouseFile::Synapse {
+            connection_string,
+            schema,
+        } => WarehouseResolved {
             kind: WarehouseKind::Synapse,
             container: String::new(),
             namespace: resolve_env_ref(&schema.unwrap_or_else(|| "dbo".to_string())),
@@ -245,7 +254,17 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "connection_string": connection_string,
             }),
         },
-        WarehouseFile::Redshift { database, cluster_identifier, workgroup_name, db_user, schema, region, staging_s3_bucket, staging_s3_prefix, iam_role_arn } => WarehouseResolved {
+        WarehouseFile::Redshift {
+            database,
+            cluster_identifier,
+            workgroup_name,
+            db_user,
+            schema,
+            region,
+            staging_s3_bucket,
+            staging_s3_prefix,
+            iam_role_arn,
+        } => WarehouseResolved {
             kind: WarehouseKind::Redshift,
             container: resolve_env_ref(&database.unwrap_or_default()),
             namespace: resolve_env_ref(&schema.unwrap_or_default()),
@@ -259,7 +278,12 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "iam_role_arn": iam_role_arn,
             }),
         },
-        WarehouseFile::Clickhouse { url, database, user, password } => WarehouseResolved {
+        WarehouseFile::Clickhouse {
+            url,
+            database,
+            user,
+            password,
+        } => WarehouseResolved {
             kind: WarehouseKind::Clickhouse,
             container: resolve_env_ref(&database.unwrap_or_else(|| "default".to_string())),
             namespace: "default".to_string(),
@@ -269,7 +293,11 @@ fn resolve_warehouse(w: WarehouseFile) -> WarehouseResolved {
                 "password": password,
             }),
         },
-        WarehouseFile::Motherduck { motherduck_token, database, schema } => WarehouseResolved {
+        WarehouseFile::Motherduck {
+            motherduck_token,
+            database,
+            schema,
+        } => WarehouseResolved {
             kind: WarehouseKind::Motherduck,
             container: resolve_env_ref(&database.unwrap_or_default()),
             namespace: resolve_env_ref(&schema.unwrap_or_else(|| "main".to_string())),

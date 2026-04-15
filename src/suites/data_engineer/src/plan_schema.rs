@@ -96,7 +96,9 @@ pub struct PlanDesignFixV1 {
     pub detail: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanDesignBlockerCodeV1 {
     MissingGroundedTasks,

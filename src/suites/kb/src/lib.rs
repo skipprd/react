@@ -66,9 +66,7 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
                 Some("low") | None | Some("") => react_core::llm::ReasoningEffort::Low,
                 Some("medium") => react_core::llm::ReasoningEffort::Medium,
                 Some("high") => react_core::llm::ReasoningEffort::High,
-                Some("extra_high") | Some("xhigh") => {
-                    react_core::llm::ReasoningEffort::ExtraHigh
-                }
+                Some("extra_high") | Some("xhigh") => react_core::llm::ReasoningEffort::ExtraHigh,
                 _ => react_core::llm::ReasoningEffort::Low,
             };
             react_core::llm::LlmCallOptions {
@@ -84,15 +82,8 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
             }
         };
 
-        match Agent::run_until_block(
-            &registry,
-            &actx,
-            sys,
-            tools_card,
-            self.question,
-            llm_opts,
-        )
-        .await
+        match Agent::run_until_block(&registry, &actx, sys, tools_card, self.question, llm_opts)
+            .await
         {
             Ok(RunOutcome::Complete {
                 thread_id: _tid,

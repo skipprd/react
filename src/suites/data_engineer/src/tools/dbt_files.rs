@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::providers::DatasetCatalogProvider;
 use react_core::agent::AgentCtx;
+use react_core::storage::{retry_delete_object, retry_get_bytes, retry_put_bytes};
 use react_core::tools::Tool;
 
 use crate::patch_contract::{normalize_hunks_only_patch_text, SingleFilePatchArgs};
@@ -307,12 +308,14 @@ pub(crate) async fn validate_staging_schema_ymls(
             } else {
                 // Fall back to existing staging SQL in storage.
                 let key = project_fs::join_storage_key(ctx, &sql_rel);
-                let bytes = ctx.storage().get_bytes(&key).await.map_err(|_| {
-                    format!(
-                        "cannot validate {}: missing staging model SQL {} (for model '{}')",
-                        rel, sql_rel, model_name
-                    )
-                })?;
+                let bytes = retry_get_bytes(ctx.storage().as_ref(), &key)
+                    .await
+                    .map_err(|_| {
+                        format!(
+                            "cannot validate {}: missing staging model SQL {} (for model '{}')",
+                            rel, sql_rel, model_name
+                        )
+                    })?;
                 String::from_utf8_lossy(&bytes).to_string()
             };
 
@@ -734,10 +737,14 @@ impl Tool for FilesTool {
                 // the sibling staging SQL output (prevents COLUMN_NOT_FOUND runtime errors).
                 validate_staging_schema_ymls(ctx, std::slice::from_ref(&outcome)).await?;
 
-                ctx.storage()
-                    .put_bytes(&outcome.key, outcome.content.as_bytes(), "text/plain")
-                    .await
-                    .map_err(|e| e.to_string())?;
+                retry_put_bytes(
+                    ctx.storage().as_ref(),
+                    &outcome.key,
+                    outcome.content.as_bytes(),
+                    "text/plain",
+                )
+                .await
+                .map_err(|e| e.to_string())?;
 
                 // Best-effort cleanup: if the patch targeted an alias path like models/silver/,
                 // delete the alias object after writing the canonical object.
@@ -748,7 +755,7 @@ impl Tool for FilesTool {
                     rewrites_json.push(serde_json::json!({ "from": from, "to": to }));
                     if from != to {
                         let old_key = project_fs::join_storage_key(ctx, from);
-                        let _ = ctx.storage().delete_object(&old_key).await;
+                        let _ = retry_delete_object(ctx.storage().as_ref(), &old_key).await;
                     }
                 }
 
@@ -821,7 +828,8 @@ impl Tool for FilesTool {
 
                 validate_sql_model_folder_policy(&want_rel)?;
 
-                let out = project_fs::write_file(ctx, self.datasets.as_ref(), &want_rel, content).await?;
+                let out =
+                    project_fs::write_file(ctx, self.datasets.as_ref(), &want_rel, content).await?;
 
                 let mutated = out
                     .get("mutated")
@@ -850,7 +858,9 @@ impl Tool for FilesTool {
                 }
                 Ok(out)
             }
-            _ => Err("unsupported op; use 'list', 'get', 'patch', 'write', 'rm', or 'mv'".to_string()),
+            _ => Err(
+                "unsupported op; use 'list', 'get', 'patch', 'write', 'rm', or 'mv'".to_string(),
+            ),
         }
     }
 }

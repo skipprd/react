@@ -43,9 +43,8 @@ impl StorageAdapter for InMemoryStorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!("put_json_if_etag_matches('{key}'): {e}"))
-        })?;
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::Storage(format!("put_json_if_etag_matches('{key}'): {e}")))?;
         let mut g = self
             .inner
             .write()

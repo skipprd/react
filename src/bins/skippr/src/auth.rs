@@ -34,6 +34,5 @@ pub fn clear_credentials() {
 }
 
 pub fn auth_base_url() -> String {
-    std::env::var("SKIPPR_AUTH_URL")
-        .unwrap_or_else(|_| "https://auth.skippr.io".to_string())
+    std::env::var("SKIPPR_AUTH_URL").unwrap_or_else(|_| "https://auth.skippr.io".to_string())
 }

@@ -518,10 +518,7 @@ impl ModelTask {
             if input_name.is_empty() || !input_name.starts_with("stg_") {
                 continue;
             }
-            let source_schema = schemas
-                .get(input_name)
-                .cloned()
-                .unwrap_or_default();
+            let source_schema = schemas.get(input_name).cloned().unwrap_or_default();
             grounded.push(GroundedModelInput {
                 input_name: input_name.to_string(),
                 model_rel_path: format!("models/staging/{}.sql", input_name),
@@ -558,10 +555,7 @@ impl PlanTask for ModelTask {
 /// (inputs that reference another task in the same plan, not a staging model).
 /// Must be called **after** [`ModelTask::apply_grounded_inputs_from`] so that
 /// staging entries are already in place.
-pub fn apply_intra_plan_grounded_inputs(
-    tasks: &mut [ModelTask],
-    gold_prefix: Option<&str>,
-) {
+pub fn apply_intra_plan_grounded_inputs(tasks: &mut [ModelTask], gold_prefix: Option<&str>) {
     let Some(prefix) = gold_prefix.map(str::trim).filter(|p| !p.is_empty()) else {
         return;
     };

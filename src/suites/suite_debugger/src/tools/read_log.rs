@@ -37,11 +37,7 @@ impl Tool for ReadRunLogTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(50_000) as usize;
         let truncated = text.len() > max_len;
-        let output = if truncated {
-            &text[..max_len]
-        } else {
-            &text
-        };
+        let output = if truncated { &text[..max_len] } else { &text };
 
         Ok(serde_json::json!({
             "thread_id": thread_id,

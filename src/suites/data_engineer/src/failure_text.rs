@@ -123,9 +123,7 @@ mod tests {
 
     #[test]
     fn classify_missing_key_file_is_config() {
-        let errors = vec![
-            "[Errno 2] No such file or directory: 'snowflake_key.p8'".to_string(),
-        ];
+        let errors = vec!["[Errno 2] No such file or directory: 'snowflake_key.p8'".to_string()];
         assert_eq!(classify_dbt_failure(&errors), FailureKind::InfraConfig);
     }
 
@@ -139,9 +137,7 @@ mod tests {
 
     #[test]
     fn classify_yaml_flow_mapping_error_is_config() {
-        let errors = vec![
-            "did not find expected ',' or '}'".to_string(),
-        ];
+        let errors = vec!["did not find expected ',' or '}'".to_string()];
         assert_eq!(classify_dbt_failure(&errors), FailureKind::InfraConfig);
     }
 
@@ -192,7 +188,9 @@ mod tests {
 
     #[test]
     fn is_infra_config_covers_common_patterns() {
-        assert!(is_infra_config("no such file or directory: 'snowflake_key.p8'"));
+        assert!(is_infra_config(
+            "no such file or directory: 'snowflake_key.p8'"
+        ));
         assert!(is_infra_config("authentication failed for user 'test'"));
         assert!(is_infra_config("invalid private key format"));
         assert!(is_infra_config("dbt failed: profiles.yml syntax error"));

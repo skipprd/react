@@ -38,10 +38,7 @@ pub fn evaluate_pre_turn_directive(
     }
 
     if repair_state.cycle_count() >= MAX_REPAIR_CYCLES
-        && matches!(
-            phase,
-            Phase::CleanseAuthor | Phase::ModelAuthor
-        )
+        && matches!(phase, Phase::CleanseAuthor | Phase::ModelAuthor)
     {
         return PreTurnDirective::FailFast {
             kind: GuardBlockKind::AuthoringToValidate,
@@ -96,7 +93,9 @@ mod tests {
     #[test]
     fn preturn_gate_repair_cycles_exhausted() {
         let mut st = ExecutionState::new();
-        st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
+        st.repair.status = RepairStatus::Pending {
+            cycle: MAX_REPAIR_CYCLES,
+        };
         let d = evaluate_pre_turn_directive(&st, Phase::CleanseAuthor, 3);
         match d {
             PreTurnDirective::FailFast { kind, .. } => {
@@ -111,7 +110,13 @@ mod tests {
         let mut st = ExecutionState::new();
         st.set_pending_patch_impl_intent(Phase::CleanseAuthor);
         assert!(st.repair.pending_patch_impl.is_some());
-        assert!(!st.repair.pending_patch_impl.as_ref().unwrap().mutated_since_set);
+        assert!(
+            !st.repair
+                .pending_patch_impl
+                .as_ref()
+                .unwrap()
+                .mutated_since_set
+        );
     }
 
     #[test]
@@ -149,7 +154,9 @@ mod tests {
                 name: "repair_cycles_has_priority_over_replan",
                 phase: Phase::ModelAuthor,
                 setup: |st| {
-                    st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
+                    st.repair.status = RepairStatus::Pending {
+                        cycle: MAX_REPAIR_CYCLES,
+                    };
                     st.phase.replan_backtracks = 10;
                 },
                 expect_fail: true,
@@ -168,7 +175,9 @@ mod tests {
                 name: "repair_cycles_ignored_on_non_author_phase",
                 phase: Phase::ModelPlan,
                 setup: |st| {
-                    st.repair.status = RepairStatus::Pending { cycle: MAX_REPAIR_CYCLES };
+                    st.repair.status = RepairStatus::Pending {
+                        cycle: MAX_REPAIR_CYCLES,
+                    };
                 },
                 expect_fail: false,
                 expect_kind: None,

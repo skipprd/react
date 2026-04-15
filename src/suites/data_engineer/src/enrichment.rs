@@ -54,7 +54,8 @@ fn resolve_design_critique_disposition(
     if revised.ok {
         return DesignCritiqueDisposition::Accepted;
     }
-    let prior_codes: std::collections::BTreeSet<_> = prior.blockers.iter().map(|b| b.code).collect();
+    let prior_codes: std::collections::BTreeSet<_> =
+        prior.blockers.iter().map(|b| b.code).collect();
     let has_overlap = revised
         .blockers
         .iter()
