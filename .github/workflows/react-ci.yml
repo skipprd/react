@@ -159,8 +159,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p bin
-          tag="$(curl -fsSL "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_LATEST_POINTER }}")"
-          url="${{ env.RELEASES_BASE_URL }}/${tag}/${{ env.SKIPPR_RELEASE_SUBDIR }}/skippr-x86_64-unknown-linux-gnu.tar.gz"
+          tag="${{ github.ref_name }}"
+          url="${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/${tag}/skippr-x86_64-unknown-linux-gnu.tar.gz"
           echo "Downloading skippr ${tag} from ${url}"
           curl -fsSL "$url" -o skippr.tar.gz
           tar -xzf skippr.tar.gz
@@ -211,8 +211,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          $tag = (Invoke-RestMethod -Uri "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_LATEST_POINTER }}").Trim()
-          $url = "${{ env.RELEASES_BASE_URL }}/$tag/${{ env.SKIPPR_RELEASE_SUBDIR }}/skippr-x86_64-pc-windows-msvc.tar.gz"
+          $tag = "${{ github.ref_name }}"
+          $url = "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
           Write-Host "Downloading skippr $tag from $url"
           Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
           tar -xzf skippr.tar.gz
@@ -270,8 +270,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path bin -Force
-          $tag = (Invoke-RestMethod -Uri "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_LATEST_POINTER }}").Trim()
-          $url = "${{ env.RELEASES_BASE_URL }}/$tag/${{ env.SKIPPR_RELEASE_SUBDIR }}/skippr-x86_64-pc-windows-msvc.tar.gz"
+          $tag = "${{ github.ref_name }}"
+          $url = "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
           Write-Host "Downloading skippr $tag from $url"
           Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
           tar -xzf skippr.tar.gz

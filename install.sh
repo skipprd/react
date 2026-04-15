@@ -51,7 +51,7 @@ main() {
 
     say "Latest release: $tag"
 
-    url="${BASE_URL}/${tag}/${RELEASE_SUBDIR}/${BINARY}-${target}.tar.gz"
+    url="${BASE_URL}/${RELEASE_SUBDIR}/${tag}/${BINARY}-${target}.tar.gz"
 
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT

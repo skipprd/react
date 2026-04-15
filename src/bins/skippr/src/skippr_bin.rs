@@ -4,15 +4,15 @@ use std::path::PathBuf;
 /// Updated when skippr is built against a new skippr-el release.
 pub const SKIPPR_VERSION: &str = "8.1.0";
 
-const GITHUB_OWNER: &str = "skipprd";
-const GITHUB_REPO: &str = "skipprd";
+const RELEASES_BASE_URL: &str = "https://install.skippr.io/releases";
+const SKIPPR_EL_RELEASE_SUBDIR: &str = "skippr-el";
 
 /// Resolves the path to the `skippr-el` binary.
 ///
 /// 1. If `skippr-el` is on PATH, use it (user has an explicit install).
 /// 2. If a managed copy exists at `~/.skippr/bin/skippr-el` **and** its
 ///    version marker matches `SKIPPR_VERSION`, use it.
-/// 3. Otherwise, download the pinned version from GitHub releases.
+/// 3. Otherwise, download the pinned version from the install bucket.
 pub async fn resolve_skippr_binary() -> Result<String, String> {
     if which_skippr_el() {
         return Ok("skippr-el".to_string());
@@ -84,16 +84,16 @@ fn which_skippr_el() -> bool {
         .unwrap_or(false)
 }
 
-fn asset_pattern() -> Result<&'static str, String> {
+fn asset_filename() -> Result<&'static str, String> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
     match (os, arch) {
-        ("macos", "aarch64") => Ok("macos_arm64.tar.gz"),
-        ("macos", "x86_64") => Ok("macos_x86.tar.gz"),
-        ("linux", "aarch64") => Ok("linux_arm64.tar.gz"),
-        ("linux", "x86_64") => Ok("linux_x86.tar.gz"),
-        ("windows", "x86_64") => Ok("windows_x86.tar.gz"),
+        ("macos", "aarch64") => Ok("skippr-el-macos_arm64.tar.gz"),
+        ("macos", "x86_64") => Ok("skippr-el-macos_x86.tar.gz"),
+        ("linux", "aarch64") => Ok("skippr-el-linux_arm64.tar.gz"),
+        ("linux", "x86_64") => Ok("skippr-el-linux_x86.tar.gz"),
+        ("windows", "x86_64") => Ok("skippr-el-windows_x86.tar.gz"),
         _ => Err(format!(
             "unsupported platform: os={} arch={} — download skippr-el manually and place it on PATH",
             os, arch
@@ -101,56 +101,34 @@ fn asset_pattern() -> Result<&'static str, String> {
     }
 }
 
+fn skippr_el_release_url() -> Result<String, String> {
+    let filename = asset_filename()?;
+    Ok(format!(
+        "{}/{}/{}/{}",
+        RELEASES_BASE_URL, SKIPPR_EL_RELEASE_SUBDIR, SKIPPR_VERSION, filename
+    ))
+}
+
 async fn download_skippr_el(dest: &PathBuf) -> Result<(), String> {
-    let pattern = asset_pattern()?;
-    let release_url = format!(
-        "https://api.github.com/repos/{}/{}/releases/tags/{}",
-        GITHUB_OWNER, GITHUB_REPO, SKIPPR_VERSION
-    );
-
+    let download_url = skippr_el_release_url()?;
     let client = reqwest::Client::new();
-
-    let release: serde_json::Value = client
-        .get(&release_url)
-        .header("User-Agent", "skippr")
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|e| format!("failed to fetch release metadata: {}", e))?
-        .json()
-        .await
-        .map_err(|e| format!("failed to parse release metadata: {}", e))?;
-
-    let assets = release["assets"]
-        .as_array()
-        .ok_or("no assets found in release")?;
-
-    let download_url = assets
-        .iter()
-        .filter_map(|a| {
-            let name = a["name"].as_str()?;
-            if name.contains(pattern) || name.ends_with(pattern) {
-                a["browser_download_url"].as_str().map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-        .next()
-        .ok_or_else(|| {
-            format!(
-                "no release asset matching '{}' found for skippr-el v{}",
-                pattern, SKIPPR_VERSION
-            )
-        })?;
 
     eprintln!("[skippr] downloading {}...", download_url);
 
-    let bytes = client
+    let response = client
         .get(&download_url)
         .header("User-Agent", "skippr")
         .send()
         .await
-        .map_err(|e| format!("download failed: {}", e))?
+        .map_err(|e| format!("download failed: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "download returned status {} from {}",
+            response.status(),
+            download_url
+        ));
+    }
+    let bytes = response
         .bytes()
         .await
         .map_err(|e| format!("failed to read download: {}", e))?;
@@ -211,4 +189,35 @@ fn extract_skippr_el_from_tarball(tarball: &[u8], dest: &PathBuf) -> Result<(), 
         "'{}' not found in the downloaded archive",
         target_name
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{asset_filename, skippr_el_release_url, SKIPPR_VERSION};
+
+    #[test]
+    fn asset_filename_matches_current_platform() {
+        let expected = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "skippr-el-macos_arm64.tar.gz",
+            ("macos", "x86_64") => "skippr-el-macos_x86.tar.gz",
+            ("linux", "aarch64") => "skippr-el-linux_arm64.tar.gz",
+            ("linux", "x86_64") => "skippr-el-linux_x86.tar.gz",
+            ("windows", "x86_64") => "skippr-el-windows_x86.tar.gz",
+            _ => return,
+        };
+
+        assert_eq!(asset_filename().unwrap(), expected);
+    }
+
+    #[test]
+    fn release_url_uses_product_first_prefix() {
+        let filename = asset_filename().unwrap();
+        assert_eq!(
+            skippr_el_release_url().unwrap(),
+            format!(
+                "https://install.skippr.io/releases/skippr-el/{}/{}",
+                SKIPPR_VERSION, filename
+            )
+        );
+    }
 }
