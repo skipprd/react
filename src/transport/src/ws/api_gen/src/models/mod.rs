@@ -1,5 +1,3 @@
-#![rustfmt::skip]
-
 pub mod await_user_response;
 pub use await_user_response::AwaitUserResponse;
 

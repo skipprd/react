@@ -8,19 +8,20 @@ OUT_DIR="${REPO_ROOT}/src/transport/src/ws/api_gen"
 
 mkdir -p "${OUT_DIR}"
 
-stamp_rustfmt_skip() {
+strip_rustfmt_skip() {
   python3 - "${OUT_DIR}" <<'PY'
 from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
-prefix = "#![rustfmt::skip]\n\n"
+prefixes = ("#![rustfmt::skip]\n\n", "#![rustfmt::skip]\r\n\r\n")
 
 for path in root.rglob("*.rs"):
     text = path.read_text()
-    if text.startswith(prefix) or text.startswith("#![rustfmt::skip]\r\n\r\n"):
-        continue
-    path.write_text(prefix + text)
+    for prefix in prefixes:
+        if text.startswith(prefix):
+            path.write_text(text[len(prefix):])
+            break
 PY
 }
 
@@ -43,10 +44,10 @@ run_with_local_jar() {
 }
 
 if run_with_docker; then
-  stamp_rustfmt_skip
+  strip_rustfmt_skip
   exit 0
 elif run_with_local_jar; then
-  stamp_rustfmt_skip
+  strip_rustfmt_skip
   exit 0
 else
   echo "WARNING: Could not find Docker or local openapi-generator jar."
