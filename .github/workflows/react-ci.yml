@@ -484,7 +484,7 @@ jobs:
           RELEASE_SUBDIR="${{ env.SKIPPR_RELEASE_SUBDIR }}"
           LATEST_POINTER="${{ env.SKIPPR_LATEST_POINTER }}"
           for f in skippr-*.tar.gz; do
-            aws s3 cp "$f" "s3://${BUCKET}/releases/${TAG}/${RELEASE_SUBDIR}/${f}"
+            aws s3 cp "$f" "s3://${BUCKET}/releases/${RELEASE_SUBDIR}/${TAG}/${f}"
           done
           printf '%s' "$TAG" > "$LATEST_POINTER"
           aws s3 cp "$LATEST_POINTER" "s3://${BUCKET}/releases/${LATEST_POINTER}" --cache-control "no-cache, no-store, must-revalidate"
