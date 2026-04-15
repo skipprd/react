@@ -118,18 +118,17 @@ impl DataEngineerSuite {
                 ))
             }
         };
-        let review_ref_from_trigger =
-            trigger_step
-                .get("phase_reason_detail")
-                .cloned()
-                .filter(|v| !v.is_null())
-                .and_then(|v| {
-                    serde_json::from_value::<
+        let review_ref_from_trigger = trigger_step
+            .get("phase_reason_detail")
+            .cloned()
+            .filter(|v| !v.is_null())
+            .and_then(|v| {
+                serde_json::from_value::<
                         crate::phase_reason_detail::ReviewDecisionTransitionDetail,
                     >(v)
                     .ok()
-                })
-                .and_then(|detail| detail.meta.review_ref);
+            })
+            .and_then(|detail| detail.meta.review_ref);
         if meta.review_ref.is_none() {
             meta.review_ref = review_ref_from_trigger;
         }

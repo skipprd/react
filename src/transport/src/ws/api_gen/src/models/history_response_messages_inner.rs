@@ -1,3 +1,5 @@
+#![rustfmt::skip]
+
 /*
  * ReAct WebSocket API
  *
