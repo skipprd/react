@@ -45,10 +45,16 @@ set MSSQL_CONNECTION_STRING=server=tcp:127.0.0.1,1433;database=testdb;user id=sa
 | `SNOWFLAKE_SCHEMA` | Target schema |
 | `SNOWFLAKE_ROLE` | Optional role to assume |
 | `SNOWFLAKE_STAGE` | Optional stage for file uploads |
-| `SNOWFLAKE_STAGING_S3_BUCKET` | Optional S3 bucket for direct S3 staging |
-| `SNOWFLAKE_STAGING_S3_PREFIX` | Optional key prefix inside the staging bucket |
+| `SNOWFLAKE_STAGING_URI` | Optional external staging URI (`s3://`, `azure://`, or `gcs://`) |
+| `SNOWFLAKE_STAGING_STORAGE_INTEGRATION` | Optional Snowflake storage integration name for external staging |
 
 Key-pair auth is recommended and required when MFA is enabled on the Snowflake account.
+
+For external Snowflake staging, the underlying cloud upload still uses provider auth:
+
+- S3: standard AWS credential chain
+- Azure: `AZURE_STORAGE_SAS_TOKEN` or `AZURE_STORAGE_ACCOUNT_KEY`
+- GCS: `GOOGLE_APPLICATION_CREDENTIALS` or Application Default Credentials
 
 ## BigQuery
 
