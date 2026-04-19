@@ -6,3 +6,4 @@ snowflake_key.pub
 skippr.yaml
 .env.example
 debug-reports
+models
