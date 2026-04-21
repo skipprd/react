@@ -5,7 +5,7 @@ mod react_host;
 mod skippr_bin;
 mod translate;
 
-use std::{path::PathBuf, process::Command, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, process::Command, sync::Arc};
 
 use clap::{Parser, Subcommand};
 use react_core::keyspace::Keyspace;
@@ -129,12 +129,30 @@ enum WarehouseKind {
         #[arg(long)]
         result_s3: Option<String>,
         #[arg(long)]
-        catalog: Option<String>,
-        #[arg(long)]
         schema: Option<String>,
     },
     /// Snowflake warehouse.
     Snowflake {
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+        #[arg(long)]
+        private_key_path: Option<String>,
+        #[arg(long)]
+        stage: Option<String>,
+        #[arg(long)]
+        staging_uri: Option<String>,
+        #[arg(long)]
+        staging_storage_integration: Option<String>,
+        #[arg(long)]
+        staging_azure_sas_token: Option<String>,
+        #[arg(long)]
+        staging_azure_account_key: Option<String>,
+        #[arg(long)]
+        staging_gcs_service_account_key_path: Option<String>,
         #[arg(long)]
         database: Option<String>,
         #[arg(long)]
@@ -194,6 +212,12 @@ enum WarehouseKind {
         schema: Option<String>,
         #[arg(long)]
         region: Option<String>,
+        #[arg(long)]
+        staging_s3_bucket: Option<String>,
+        #[arg(long)]
+        staging_s3_prefix: Option<String>,
+        #[arg(long)]
+        iam_role_arn: Option<String>,
     },
     /// ClickHouse warehouse.
     Clickhouse {
@@ -346,6 +370,10 @@ enum SourceKind {
     DeltaLake {
         #[arg(long)]
         table_uri: Option<String>,
+        #[arg(long = "storage-option", value_parser = parse_key_val)]
+        storage_options: Option<Vec<(String, String)>>,
+        #[arg(long)]
+        version: Option<i64>,
         #[arg(long)]
         filter: Option<String>,
     },
@@ -358,6 +386,16 @@ enum SourceKind {
         #[arg(long)]
         group_id: Option<String>,
         #[arg(long)]
+        auto_offset_reset: Option<String>,
+        #[arg(long)]
+        security_protocol: Option<String>,
+        #[arg(long)]
+        sasl_mechanism: Option<String>,
+        #[arg(long)]
+        sasl_username: Option<String>,
+        #[arg(long)]
+        sasl_password: Option<String>,
+        #[arg(long)]
         mode: Option<String>,
     },
     /// SQS source.
@@ -366,6 +404,8 @@ enum SourceKind {
         queue_url: Option<String>,
         #[arg(long)]
         region: Option<String>,
+        #[arg(long)]
+        endpoint_url: Option<String>,
         #[arg(long)]
         mode: Option<String>,
     },
@@ -376,6 +416,8 @@ enum SourceKind {
         #[arg(long)]
         region: Option<String>,
         #[arg(long)]
+        endpoint_url: Option<String>,
+        #[arg(long)]
         mode: Option<String>,
     },
     /// AMQP (RabbitMQ) source.
@@ -384,6 +426,12 @@ enum SourceKind {
         connection_string: Option<String>,
         #[arg(long)]
         queue: Option<String>,
+        #[arg(long)]
+        exchange: Option<String>,
+        #[arg(long)]
+        routing_key: Option<String>,
+        #[arg(long)]
+        prefetch_count: Option<u32>,
         #[arg(long)]
         mode: Option<String>,
     },
@@ -395,6 +443,8 @@ enum SourceKind {
         sqs_queue_url: Option<String>,
         #[arg(long)]
         region: Option<String>,
+        #[arg(long)]
+        endpoint_url: Option<String>,
     },
     /// EventBridge source (via SQS).
     Eventbridge {
@@ -404,13 +454,25 @@ enum SourceKind {
         sqs_queue_url: Option<String>,
         #[arg(long)]
         region: Option<String>,
+        #[arg(long)]
+        endpoint_url: Option<String>,
     },
     /// MQTT source.
     Mqtt {
         #[arg(long)]
         broker_url: Option<String>,
         #[arg(long)]
+        port: Option<u16>,
+        #[arg(long)]
         topic: Option<String>,
+        #[arg(long)]
+        client_id: Option<String>,
+        #[arg(long)]
+        qos: Option<u8>,
+        #[arg(long)]
+        username: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
         #[arg(long)]
         mode: Option<String>,
     },
@@ -418,6 +480,8 @@ enum SourceKind {
     Websocket {
         #[arg(long)]
         url: Option<String>,
+        #[arg(long, value_parser = parse_key_val)]
+        headers: Option<Vec<(String, String)>>,
         #[arg(long)]
         mode: Option<String>,
     },
@@ -427,6 +491,18 @@ enum SourceKind {
         url: Option<String>,
         #[arg(long)]
         method: Option<String>,
+        #[arg(long, value_parser = parse_key_val)]
+        headers: Option<Vec<(String, String)>>,
+        #[arg(long)]
+        body: Option<String>,
+        #[arg(long)]
+        auth_strategy: Option<String>,
+        #[arg(long)]
+        auth_user: Option<String>,
+        #[arg(long)]
+        auth_password: Option<String>,
+        #[arg(long)]
+        auth_token: Option<String>,
         #[arg(long)]
         scrape_interval_seconds: Option<u64>,
     },
@@ -436,6 +512,8 @@ enum SourceKind {
         listen_address: Option<String>,
         #[arg(long)]
         path: Option<String>,
+        #[arg(long)]
+        auth_token: Option<String>,
     },
     /// Socket source (TCP/UDP/Unix).
     Socket {
@@ -443,6 +521,8 @@ enum SourceKind {
         mode: Option<String>,
         #[arg(long)]
         address: Option<String>,
+        #[arg(long)]
+        framing: Option<String>,
     },
     /// StatsD source.
     Statsd {
@@ -454,6 +534,21 @@ enum SourceKind {
         #[arg(long)]
         mode: Option<String>,
     },
+}
+
+fn parse_key_val(s: &str) -> Result<(String, String), String> {
+    let Some((key, value)) = s.split_once('=') else {
+        return Err("expected KEY=VALUE".to_string());
+    };
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("key cannot be empty".to_string());
+    }
+    Ok((key.to_string(), value.to_string()))
+}
+
+fn pairs_to_hash_map(pairs: Option<Vec<(String, String)>>) -> Option<HashMap<String, String>> {
+    pairs.map(|pairs| pairs.into_iter().collect())
 }
 
 fn working_dir() -> PathBuf {
@@ -723,26 +818,31 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             workgroup,
             region,
             result_s3,
-            catalog,
             schema,
         } => {
             let workgroup = workgroup.or_else(|| prompt("Athena workgroup (optional)"));
             let region = region.or_else(|| prompt("AWS region"));
             let result_s3 = result_s3
                 .or_else(|| prompt("S3 result location (optional, e.g. s3://bucket/path)"));
-            let catalog = athena_catalog_or_default(
-                catalog.or_else(|| prompt("Glue catalog (default: AwsDataCatalog)")),
-            );
             let schema = schema.or_else(|| prompt("Default database/schema (optional)"));
             WarehouseConfig::Athena {
                 workgroup,
                 region,
                 result_s3,
-                catalog,
                 schema,
             }
         }
         WarehouseKind::Snowflake {
+            account,
+            user,
+            password,
+            private_key_path,
+            stage,
+            staging_uri,
+            staging_storage_integration,
+            staging_azure_sas_token,
+            staging_azure_account_key,
+            staging_gcs_service_account_key_path,
             database,
             schema,
             warehouse,
@@ -753,6 +853,16 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             let warehouse = warehouse.or_else(|| prompt("Snowflake compute warehouse"));
             let role = role.or_else(|| prompt("Snowflake role"));
             WarehouseConfig::Snowflake {
+                account,
+                user,
+                password,
+                private_key_path,
+                stage,
+                staging_uri,
+                staging_storage_integration,
+                staging_azure_sas_token,
+                staging_azure_account_key,
+                staging_gcs_service_account_key_path,
                 database,
                 schema,
                 warehouse,
@@ -807,6 +917,9 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             db_user,
             schema,
             region,
+            staging_s3_bucket,
+            staging_s3_prefix,
+            iam_role_arn,
         } => WarehouseConfig::Redshift {
             database,
             cluster_identifier,
@@ -814,9 +927,9 @@ fn cmd_connect_warehouse(kind: WarehouseKind, explicit_config: &Option<PathBuf>)
             db_user,
             schema,
             region,
-            staging_s3_bucket: None,
-            staging_s3_prefix: None,
-            iam_role_arn: None,
+            staging_s3_bucket,
+            staging_s3_prefix,
+            iam_role_arn,
         },
         WarehouseKind::Clickhouse {
             url,
@@ -997,126 +1110,159 @@ fn cmd_connect_source(kind: SourceKind, explicit_config: &Option<PathBuf>) {
             remote_path,
         },
         SourceKind::File { path } => SourceConfig::File { path },
-        SourceKind::DeltaLake { table_uri, filter } => SourceConfig::DeltaLake {
+        SourceKind::DeltaLake {
             table_uri,
-            storage_options: None,
-            version: None,
+            storage_options,
+            version,
+            filter,
+        } => SourceConfig::DeltaLake {
+            table_uri,
+            storage_options: pairs_to_hash_map(storage_options),
+            version,
             filter,
         },
         SourceKind::Kafka {
             brokers,
             topic,
             group_id,
+            auto_offset_reset,
+            security_protocol,
+            sasl_mechanism,
+            sasl_username,
+            sasl_password,
             mode,
         } => SourceConfig::Kafka {
             brokers,
             topic,
             group_id,
-            auto_offset_reset: None,
-            security_protocol: None,
-            sasl_mechanism: None,
-            sasl_username: None,
-            sasl_password: None,
+            auto_offset_reset,
+            security_protocol,
+            sasl_mechanism,
+            sasl_username,
+            sasl_password,
             mode,
         },
         SourceKind::Sqs {
             queue_url,
             region,
+            endpoint_url,
             mode,
         } => SourceConfig::Sqs {
             queue_url,
             region,
-            endpoint_url: None,
+            endpoint_url,
             mode,
         },
         SourceKind::Kinesis {
             stream_name,
             region,
+            endpoint_url,
             mode,
         } => SourceConfig::Kinesis {
             stream_name,
             region,
-            endpoint_url: None,
+            endpoint_url,
             mode,
         },
         SourceKind::Amqp {
             connection_string,
             queue,
+            exchange,
+            routing_key,
+            prefetch_count,
             mode,
         } => SourceConfig::Amqp {
             connection_string,
             queue,
-            exchange: None,
-            routing_key: None,
-            prefetch_count: None,
+            exchange,
+            routing_key,
+            prefetch_count,
             mode,
         },
         SourceKind::Sns {
             topic_arn,
             sqs_queue_url,
             region,
+            endpoint_url,
         } => SourceConfig::Sns {
             topic_arn,
             sqs_queue_url,
             region,
-            endpoint_url: None,
+            endpoint_url,
         },
         SourceKind::Eventbridge {
             event_bus_name,
             sqs_queue_url,
             region,
+            endpoint_url,
         } => SourceConfig::Eventbridge {
             event_bus_name,
             sqs_queue_url,
             region,
-            endpoint_url: None,
+            endpoint_url,
         },
         SourceKind::Mqtt {
             broker_url,
+            port,
             topic,
+            client_id,
+            qos,
+            username,
+            password,
             mode,
         } => SourceConfig::Mqtt {
             broker_url,
-            port: None,
+            port,
             topic,
-            client_id: None,
-            qos: None,
-            username: None,
-            password: None,
+            client_id,
+            qos,
+            username,
+            password,
             mode,
         },
-        SourceKind::Websocket { url, mode } => SourceConfig::Websocket {
+        SourceKind::Websocket { url, headers, mode } => SourceConfig::Websocket {
             url,
-            headers: None,
+            headers: pairs_to_hash_map(headers),
             mode,
         },
         SourceKind::HttpClient {
             url,
             method,
+            headers,
+            body,
+            auth_strategy,
+            auth_user,
+            auth_password,
+            auth_token,
             scrape_interval_seconds,
         } => SourceConfig::HttpClient {
             url,
             method,
-            headers: None,
-            body: None,
-            auth_strategy: None,
-            auth_user: None,
-            auth_password: None,
-            auth_token: None,
+            headers: pairs_to_hash_map(headers),
+            body,
+            auth_strategy,
+            auth_user,
+            auth_password,
+            auth_token,
             scrape_interval_seconds,
         },
         SourceKind::HttpServer {
             listen_address,
             path,
+            auth_token,
         } => SourceConfig::HttpServer {
             listen_address,
             path,
-            auth_token: None,
+            auth_token,
         },
-        SourceKind::Socket { mode, address } => SourceConfig::Socket {
+        SourceKind::Socket {
             mode,
             address,
-            framing: None,
+            framing,
+        } => SourceConfig::Socket {
+            mode,
+            address,
+            framing,
         },
         SourceKind::Statsd { listen_address } => SourceConfig::Statsd { listen_address },
         SourceKind::Stdin { mode } => SourceConfig::Stdin { mode },
@@ -1862,13 +2008,6 @@ fn postgres_schema_or_default(schema: Option<String>) -> Option<String> {
         .or_else(|| Some("public".to_string()))
 }
 
-fn athena_catalog_or_default(catalog: Option<String>) -> Option<String> {
-    catalog
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .or_else(|| Some("AwsDataCatalog".to_string()))
-}
-
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -2322,26 +2461,6 @@ mod tests {
         assert_eq!(
             postgres_schema_or_default(Some("analytics".into())).as_deref(),
             Some("analytics")
-        );
-    }
-
-    #[test]
-    fn athena_catalog_or_default_uses_aws_data_catalog_when_missing() {
-        assert_eq!(
-            athena_catalog_or_default(None).as_deref(),
-            Some("AwsDataCatalog")
-        );
-        assert_eq!(
-            athena_catalog_or_default(Some("".into())).as_deref(),
-            Some("AwsDataCatalog")
-        );
-        assert_eq!(
-            athena_catalog_or_default(Some(" AwsDataCatalog ".into())).as_deref(),
-            Some("AwsDataCatalog")
-        );
-        assert_eq!(
-            athena_catalog_or_default(Some("CustomCatalog".into())).as_deref(),
-            Some("CustomCatalog")
         );
     }
 

@@ -34,11 +34,29 @@ pub enum WarehouseConfig {
         #[serde(default)]
         result_s3: Option<String>,
         #[serde(default)]
-        catalog: Option<String>,
-        #[serde(default)]
         schema: Option<String>,
     },
     Snowflake {
+        #[serde(default)]
+        account: Option<String>,
+        #[serde(default)]
+        user: Option<String>,
+        #[serde(default)]
+        password: Option<String>,
+        #[serde(default)]
+        private_key_path: Option<String>,
+        #[serde(default)]
+        stage: Option<String>,
+        #[serde(default)]
+        staging_uri: Option<String>,
+        #[serde(default)]
+        staging_storage_integration: Option<String>,
+        #[serde(default)]
+        staging_azure_sas_token: Option<String>,
+        #[serde(default)]
+        staging_azure_account_key: Option<String>,
+        #[serde(default)]
+        staging_gcs_service_account_key_path: Option<String>,
         #[serde(default)]
         database: Option<String>,
         #[serde(default)]

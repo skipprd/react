@@ -50,7 +50,7 @@ impl SkipprCliProvider {
 
         let input = &self.el_config.skippr_input;
         if let Some(kind) = input.get("kind").and_then(|v| v.as_str()) {
-            let plugin_name = capitalize_first(kind);
+            let plugin_name = skippr_plugin_name(kind);
             env.insert("DATA_SOURCE_PLUGIN_NAME".into(), plugin_name);
 
             if kind.eq_ignore_ascii_case("mssql") {
@@ -254,6 +254,33 @@ impl SkipprCliProvider {
             }
             WarehouseKind::Athena => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Athena".into());
+                if let Some(v) = self
+                    .warehouse
+                    .extras
+                    .get("region")
+                    .and_then(|v| v.as_str())
+                    .map(resolve_env_ref)
+                {
+                    env.insert("AWS_DEFAULT_REGION".into(), v);
+                }
+                if let Some(v) = self
+                    .warehouse
+                    .extras
+                    .get("workgroup")
+                    .and_then(|v| v.as_str())
+                    .map(resolve_env_ref)
+                {
+                    env.insert("ATHENA_WORKGROUP".into(), v);
+                }
+                if let Some(v) = self
+                    .warehouse
+                    .extras
+                    .get("result_s3")
+                    .and_then(|v| v.as_str())
+                    .map(resolve_env_ref)
+                {
+                    env.insert("ATHENA_RESULT_S3".into(), v);
+                }
             }
             WarehouseKind::Bigquery => {
                 env.insert("DATA_OUTPUT_PLUGIN_NAME".into(), "Bigquery".into());
@@ -375,7 +402,7 @@ impl SkipprCliProvider {
 
         if let Some(ref ss) = self.el_config.schema_sink {
             if let Some(kind) = ss.get("kind").and_then(|v| v.as_str()) {
-                env.insert("DATA_SCHEMA_PLUGIN_NAME".into(), capitalize_first(kind));
+                env.insert("DATA_SCHEMA_PLUGIN_NAME".into(), skippr_plugin_name(kind));
                 if kind.eq_ignore_ascii_case("glue") {
                     if let Some(v) = ss.get("glue_database_name").and_then(|v| v.as_str()) {
                         env.insert("GLUE_DATABASE_NAME".into(), resolve_env_ref(v));
@@ -640,7 +667,7 @@ impl SkipprCliProvider {
             .get("kind")
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown");
-        let capitalized_kind = capitalize_first(input_kind);
+        let capitalized_kind = skippr_plugin_name(input_kind);
 
         let mut input_config = input_block.clone();
         let transform_block = if let Some(obj) = input_config.as_object_mut() {
@@ -651,8 +678,8 @@ impl SkipprCliProvider {
         };
         resolve_env_refs_in_value(&mut input_config);
 
-        let output_kind = capitalize_first(&config.output_plugin.kind);
-        let output_config = self.build_output_config();
+        let output_kind = skippr_plugin_name(&config.output_plugin.kind);
+        let output_config = self.build_output_config(Some(config));
 
         let mut pipeline_block = serde_json::json!({
             "data_source": "data_sources.source",
@@ -714,7 +741,7 @@ impl SkipprCliProvider {
                 .as_ref()
                 .map(|s| {
                     let mut m = serde_json::Map::new();
-                    let kind = capitalize_first(&s.kind);
+                    let kind = skippr_plugin_name(&s.kind);
                     let mut inner = serde_json::Map::new();
                     if let Some(ref db) = s.glue_database_name {
                         inner.insert(
@@ -731,7 +758,7 @@ impl SkipprCliProvider {
                             .get("kind")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        let cap = capitalize_first(kind);
+                        let cap = skippr_plugin_name(kind);
                         let mut inner = serde_json::Map::new();
                         if let Some(v) = ss_val.get("glue_database_name").and_then(|v| v.as_str()) {
                             inner.insert(
@@ -754,7 +781,7 @@ impl SkipprCliProvider {
         serde_yaml::to_string(&yml).unwrap_or_default()
     }
 
-    fn build_output_config(&self) -> serde_json::Value {
+    fn build_output_config(&self, pipeline_config: Option<&SkipprPipelineConfig>) -> serde_json::Value {
         fn getenv(key: &str) -> Option<String> {
             std::env::var(key).ok().filter(|v| !v.trim().is_empty())
         }
@@ -764,8 +791,70 @@ impl SkipprCliProvider {
                 .and_then(|v| v.as_str())
                 .map(resolve_env_ref)
         }
+        fn parse_s3_uri(uri: &str) -> Option<(String, String)> {
+            let trimmed = uri.trim();
+            let path = trimmed.strip_prefix("s3://")?;
+            let (bucket, prefix) = match path.split_once('/') {
+                Some((bucket, prefix)) => (bucket.trim(), prefix.trim_matches('/')),
+                None => (path.trim(), ""),
+            };
+            if bucket.is_empty() {
+                return None;
+            }
+            Some((bucket.to_string(), prefix.to_string()))
+        }
 
         match self.warehouse.kind {
+            WarehouseKind::Athena => {
+                let extras = &self.warehouse.extras;
+                let mut cfg = serde_json::Map::new();
+                let workgroup = getenv("ATHENA_WORKGROUP")
+                    .or_else(|| extra_str(extras, "workgroup"))
+                    .unwrap_or_else(|| "primary".to_string());
+                let result_s3 = getenv("ATHENA_RESULT_S3").or_else(|| extra_str(extras, "result_s3"));
+                let (bucket, prefix) = result_s3
+                    .as_deref()
+                    .and_then(parse_s3_uri)
+                    .unwrap_or_else(|| (String::new(), String::new()));
+
+                cfg.insert(
+                    "athena_workgroup_name".into(),
+                    serde_json::Value::String(workgroup),
+                );
+                cfg.insert("s3_bucket".into(), serde_json::Value::String(bucket.clone()));
+                cfg.insert("s3_prefix".into(), serde_json::Value::String(prefix));
+                cfg.insert(
+                    "athena_results_s3_bucket".into(),
+                    serde_json::Value::String(bucket),
+                );
+
+                let glue_database_name = pipeline_config
+                    .and_then(|cfg| cfg.schema_sink.as_ref())
+                    .filter(|cfg| cfg.kind.eq_ignore_ascii_case("glue"))
+                    .and_then(|cfg| cfg.glue_database_name.clone())
+                    .or_else(|| {
+                        self.el_config
+                            .schema_sink
+                            .as_ref()
+                            .filter(|cfg| {
+                                cfg.get("kind")
+                                    .and_then(|v| v.as_str())
+                                    .is_some_and(|kind| kind.eq_ignore_ascii_case("glue"))
+                            })
+                            .and_then(|cfg| cfg.get("glue_database_name"))
+                            .and_then(|v| v.as_str())
+                            .map(resolve_env_ref)
+                    })
+                    .or_else(|| {
+                        Some(resolve_env_ref(&self.warehouse.namespace))
+                            .filter(|value| !value.trim().is_empty())
+                    });
+                if let Some(v) = glue_database_name {
+                    cfg.insert("glue_database_name".into(), serde_json::Value::String(v));
+                }
+
+                serde_json::Value::Object(cfg)
+            }
             WarehouseKind::Snowflake => {
                 let extras = &self.warehouse.extras;
                 let mut cfg = serde_json::Map::new();
@@ -811,6 +900,49 @@ impl SkipprCliProvider {
                 {
                     cfg.insert(
                         "private_key_path".into(),
+                        serde_json::Value::String(resolve_to_absolute(&v)),
+                    );
+                }
+                if let Some(v) = getenv("SNOWFLAKE_STAGE").or_else(|| extra_str(extras, "stage")) {
+                    cfg.insert("stage".into(), serde_json::Value::String(v));
+                }
+                if let Some(v) =
+                    getenv("SNOWFLAKE_STAGING_URI").or_else(|| extra_str(extras, "staging_uri"))
+                {
+                    cfg.insert("staging_uri".into(), serde_json::Value::String(v));
+                }
+                if let Some(v) = getenv("SNOWFLAKE_STAGING_STORAGE_INTEGRATION")
+                    .or_else(|| extra_str(extras, "staging_storage_integration"))
+                {
+                    cfg.insert(
+                        "staging_storage_integration".into(),
+                        serde_json::Value::String(v),
+                    );
+                }
+                if let Some(v) = getenv("AZURE_STORAGE_SAS_TOKEN")
+                    .or_else(|| getenv("SNOWFLAKE_STAGING_AZURE_SAS_TOKEN"))
+                    .or_else(|| extra_str(extras, "staging_azure_sas_token"))
+                {
+                    cfg.insert(
+                        "staging_azure_sas_token".into(),
+                        serde_json::Value::String(v),
+                    );
+                }
+                if let Some(v) = getenv("AZURE_STORAGE_ACCOUNT_KEY")
+                    .or_else(|| getenv("SNOWFLAKE_STAGING_AZURE_ACCOUNT_KEY"))
+                    .or_else(|| extra_str(extras, "staging_azure_account_key"))
+                {
+                    cfg.insert(
+                        "staging_azure_account_key".into(),
+                        serde_json::Value::String(v),
+                    );
+                }
+                if let Some(v) = getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    .or_else(|| getenv("SNOWFLAKE_STAGING_GCS_SERVICE_ACCOUNT_KEY_PATH"))
+                    .or_else(|| extra_str(extras, "staging_gcs_service_account_key_path"))
+                {
+                    cfg.insert(
+                        "staging_gcs_service_account_key_path".into(),
                         serde_json::Value::String(resolve_to_absolute(&v)),
                     );
                 }
@@ -983,8 +1115,17 @@ impl SkipprCliProvider {
                 }
                 serde_json::Value::Object(cfg)
             }
-            WarehouseKind::Athena | WarehouseKind::Mssql => serde_json::json!({}),
+            WarehouseKind::Mssql => serde_json::json!({}),
         }
+    }
+}
+
+fn skippr_plugin_name(kind: &str) -> String {
+    match kind {
+        "delta_lake" => "DeltaLake".to_string(),
+        "http_client" => "HttpClient".to_string(),
+        "http_server" => "HttpServer".to_string(),
+        _ => capitalize_first(kind),
     }
 }
 
@@ -1062,6 +1203,19 @@ fn insert_snowflake_env(wh: &WarehouseResolved, env: &mut HashMap<String, String
         getenv("SNOWFLAKE_PRIVATE_KEY_PATH").or_else(|| extra_str(&wh.extras, "private_key_path"))
     {
         env.insert("SNOWFLAKE_PRIVATE_KEY_PATH".into(), resolve_to_absolute(&v));
+    }
+    if let Some(v) = getenv("SNOWFLAKE_STAGE").or_else(|| extra_str(&wh.extras, "stage")) {
+        env.insert("SNOWFLAKE_STAGE".into(), v);
+    }
+    if let Some(v) =
+        getenv("SNOWFLAKE_STAGING_URI").or_else(|| extra_str(&wh.extras, "staging_uri"))
+    {
+        env.insert("SNOWFLAKE_STAGING_URI".into(), v);
+    }
+    if let Some(v) = getenv("SNOWFLAKE_STAGING_STORAGE_INTEGRATION")
+        .or_else(|| extra_str(&wh.extras, "staging_storage_integration"))
+    {
+        env.insert("SNOWFLAKE_STAGING_STORAGE_INTEGRATION".into(), v);
     }
     if let Some(v) = getenv("SNOWFLAKE_WAREHOUSE").or_else(|| extra_str(&wh.extras, "warehouse")) {
         env.insert("SNOWFLAKE_WAREHOUSE".into(), v);
@@ -1151,6 +1305,28 @@ mod tests {
         }
     }
 
+    fn snowflake_provider() -> SkipprCliProvider {
+        SkipprCliProvider {
+            binary: "skippr-el".to_string(),
+            data_dir: PathBuf::from("/tmp/skippr-provider-test"),
+            el_config: ElToolResolved::default(),
+            warehouse: WarehouseResolved {
+                kind: WarehouseKind::Snowflake,
+                container: "ANALYTICS".to_string(),
+                namespace: "RAW".to_string(),
+                extras: serde_json::json!({
+                    "account": "acct",
+                    "user": "svc_user",
+                    "warehouse": "COMPUTE_WH",
+                    "role": "ACCOUNTADMIN",
+                    "stage": "@skippr_stage",
+                    "staging_uri": "azure://acct.blob.core.windows.net/container/prefix",
+                    "staging_storage_integration": "SNOWFLAKE_AZURE_INT",
+                }),
+            },
+        }
+    }
+
     #[test]
     fn postgres_warehouse_uses_skippr_el_env_vars_for_runtime_config() {
         with_env(
@@ -1177,7 +1353,7 @@ mod tests {
                     Some("skippr_test")
                 );
 
-                let cfg = provider.build_output_config();
+                let cfg = provider.build_output_config(None);
                 assert_eq!(cfg.get("host").and_then(|v| v.as_str()), Some("localhost"));
                 assert_eq!(cfg.get("port").and_then(|v| v.as_u64()), Some(15433));
                 assert_eq!(cfg.get("user").and_then(|v| v.as_str()), Some("postgres"));
@@ -1209,7 +1385,7 @@ mod tests {
             assert!(!env.contains_key("DATABRICKS_TOKEN"));
             assert!(!env.contains_key("DATABRICKS_WAREHOUSE_ID"));
 
-            let cfg = provider.build_output_config();
+            let cfg = provider.build_output_config(None);
             assert_eq!(
                 cfg.get("workspace_url").and_then(|v| v.as_str()),
                 Some("https://dbc-example.cloud.databricks.com"),
@@ -1225,6 +1401,153 @@ mod tests {
             assert_eq!(cfg.get("catalog").and_then(|v| v.as_str()), Some("main"));
             assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("default"));
         });
+    }
+
+    #[test]
+    fn snowflake_warehouse_maps_cross_cloud_staging_config() {
+        with_env(
+            &[
+                ("AZURE_STORAGE_SAS_TOKEN", Some("sas-token")),
+                (
+                    "GOOGLE_APPLICATION_CREDENTIALS",
+                    Some("/tmp/gcs-service-account.json"),
+                ),
+            ],
+            || {
+                let provider = snowflake_provider();
+
+                let env = provider.env_vars();
+                assert_eq!(
+                    env.get("SNOWFLAKE_STAGE").map(String::as_str),
+                    Some("@skippr_stage")
+                );
+                assert_eq!(
+                    env.get("SNOWFLAKE_STAGING_URI").map(String::as_str),
+                    Some("azure://acct.blob.core.windows.net/container/prefix")
+                );
+                assert_eq!(
+                    env.get("SNOWFLAKE_STAGING_STORAGE_INTEGRATION")
+                        .map(String::as_str),
+                    Some("SNOWFLAKE_AZURE_INT")
+                );
+
+                let cfg = provider.build_output_config(None);
+                assert_eq!(cfg.get("account").and_then(|v| v.as_str()), Some("acct"));
+                assert_eq!(cfg.get("user").and_then(|v| v.as_str()), Some("svc_user"));
+                assert_eq!(
+                    cfg.get("database").and_then(|v| v.as_str()),
+                    Some("ANALYTICS")
+                );
+                assert_eq!(cfg.get("schema").and_then(|v| v.as_str()), Some("RAW"));
+                assert_eq!(cfg.get("stage").and_then(|v| v.as_str()), Some("@skippr_stage"));
+                assert_eq!(
+                    cfg.get("staging_uri").and_then(|v| v.as_str()),
+                    Some("azure://acct.blob.core.windows.net/container/prefix")
+                );
+                assert_eq!(
+                    cfg.get("staging_storage_integration")
+                        .and_then(|v| v.as_str()),
+                    Some("SNOWFLAKE_AZURE_INT")
+                );
+                assert_eq!(
+                    cfg.get("staging_azure_sas_token")
+                        .and_then(|v| v.as_str()),
+                    Some("sas-token")
+                );
+                assert_eq!(
+                    cfg.get("staging_gcs_service_account_key_path")
+                        .and_then(|v| v.as_str()),
+                    Some("/tmp/gcs-service-account.json")
+                );
+            },
+        );
+    }
+
+    fn athena_provider() -> SkipprCliProvider {
+        SkipprCliProvider {
+            binary: "skippr-el".to_string(),
+            data_dir: PathBuf::from("/tmp/skippr-provider-test"),
+            el_config: ElToolResolved::default(),
+            warehouse: WarehouseResolved {
+                kind: WarehouseKind::Athena,
+                container: "AwsDataCatalog".to_string(),
+                namespace: "bike_hire".to_string(),
+                extras: serde_json::json!({
+                    "workgroup": "bikehire",
+                    "region": "us-east-1",
+                    "result_s3": "s3://skippr-e2e-sample-data-output/results-test3",
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn athena_warehouse_maps_public_config_into_skippr_el_sink_config() {
+        let provider = athena_provider();
+
+        let env = provider.env_vars();
+        assert_eq!(
+            env.get("AWS_DEFAULT_REGION").map(String::as_str),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            env.get("ATHENA_WORKGROUP").map(String::as_str),
+            Some("bikehire")
+        );
+        assert_eq!(
+            env.get("ATHENA_RESULT_S3").map(String::as_str),
+            Some("s3://skippr-e2e-sample-data-output/results-test3")
+        );
+
+        let cfg = provider.build_output_config(None);
+        assert_eq!(
+            cfg.get("s3_bucket").and_then(|v| v.as_str()),
+            Some("skippr-e2e-sample-data-output")
+        );
+        assert_eq!(
+            cfg.get("s3_prefix").and_then(|v| v.as_str()),
+            Some("results-test3")
+        );
+        assert_eq!(
+            cfg.get("athena_workgroup_name").and_then(|v| v.as_str()),
+            Some("bikehire")
+        );
+        assert_eq!(
+            cfg.get("athena_results_s3_bucket")
+                .and_then(|v| v.as_str()),
+            Some("skippr-e2e-sample-data-output")
+        );
+        assert_eq!(
+            cfg.get("glue_database_name").and_then(|v| v.as_str()),
+            Some("bike_hire")
+        );
+    }
+
+    #[test]
+    fn skippr_yml_uses_runtime_plugin_names_for_snake_case_sources() {
+        let provider = postgres_provider();
+        let config = SkipprPipelineConfig {
+            pipeline_name: "delta".to_string(),
+            skippr_input: serde_json::json!({
+                "kind": "delta_lake",
+                "table_uri": "s3://bucket/path",
+            }),
+            output_plugin: react_suite_data_engineer::providers::SkipprOutputConfig {
+                kind: "postgres".to_string(),
+                ..Default::default()
+            },
+            schema_sink: None,
+        };
+
+        let yml = provider.generate_skippr_yml(&config);
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yml).unwrap();
+        let source = parsed
+            .get("data_sources")
+            .and_then(|v| v.get("source"))
+            .and_then(|v| v.as_mapping())
+            .unwrap();
+        assert!(source.contains_key(&serde_yaml::Value::String("DeltaLake".to_string())));
+        assert!(!source.contains_key(&serde_yaml::Value::String("Delta_lake".to_string())));
     }
 }
 

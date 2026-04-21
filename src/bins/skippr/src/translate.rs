@@ -15,7 +15,6 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             workgroup,
             region,
             result_s3,
-            catalog,
             schema,
         }) => {
             let mut m = serde_json::Map::new();
@@ -29,15 +28,22 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
             if let Some(v) = result_s3 {
                 m.insert("result_s3".into(), v.clone().into());
             }
-            if let Some(v) = catalog {
-                m.insert("catalog".into(), v.clone().into());
-            }
             if let Some(v) = schema {
                 m.insert("schema".into(), v.clone().into());
             }
             serde_json::Value::Object(m)
         }
         Some(WarehouseConfig::Snowflake {
+            account,
+            user,
+            password,
+            private_key_path,
+            stage,
+            staging_uri,
+            staging_storage_integration,
+            staging_azure_sas_token,
+            staging_azure_account_key,
+            staging_gcs_service_account_key_path,
             database,
             schema,
             warehouse,
@@ -45,6 +51,39 @@ pub fn to_internal(cfg: &SkipprDbtConfig) -> Result<ReactConfigFile, String> {
         }) => {
             let mut m = serde_json::Map::new();
             m.insert("kind".into(), "snowflake".into());
+            if let Some(v) = account {
+                m.insert("account".into(), v.clone().into());
+            }
+            if let Some(v) = user {
+                m.insert("user".into(), v.clone().into());
+            }
+            if let Some(v) = password {
+                m.insert("password".into(), v.clone().into());
+            }
+            if let Some(v) = private_key_path {
+                m.insert("private_key_path".into(), v.clone().into());
+            }
+            if let Some(v) = stage {
+                m.insert("stage".into(), v.clone().into());
+            }
+            if let Some(v) = staging_uri {
+                m.insert("staging_uri".into(), v.clone().into());
+            }
+            if let Some(v) = staging_storage_integration {
+                m.insert("staging_storage_integration".into(), v.clone().into());
+            }
+            if let Some(v) = staging_azure_sas_token {
+                m.insert("staging_azure_sas_token".into(), v.clone().into());
+            }
+            if let Some(v) = staging_azure_account_key {
+                m.insert("staging_azure_account_key".into(), v.clone().into());
+            }
+            if let Some(v) = staging_gcs_service_account_key_path {
+                m.insert(
+                    "staging_gcs_service_account_key_path".into(),
+                    v.clone().into(),
+                );
+            }
             if let Some(v) = database {
                 m.insert("database".into(), v.clone().into());
             }
@@ -984,6 +1023,16 @@ mod tests {
         let cfg = SkipprDbtConfig {
             project: "my_project".into(),
             warehouse: Some(WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: Some("ANALYTICS".into()),
                 schema: Some("RAW".into()),
                 warehouse: Some("COMPUTE_WH".into()),
@@ -1054,6 +1103,16 @@ mod tests {
         let cfg = SkipprDbtConfig {
             project: "".into(),
             warehouse: Some(WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1092,6 +1151,16 @@ mod tests {
     fn translate_mysql_source() {
         let cfg = make_cfg(
             WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1112,6 +1181,16 @@ mod tests {
     fn translate_postgres_source() {
         let cfg = make_cfg(
             WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1138,6 +1217,16 @@ mod tests {
     fn translate_kafka_source() {
         let cfg = make_cfg(
             WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1167,6 +1256,16 @@ mod tests {
         opts.insert("AWS_REGION".to_string(), "us-east-1".to_string());
         let cfg = make_cfg(
             WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1286,10 +1385,57 @@ mod tests {
     }
 
     #[test]
+    fn translate_snowflake_staging_fields() {
+        let cfg = make_cfg(
+            WarehouseConfig::Snowflake {
+                account: Some("acct".into()),
+                user: Some("svc_user".into()),
+                password: None,
+                private_key_path: Some("/tmp/key.p8".into()),
+                stage: Some("@skippr_stage".into()),
+                staging_uri: Some("azure://acct.blob.core.windows.net/container/prefix".into()),
+                staging_storage_integration: Some("SNOWFLAKE_AZURE_INT".into()),
+                staging_azure_sas_token: Some("${AZURE_STORAGE_SAS_TOKEN}".into()),
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
+                database: Some("ANALYTICS".into()),
+                schema: Some("RAW".into()),
+                warehouse: Some("COMPUTE_WH".into()),
+                role: Some("ACCOUNTADMIN".into()),
+            },
+            SourceConfig::Mssql {
+                connection_string: None,
+            },
+        );
+        let wh = wh_json(&cfg);
+        assert_eq!(wh["kind"], "snowflake");
+        assert_eq!(wh["stage"], "@skippr_stage");
+        assert_eq!(
+            wh["staging_uri"],
+            "azure://acct.blob.core.windows.net/container/prefix"
+        );
+        assert_eq!(
+            wh["staging_storage_integration"],
+            "SNOWFLAKE_AZURE_INT"
+        );
+        assert_eq!(wh["staging_azure_sas_token"], "${AZURE_STORAGE_SAS_TOKEN}");
+    }
+
+    #[test]
     fn translate_glue_schema_sink() {
         let cfg = SkipprDbtConfig {
             project: "test_proj".into(),
             warehouse: Some(WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1315,6 +1461,16 @@ mod tests {
     fn translate_http_client_source() {
         let cfg = make_cfg(
             WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: None,
                 schema: None,
                 warehouse: None,
@@ -1345,6 +1501,16 @@ mod tests {
         let cfg = SkipprDbtConfig {
             project: "tes".into(),
             warehouse: Some(WarehouseConfig::Snowflake {
+                account: None,
+                user: None,
+                password: None,
+                private_key_path: None,
+                stage: None,
+                staging_uri: None,
+                staging_storage_integration: None,
+                staging_azure_sas_token: None,
+                staging_azure_account_key: None,
+                staging_gcs_service_account_key_path: None,
                 database: Some("ANALYTICS".into()),
                 schema: Some("RAW".into()),
                 warehouse: Some("COMPUTE_WH".into()),

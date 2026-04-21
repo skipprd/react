@@ -58,6 +58,14 @@ fn apply_aws_region_fallback(warehouse_extras: &serde_json::Value) {
 
 fn resolve_athena_settings(providers: &de_cfg::ProvidersResolved) -> AthenaSettings {
     let extras = &providers.warehouse.extras;
+    let region = getenv_nonempty("AWS_REGION")
+        .or_else(|| getenv_nonempty("AWS_DEFAULT_REGION"))
+        .or_else(|| {
+            extras
+                .get("region")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
     let workgroup = getenv_nonempty("ATHENA_WORKGROUP").or_else(|| {
         extras
             .get("workgroup")
@@ -92,6 +100,7 @@ fn resolve_athena_settings(providers: &de_cfg::ProvidersResolved) -> AthenaSetti
         .unwrap_or(120);
 
     AthenaSettings {
+        region,
         workgroup,
         result_output_location,
         default_catalog,

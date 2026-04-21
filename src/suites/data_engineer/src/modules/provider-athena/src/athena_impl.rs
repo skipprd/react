@@ -27,6 +27,7 @@ pub struct AthenaProvider {
 /// Explicit Athena configuration (preferred over reading env directly).
 #[derive(Clone, Debug, Default)]
 pub struct AthenaSettings {
+    pub region: Option<String>,
     pub workgroup: Option<String>,
     pub result_output_location: Option<String>,
     pub default_catalog: String,
@@ -69,9 +70,11 @@ impl AthenaProvider {
             },
             ATHENA_MAX_CONCURRENCY_CAP,
         );
-        let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .load()
-            .await;
+        let mut aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest());
+        if let Some(region) = settings.region.as_ref().filter(|value| !value.trim().is_empty()) {
+            aws_cfg = aws_cfg.region(aws_config::Region::new(region.clone()));
+        }
+        let aws_cfg = aws_cfg.load().await;
         let athena = AthenaClient::new(&aws_cfg);
         let glue = GlueClient::new(&aws_cfg);
 
@@ -94,6 +97,7 @@ impl AthenaProvider {
     /// Create from environment variables using the standard AWS credential chain.
     ///
     /// Supported env vars:
+    /// - `AWS_REGION` / `AWS_DEFAULT_REGION`
     /// - `ATHENA_WORKGROUP`
     /// - `ATHENA_RESULT_S3` (s3://... output location; omit to rely on workgroup config)
     /// - `ATHENA_SOURCE_SCHEMA`
@@ -101,6 +105,7 @@ impl AthenaProvider {
     /// - `ATHENA_MAX_CONCURRENCY` (default: 15, cap: 20)
     /// - `ATHENA_DISCOVERY_CACHE_TTL_SECS` (default: 120)
     pub async fn from_env() -> Self {
+        let region = getenv_nonempty("AWS_REGION").or_else(|| getenv_nonempty("AWS_DEFAULT_REGION"));
         let workgroup = getenv_nonempty("ATHENA_WORKGROUP");
         let source_schema = getenv_nonempty("ATHENA_SOURCE_SCHEMA");
         let default_catalog = getenv("ATHENA_TARGET_CATALOG", "AwsDataCatalog");
@@ -116,6 +121,7 @@ impl AthenaProvider {
             .unwrap_or(DEFAULT_ATHENA_MAX_CONCURRENCY);
 
         Self::from_settings(AthenaSettings {
+            region,
             workgroup,
             result_output_location,
             default_catalog,
