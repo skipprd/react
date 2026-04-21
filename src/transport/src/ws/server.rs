@@ -196,7 +196,7 @@ pub async fn start_with_ctx(
     }
 }
 
-/// Headless runner for `react run`.
+/// Headless runner for app-owned hosts.
 ///
 /// It reuses the WS request handlers + streaming loop, but sends frames into a
 /// "null" sink (no socket) and emits the same typed `api::ServerMessage` events

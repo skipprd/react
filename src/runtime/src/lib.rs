@@ -1,13 +1,17 @@
-//! ReAct agent runtime (library).
+//! ReAct runtime host library.
 //!
-//! Runtime crate (CLI + WS server + concrete provider implementations).
+//! This crate exposes suite-neutral config/bootstrap/execution frontends. Apps
+//! such as `skippr` and `goggles-reactd` own suite registration and
+//! host-specific wiring via `host::HostComposition`.
 
 pub mod bootstrap;
-pub mod cli;
 pub mod config;
+pub mod execute;
+pub mod host;
+pub mod http;
 pub mod llm;
 pub mod run_engine;
 pub mod runtime_context;
 pub mod runtime_settings;
 pub mod thread_logs;
-pub(crate) mod wiring;
+pub(crate) mod secrets;

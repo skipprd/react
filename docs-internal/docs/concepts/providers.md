@@ -1,6 +1,6 @@
 # Providers
 
-Providers are trait-based capabilities injected into suites. They abstract infrastructure concerns (which warehouse, which storage backend, which vector store) so suites and the agent loop remain provider-agnostic.
+Providers are trait-based capabilities passed into suites. They abstract infrastructure concerns such as the warehouse, storage backend, or vector store, so suites and the agent loop do not need to know which implementation is underneath.
 
 ## Provider traits
 
@@ -68,14 +68,14 @@ Manages the dbt project lifecycle. The default implementation shells out to the 
 
 ## Injection
 
-Providers are wired together at startup in `src/runtime/src/main.rs` based on the resolved config:
+Providers are assembled at startup from the resolved config:
 
 1. The config specifies `providers.warehouse.kind` (athena, bigquery, postgres, etc.)
-2. The runtime constructs the appropriate `QueryProvider` implementation
+2. The runtime constructs the matching `QueryProvider` implementation
 3. All providers are bundled into a `SuiteCtx` and passed to the suite registry
-4. Suites receive the `SuiteCtx` and wire the providers into the `AgentCtx` for the loop
+4. Suites receive the `SuiteCtx` and pass the providers into the `AgentCtx` for the loop
 
-This means you can swap warehouse backends by changing a single YAML field without touching suite or tool code.
+This means you can switch warehouse backends by changing a single YAML field without touching suite or tool code.
 
 ## Next steps
 

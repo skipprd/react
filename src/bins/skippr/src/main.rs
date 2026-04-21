@@ -1,6 +1,7 @@
 mod api_client;
 mod auth;
 mod public_config;
+mod react_host;
 mod skippr_bin;
 mod translate;
 
@@ -1496,19 +1497,13 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         ])
         .await;
 
-    let resolved = match react::config::resolve_config(
-        internal_file,
-        react::config::ServeOverrides::default(),
-    ) {
+    let resolved = match react_host::resolve_config(internal_file, react::config::ServeOverrides::default()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: {}", e);
             std::process::exit(1);
         }
     };
-
-    let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
 
     let thread_id = match find_latest_thread_for_resolved_config(&resolved).await {
         Ok(thread_id) => thread_id,
@@ -1522,9 +1517,8 @@ async fn cmd_run(log: Option<String>, explicit_config: &Option<PathBuf>) {
         eprintln!("[skippr] resuming thread {tid}");
     }
 
-    let exit_code = react::run_engine::run_headless_from_config(
+    let exit_code = react_host::run_headless(
         resolved,
-        reg,
         react::run_engine::HeadlessRunOpts {
             log_level: log,
             verbose_debug: false,
@@ -1731,7 +1725,7 @@ fn resolve_feedback_runtime_config(
 ) -> Result<react_core::resolved_config::ReactResolvedConfig, String> {
     let mut internal_file = translate::to_internal(cfg)?;
     apply_feedback_storage_overlay(&mut internal_file, srv_creds);
-    react::config::resolve_config(internal_file, react::config::ServeOverrides::default())
+    react_host::resolve_config(internal_file, react::config::ServeOverrides::default())
 }
 
 fn apply_feedback_storage_overlay(

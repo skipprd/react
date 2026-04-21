@@ -78,13 +78,12 @@ pub(crate) fn resolve_log_dir(cfg: &crate::config::ReactResolvedConfig) -> PathB
     PathBuf::from("./.react/logs")
 }
 
-pub(crate) fn resolve_default_suite_id(registry: &SuiteRegistry) -> String {
+pub(crate) fn resolve_default_suite_id(registry: &SuiteRegistry) -> Option<String> {
     registry
         .list_ids()
         .into_iter()
         .next()
-        .unwrap_or("kb")
-        .to_string()
+        .map(str::to_string)
 }
 
 pub(crate) fn bind_runtime_scope_preference(scope: &react_core::scope::RequestScope) {
@@ -157,6 +156,38 @@ pub async fn run_headless_from_config(
     registry: SuiteRegistry,
     opts: HeadlessRunOpts,
 ) -> i32 {
+    let suite_ctx = match crate::bootstrap::build_base_suite_ctx(&cfg).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::error!("{}", e);
+            return 1;
+        }
+    };
+    run_headless_with_ctx(cfg, registry, suite_ctx, opts).await
+}
+
+pub async fn run_headless_with_host(
+    cfg: rc::ReactResolvedConfig,
+    host: &dyn crate::host::HostComposition,
+    opts: HeadlessRunOpts,
+) -> i32 {
+    let registry = crate::host::registry_from_host(host);
+    let suite_ctx = match crate::bootstrap::build_suite_ctx_with(&cfg, host).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::error!("{}", e);
+            return 1;
+        }
+    };
+    run_headless_with_ctx(cfg, registry, suite_ctx, opts).await
+}
+
+pub async fn run_headless_with_ctx(
+    cfg: rc::ReactResolvedConfig,
+    registry: SuiteRegistry,
+    suite_ctx: react_core::suite::SuiteCtx,
+    opts: HeadlessRunOpts,
+) -> i32 {
     if !opts.skip_logging_init {
         init_logging(&opts.log_level, opts.verbose_debug);
     }
@@ -208,14 +239,6 @@ pub async fn run_headless_from_config(
             tracing::warn!("terminal mode not enabled: {}", e);
         }
     }
-
-    let suite_ctx = match crate::bootstrap::build_suite_ctx(&cfg).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::error!("{}", e);
-            return 1;
-        }
-    };
     let keyspace = suite_ctx.keyspace().clone();
 
     let requested_thread_id = opts.thread_id.clone();
@@ -255,7 +278,11 @@ pub async fn run_headless_from_config(
         .suite_id
         .clone()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| resolve_default_suite_id(&registry));
+        .or_else(|| resolve_default_suite_id(&registry));
+    let Some(suite_id) = suite_id else {
+        tracing::error!("no suites registered for headless execution");
+        return 1;
+    };
     let run_fut = react_transport::headless::run_headless(
         suite_ctx,
         react_transport::headless::RunOpts {
@@ -294,13 +321,13 @@ pub async fn run_headless_from_config(
 
     // Always print a result line so the user knows the outcome.
     match exit_code {
-        0 => eprintln!("[skippr] Done."),
-        130 => eprintln!("[skippr] Interrupted."),
+        0 => eprintln!("Done."),
+        130 => eprintln!("Interrupted."),
         _ => {
             if let Some(ref summary) = failure_summary {
-                eprintln!("[skippr] Failed: {}", summary);
+                eprintln!("Failed: {}", summary);
             } else {
-                eprintln!("[skippr] Failed (exit code {}).", exit_code);
+                eprintln!("Failed (exit code {}).", exit_code);
             }
         }
     }

@@ -1,6 +1,6 @@
 # Custom Provider
 
-Implement a provider trait to add a new warehouse backend, storage adapter, or vector store.
+Implement a provider trait to add a warehouse backend, storage adapter, or vector store.
 
 ## Provider traits
 
@@ -72,14 +72,14 @@ impl StorageAdapter for MyStorageAdapter {
 
 ## Wiring into the runtime
 
-After implementing a provider, wire it into the config resolution and provider initialisation in `src/runtime/src/main.rs`:
+After implementing a provider, wire it into the host startup path. For the data-engineer flow, that code lives in `src/bins/skippr/src/react_host/`:
 
 1. Add a new variant to `WarehouseFile` in `src/runtime/src/config.rs` (if it's a warehouse provider)
 2. Add the corresponding resolution logic in `resolve_warehouse`
-3. Construct the provider in `main.rs` based on the resolved config
+3. Construct the provider in the host startup code based on the resolved config
 4. Pass it into the `SuiteCtx`
 
-The suite and agent loop don't need changes — they work against the trait interface.
+The suite and agent loop do not need changes because they work against the trait interface.
 
 ## Module structure
 

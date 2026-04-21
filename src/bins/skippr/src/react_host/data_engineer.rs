@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use react::runtime_settings::{getenv_nonempty, getenv_u64, getenv_usize};
+use react_core::keyspace::Keyspace;
 use react_core::suite::SuiteCtx;
 use react_module_provider_athena::{AthenaProvider, AthenaSettings};
 use react_module_provider_bigquery::{BigQueryProvider, BigQuerySettings};
@@ -19,8 +21,7 @@ use react_suite_data_engineer::ctx_ext::{
 };
 use react_suite_data_engineer::de_config::{self as de_cfg, WarehouseKind};
 
-use crate::runtime_settings::{getenv_nonempty, getenv_u64, getenv_usize};
-use crate::wiring::{Keyspace, LanceVectorStore};
+use super::vector::LanceVectorStore;
 
 fn nonempty(s: &str) -> Option<String> {
     let t = s.trim();
@@ -434,10 +435,8 @@ fn resolve_motherduck_settings(providers: &de_cfg::ProvidersResolved) -> MotherD
 
 /// Wire all data_engineer-specific providers onto the SuiteCtx.
 ///
-/// This module is intentionally coupled to the `data_engineer` suite: it is the
-/// runtime-side wiring that connects resolved config to concrete provider
-/// implementations.  Each suite gets its own `suite_wiring` submodule per the
-/// application architecture.
+/// This module is intentionally owned by `skippr`: it binds the generic
+/// `react` runtime to the data-engineer suite's concrete provider graph.
 pub(crate) async fn wire_providers(
     sctx: &mut SuiteCtx,
     keyspace: &Arc<dyn Keyspace>,
@@ -597,14 +596,14 @@ pub(crate) async fn wire_providers(
                 30,
                 6,
             )
-            .with_thread_id_fn(Arc::new(crate::llm::thread_ctx::current_thread_id)),
+            .with_thread_id_fn(Arc::new(react::llm::thread_ctx::current_thread_id)),
         );
         sctx.set_capability(Arc::new(CatalogCap(cat)));
     }
 
     if providers.vector.enabled {
-        let lance = LanceVectorStore::new(lance_uri_prefix.to_string())
-            .with_storage_options(lance_storage_opts);
+        let lance =
+            LanceVectorStore::new(lance_uri_prefix.to_string()).with_storage_options(lance_storage_opts);
         sctx.set_vector(Some(Arc::new(lance)));
     }
 

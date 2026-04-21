@@ -1,14 +1,11 @@
 # Headless Mode
 
-ReAct can run without a WebSocket connection using `react run`. This is useful for batch workflows, CI pipelines, and automated testing.
+ReAct can run without a WebSocket connection through app-owned hosts that call the shared headless runtime. This is useful for batch workflows, CI pipelines, and automated testing.
 
 ## Basic usage
 
 ```bash
-cargo run -p react -- run \
-  --config my-config.yml \
-  --suite-id data_engineer \
-  --agent agent
+cargo run -p skippr -- --log info run
 ```
 
 The agent runs to completion and exits. Progress is printed to stdout.
@@ -28,24 +25,13 @@ The agent runs to completion and exits. Progress is printed to stdout.
 
 Pass `--thread-id` to continue a previously interrupted thread:
 
-```bash
-cargo run -p react -- run \
-  --config my-config.yml \
-  --suite-id data_engineer \
-  --thread-id 7c19291d-2218-4d51-adfe-901e9fd30835
-```
+Use the host-specific CLI for resume semantics. In `skippr`, the most recent project thread is resumed automatically when appropriate.
 
 ## Parallel execution
 
 Run multiple configs concurrently:
 
-```bash
-cargo run -p react -- run --parallel \
-  --config project-a.yml \
-  --config project-b.yml \
-  --suite-id data_engineer \
-  --agent agent
-```
+Parallel multi-config execution now belongs to the host binary that owns those workflows.
 
 Each config runs in its own task with prefixed log output. Parallel mode is non-interactive; `--terminal` is not supported.
 
@@ -55,7 +41,6 @@ When the agent hits an `await_user` or `await_approval` interrupt, headless mode
 
 ```bash
 export REACT_HEADLESS=true
-cargo run -p react -- run --config my-config.yml
 ```
 
 ## Plain progress output
@@ -64,7 +49,6 @@ For CI environments without TTY support, use plain log output:
 
 ```bash
 export REACT_PLAIN_PROGRESS=true
-cargo run -p react -- run --config my-config.yml --log info
 ```
 
 ## Where output goes
@@ -75,5 +59,5 @@ cargo run -p react -- run --config my-config.yml --log info
 
 ## Next steps
 
-- [CLI Reference: run](../cli/run.md) — complete flag reference
+- [Headless execution](../cli/run.md) — packaging notes for the library-first runtime
 - [Configuration Overview](../configuration/overview.md) — YAML config format and precedence

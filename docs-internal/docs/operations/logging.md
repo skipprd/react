@@ -57,7 +57,7 @@ Use this as a quick lookup: **event → meaning → action**.
 
 ## Terminal UI
 
-When `--terminal` is passed to `react serve`, a rich terminal UI is displayed with:
+When an app-owned host enables the terminal UI, a rich terminal display is shown with:
 
 - Phase progress bars
 - Tool execution timeline

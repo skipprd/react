@@ -1173,6 +1173,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
+dependencies = [
+ "async-trait",
+ "axum-core",
+ "axum-macros",
+ "bytes",
+ "futures-util",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.7.0",
+ "hyper-util",
+ "itoa",
+ "matchit",
+ "memchr",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "axum-core"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09f2bd6146b97ae3359fa0cc6d6b376d9539582c7b4220f041a33ec24c226199"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "http 1.3.1",
+ "http-body 1.0.1",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "rustversion",
+ "sync_wrapper",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.110",
+]
+
+[[package]]
 name = "backon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4897,6 +4964,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchit"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6186,13 +6259,10 @@ dependencies = [
 name = "react"
 version = "0.0.0-git"
 dependencies = [
- "arrow",
- "arrow-buffer",
- "arrow-schema",
  "async-trait",
+ "axum",
  "bytes",
  "chrono",
- "clap",
  "dashmap 5.5.3",
  "futures",
  "futures-util",
@@ -6202,34 +6272,16 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "react-core",
- "react-module-provider-athena",
- "react-module-provider-bigquery",
- "react-module-provider-catalog",
- "react-module-provider-clickhouse",
- "react-module-provider-databricks",
- "react-module-provider-dbt",
- "react-module-provider-motherduck",
- "react-module-provider-mssql",
- "react-module-provider-postgres",
- "react-module-provider-redshift",
- "react-module-provider-skippr",
- "react-module-provider-snowflake",
- "react-module-provider-synapse",
- "react-module-provider-vector-lance",
+ "react-http-protocol",
  "react-module-storage-local",
  "react-module-storage-memory",
  "react-module-storage-s3",
- "react-suite-data-engineer",
- "react-suite-debugger",
- "react-suite-goggles-review",
- "react-suite-kb",
  "react-transport",
  "regex",
  "serde",
  "serde_derive",
  "serde_json",
  "serde_yaml",
- "sha2",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6260,6 +6312,14 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "react-http-protocol"
+version = "0.0.0-git"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7315,6 +7375,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_regex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7542,6 +7613,7 @@ dependencies = [
 name = "skippr"
 version = "0.0.0-git"
 dependencies = [
+ "async-trait",
  "chrono",
  "clap",
  "console",
@@ -7553,10 +7625,16 @@ dependencies = [
  "react-module-provider-athena",
  "react-module-provider-bigquery",
  "react-module-provider-catalog",
+ "react-module-provider-clickhouse",
+ "react-module-provider-databricks",
  "react-module-provider-dbt",
+ "react-module-provider-motherduck",
  "react-module-provider-mssql",
  "react-module-provider-postgres",
+ "react-module-provider-redshift",
+ "react-module-provider-skippr",
  "react-module-provider-snowflake",
+ "react-module-provider-synapse",
  "react-module-provider-vector-lance",
  "react-module-storage-local",
  "react-module-storage-s3",
@@ -7568,6 +7646,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

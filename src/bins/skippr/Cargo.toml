@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4.0.32", features = ["derive"] }
+async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -33,7 +34,14 @@ react-module-provider-dbt = { path = "../../suites/data_engineer/src/modules/pro
 react-module-provider-catalog = { path = "../../suites/data_engineer/src/modules/provider-catalog" }
 react-module-provider-snowflake = { path = "../../suites/data_engineer/src/modules/provider-snowflake" }
 react-module-provider-mssql = { path = "../../suites/data_engineer/src/modules/provider-mssql" }
+react-module-provider-skippr = { path = "../../suites/data_engineer/src/modules/provider-skippr" }
+react-module-provider-databricks = { path = "../../suites/data_engineer/src/modules/provider-databricks" }
+react-module-provider-synapse = { path = "../../suites/data_engineer/src/modules/provider-synapse" }
+react-module-provider-redshift = { path = "../../suites/data_engineer/src/modules/provider-redshift" }
+react-module-provider-clickhouse = { path = "../../suites/data_engineer/src/modules/provider-clickhouse" }
+react-module-provider-motherduck = { path = "../../suites/data_engineer/src/modules/provider-motherduck" }
 chrono = "0.4.42"
+tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

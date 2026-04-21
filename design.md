@@ -374,7 +374,7 @@ Suite-specific providers are stored in the **capabilities registry** (`HashMap<T
 
 **Concrete impls**: `src/suites/react-suites/src/data_engineer/modules/` (suite-specific) + `src/modules/` (generic) + `src/runtime/src/providers/`
 
-The runtime crate (`src/runtime/src/main.rs`) constructs the concrete provider set and injects it via `set_capability()`. Swapping Athena for BigQuery is a one-line config change — no suite or core code changes.
+App-owned host composition constructs the concrete provider set and injects it via `set_capability()`. In the current packaging, `skippr` owns the data-engineer wiring under `src/bins/skippr/src/react_host/`. Swapping Athena for BigQuery is still a one-line config change — no suite or core code changes.
 
 #### 11. Session, state, and persistence
 

@@ -4,7 +4,7 @@ All environment variables recognised by ReAct. Variables override YAML config va
 
 ## Secrets
 
-These variables carry sensitive values and should never be placed in YAML config files.
+These variables carry sensitive values. Keep them in the environment rather than in YAML config files.
 
 | Variable | Description |
 |---|---|

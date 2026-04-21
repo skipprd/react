@@ -26,7 +26,7 @@ See [Installation](../getting-started/install.md) for platform-specific instruct
 export LLM_MAX_TOKENS=8192
 ```
 
-For `gpt-5.x`, 8192 is a reasonable starting point for data engineering workflows that generate large tool-call payloads.
+For `gpt-5.x`, 8192 is a good starting point for data engineering workflows that generate large tool-call payloads.
 
 ### LLM request failed: 401
 
@@ -42,7 +42,7 @@ export LLM_API_KEY="sk-..."
 
 **Cause:** Rate limited by the LLM provider.
 
-**Fix:** Reduce concurrency or wait. The `error` frame includes `retry_after_ms` when available.
+**Fix:** Reduce concurrency or wait for the rate limit window to reset. The `error` frame includes `retry_after_ms` when available.
 
 ### LLM request timeout
 
@@ -133,15 +133,13 @@ export SKIPPR_S3_BUCKET=my-bucket
 
 **Fix:** Run without `--terminal` and use `--log info` for plain output:
 
-```bash
-cargo run -p react -- serve --config my-config.yml --log info
-```
+Run the host process without `--terminal`, or use a daemon that logs to stdout instead of trying to render the terminal UI.
 
 ### Agent reached step limit
 
 **Cause:** The agent exhausted its step budget without producing a valid final.
 
-**Fix:** This triggers the policy's `fallback` method, which typically asks the user to retry. If this happens frequently:
+**Fix:** This triggers the policy's `fallback` method, which usually asks the user to retry. If this happens frequently:
 
 - Check that the task is feasible with the configured tools
 - Increase `max_steps` in the suite configuration
@@ -149,10 +147,10 @@ cargo run -p react -- serve --config my-config.yml --log info
 
 ## Recovery
 
-ReAct threads are designed to be resumable. If the server crashes or the client disconnects:
+ReAct threads are resumable. If the server crashes or the client disconnects:
 
 1. The thread is persisted to storage after every step
 2. Use `open` (WebSocket) or `--thread-id` (CLI) to resume from the last persisted state
 3. The agent continues from where it left off
 
-No manual intervention is needed for crash recovery.
+You should not need manual intervention for crash recovery.

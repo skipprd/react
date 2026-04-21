@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "src/runtime",
   "src/core",
+  "src/http-protocol",
   "src/transport",
   "src/view",
   "src/suites/data_engineer",

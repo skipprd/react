@@ -1,10 +1,7 @@
 use async_trait::async_trait;
-pub use react_core::provider_traits::secrets::SecretsProvider;
+use react_core::provider_traits::secrets::SecretsProvider;
 
-/// Env-backed secrets provider.
-///
-/// Useful for local dev and for preserving current behavior while wiring proper
-/// secret managers later (GCP Secret Manager, AWS Secrets Manager, Vault, etc.).
+/// Env-backed secrets provider used by the generic runtime bootstrap.
 #[derive(Clone, Default)]
 pub struct EnvSecretsProvider;
 

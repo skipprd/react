@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.77"
-clap = { version = "4.0.32", features = ["derive"] }
+axum = { version = "0.7", features = ["macros"] }
 serde = "1.0.105"
 serde_derive = "1.0.105"
 serde_json = "1.0.85"
@@ -31,33 +31,10 @@ itertools = "0.12"
 hex = "0.4.3"
 ureq = { version = "2", features = ["json"] }
 react-core = { path = "../core" }
-react-suite-data-engineer = { path = "../suites/data_engineer" }
-react-suite-kb = { path = "../suites/kb" }
-react-suite-debugger = { path = "../suites/suite_debugger" }
-react-suite-goggles-review = { path = "../suites/goggles_review" }
-react-module-provider-vector-lance = { path = "../modules/providers/vector-lance" }
+react-http-protocol = { path = "../http-protocol" }
 react-module-storage-s3 = { path = "../modules/adaptors/storage-s3" }
 react-module-storage-local = { path = "../modules/adaptors/storage-local" }
-react-module-provider-postgres = { path = "../suites/data_engineer/src/modules/provider-postgres" }
-react-module-provider-bigquery = { path = "../suites/data_engineer/src/modules/provider-bigquery" }
-react-module-provider-athena = { path = "../suites/data_engineer/src/modules/provider-athena" }
-react-module-provider-dbt = { path = "../suites/data_engineer/src/modules/provider-dbt" }
-react-module-provider-catalog = { path = "../suites/data_engineer/src/modules/provider-catalog" }
-react-module-provider-snowflake = { path = "../suites/data_engineer/src/modules/provider-snowflake" }
-react-module-provider-mssql = { path = "../suites/data_engineer/src/modules/provider-mssql" }
-react-module-provider-skippr = { path = "../suites/data_engineer/src/modules/provider-skippr" }
-react-module-provider-databricks = { path = "../suites/data_engineer/src/modules/provider-databricks" }
-react-module-provider-synapse = { path = "../suites/data_engineer/src/modules/provider-synapse" }
-react-module-provider-redshift = { path = "../suites/data_engineer/src/modules/provider-redshift" }
-react-module-provider-clickhouse = { path = "../suites/data_engineer/src/modules/provider-clickhouse" }
-react-module-provider-motherduck = { path = "../suites/data_engineer/src/modules/provider-motherduck" }
 react-transport = { path = "../transport" }
-
-# Vector store + Arrow
-arrow = { version = "56.2.0", features = ["ipc_compression"] }
-arrow-schema = "56.2.0"
-arrow-buffer = "56.2.0"
-sha2 = "0.10"
 
 [dev-dependencies]
 httpmock = "0.7"

@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks through building ReAct, configuring a local server, and running your first agent interaction.
+This guide walks through building ReAct, configuring a local server, and running a first agent interaction.
 
 ## 1. Build
 
@@ -82,13 +82,11 @@ See the [Snowflake connector](../connectors/warehouses/snowflake.md) docs for fu
 export LLM_API_KEY="sk-..."
 ```
 
-## 4. Start the server
+## 4. Start a host
 
-```bash
-cargo run -p react -- serve --config my-config.yml --port 8787 --terminal
-```
+Start a host that embeds the shared runtime, or wire the `react` WebSocket frontend into your own daemon.
 
-The server starts a WebSocket endpoint at `ws://localhost:8787/`.
+For data-engineer workflows, use `skippr`. For product-specific serving, follow the composition pattern in `goggles-reactd`.
 
 ## 5. Connect and interact
 

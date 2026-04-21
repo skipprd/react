@@ -3,10 +3,9 @@ use react_core::provider_traits::{ScoredVectorRecord, StoredVectorRecord, Vector
 use react_core::scope::RequestScope;
 use react_module_provider_vector_lance::lance_store::{Chunk, LanceDbStore};
 
-/// Default vector store implementation (LanceDB-on-S3).
+/// Skippr's default LanceDB-backed vector store.
 #[derive(Clone)]
 pub struct LanceVectorStore {
-    /// URI scheme + root for LanceDB paths (e.g. `s3://bucket` or `file:///data/root`).
     pub uri_prefix: String,
     storage_options: Vec<(String, String)>,
 }

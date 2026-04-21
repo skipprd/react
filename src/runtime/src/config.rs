@@ -3,13 +3,13 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::wiring::RequestScope;
 use rc::{LlmProvider, StorageMode};
 use react_core::resolved_config as rc;
+use react_core::scope::RequestScope;
 
 /// # `react` configuration
 ///
-/// `react serve` loads a **YAML** config file via `--config <PATH>`.
+/// App-owned hosts load a **YAML** config file via `--config <PATH>`.
 ///
 /// ## Precedence
 /// - CLI flag (if provided)
@@ -81,7 +81,7 @@ use react_core::resolved_config as rc;
 /// - Local-first: `storage.mode` defaults to `local` (stores artifacts under `storage.path`).
 /// - For S3: set `storage.mode: s3` and provide `storage.bucket` (or env `SKIPPR_S3_BUCKET` / CLI `--bucket`).
 
-/// CLI overrides for `react serve`.
+/// CLI overrides for a host that serves `react` over WS/HTTP.
 ///
 /// Any `Some` value takes precedence over env and file config.
 #[derive(Clone, Debug, Default)]
@@ -174,18 +174,25 @@ impl ReactConfigFile {
 const DEFAULT_SERVER_PORT: u16 = 8787;
 const DEFAULT_LOCAL_STORAGE_PATH: &str = "./.react";
 
-/// Suite-specific provider resolution. Currently dispatches to data_engineer.
-///
-/// TODO: Replace this hard-coded dispatch with a proper suite registry lookup
-/// (keyed by `suite_id` from the config file) so adding a new suite does not
-/// require changing this function.
-fn resolve_suite_providers(providers_yaml: serde_json::Value) -> Result<serde_json::Value, String> {
-    react_suite_data_engineer::de_config::resolve_providers_from_yaml(providers_yaml)
-}
-
 pub fn resolve_config(
     file: ReactConfigFile,
     ov: ServeOverrides,
+) -> Result<ReactResolvedConfig, String> {
+    resolve_config_inner(file, ov, None)
+}
+
+pub fn resolve_config_with(
+    file: ReactConfigFile,
+    ov: ServeOverrides,
+    host: &dyn crate::host::HostComposition,
+) -> Result<ReactResolvedConfig, String> {
+    resolve_config_inner(file, ov, Some(host))
+}
+
+fn resolve_config_inner(
+    file: ReactConfigFile,
+    ov: ServeOverrides,
+    host: Option<&dyn crate::host::HostComposition>,
 ) -> Result<ReactResolvedConfig, String> {
     let server_port = ov
         .port
@@ -259,9 +266,14 @@ pub fn resolve_config(
     ensure_safe_segment("workspace", &workspace)?;
     ensure_safe_segment("project_id", &project_id)?;
 
-    // Providers – delegate to suite-specific resolver
-    let providers_yaml = file.providers.unwrap_or(serde_json::json!({}));
-    let providers = resolve_suite_providers(providers_yaml)?;
+    // Suite config remains opaque to the generic runtime. Hosts can translate
+    // the raw config payload into a normalized suite-specific structure.
+    let raw_suite_config = file.providers.unwrap_or(serde_json::json!({}));
+    let suite_config = if let Some(host) = host {
+        host.resolve_suite_config(raw_suite_config)?
+    } else {
+        raw_suite_config
+    };
 
     // LLM env surface
     let llmf = file.llm.unwrap_or_default();
@@ -306,7 +318,7 @@ pub fn resolve_config(
         },
         scope: RequestScope::parse(tenant, workspace, project_id).map_err(|e| e.to_string())?,
         llm,
-        suite_config: providers,
+        suite_config,
     };
 
     Ok(cfg)
@@ -315,6 +327,7 @@ pub fn resolve_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use once_cell::sync::Lazy;
     use std::sync::Mutex;
 
@@ -513,6 +526,39 @@ mod tests {
                 std::env::var("DBT_SILVER_SUFFIX").ok().as_deref(),
                 Some("preset-silver")
             );
+        });
+    }
+
+    #[derive(Default)]
+    struct TestHost;
+
+    #[async_trait]
+    impl crate::host::HostComposition for TestHost {
+        fn register_suites(&self, _registry: &mut react_core::suite::SuiteRegistry) {}
+
+        fn resolve_suite_config(
+            &self,
+            raw_suite_config: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({
+                "wrapped": raw_suite_config,
+            }))
+        }
+    }
+
+    #[test]
+    fn resolve_config_with_host_resolves_suite_config() {
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                providers: Some(serde_json::json!({
+                    "warehouse": { "kind": "postgres" }
+                })),
+                ..Default::default()
+            };
+            let cfg = resolve_config_with(file, ServeOverrides::default(), &TestHost)
+                .expect("resolve with host");
+            assert_eq!(cfg.suite_config["wrapped"]["warehouse"]["kind"], "postgres");
         });
     }
 }

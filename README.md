@@ -1,6 +1,6 @@
 ## ReAct (`react` crate)
 
-A **ReAct agent runtime** with WebSocket and headless CLI interfaces. Clients send JSON frames (or invoke the CLI), the runtime routes each request to a **suite**, and the suite implements a **`PhaseExecutor`** driven by a generic **workflow runner** in core. Each workflow turn runs a **ReAct loop** (LLM → tool calls → observations → complete/interrupt), using injected providers (query/catalog/vector/dbt/storage). Sub-workflows (e.g. repair) nest inside outer turns using the same runner pattern.
+A suite-neutral **ReAct host/runtime library**. Binaries such as `skippr`, `skippr-admin`, and `goggles-reactd` register suites and add product-specific capabilities on top of the shared `react` runtime and `react-core` kernel.
 
 ### Getting started guides
 
@@ -41,11 +41,11 @@ pip install dbt-core dbt-snowflake     # swap adapter as needed: dbt-bigquery, d
 
 Make sure the venv is activated (`source .venv/bin/activate`) whenever you run `skippr` or the WebSocket server.
 
-#### skippr binary (required for EL workflows)
+#### `skippr` binary (required for EL workflows)
 
 When `providers.el` is enabled in a config, `skippr` spawns the **`skippr`** binary (from the [`skipprd`](../skipprd) repo) as a subprocess for data extraction and loading. The binary must be on `PATH` (or configured via `providers.el.skippr_binary`).
 
-**Build from the skipprd repo (release mode recommended):**
+**Build from the skipprd repo (`--release` recommended):**
 
 ```bash
 cd ../skipprd                         # sibling directory to react
@@ -65,7 +65,7 @@ skippr --version
 # skippr 0.0.0-git
 ```
 
-> **Why release mode?** The `skippr sync` command can process large datasets and write to remote warehouses. A debug build is significantly slower and may stall under load, causing `skippr` to hit its idle timeout (default 120 s). Always use a release build for actual data movement.
+> **Why use release mode?** `skippr sync` can process large datasets and write to remote warehouses. Debug builds are much slower and can stall under load, which may cause `skippr` to hit its idle timeout (default 120 s). For real data movement, use a release build.
 
 **Alternative — custom path instead of PATH:**
 
@@ -107,13 +107,7 @@ When `providers.el.enabled` is `true`, the agent runs EL phases first (discover 
 
 #### WebSocket server
 
-For interactive/UI-driven use:
-
-```bash
-cargo run -p react -- serve --config src/runtime/config.example.yml --port 8787 --terminal
-```
-
-The server speaks WebSocket on `ws://localhost:8787/` using schemas in `src/runtime/openapi/ws-core.yaml` plus suite overlays.
+Interactive WebSocket serving runs through host binaries or daemons that call the shared `react` HTTP/WS frontends programmatically.
 
 ---
 

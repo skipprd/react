@@ -1,4 +1,4 @@
-//! Headless runner for `react run`.
+//! Headless runner for app-owned hosts.
 //!
 //! Design goal: subscribe to the same typed events as WS without using a socket.
 
