@@ -1,4 +1,4 @@
-## ReAct (`react` crate)
+## ReAct (react crate)
 
 A suite-neutral **ReAct host/runtime library**. Binaries such as `skippr`, `skippr-admin`, and `goggles-reactd` register suites and add product-specific capabilities on top of the shared `react` runtime and `react-core` kernel.
 
