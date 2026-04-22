@@ -9,6 +9,7 @@ use react_core::keyspace::DefaultKeyspace;
 use react_core::llm::{ChatMessage, LargeLanguageModel};
 use react_core::scope::RequestScope;
 use react_core::session::ThreadStore;
+use react_core::suite::{FlowFrame, Suite, SuiteCtx};
 use react_core::tools::{Tool, ToolRegistry};
 use react_module_storage_memory::InMemoryStorageAdapter;
 use serde_json::Value;
@@ -232,14 +233,52 @@ async fn agent_interrupts_only_when_policy_requests_it() {
 }
 
 #[test]
-fn default_registry_includes_kb_suite() {
+fn suite_registry_lists_registered_ids_without_concrete_suite_deps() {
+    struct DummySuite;
+
+    #[async_trait]
+    impl Suite for DummySuite {
+        fn id(&self) -> &'static str {
+            "dummy"
+        }
+
+        async fn handle_new(
+            &self,
+            _thread_id: &str,
+            _question: &str,
+            _agent_type: &str,
+            _ctx: &SuiteCtx,
+        ) -> Result<Vec<FlowFrame>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn handle_open(
+            &self,
+            _thread_id: &str,
+            _question: &str,
+            _agent_type: &str,
+            _ctx: &SuiteCtx,
+        ) -> Result<Vec<FlowFrame>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn handle_user(
+            &self,
+            _thread_id: &str,
+            _text: &str,
+            _agent_type: &str,
+            _ctx: &SuiteCtx,
+        ) -> Result<Vec<FlowFrame>, String> {
+            Ok(Vec::new())
+        }
+    }
+
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
-    reg.register(react_suite_kb::KbSuite);
+    reg.register(DummySuite);
     let ids = reg.list_ids();
     assert!(
-        ids.contains(&"kb"),
-        "expected 'kb' in suite registry, got {:?}",
+        ids.contains(&"dummy"),
+        "expected 'dummy' in suite registry, got {:?}",
         ids
     );
 }

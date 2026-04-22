@@ -6358,6 +6358,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "react-core",
+ "react-module-storage-memory",
  "react-suite-data-engineer",
  "serde",
  "serde_json",

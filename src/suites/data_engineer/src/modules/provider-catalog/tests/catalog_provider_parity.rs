@@ -39,7 +39,6 @@ async fn provider_write_semantic_uses_keyspace_key_and_roundtrips() {
         &["semantic", &format!("{}.yaml", encode_key_component(ns))],
     );
     let raw = storage.get_json(&key).await.expect("semantic stored");
-    // Stored as YAML-equivalent JSON; should still deserialize back into SemanticModel.
     let sem2: SemanticModel = serde_json::from_value(raw).expect("semantic deserializable");
     assert_eq!(sem2.dataset_id, ns);
 }
@@ -88,6 +87,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
     struct ScriptedLlm {
         replies: std::sync::Mutex<Vec<String>>,
     }
+
     impl LargeLanguageModel for ScriptedLlm {
         fn chat(
             &self,
@@ -103,6 +103,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
             }
             Ok(g.remove(0))
         }
+
         fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
             Ok(vec![])
         }
@@ -131,7 +132,6 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
 
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
 
-    // Seed two dataset catalogs (minimal fields/description) so the global pass has inputs.
     for ds in ["AwsDataCatalog.db.orders", "AwsDataCatalog.db.customers"] {
         let key = keyspace.scoped_key(
             &scope,
@@ -180,9 +180,7 @@ async fn global_semantic_context_is_written_under_semantic_global_key() {
             "semantic",
             &format!(
                 "{}.yaml",
-                encode_key_component(
-                    react_suite_data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID
-                )
+                encode_key_component(react_suite_data_engineer::providers::GLOBAL_SEMANTIC_DATASET_ID)
             ),
         ],
     );

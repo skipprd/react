@@ -70,6 +70,12 @@ jobs:
   
       - name: Enforce control-state log-read guardrails
         run: cargo test -p react-suite-data-engineer data_engineer::tests::control_state_thread_log_read_guardrails_are_enforced_in_rust_tests
+
+      - name: Test data engineer SQL tool integration
+        run: cargo test -p react-suite-data-engineer --test sql_cte
+
+      - name: Test catalog provider integration
+        run: cargo test -p react-module-provider-catalog --test catalog_provider_parity
   
       - name: Build skippr
         run: cargo build -p skippr

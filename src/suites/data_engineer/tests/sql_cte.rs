@@ -15,8 +15,6 @@ struct DummyQueryProvider;
 #[async_trait::async_trait]
 impl QueryProvider for DummyQueryProvider {
     async fn query(&self, sql: &str) -> Result<QueryResult, String> {
-        // Minimal “smoke” execution: just return header consistent with the test SQL.
-        // We validate the tool’s plumbing (limit behavior + provider delegation), not engine semantics here.
         let _ = sql;
         Ok(QueryResult {
             header: vec!["a".to_string(), "rn".to_string()],
@@ -24,9 +22,11 @@ impl QueryProvider for DummyQueryProvider {
             meta: None,
         })
     }
+
     async fn schema(&self, _dataset_fqn: &str) -> Result<Vec<(String, String)>, String> {
         Ok(vec![])
     }
+
     async fn sample(&self, _dataset_fqn: &str, _limit: usize) -> Result<Vec<Vec<String>>, String> {
         Ok(vec![])
     }
@@ -45,11 +45,11 @@ LIMIT 1
 "#;
     let args = json!({ "sql": sql });
     let actx = AgentCtxBuilder::new(
-        std::sync::Arc::new(NullModel::new()),
-        std::sync::Arc::new(InMemoryStorageAdapter::default()),
+        Arc::new(NullModel::new()),
+        Arc::new(InMemoryStorageAdapter::default()),
         RequestScope::parse("t", "w", "p").expect("valid test scope"),
-        std::sync::Arc::new(DefaultKeyspace::new("b".into())),
-        std::sync::Arc::new(DefaultPolicy),
+        Arc::new(DefaultKeyspace::new("b".into())),
+        Arc::new(DefaultPolicy),
     )
     .top_k(10)
     .per_step_timeout_secs(5)
