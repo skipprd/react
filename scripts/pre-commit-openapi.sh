@@ -67,13 +67,13 @@ fi
 if [[ "${needs_core_codegen}" == "true" ]]; then
   ensure_core_generator_available
   echo "Running core OpenAPI generation..."
-  bash "${REPO_ROOT}/scripts/gen-openapi-core.sh"
+  ./scripts/gen-openapi-core.sh
   git add -- "src/transport/src/ws/api_gen"
-  bash "${REPO_ROOT}/scripts/check-openapi-drift-core.sh" >/dev/null
+  ./scripts/check-openapi-drift-core.sh >/dev/null
 fi
 
 if [[ "${needs_suite_check}" == "true" ]]; then
-  bash "${REPO_ROOT}/scripts/check-openapi-drift-suite-data-engineer.sh" >/dev/null
+  ./scripts/check-openapi-drift-suite-data-engineer.sh >/dev/null
 fi
 
 echo "OpenAPI pre-commit checks passed."

@@ -77,6 +77,12 @@ bash scripts/install-git-hooks.sh
 
 The pre-commit hook runs the core OpenAPI generator when staged changes touch the core spec, generator scripts, or generated Rust models, re-stages `src/transport/src/ws/api_gen`, and fails early if Docker or a local `openapi-generator-cli.jar` is unavailable.
 
+The core generation step uses the same repo command as CI and local development:
+
+```bash
+./scripts/gen-openapi-core.sh
+```
+
 **Alternative — custom path instead of PATH:**
 
 Instead of installing to `/usr/local/bin`, you can point the config at the binary directly:
