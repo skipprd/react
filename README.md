@@ -67,6 +67,16 @@ skippr --version
 
 > **Why use release mode?** `skippr sync` can process large datasets and write to remote warehouses. Debug builds are much slower and can stall under load, which may cause `skippr` to hit its idle timeout (default 120 s). For real data movement, use a release build.
 
+#### Git hooks (recommended)
+
+To catch OpenAPI generator drift before CI, install the repo's versioned Git hooks:
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+The pre-commit hook runs the core OpenAPI generator when staged changes touch the core spec, generator scripts, or generated Rust models, re-stages `src/transport/src/ws/api_gen`, and fails early if Docker or a local `openapi-generator-cli.jar` is unavailable.
+
 **Alternative — custom path instead of PATH:**
 
 Instead of installing to `/usr/local/bin`, you can point the config at the binary directly:
