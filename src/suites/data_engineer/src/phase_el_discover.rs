@@ -49,20 +49,16 @@ impl DataEngineerSuite {
             return Err(format!("skippr discover reported errors: {}", errs).into());
         }
 
-        // 3. Read back schemas via SHOW PIPELINE
-        let pipeline_status = skippr
-            .show_pipeline(sctx.scope(), pipeline_name)
-            .await
-            .map_err(|e| format!("SHOW PIPELINE failed after discover: {}", e))?;
-
-        let namespaces_count = pipeline_status.namespaces.len();
+        // 3. Use the discover result itself to decide whether we found any source namespaces.
+        // Table materialization happens in the subsequent EL sync phase, not during discover.
+        let namespaces_count = discover_result.namespaces.len();
         if namespaces_count == 0 {
-            return Err("skippr discover completed but found no namespaces (tables)"
+            return Err("skippr discover completed but found no namespaces"
                 .to_string()
                 .into());
         }
 
-        let total_fields: u64 = pipeline_status
+        let total_fields: u64 = discover_result
             .namespaces
             .iter()
             .map(|ns| ns.fields.len() as u64)
@@ -92,6 +88,156 @@ impl DataEngineerSuite {
         .await?;
 
         Ok(PhaseOutcome::TransitionCommitted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use react_core::keyspace::DefaultKeyspace;
+    use react_core::llm::NullModel;
+    use react_core::provider_traits::NullSecretsProvider;
+    use react_core::resolved_config::{
+        LlmResolved, ReactResolvedConfig, ServerResolved, StorageMode, StorageResolved,
+    };
+    use react_core::scope::RequestScope;
+    use react_core::session::ThreadStore;
+    use react_core::suite::SuiteCtx;
+    use react_module_storage_memory::InMemoryStorageAdapter;
+    use std::sync::Arc;
+
+    #[derive(Default)]
+    struct MockSkipprProvider {
+        discover_result: crate::providers::SkipprDiscoverResult,
+    }
+
+    #[async_trait]
+    impl crate::providers::SkipprProvider for MockSkipprProvider {
+        async fn write_pipeline_config(
+            &self,
+            _scope: &RequestScope,
+            _config: &crate::providers::SkipprPipelineConfig,
+        ) -> Result<String, String> {
+            Ok("skippr-el.yaml".to_string())
+        }
+
+        async fn discover_pipeline(
+            &self,
+            _scope: &RequestScope,
+            _pipeline: &str,
+        ) -> Result<crate::providers::SkipprDiscoverResult, String> {
+            Ok(self.discover_result.clone())
+        }
+
+        async fn show_pipeline(
+            &self,
+            _scope: &RequestScope,
+            _pipeline: &str,
+        ) -> Result<crate::providers::SkipprPipelineStatus, String> {
+            Err("show_pipeline should not run during discover".to_string())
+        }
+
+        async fn load_schema(
+            &self,
+            _scope: &RequestScope,
+            _pipeline: &str,
+            _schema_json_path: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn sync_pipeline(
+            &self,
+            _scope: &RequestScope,
+            _pipeline: &str,
+        ) -> Result<crate::providers::SkipprSyncResult, String> {
+            Ok(crate::providers::SkipprSyncResult::default())
+        }
+    }
+
+    fn test_suite_ctx() -> SuiteCtx {
+        let scope = RequestScope::parse("tenant", "dev", "test4").expect("valid test scope");
+        SuiteCtx::new(
+            Arc::new(InMemoryStorageAdapter::default()),
+            Arc::new(NullSecretsProvider::default()),
+            Arc::new(NullModel::new()),
+            scope,
+            Arc::new(DefaultKeyspace::new("test-bucket".to_string())),
+        )
+    }
+
+    fn resolved_config(scope: RequestScope) -> Arc<ReactResolvedConfig> {
+        Arc::new(ReactResolvedConfig {
+            server: ServerResolved { port: 0 },
+            storage: StorageResolved {
+                mode: StorageMode::Local,
+                bucket: None,
+                path: Some("./.skippr".to_string()),
+                s3_credentials: None,
+            },
+            scope,
+            llm: LlmResolved::default(),
+            suite_config: serde_json::json!({
+                "warehouse": {
+                    "kind": "snowflake",
+                    "container": "analytics",
+                    "namespace": "raw",
+                    "extras": {}
+                },
+                "catalog": { "enabled": false },
+                "dbt": { "enabled": false },
+                "vector": { "enabled": false },
+                "el": {
+                    "enabled": true,
+                    "skippr_binary": "skippr-el",
+                    "skippr_input": { "kind": "s3" }
+                }
+            }),
+        })
+    }
+
+    #[tokio::test]
+    async fn discover_phase_transitions_to_sync_without_show_pipeline_tables() {
+        let mut sctx = test_suite_ctx();
+        sctx.set_resolved_config(Some(resolved_config(sctx.scope().clone())));
+        sctx.set_capability(Arc::new(crate::ctx_ext::SkipprCap(Arc::new(
+            MockSkipprProvider {
+                discover_result: crate::providers::SkipprDiscoverResult {
+                    ok: true,
+                    namespaces: vec![crate::providers::SkipprNamespaceSchema {
+                        namespace: "trip_start".to_string(),
+                        fields: vec![crate::providers::SkipprFieldSchema {
+                            name: "rider_id".to_string(),
+                            field_type: "string".to_string(),
+                            nullable: true,
+                        }],
+                    }],
+                    errors: vec![],
+                },
+            },
+        ))));
+
+        let store = ThreadStore::new(
+            sctx.storage().clone(),
+            sctx.scope().clone(),
+            sctx.keyspace().clone(),
+        );
+        let thread_id = "tid-discover";
+
+        let outcome = DataEngineerSuite::execute_el_discover_phase(&store, thread_id, &sctx)
+            .await
+            .expect("discover should transition to sync");
+        assert!(matches!(outcome, PhaseOutcome::TransitionCommitted));
+
+        let state = crate::progress_controller::ExecutionState::load_strict(
+            &store.control_store(),
+            thread_id,
+        )
+        .await
+        .expect("control store read should succeed")
+        .expect("execution state should be written");
+        assert_eq!(state.phase.current_phase, crate::control_flow::Phase::ElSync);
     }
 }
 
