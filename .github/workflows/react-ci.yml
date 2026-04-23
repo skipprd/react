@@ -240,113 +240,10 @@ jobs:
         run: sccache --show-stats
 
   # ---------------------------------------------------------------------------
-  # skippr: released-binary smoke tests (local/mocked only)
-  # ---------------------------------------------------------------------------
-  skippr_release_linux_smoke:
-    name: "Linux smoke test (skippr: mssql + postgres config)"
-    needs:
-      - publish
-    if: "!startsWith(github.ref, 'refs/tags/test')"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install skippr via install.skippr.io
-        shell: bash
-        run: |
-          curl -fsSL https://install.skippr.io/install.sh | sh
-          skippr --version
-
-      - name: Run local CLI smoke test
-        shell: bash
-        run: |
-          project_dir="$(mktemp -d)"
-          cat > "${project_dir}/dbt" <<'EOF'
-          #!/usr/bin/env bash
-          exit 0
-          EOF
-          chmod +x "${project_dir}/dbt"
-          export PATH="${project_dir}:${GITHUB_WORKSPACE}/bin:${PATH}"
-          export SKIPPR_API_KEY="ci-smoke"
-          export POSTGRES_HOST="localhost"
-          export POSTGRES_USER="postgres"
-          export POSTGRES_PASSWORD="postgres"
-
-          cd "${project_dir}"
-          "${GITHUB_WORKSPACE}/bin/skippr" init smoke-local
-          "${GITHUB_WORKSPACE}/bin/skippr" connect warehouse postgres --database testdb --schema public
-          "${GITHUB_WORKSPACE}/bin/skippr" connect source mssql --connection-string "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
-          "${GITHUB_WORKSPACE}/bin/skippr" doctor
-
-          python3 - <<'PY'
-          from pathlib import Path
-          config = Path("skippr.yaml").read_text()
-          assert Path(".env.example").exists(), "expected .env.example to be created"
-          assert "kind: postgres" in config, "expected postgres warehouse config"
-          assert "kind: mssql" in config, "expected mssql source config"
-          PY
-
-  skippr_release_windows_smoke:
-    name: "Windows smoke test (skippr: mssql + postgres config)"
-    needs:
-      - publish
-    if: "!startsWith(github.ref, 'refs/tags/test')"
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install skippr via install.skippr.io
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path bin -Force
-          $tag = "${{ github.ref_name }}"
-          $url = "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
-          Write-Host "Downloading skippr $tag from $url"
-          Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
-          tar -xzf skippr.tar.gz
-          Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
-          .\bin\skippr.exe --version
-
-      - name: Run local CLI smoke test
-        shell: pwsh
-        run: |
-          $projectDir = Join-Path $env:RUNNER_TEMP "skippr-smoke"
-          New-Item -ItemType Directory -Path $projectDir -Force | Out-Null
-          @"
-          @echo off
-          exit /b 0
-          "@ | Set-Content -Path (Join-Path $projectDir "dbt.cmd") -Encoding ascii
-
-          $env:PATH = "$projectDir;$env:GITHUB_WORKSPACE\bin;$env:PATH"
-          $env:SKIPPR_API_KEY = "ci-smoke"
-          $env:POSTGRES_HOST = "localhost"
-          $env:POSTGRES_USER = "postgres"
-          $env:POSTGRES_PASSWORD = "postgres"
-
-          Set-Location $projectDir
-          & "$env:GITHUB_WORKSPACE\bin\skippr.exe" init smoke-local
-          & "$env:GITHUB_WORKSPACE\bin\skippr.exe" connect warehouse postgres --database testdb --schema public
-          & "$env:GITHUB_WORKSPACE\bin\skippr.exe" connect source mssql --connection-string "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
-          & "$env:GITHUB_WORKSPACE\bin\skippr.exe" doctor
-
-          if (-not (Test-Path ".env.example")) {
-            throw "expected .env.example to be created"
-          }
-          $config = Get-Content .\skippr.yaml -Raw
-          if ($config -notmatch "kind:\s+postgres") {
-            throw "expected postgres warehouse config"
-          }
-          if ($config -notmatch "kind:\s+mssql") {
-            throw "expected mssql source config"
-          }
-
-  # ---------------------------------------------------------------------------
-  # skippr: Windows MSSQL -> Postgres end-to-end (no cloud deps)
+  # skippr: Windows MSSQL -> Postgres end-to-end
   # ---------------------------------------------------------------------------
   skippr_el_windows_postgres_e2e:
-    name: Windows MSSQL -> Postgres E2E (skippr + dbt-postgres)
+    name: Windows MSSQL -> Postgres E2E (install.skippr.io + full CLI flow)
     needs:
       - publish
     if: "!startsWith(github.ref, 'refs/tags/test')"
@@ -359,14 +256,9 @@ jobs:
       - name: Install skippr via install.skippr.io
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path bin -Force
-          $tag = "${{ github.ref_name }}"
-          $url = "${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/$tag/skippr-x86_64-pc-windows-msvc.tar.gz"
-          Write-Host "Downloading skippr $tag from $url"
-          Invoke-WebRequest -Uri $url -OutFile skippr.tar.gz
-          tar -xzf skippr.tar.gz
-          Copy-Item skippr-x86_64-pc-windows-msvc\skippr.exe bin\skippr.exe
-          .\bin\skippr.exe --version
+          irm https://install.skippr.io/install.ps1 | iex
+          $env:PATH = "$env:LOCALAPPDATA\skippr\bin;$env:PATH"
+          skippr --version
 
       - name: Install SQL Server Express
         shell: pwsh
@@ -468,9 +360,22 @@ jobs:
         shell: pwsh
         env:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+          MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: "Skippr!Test123"
+          POSTGRES_DATABASE: testdb
         run: |
-          $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          cmd /c "echo yes|.\bin\skippr.exe init el_mssql_postgres_e2e --reset --config .\skippr-dbt-e2e-mssql-postgres.yaml"
+          $env:PATH = "$env:LOCALAPPDATA\skippr\bin;$env:PATH"
+          $projectDir = Join-Path $env:RUNNER_TEMP "skippr-mssql-postgres-e2e"
+          if (Test-Path $projectDir) { Remove-Item -Recurse -Force $projectDir }
+          New-Item -ItemType Directory -Path $projectDir -Force | Out-Null
+          Set-Location $projectDir
+          cmd /c "echo yes|skippr init el_mssql_postgres_e2e --reset"
+          skippr connect warehouse postgres --database testdb --schema public
+          skippr connect source mssql --connection-string "$env:MSSQL_CONNECTION_STRING"
+          skippr doctor
 
       - name: Run skippr EL + modeling pipeline
         shell: pwsh
@@ -483,11 +388,14 @@ jobs:
           POSTGRES_PASSWORD: "Skippr!Test123"
           POSTGRES_DATABASE: testdb
         run: |
-          $env:PATH = "$(Get-Location)\bin;$env:PATH"
-          .\bin\skippr.exe --log info run --config .\skippr-dbt-e2e-mssql-postgres.yaml
+          $env:PATH = "$env:LOCALAPPDATA\skippr\bin;$env:PATH"
+          $projectDir = Join-Path $env:RUNNER_TEMP "skippr-mssql-postgres-e2e"
+          Set-Location $projectDir
+          skippr --log info run
+          skippr feedback --good --comment "GitHub Actions Windows MSSQL -> Postgres E2E passed"
 
   skippr_el_windows_postgres_e2e_feedback:
-    name: Submit feedback for failed MSSQL -> Postgres E2E (dbt-postgres)
+    name: Submit feedback for failed Windows MSSQL -> Postgres E2E
     needs:
       - skippr_el_windows_postgres_e2e
     if: ${{ always() && (needs.skippr_el_windows_postgres_e2e.result == 'failure' || needs.skippr_el_windows_postgres_e2e.result == 'cancelled') }}
@@ -496,31 +404,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download skippr Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skippr-x86_64-unknown-linux-gnu
-          path: bin
-
-      - name: Prepare skippr binary
+      - name: Install skippr via install.skippr.io
         shell: bash
         run: |
-          chmod +x bin/skippr
-          ./bin/skippr --version
+          curl -fsSL https://install.skippr.io/install.sh | sh
+          skippr --version
 
       - name: Submit bad feedback for failed Postgres E2E
         shell: bash
         env:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+          MSSQL_CONNECTION_STRING: "server=tcp:127.0.0.1,1433;database=testdb;user id=sa;password=Skippr!Test123;TrustServerCertificate=true"
         run: |
-          comment="GitHub Actions job 'Windows MSSQL -> Postgres E2E (skippr + dbt-postgres)' failed with result '${{ needs.skippr_el_windows_postgres_e2e.result }}'. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          ./bin/skippr --config ./skippr-dbt-e2e-mssql-postgres.yaml feedback --bad --comment "$comment"
+          set -euo pipefail
+          comment="GitHub Actions job 'Windows MSSQL -> Postgres E2E (install.skippr.io + full CLI flow)' failed with result '${{ needs.skippr_el_windows_postgres_e2e.result }}'. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          project_dir="$(mktemp -d)"
+          cd "${project_dir}"
+          skippr init el_mssql_postgres_e2e
+          skippr connect warehouse postgres --database testdb --schema public
+          skippr connect source mssql --connection-string "${MSSQL_CONNECTION_STRING}"
+          skippr feedback --bad --comment "$comment"
 
   # ---------------------------------------------------------------------------
   # skippr: Linux S3 -> Athena end-to-end (bike hire sample data)
   # ---------------------------------------------------------------------------
   skippr_el_linux_s3_athena_e2e:
-    name: Linux S3 -> Athena E2E (skippr + dbt-athena-community)
+    name: Linux S3 -> Athena E2E (install.skippr.io + full CLI flow)
     needs:
       - publish
     if: "!startsWith(github.ref, 'refs/tags/test')"
@@ -562,7 +471,14 @@ jobs:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
         run: |
           set -euo pipefail
-          echo "yes" | skippr init bike_hire_athena_e2e --reset --config ./skippr-dbt-e2e-s3-athena.yaml
+          project_dir="${RUNNER_TEMP}/skippr-s3-athena-e2e"
+          rm -rf "${project_dir}"
+          mkdir -p "${project_dir}"
+          cd "${project_dir}"
+          echo "yes" | skippr init bikehire --reset
+          skippr connect warehouse athena --workgroup bikehire --region us-east-1 --result-s3 s3://skippr-e2e-sample-data-output/athena-results/ --schema bikehire
+          skippr connect source s3 --bucket skippr-e2e-sample-data --prefix bike-hire --namespace-fields event_type
+          skippr doctor
 
       - name: Run skippr EL + modeling pipeline
         shell: bash
@@ -570,7 +486,40 @@ jobs:
           SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
         run: |
           set -euo pipefail
-          skippr --log info run --config ./skippr-dbt-e2e-s3-athena.yaml
+          project_dir="${RUNNER_TEMP}/skippr-s3-athena-e2e"
+          cd "${project_dir}"
+          skippr --log info run
+          skippr feedback --good --comment "GitHub Actions Linux S3 -> Athena E2E passed"
+
+  skippr_el_linux_s3_athena_e2e_feedback:
+    name: Submit feedback for failed Linux S3 -> Athena E2E
+    needs:
+      - skippr_el_linux_s3_athena_e2e
+    if: ${{ always() && (needs.skippr_el_linux_s3_athena_e2e.result == 'failure' || needs.skippr_el_linux_s3_athena_e2e.result == 'cancelled') }}
+    runs-on: ubuntu-latest
+    environment: Skippr
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install skippr via install.skippr.io
+        shell: bash
+        run: |
+          curl -fsSL https://install.skippr.io/install.sh | sh
+          skippr --version
+
+      - name: Submit bad feedback for failed Athena E2E
+        shell: bash
+        env:
+          SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+        run: |
+          set -euo pipefail
+          comment="GitHub Actions job 'Linux S3 -> Athena E2E (install.skippr.io + full CLI flow)' failed with result '${{ needs.skippr_el_linux_s3_athena_e2e.result }}'. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          project_dir="$(mktemp -d)"
+          cd "${project_dir}"
+          skippr init bikehire
+          skippr connect warehouse athena --workgroup bikehire --region us-east-1 --result-s3 s3://skippr-e2e-sample-data-output/athena-results/ --schema bikehire
+          skippr connect source s3 --bucket skippr-e2e-sample-data --prefix bike-hire --namespace-fields event_type
+          skippr feedback --bad --comment "$comment"
 
   # ---------------------------------------------------------------------------
   # Publish skippr release
