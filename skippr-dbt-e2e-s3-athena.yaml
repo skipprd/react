@@ -1,0 +1,22 @@
+project: bike_hire_athena_e2e
+
+warehouse:
+  kind: athena
+  workgroup: bikehire
+  region: us-east-1
+  result_s3: s3://skippr-e2e-sample-data-output/athena-results/
+  schema: bikehire
+
+source:
+  kind: s3
+  s3_bucket: skippr-e2e-sample-data
+  s3_prefix: bike-hire/
+  transform:
+    namespace_fields: event_type
+
+dbt:
+  target_schema: bikehire
+
+schema_sink:
+  kind: glue
+  glue_database_name: bikehire
