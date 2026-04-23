@@ -19,6 +19,7 @@ jobs:
   react_core:
     name: Core react build + test
     runs-on: ubuntu-latest
+    environment: Skippr
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
@@ -81,6 +82,7 @@ jobs:
   skippr_test:
     name: skippr build + test
     runs-on: ubuntu-latest
+    environment: Skippr
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
@@ -150,6 +152,7 @@ jobs:
       - react_core
       - skippr_test
     timeout-minutes: 120
+    environment: Skippr
     strategy:
       fail-fast: false
       matrix:
