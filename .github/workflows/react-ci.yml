@@ -164,15 +164,8 @@ jobs:
       - name: Install skippr via install.skippr.io
         shell: bash
         run: |
-          mkdir -p bin
-          tag="${{ github.ref_name }}"
-          url="${{ env.RELEASES_BASE_URL }}/${{ env.SKIPPR_RELEASE_SUBDIR }}/${tag}/skippr-x86_64-unknown-linux-gnu.tar.gz"
-          echo "Downloading skippr ${tag} from ${url}"
-          curl -fsSL "$url" -o skippr.tar.gz
-          tar -xzf skippr.tar.gz
-          cp skippr-x86_64-unknown-linux-gnu/skippr bin/skippr
-          chmod +x bin/skippr
-          ./bin/skippr --version
+          curl -fsSL https://install.skippr.io/install.sh | sh
+          skippr --version
 
       - name: Run local CLI smoke test
         shell: bash
@@ -379,6 +372,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install dbt-core dbt-postgres
+
+      - name: Reset skippr E2E project state
+        shell: pwsh
+        env:
+          SKIPPR_API_KEY: ${{ secrets.SKIPPR_API_KEY }}
+        run: |
+          $env:PATH = "$(Get-Location)\bin;$env:PATH"
+          cmd /c "echo yes|.\bin\skippr.exe init el_mssql_postgres_e2e --reset --config .\skippr-dbt-e2e-mssql-postgres.yaml"
 
       - name: Run skippr EL + modeling pipeline
         shell: pwsh
