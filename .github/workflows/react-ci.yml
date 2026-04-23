@@ -10,6 +10,7 @@ env:
   RELEASES_BUCKET: skippr-web-install-site-prod
   SKIPPR_RELEASE_SUBDIR: skippr
   SKIPPR_LATEST_POINTER: latest-skippr.txt
+  RUST_BUILD_CACHE_BUCKET: skippr-web-rust-cache-prod
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -20,7 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
       CARGO_TARGET_DIR: target
+      SCCACHE_BUCKET: skippr-web-rust-cache-prod
+      SCCACHE_REGION: us-east-1
+      SCCACHE_S3_KEY_PREFIX: react
+      SCCACHE_S3_SERVER_SIDE_ENCRYPTION: "true"
+      SCCACHE_S3_USE_SSL: "true"
     steps:
       - uses: actions/checkout@v4
   
@@ -28,6 +37,19 @@ jobs:
         uses: ./.github/actions/setup-builder
         with:
           rust-version: stable
+
+      - name: Install sccache
+        if: env.SCCACHE_BUCKET != ''
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: v0.10.0
+
+      - name: Configure sccache
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_IDLE_TIMEOUT=0" >> $GITHUB_ENV
   
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -43,6 +65,16 @@ jobs:
       - name: Test react crate
         run: cargo test -p react --lib --tests
 
+      - name: Show sccache stats (unix)
+        if: env.SCCACHE_BUCKET != '' && runner.os != 'Windows'
+        shell: bash
+        run: sccache --show-stats
+
+      - name: Show sccache stats (windows)
+        if: env.SCCACHE_BUCKET != '' && runner.os == 'Windows'
+        shell: pwsh
+        run: sccache --show-stats
+
   # ---------------------------------------------------------------------------
   # skippr: build + unit tests
   # ---------------------------------------------------------------------------
@@ -51,7 +83,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
       CARGO_TARGET_DIR: target
+      SCCACHE_BUCKET: skippr-web-rust-cache-prod
+      SCCACHE_REGION: us-east-1
+      SCCACHE_S3_KEY_PREFIX: react
+      SCCACHE_S3_SERVER_SIDE_ENCRYPTION: "true"
+      SCCACHE_S3_USE_SSL: "true"
     steps:
       - uses: actions/checkout@v4
   
@@ -59,6 +99,19 @@ jobs:
         uses: ./.github/actions/setup-builder
         with:
           rust-version: stable
+
+      - name: Install sccache
+        if: env.SCCACHE_BUCKET != ''
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: v0.10.0
+
+      - name: Configure sccache
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_IDLE_TIMEOUT=0" >> $GITHUB_ENV
   
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -82,6 +135,11 @@ jobs:
   
       - name: Test skippr
         run: cargo test -p skippr
+
+      - name: Show sccache stats
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: sccache --show-stats
 
   # ---------------------------------------------------------------------------
   # skippr: release binaries (macOS, Linux, Windows)
@@ -110,7 +168,15 @@ jobs:
             bin_ext: ".exe"
     runs-on: ${{ matrix.runs_on }}
     env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
       CARGO_TARGET_DIR: target
+      SCCACHE_BUCKET: skippr-web-rust-cache-prod
+      SCCACHE_REGION: us-east-1
+      SCCACHE_S3_KEY_PREFIX: react
+      SCCACHE_S3_SERVER_SIDE_ENCRYPTION: "true"
+      SCCACHE_S3_USE_SSL: "true"
     steps:
       - uses: actions/checkout@v4
   
@@ -123,6 +189,26 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install sccache
+        if: env.SCCACHE_BUCKET != ''
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: v0.10.0
+
+      - name: Configure sccache (unix)
+        if: env.SCCACHE_BUCKET != '' && runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "SCCACHE_IDLE_TIMEOUT=0" >> $GITHUB_ENV
+
+      - name: Configure sccache (windows)
+        if: env.SCCACHE_BUCKET != '' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+          "SCCACHE_IDLE_TIMEOUT=0" >> $env:GITHUB_ENV
   
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -147,6 +233,11 @@ jobs:
         with:
           name: skippr-${{ matrix.target }}
           path: target\${{ matrix.target }}\release\skippr${{ matrix.bin_ext }}
+
+      - name: Show sccache stats
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: sccache --show-stats
 
   # ---------------------------------------------------------------------------
   # skippr: released-binary smoke tests (local/mocked only)
