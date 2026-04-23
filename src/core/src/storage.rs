@@ -38,6 +38,113 @@ pub fn should_retry_storage_error(err: &CoreError) -> bool {
     matches!(err, CoreError::Storage(_))
 }
 
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut out = String::with_capacity(value.len().min(max_chars) + 3);
+    for (idx, ch) in value.chars().enumerate() {
+        if idx >= max_chars {
+            out.push_str("...");
+            return out;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn summarize_storage_retry_error(err: &CoreError) -> String {
+    match err {
+        CoreError::Storage(message) => summarize_storage_retry_message(message),
+        _ => truncate_for_log(&err.to_string(), 240),
+    }
+}
+
+fn summarize_storage_retry_message(message: &str) -> String {
+    let trimmed = message.trim();
+    let raw_detail_markers = [
+        ": ServiceError(",
+        ": DispatchFailure(",
+        ": ResponseError(",
+        ": TimeoutError(",
+        ": ConstructionFailure(",
+    ];
+
+    for marker in raw_detail_markers {
+        if let Some((context, detail)) = trimmed.split_once(marker) {
+            return format!(
+                "{}: {}",
+                context.trim_end(),
+                summarize_storage_retry_detail(marker.trim_start_matches(": "), detail)
+            );
+        }
+    }
+
+    truncate_for_log(trimmed, 240)
+}
+
+fn summarize_storage_retry_detail(kind: &str, detail: &str) -> String {
+    let compact_kind = kind.trim_end_matches('(');
+    let detail = detail.trim();
+    let response_message = extract_quoted_detail_field(detail, &["message: Some(\"", "message: \""]);
+    let response_key = extract_quoted_detail_field(detail, &["key: Some(\"", "key: \""]);
+
+    let known_codes = [
+        "NoSuchKey",
+        "NotFound",
+        "AccessDenied",
+        "ExpiredToken",
+        "InvalidAccessKeyId",
+        "SlowDown",
+        "Throttling",
+        "RequestTimeout",
+    ];
+    for code in known_codes {
+        if detail.contains(code) {
+            return decorate_storage_retry_code(code, response_message.as_deref(), response_key.as_deref());
+        }
+    }
+
+    if detail.contains("ConnectorError") {
+        return format!("{compact_kind}: connector error");
+    }
+    if detail.contains("Timeout") {
+        return format!("{compact_kind}: timeout");
+    }
+    if detail.contains("Credentials") || detail.contains("credential") {
+        return format!("{compact_kind}: credentials error");
+    }
+
+    format!("{compact_kind}: {}", truncate_for_log(detail, 120))
+}
+
+fn extract_quoted_detail_field(detail: &str, patterns: &[&str]) -> Option<String> {
+    for pattern in patterns {
+        if let Some((_, rest)) = detail.split_once(pattern) {
+            if let Some((value, _)) = rest.split_once('"') {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn decorate_storage_retry_code(
+    code: &str,
+    response_message: Option<&str>,
+    response_key: Option<&str>,
+) -> String {
+    let mut extras = Vec::new();
+    if let Some(message) = response_message {
+        extras.push(format!("message: {}", truncate_for_log(message, 120)));
+    }
+    if let Some(key) = response_key {
+        extras.push(format!("response_key: {}", truncate_for_log(key, 120)));
+    }
+    if extras.is_empty() {
+        code.to_string()
+    } else {
+        format!("{code} ({})", extras.join(", "))
+    }
+}
+
 pub async fn retry_storage_call<T, Fut, F>(
     operation: &'static str,
     target_kind: &'static str,
@@ -78,8 +185,17 @@ where
                     retry_count,
                     max_retries = SAFE_STORAGE_RETRY_DELAYS_MS.len(),
                     backoff_ms,
-                    error = %err,
+                    error = %summarize_storage_retry_error(&err),
                     "storage operation failed; retrying"
+                );
+                tracing::debug!(
+                    operation,
+                    target_kind,
+                    target,
+                    retry_count,
+                    backoff_ms,
+                    full_error = %err,
+                    "storage retry raw error detail"
                 );
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
             }
@@ -149,4 +265,44 @@ pub async fn retry_list_prefix(
         storage.list_prefix(prefix)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{summarize_storage_retry_error, truncate_for_log};
+    use crate::error::CoreError;
+
+    #[test]
+    fn storage_retry_summary_extracts_s3_error_code() {
+        let err = CoreError::Storage("s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): ServiceError(ServiceError { source: NoSuchKey(NoSuchKey { message: Some(\"The specified key does not exist.\"), meta: ErrorMetadata { code: Some(\"NoSuchKey\") } }) })".to_string());
+
+        assert_eq!(
+            summarize_storage_retry_error(&err),
+            "s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): NoSuchKey (message: The specified key does not exist.)"
+        );
+    }
+
+    #[test]
+    fn storage_retry_summary_includes_response_key_when_present() {
+        let err = CoreError::Storage("s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): ServiceError(ServiceError { source: NoSuchKey(NoSuchKey { message: Some(\"The specified key does not exist.\"), key: Some(\"missing/thread.json\"), meta: ErrorMetadata { code: Some(\"NoSuchKey\") } }) })".to_string());
+
+        assert_eq!(
+            summarize_storage_retry_error(&err),
+            "s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): NoSuchKey (message: The specified key does not exist., response_key: missing/thread.json)"
+        );
+    }
+
+    #[test]
+    fn storage_retry_summary_truncates_unstructured_errors() {
+        let err = CoreError::Storage("x".repeat(400));
+        let summary = summarize_storage_retry_error(&err);
+
+        assert!(summary.len() <= 243);
+        assert!(summary.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_for_log_keeps_short_strings_unchanged() {
+        assert_eq!(truncate_for_log("short", 10), "short");
+    }
 }
