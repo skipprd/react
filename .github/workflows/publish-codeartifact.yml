@@ -15,6 +15,7 @@ env:
   CODEARTIFACT_DOMAIN: skippr
   CODEARTIFACT_REPOSITORY: react-cargo
   CODEARTIFACT_DOMAIN_OWNER: "132355036174"
+  RUST_BUILD_CACHE_BUCKET: skippr-web-rust-cache-prod
   REACT_CRATES: >-
     react-http-protocol
     react-core
@@ -38,6 +39,11 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+      SCCACHE_BUCKET: skippr-web-rust-cache-prod
+      SCCACHE_REGION: us-east-1
+      SCCACHE_S3_KEY_PREFIX: react-publish
+      SCCACHE_S3_SERVER_SIDE_ENCRYPTION: "true"
+      SCCACHE_S3_USE_SSL: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +51,24 @@ jobs:
         uses: ./.github/actions/setup-builder
         with:
           rust-version: stable
+
+      - name: Install sccache
+        if: env.SCCACHE_BUCKET != ''
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: v0.10.0
+
+      - name: Configure sccache
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo "SCCACHE_IDLE_TIMEOUT=0" >> "$GITHUB_ENV"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: v2-react-publish
 
       - name: Resolve publish version
         id: version
@@ -114,3 +138,8 @@ jobs:
             fi
             cargo publish --registry react-cargo --no-verify -p "$crate"
           done
+
+      - name: Show sccache stats
+        if: env.SCCACHE_BUCKET != ''
+        shell: bash
+        run: sccache --show-stats
