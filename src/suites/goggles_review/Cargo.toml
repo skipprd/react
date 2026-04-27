@@ -1,7 +1,10 @@
 [package]
 name = "react-suite-goggles-review"
-version = "0.0.0-git"
+version = "1.2.1"
 edition = "2021"
+description = "Private Skippr React crate: react-suite-goggles-review"
+license = "Apache-2.0"
+publish = ["react-cargo"]
 
 [dependencies]
 async-trait = "0.1.77"
@@ -12,4 +15,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
 
-react-core = { path = "../../core" }
+react-core = { path = "../../core", version = "1.2.1", registry = "react-cargo" }

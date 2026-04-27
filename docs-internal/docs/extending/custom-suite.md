@@ -104,12 +104,11 @@ See [Custom Tool](custom-tool.md) for implementing tools.
 
 ### 4. Register the suite
 
-Add the suite to the registry in `src/suites/react-suites/src/registry.rs`:
+Add the suite to the registry in your host:
 
 ```rust
 pub fn default_registry() -> SuiteRegistry {
     let mut reg = SuiteRegistry::new();
-    reg.register(crate::data_engineer::DataEngineerSuite);
     reg.register(crate::kb::KbSuite);
     reg.register(crate::my_suite::MySuite);
     reg
@@ -118,7 +117,7 @@ pub fn default_registry() -> SuiteRegistry {
 
 ### 5. Export the module
 
-Add `pub mod my_suite;` to `src/suites/react-suites/src/lib.rs`.
+Export the suite module from the crate that owns it.
 
 ## Choosing a policy
 

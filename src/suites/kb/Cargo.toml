@@ -1,7 +1,10 @@
 [package]
 name = "react-suite-kb"
-version = "0.0.0-git"
+version = "1.2.1"
 edition = "2021"
+description = "Private Skippr React crate: react-suite-kb"
+license = "Apache-2.0"
+publish = ["react-cargo"]
 
 [dependencies]
 async-trait = "0.1.77"
@@ -11,5 +14,4 @@ serde_json = "1.0.85"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2.3.2"
 
-react-core = { path = "../../core" }
-react-suite-data-engineer = { path = "../data_engineer" }
+react-core = { path = "../../core", version = "1.2.1", registry = "react-cargo" }

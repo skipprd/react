@@ -493,7 +493,6 @@ async fn suites_request_requires_cid_and_v() {
         keyspace,
     );
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
     reg.register(react_suite_kb::KbSuite);
     let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx, None);
@@ -516,7 +515,6 @@ async fn delete_request_requires_cid_and_v() {
         keyspace,
     );
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
     reg.register(react_suite_kb::KbSuite);
     let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx, None);
@@ -592,7 +590,6 @@ async fn plans_request_returns_latest_plan_and_model_when_present() {
         keyspace.clone(),
     );
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
     reg.register(react_suite_kb::KbSuite);
     let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
@@ -667,7 +664,6 @@ async fn plans_request_includes_checklist_and_omits_notes() {
         keyspace.clone(),
     );
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
     reg.register(react_suite_kb::KbSuite);
     let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
@@ -732,7 +728,7 @@ async fn plans_request_includes_checklist_and_omits_notes() {
     assert_eq!(frames.len(), 1);
 
     let v: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
-    // planKind "cleanse" comes from data_engineer suite's load_ws_plans (files *_cleanse.json)
+    // planKind "cleanse" comes from generic plan loader (files *_cleanse.json)
     let test_plan_snap = v
         .get("plans")
         .and_then(|x| x.as_array())
@@ -774,7 +770,6 @@ async fn plans_request_surfaces_parse_error_snapshot_for_corrupt_plan_json() {
         keyspace.clone(),
     );
     let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_data_engineer::DataEngineerSuite);
     reg.register(react_suite_kb::KbSuite);
     let reg = Arc::new(reg);
     let mut state = ConnState::new(reg, suite_ctx.clone(), None);
@@ -795,7 +790,7 @@ async fn plans_request_surfaces_parse_error_snapshot_for_corrupt_plan_json() {
     let msg = json!({"v":1,"type":"plans","cid":"c1","thread_id":thread_id}).to_string();
     let frames = handle_message(&msg, &mut state).await.unwrap();
     let v: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
-    // planKind "cleanse" comes from data_engineer suite's load_ws_plans (files *_cleanse.json)
+    // planKind "cleanse" comes from generic plan loader (files *_cleanse.json)
     let test_plan_snap = v
         .get("plans")
         .and_then(|x| x.as_array())

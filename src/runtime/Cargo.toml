@@ -1,7 +1,10 @@
 [package]
 name = "react"
-version = "0.0.0-git"
+version = "1.2.1"
 edition = "2021"
+description = "Private Skippr React crate: react"
+license = "Apache-2.0"
+publish = ["react-cargo"]
 
 [dependencies]
 async-trait = "0.1.77"
@@ -30,15 +33,15 @@ walkdir = { version = "2.3.2", features = [] }
 itertools = "0.12"
 hex = "0.4.3"
 ureq = { version = "2", features = ["json"] }
-react-core = { path = "../core" }
-react-http-protocol = { path = "../http-protocol" }
-react-module-storage-s3 = { path = "../modules/adaptors/storage-s3" }
-react-module-storage-local = { path = "../modules/adaptors/storage-local" }
-react-transport = { path = "../transport" }
+react-core = { path = "../core", version = "1.2.1", registry = "react-cargo" }
+react-http-protocol = { path = "../http-protocol", version = "1.2.1", registry = "react-cargo" }
+react-module-storage-s3 = { path = "../modules/adaptors/storage-s3", version = "1.2.1", registry = "react-cargo" }
+react-module-storage-local = { path = "../modules/adaptors/storage-local", version = "1.2.1", registry = "react-cargo" }
+react-transport = { path = "../transport", version = "1.2.1", registry = "react-cargo" }
 
 [dev-dependencies]
 httpmock = "0.7"
-react-module-storage-memory = { path = "../modules/adaptors/storage-memory" }
+react-module-storage-memory = { path = "../modules/adaptors/storage-memory", version = "1.2.1", registry = "react-cargo" }
 
 [features]
 llama_cpp = []

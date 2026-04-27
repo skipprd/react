@@ -1,7 +1,10 @@
 [package]
 name = "react-http-protocol"
-version = "0.0.0-git"
+version = "1.2.1"
 edition = "2021"
+description = "Private Skippr React crate: react-http-protocol"
+license = "Apache-2.0"
+publish = ["react-cargo"]
 
 [dependencies]
 serde = { version = "1.0.105", features = ["derive"] }

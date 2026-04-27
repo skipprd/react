@@ -32,7 +32,7 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
         let sys = prompts::system_prompt();
         let tools_card = prompts::tool_card();
 
-        let mut actx = react_core::agent::AgentCtxBuilder::new(
+        let actx = react_core::agent::AgentCtxBuilder::new(
             self.sctx.llm().clone(),
             self.sctx.storage().clone(),
             self.sctx.scope().clone(),
@@ -48,7 +48,6 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
         .vector(self.sctx.vector().clone())
         .thread_store(self.thread_store.clone())
         .build();
-        react_suite_data_engineer::copy_capabilities_to_actx(self.sctx, &mut actx);
 
         let llm_opts = {
             let max_out: u32 = std::env::var("LLM_KB_MAX_TOKENS")

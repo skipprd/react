@@ -15,7 +15,7 @@ The agent runs to completion and exits. Progress is printed to stdout.
 | Flag | Required | Default | Description |
 |---|---|---|---|
 | `--config` | Yes | | Path to YAML config file. Can be specified multiple times for parallel runs. |
-| `--suite-id` | No | `data_engineer` | Suite to run |
+| `--suite-id` | No | host default | Suite to run |
 | `--agent` | No | suite default | Agent type (`ask`, `agent`, `kb`, `review`) |
 | `--thread-id` | No | auto-generated | Resume an existing thread |
 | `--parallel` | No | off | Run multiple configs concurrently |
@@ -25,7 +25,7 @@ The agent runs to completion and exits. Progress is printed to stdout.
 
 Pass `--thread-id` to continue a previously interrupted thread:
 
-Use the host-specific CLI for resume semantics. In `skippr`, the most recent project thread is resumed automatically when appropriate.
+Use the host-specific CLI for resume semantics. Host CLIs define their own resume semantics.
 
 ## Parallel execution
 

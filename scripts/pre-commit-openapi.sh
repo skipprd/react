@@ -39,7 +39,6 @@ ensure_core_generator_available() {
 }
 
 needs_core_codegen=false
-needs_suite_check=false
 
 if staged_matches <<'EOF'
 src/runtime/openapi/ws-core.yaml
@@ -51,16 +50,7 @@ then
   needs_core_codegen=true
 fi
 
-if staged_matches <<'EOF'
-suites/data_engineer/openapi/ws-data-engineer.yaml
-scripts/gen-openapi-suite-data-engineer.sh
-scripts/check-openapi-drift-suite-data-engineer.sh
-EOF
-then
-  needs_suite_check=true
-fi
-
-if [[ "${needs_core_codegen}" == "false" && "${needs_suite_check}" == "false" ]]; then
+if [[ "${needs_core_codegen}" == "false" ]]; then
   exit 0
 fi
 
@@ -70,10 +60,6 @@ if [[ "${needs_core_codegen}" == "true" ]]; then
   ./scripts/gen-openapi-core.sh
   git add -- "src/transport/src/ws/api_gen"
   ./scripts/check-openapi-drift-core.sh >/dev/null
-fi
-
-if [[ "${needs_suite_check}" == "true" ]]; then
-  ./scripts/check-openapi-drift-suite-data-engineer.sh >/dev/null
 fi
 
 echo "OpenAPI pre-commit checks passed."

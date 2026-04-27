@@ -224,6 +224,7 @@ pub async fn run_headless(
     });
 
     let requested_tid = opts.thread_id.clone();
+    let suite_id = opts.suite_id.clone();
     let tid = crate::ws::server::run_headless_with_hub(
         ctx.clone(),
         opts.thread_id,
@@ -254,7 +255,7 @@ pub async fn run_headless(
 
     // Check ControlState for execution outcome (primary source of truth).
     if let Ok(Some(outcome)) = control
-        .load::<serde_json::Value>(&thread_id, "data_engineer")
+        .load::<serde_json::Value>(&thread_id, &suite_id)
         .await
     {
         if let Some(mode) = outcome

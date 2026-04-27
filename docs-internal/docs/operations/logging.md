@@ -26,7 +26,7 @@ Use this as a quick lookup: **event → meaning → action**.
 | Log event | Meaning | Action |
 |---|---|---|
 | `Starting WebSocket server on port ...` | Server startup | None |
-| `Suite registry: [data_engineer, kb]` | Suites loaded | Verify expected suites are present |
+| `Suite registry: [kb, custom_suite]` | Suites loaded | Verify expected suites are present |
 | `Thread created: ...` | New thread started | None |
 | `Phase transition: ... → ...` | Agent moved to next phase | None |
 | `Tool call: ... (args=...)` | Tool execution started | None |

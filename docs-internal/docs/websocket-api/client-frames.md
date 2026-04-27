@@ -36,8 +36,8 @@ Create a new thread and optionally start the agent with an initial question.
 
 | Field | Required | Description |
 |---|---|---|
-| `suiteId` | Yes | Suite to use (e.g. `data_engineer`, `kb`) |
-| `agentType` | Yes | Agent mode (`ask`, `agent`, `kb`, `review`) |
+| `suiteId` | Yes | Suite to use (e.g. `kb` or a host-provided suite) |
+| `agentType` | Yes | Agent mode supported by that suite |
 | `question` | No | Initial message. If absent, creates an empty thread. |
 
 ```json
@@ -45,9 +45,9 @@ Create a new thread and optionally start the agent with an initial question.
   "v": 1,
   "type": "new",
   "cid": "a1111111-2222-3333-4444-555555555555",
-  "suiteId": "data_engineer",
-  "agentType": "agent",
-  "question": "What were total rides last week?"
+  "suiteId": "kb",
+  "agentType": "kb",
+  "question": "Summarize the indexed docs."
 }
 ```
 
@@ -70,8 +70,8 @@ Reopen an existing thread and optionally send a nudge message.
   "type": "open",
   "cid": "...",
   "thread_id": "7c19291d-2218-4d51-adfe-901e9fd30835",
-  "suiteId": "data_engineer",
-  "agentType": "agent"
+  "suiteId": "kb",
+  "agentType": "kb"
 }
 ```
 

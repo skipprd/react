@@ -102,16 +102,16 @@ Open a WebSocket connection to `ws://localhost:8787/` using any WS client (e.g. 
 
 The server responds with the registered suites and their allowed agent types.
 
-Start a new thread with the Data Engineer suite:
+Start a new thread with a host-registered suite:
 
 ```json
 {
   "v": 1,
   "type": "new",
   "cid": "00000000-0000-0000-0000-000000000002",
-  "suiteId": "data_engineer",
-  "agentType": "agent",
-  "question": "What tables are available in my dataset?"
+  "suiteId": "kb",
+  "agentType": "kb",
+  "question": "Summarize the project knowledge base."
 }
 ```
 
@@ -119,9 +119,9 @@ The server responds with `thread_assigned`, then streams `phase`, `tool_start`, 
 
 ## What just happened?
 
-1. **serve** — started the WebSocket server, loaded config, and initialised providers (warehouse, catalog, dbt, vector, storage)
-2. **suites** — returned the registered suites (`data_engineer`, `kb`) and their allowed agent modes
-3. **new** — created a thread, ran the Data Engineer suite's preflight (catalog discovery), then entered the ReAct loop: LLM call → tool execution → observation → repeat until final
+1. **serve** — started the WebSocket server, loaded config, and initialised host-provided capabilities
+2. **suites** — returned the registered suites and their allowed agent modes
+3. **new** — created a thread, then entered the ReAct loop: LLM call → tool execution → observation → repeat until final
 4. **final** — the agent produced a validated result, persisted the thread to storage, and streamed the answer back
 
 ## Next steps

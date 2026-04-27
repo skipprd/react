@@ -286,7 +286,7 @@ fn extract_target_thread_id(question: &str) -> Option<String> {
 
 fn extract_target_suite_id(question: &str) -> Option<String> {
     let lower = question.to_lowercase();
-    let known = ["data_engineer", "kb", "suite_debugger"];
+    let known = ["kb", "suite_debugger"];
     for id in &known {
         if lower.contains(id) {
             return Some(id.to_string());
@@ -298,34 +298,6 @@ fn extract_target_suite_id(question: &str) -> Option<String> {
 fn infer_target_suite_id(summary: &analysis::ThreadSummary) -> Option<String> {
     let phase_names: Vec<&str> = summary.phases.iter().map(|p| p.name.as_str()).collect();
     let tool_names: Vec<&str> = summary.tool_calls.iter().map(|t| t.name.as_str()).collect();
-
-    let looks_like_data_engineer = phase_names.iter().any(|name| {
-        matches!(
-            *name,
-            "preflight"
-                | "plan"
-                | "author"
-                | "review"
-                | "validate"
-                | "publish"
-                | "el_discover"
-                | "el_sync"
-                | "el_verify"
-        )
-    }) || tool_names.iter().any(|name| {
-        matches!(
-            *name,
-            "dbt_validate"
-                | "vect_query"
-                | "publish_dbt_to_provider"
-                | "catalog_note"
-                | "apply_next_batch"
-                | "apply_next_schema_batch"
-        )
-    });
-    if looks_like_data_engineer {
-        return Some("data_engineer".to_string());
-    }
 
     let looks_like_kb = phase_names.iter().any(|name| *name == "kb")
         || tool_names
@@ -358,28 +330,6 @@ fn build_llm_options(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn infers_data_engineer_suite_from_tools() {
-        let summary = analysis::ThreadSummary {
-            total_steps: 0,
-            phases: vec![],
-            llm_calls: 0,
-            tool_calls: vec![analysis::ToolCallSummary {
-                name: "dbt_validate".to_string(),
-                count: 1,
-                successes: 1,
-                failures: 0,
-            }],
-            total_duration_ms: None,
-            issues: vec![],
-            result: None,
-        };
-        assert_eq!(
-            infer_target_suite_id(&summary).as_deref(),
-            Some("data_engineer")
-        );
-    }
 
     #[test]
     fn strict_audit_uses_larger_output_budget() {

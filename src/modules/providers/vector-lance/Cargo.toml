@@ -1,7 +1,10 @@
 [package]
 name = "react-module-provider-vector-lance"
-version = "0.0.0-git"
+version = "1.2.1"
 edition = "2021"
+description = "Private Skippr React crate: react-module-provider-vector-lance"
+license = "Apache-2.0"
+publish = ["react-cargo"]
 
 [dependencies]
 async-trait = "0.1.77"
