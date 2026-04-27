@@ -44,6 +44,18 @@ isProject: false
 - Adoption messaging should sell `time-to-trusted-data-product` and `time-to-AI-ready warehouse assets`, not connector parity.
 - ELT comparison pages against Airbyte, Fivetran, dbt, Glue, and similar tools are still useful for SEO and buyer translation, but they should support the story rather than define it.
 
+# Moat
+
+- Data: Propretory data
+- Workflow: Considered weak, but embedded deep enough into the clients business can protect you
+- Regulatory: Legal, financial, safetry, etc
+- Distribution: Proprietry locked in (e.g. accountants agree to only use intuit)
+- Ecosystem: Many tools/services/plugins build onto of you
+- Network: Door dash, Facebook, etc
+- Physical Infra: Hard to displace
+- Scale: By virtue of your scale, your costs make you hard to disrupt
+- Brand: 
+
 ## Moat sanity check
 
 - `Workflow ownership`: strong and aligned with VC thinking. The best near-term moat candidate is owning the repeated workflow from discovery and sync through modeling, validation, review, feedback, and publication, rather than owning a point feature.

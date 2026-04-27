@@ -90,6 +90,24 @@ pub trait Keyspace: Send + Sync {
             &["feedback", thread_id, &format!("{feedback_id}.json")],
         ))
     }
+
+    fn thread_feedback_diagnostics_key(
+        &self,
+        scope: &RequestScope,
+        thread_id: &str,
+        feedback_id: &str,
+    ) -> Result<String, CoreError> {
+        ensure_safe_scope_segment("thread_id", thread_id).map_err(ks_err)?;
+        ensure_safe_scope_segment("feedback_id", feedback_id).map_err(ks_err)?;
+        Ok(self.scoped_key(
+            scope,
+            &[
+                "feedback",
+                thread_id,
+                &format!("{feedback_id}.diagnostics.json"),
+            ],
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]

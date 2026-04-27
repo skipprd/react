@@ -28,6 +28,14 @@ pub struct ThreadFeedback {
     pub resolved_at: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ThreadFeedbackDiagnostics {
+    pub feedback_id: String,
+    pub thread_id: String,
+    pub created_at: String,
+    pub payload: serde_json::Value,
+}
+
 pub struct ThreadFeedbackStore {
     storage: Arc<dyn StorageAdapter>,
     scope: RequestScope,
@@ -111,11 +119,49 @@ impl ThreadFeedbackStore {
             .find(|feedback| feedback.feedback_id == feedback_id))
     }
 
+    pub async fn submit_diagnostics(
+        &self,
+        feedback: &ThreadFeedback,
+        payload: serde_json::Value,
+    ) -> CoreResult<ThreadFeedbackDiagnostics> {
+        let diagnostics = ThreadFeedbackDiagnostics {
+            feedback_id: feedback.feedback_id.clone(),
+            thread_id: feedback.thread_id.clone(),
+            created_at: Utc::now().to_rfc3339(),
+            payload,
+        };
+        let key = self.keyspace.thread_feedback_diagnostics_key(
+            &self.scope,
+            &feedback.thread_id,
+            &feedback.feedback_id,
+        )?;
+        let value = serde_json::to_value(&diagnostics)?;
+        retry_put_json(self.storage.as_ref(), &key, &value).await?;
+        Ok(diagnostics)
+    }
+
+    pub async fn get_diagnostics(
+        &self,
+        thread_id: &str,
+        feedback_id: &str,
+    ) -> CoreResult<Option<ThreadFeedbackDiagnostics>> {
+        let key =
+            self.keyspace
+                .thread_feedback_diagnostics_key(&self.scope, thread_id, feedback_id)?;
+        match retry_head_etag(self.storage.as_ref(), &key).await? {
+            Some(_) => {
+                let value = retry_get_json(self.storage.as_ref(), &key).await?;
+                Ok(Some(serde_json::from_value(value)?))
+            }
+            None => Ok(None),
+        }
+    }
+
     async fn load_prefix(&self, prefix: &str) -> CoreResult<Vec<ThreadFeedback>> {
         let keys = retry_list_prefix(self.storage.as_ref(), prefix).await?;
         let mut out = Vec::new();
         for key in keys {
-            if !key.ends_with(".json") {
+            if !key.ends_with(".json") || key.ends_with(".diagnostics.json") {
                 continue;
             }
             let value = retry_get_json(self.storage.as_ref(), &key).await?;
@@ -209,6 +255,45 @@ mod tests {
         assert_eq!(all_feedback.len(), 1);
         assert_eq!(all_feedback[0].feedback_id, submitted.feedback_id);
         assert!(all_feedback[0].resolved);
+    }
+
+    #[tokio::test]
+    async fn diagnostics_are_stored_as_sidecar_and_not_listed_as_feedback() {
+        let storage = Arc::new(InMemoryStorageAdapter::default()) as Arc<dyn StorageAdapter>;
+        let keyspace = Arc::new(DefaultKeyspace::new("b".to_string())) as Arc<dyn Keyspace>;
+        let scope = RequestScope::parse("t", "w", "p").unwrap();
+        storage
+            .put_json(
+                &keyspace.thread_key(&scope, "thread-1").unwrap(),
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        let store = ThreadFeedbackStore::new(storage.clone(), scope.clone(), keyspace.clone());
+
+        let submitted = store
+            .submit("thread-1", ThreadFeedbackVerdict::Bad, "failed")
+            .await
+            .unwrap();
+        store
+            .submit_diagnostics(
+                &submitted,
+                serde_json::json!({ "config": { "warehouse": "snowflake" } }),
+            )
+            .await
+            .unwrap();
+
+        let all_feedback = store.list_all().await.unwrap();
+        assert_eq!(all_feedback.len(), 1);
+        assert_eq!(all_feedback[0].feedback_id, submitted.feedback_id);
+
+        let diagnostics = store
+            .get_diagnostics(&submitted.thread_id, &submitted.feedback_id)
+            .await
+            .unwrap()
+            .expect("diagnostics sidecar");
+        assert_eq!(diagnostics.feedback_id, submitted.feedback_id);
+        assert_eq!(diagnostics.payload["config"]["warehouse"], "snowflake");
     }
 
     #[tokio::test]
