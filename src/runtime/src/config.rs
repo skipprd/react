@@ -7,6 +7,8 @@ use rc::{LlmProvider, StorageMode};
 use react_core::resolved_config as rc;
 use react_core::scope::RequestScope;
 
+pub const DEFAULT_OPENAI_COMPAT_BASE_URL: &str = "https://api.openai.com";
+
 /// # `react` configuration
 ///
 /// App-owned hosts load a **YAML** config file via `--config <PATH>`.
@@ -284,7 +286,9 @@ fn resolve_config_inner(
     };
     let llm = LlmResolved {
         provider,
-        base_url: getenv_nonempty("LLM_BASE_URL").or(llmf.base_url),
+        base_url: getenv_nonempty("LLM_BASE_URL")
+            .or(llmf.base_url)
+            .or_else(|| Some(DEFAULT_OPENAI_COMPAT_BASE_URL.to_string())),
         reason_model: getenv_nonempty("LLM_REASON_MODEL").or(llmf.reason_model),
         task_model: getenv_nonempty("LLM_TASK_MODEL").or(llmf.task_model),
         embed_model: getenv_nonempty("LLM_EMBED_MODEL").or(llmf.embed_model),
@@ -469,6 +473,22 @@ mod tests {
             assert_eq!(cfg.storage.mode, StorageMode::Local);
             assert!(cfg.storage.bucket.is_none());
             assert!(cfg.storage.path.as_ref().is_some());
+        });
+    }
+
+    #[test]
+    fn resolve_defaults_openai_compat_base_url() {
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                providers: Some(minimal_providers_json()),
+                ..Default::default()
+            };
+            let cfg = resolve_config(file, ServeOverrides::default()).expect("resolve");
+            assert_eq!(
+                cfg.llm.base_url.as_deref(),
+                Some(DEFAULT_OPENAI_COMPAT_BASE_URL)
+            );
         });
     }
 

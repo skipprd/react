@@ -71,6 +71,7 @@ pub fn llm_base_url() -> Option<String> {
     resolved_config()
         .and_then(|cfg| cfg.llm.base_url.clone())
         .or_else(|| env_opt("LLM_BASE_URL"))
+        .or_else(|| Some(crate::config::DEFAULT_OPENAI_COMPAT_BASE_URL.to_string()))
 }
 
 pub fn llm_api_key() -> Option<String> {

@@ -62,6 +62,24 @@ mod tests {
         chat_mock.assert();
         emb_mock.assert();
     }
+
+    #[test]
+    fn defaults_base_url_to_openai_compat_endpoint() {
+        let llm = OpenAICompatModel::new(LlmConfig {
+            provider: LlmProviderType::OpenAICompat,
+            base_url: None,
+            reason_model: Some("gpt-test".to_string()),
+            task_model: None,
+            embed_model: Some("text-emb".to_string()),
+            api_key: None,
+            gpu_layers: None,
+            context_length: Some(1024),
+        });
+        assert_eq!(
+            llm.base_url(),
+            crate::config::DEFAULT_OPENAI_COMPAT_BASE_URL
+        );
+    }
 }
 use super::types::{
     classify_oai_error, extract_response_text, pretty_json, OaiChatMessage, OaiChatReq,
@@ -90,6 +108,13 @@ impl OpenAICompatModel {
             .build();
         Self { cfg, agent }
     }
+
+    fn base_url(&self) -> String {
+        self.cfg
+            .base_url
+            .clone()
+            .unwrap_or_else(|| crate::config::DEFAULT_OPENAI_COMPAT_BASE_URL.to_string())
+    }
 }
 
 impl LargeLanguageModel for OpenAICompatModel {
@@ -98,11 +123,7 @@ impl LargeLanguageModel for OpenAICompatModel {
         messages: &[ChatMessage],
         options: &react_core::llm::LlmCallOptions,
     ) -> Result<String, String> {
-        let base = self
-            .cfg
-            .base_url
-            .clone()
-            .ok_or_else(|| "missing base_url".to_string())?;
+        let base = self.base_url();
         let model = options
             .model
             .clone()
@@ -542,11 +563,7 @@ impl LargeLanguageModel for OpenAICompatModel {
         }
     }
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        let base = self
-            .cfg
-            .base_url
-            .clone()
-            .ok_or_else(|| "missing base_url".to_string())?;
+        let base = self.base_url();
         let model = self
             .cfg
             .embed_model
