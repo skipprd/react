@@ -42,7 +42,8 @@ pub async fn build_base_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<Suite
             .ok_or_else(|| "missing storage.path for local mode".to_string())?;
         let storage = LocalFileStorageAdapter::new(root.clone())
             .map(Arc::new)
-            .map_err(|error| error.to_string())? as Arc<dyn react_core::storage::StorageAdapter>;
+            .map_err(|error| error.to_string())?
+            as Arc<dyn react_core::storage::StorageAdapter>;
         let keyspace = Arc::new(LocalKeyspace::new(root)) as Arc<dyn Keyspace>;
         (storage, keyspace)
     } else {
@@ -52,16 +53,8 @@ pub async fn build_base_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<Suite
             .clone()
             .ok_or_else(|| "missing storage.bucket for s3 mode".to_string())?;
         let storage = if let Some(creds) = s3_creds {
-            Arc::new(
-                S3StorageAdapter::from_credentials(
-                    bucket.clone(),
-                    &creds.access_key_id,
-                    &creds.secret_access_key,
-                    creds.session_token.as_deref(),
-                    &creds.region,
-                )
-                .await,
-            ) as Arc<dyn react_core::storage::StorageAdapter>
+            Arc::new(S3StorageAdapter::from_resolved_credentials(bucket.clone(), creds).await)
+                as Arc<dyn react_core::storage::StorageAdapter>
         } else {
             Arc::new(S3StorageAdapter::from_env(bucket.clone()).await)
                 as Arc<dyn react_core::storage::StorageAdapter>

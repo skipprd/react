@@ -1,7 +1,9 @@
 use crate::scope::RequestScope;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
 // ── Enums that replace stringly-typed dispatch ──────────────────────────
 
@@ -108,12 +110,38 @@ pub struct ServerResolved {
     pub port: u16,
 }
 
-#[derive(Clone, Debug)]
+#[async_trait]
+pub trait S3CredentialsProvider: Send + Sync {
+    async fn s3_credentials(&self) -> Result<S3Credentials, String>;
+}
+
+#[derive(Clone)]
 pub struct S3Credentials {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub region: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub provider: Option<Arc<dyn S3CredentialsProvider>>,
+}
+
+impl fmt::Debug for S3Credentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("S3Credentials")
+            .field("access_key_id", &"<redacted>")
+            .field("secret_access_key", &"<redacted>")
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("region", &self.region)
+            .field("expires_at", &self.expires_at)
+            .field(
+                "provider",
+                &self.provider.as_ref().map(|_| "S3CredentialsProvider"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]

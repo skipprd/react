@@ -1,6 +1,6 @@
 [package]
 name = "react-module-provider-vector-lance"
-version = "1.2.1"
+version = "1.2.2"
 edition = "2021"
 description = "Private Skippr React crate: react-module-provider-vector-lance"
 license = "Apache-2.0"
