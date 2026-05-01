@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::error::{CoreError, CoreResult};
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
-use crate::storage::{ConditionalWriteStatus, StorageAdapter};
+use crate::storage::{should_retry_storage_error, ConditionalWriteStatus, StorageAdapter};
 
 use super::{
     session_write_lock, ControlStateEnvelope, LoadState, VersionedValue,
@@ -90,10 +90,6 @@ impl ControlStateStore {
         })
     }
 
-    fn should_retry_storage_error(err: &CoreError) -> bool {
-        matches!(err, CoreError::Storage(_))
-    }
-
     async fn retry_storage_call<T, Fut, F>(
         &self,
         operation: &'static str,
@@ -119,7 +115,7 @@ impl ControlStateStore {
                     return Ok(value);
                 }
                 Err(err) => {
-                    if !Self::should_retry_storage_error(&err)
+                    if !should_retry_storage_error(&err)
                         || retry_count == CONTROL_STATE_STORAGE_RETRY_DELAYS_MS.len()
                     {
                         return Err(err);
