@@ -544,6 +544,7 @@ async fn headless_run_requires_existing_thread_when_thread_id_provided() {
         "agent".to_string(),
         hub,
         SuiteRegistry::new(),
+        None,
     )
     .await
     .unwrap_err();

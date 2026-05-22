@@ -208,6 +208,10 @@ pub async fn run_headless_with_hub(
     agent: String,
     hub: EventHub,
     registry: SuiteRegistry,
+    // When starting a new thread (`thread_id` is `None`), used as the initial `question` in the
+    // `new` frame (default `"go"`). When resuming (`thread_id` is `Some`), used as the `question`
+    // in the `open` frame (default `"continue"`).
+    headless_prompt: Option<String>,
 ) -> Result<String, String> {
     use serde_json::json;
     use std::collections::VecDeque;
@@ -295,6 +299,10 @@ pub async fn run_headless_with_hub(
             return Err(format!("thread does not exist: {}", tid));
         }
 
+        let question = headless_prompt
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "continue".to_string());
         let v = json!({
             "v": 1,
             "type": "open",
@@ -302,7 +310,7 @@ pub async fn run_headless_with_hub(
             "thread_id": tid,
             "suiteId": suite_id,
             "agentType": agent,
-            "question": "continue"
+            "question": question
         });
         let tid = v
             .get("thread_id")
@@ -313,14 +321,17 @@ pub async fn run_headless_with_hub(
         return Ok(tid);
     }
 
-    // Create a new thread with an initial "go" prompt.
+    // Create a new thread with an initial prompt (default "go" for modeling compatibility).
+    let question = headless_prompt
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "go".to_string());
     let v = json!({
         "v": 1,
         "type": "new",
         "cid": "headless",
         "suiteId": suite_id,
         "agentType": agent,
-        "question": "go"
+        "question": question
     });
     process_new(&v, &mut state, &mut write).await?;
 

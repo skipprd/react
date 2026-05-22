@@ -61,8 +61,14 @@ pub(super) async fn run_suite_and_stream(
 
 fn build_interrupt_policy(cid: &str) -> Arc<dyn InterruptPolicy> {
     let headless = env_bool("REACT_HEADLESS", false) || crate::ws::terminal::enabled();
+    let ide_chat = std::env::var("SKIPPR_EXECUTION_SURFACE")
+        .map(|v| v == "ide_chat")
+        .unwrap_or(false);
+    if ide_chat {
+        return Arc::new(react_core::interrupt::WsInterruptPolicy);
+    }
     if cid == "headless" || headless {
-        let auto_approve = env_bool("REACT_HEADLESS_AUTO_APPROVE", true);
+        let auto_approve = env_bool("REACT_HEADLESS_AUTO_APPROVE", false);
         if auto_approve {
             Arc::new(react_core::interrupt::AutoApprovePolicy)
         } else {

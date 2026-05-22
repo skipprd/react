@@ -314,6 +314,36 @@ async fn append_step_if_new_deduplicates_interrupt_and_complete() {
 }
 
 #[tokio::test]
+async fn append_complete_step_updates_thread_result() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+    let tid = "tid-complete-result";
+
+    store
+        .append_step(
+            tid,
+            ThreadStep::Complete {
+                kind: "data_engineer_terminal".to_string(),
+                payload: serde_json::json!({"status":"failed","phase":"model_plan"}),
+                display: Some("terminal failure".to_string()),
+                observation: Observation::fail(vec!["terminal failure".to_string()]),
+                ts: "2026-01-01T00:00:02Z".to_string(),
+                agent: "agent".to_string(),
+            },
+        )
+        .await
+        .expect("append complete");
+
+    let log = store.get(tid).await.expect("log");
+    let result = log.result.expect("thread result");
+    assert_eq!(result.kind, "data_engineer_terminal");
+    assert_eq!(result.payload["phase"], "model_plan");
+    assert_eq!(result.display.as_deref(), Some("terminal failure"));
+}
+
+#[tokio::test]
 async fn control_state_store_round_trips() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(InMemoryStorageAdapter::default());
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));

@@ -81,26 +81,6 @@ impl AgentCtx {
     const LLM_TRANSIENT_MAX_RETRIES: usize = 2;
     const LLM_TRANSIENT_BACKOFF_BASE_MS: u64 = 2000;
 
-    fn is_llm_transient(msg: &str) -> bool {
-        let s = msg.to_ascii_lowercase();
-        s.contains("an error occurred while processing your request")
-            || s.contains("timeout")
-            || s.contains("timed out")
-            || s.contains("rate limit")
-            || s.contains("too many requests")
-            || s.contains("service unavailable")
-            || s.contains("internal server error")
-            || s.contains("bad gateway")
-            || s.contains("gateway timeout")
-            || s.contains("http 502")
-            || s.contains("http 503")
-            || s.contains("http 504")
-            || s.contains("http 529")
-            || s.contains("overloaded")
-            || s.contains("connection reset")
-            || s.contains("connection aborted")
-    }
-
     async fn invoke_llm_once(
         &self,
         messages: &[ChatMessage],
@@ -162,8 +142,8 @@ impl AgentCtx {
             }
 
             let should_retry = match &last_result {
-                Err(CoreError::Agent(msg)) => Self::is_llm_transient(msg),
-                Ok(text) if Self::is_llm_error_prefix(text) => Self::is_llm_transient(text),
+                Err(CoreError::Agent(msg)) => crate::llm::is_throttle(msg),
+                Ok(text) if Self::is_llm_error_prefix(text) => crate::llm::is_throttle(text),
                 _ => false,
             };
             if !should_retry {
@@ -174,6 +154,20 @@ impl AgentCtx {
                 Err(e) => e.to_string(),
                 Ok(text) => text.trim().to_string(),
             };
+
+            // Fire the throttle observer BEFORE backoff so adaptive limiters
+            // can shrink concurrency immediately, rather than waiting for the
+            // gateway-level retry to either succeed or finally propagate the
+            // error. This is the early-signal hook referenced by
+            // `enrichment_concurrency::AdaptiveLimiter`.
+            if let Some(observer) = self.throttle_observer.clone() {
+                observer(crate::llm::LlmThrottleEvent {
+                    prompt_id: options.prompt_id,
+                    error_summary: err_summary.clone(),
+                    attempt,
+                });
+            }
+
             let backoff_ms = Self::LLM_TRANSIENT_BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(3));
             tracing::warn!(
                 prompt_id = %options.prompt_id,

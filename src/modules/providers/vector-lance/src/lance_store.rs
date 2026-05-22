@@ -1,3 +1,9 @@
+// `embeddings` (the v1 table) has been retired. `embeddings_v2` is the only LanceDB schema this
+// store reads, writes, or deletes from. Future migrations MUST NOT reintroduce dual-table reads:
+// the v1 schema (kind/dataset_id/field columns) is fundamentally incompatible with the v2 typed
+// metadata model and was a known source of stale results bleeding into v2 queries. Operators
+// running historical Skippr instances with v1-only state should drop the v1 prefix manually.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,7 +28,6 @@ pub struct LanceDbStore {
 }
 
 const EMBEDDINGS_TABLE_V2: &str = "embeddings_v2";
-const EMBEDDINGS_TABLE_V1: &str = "embeddings";
 
 impl LanceDbStore {
     pub fn new(uri: &str) -> Self {
@@ -217,86 +222,14 @@ impl LanceDbStore {
         Ok(out)
     }
 
-    async fn query_v1_legacy(
-        &self,
-        query_vec: &[f32],
-        k: usize,
-        namespace: Option<&str>,
-    ) -> Result<Vec<ScoredChunk>, String> {
-        use futures::StreamExt;
-        use lancedb::query::{ExecutableQuery, QueryBase};
-
-        let db = self
-            .connect_builder()
-            .execute()
-            .await
-            .map_err(|e| format!("{:?}", e))?;
-        let tbl = match db.open_table(EMBEDDINGS_TABLE_V1).execute().await {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
-        let q = tbl
-            .vector_search(query_vec.to_vec())
-            .map_err(|e| format!("{:?}", e))?
-            .limit(k);
-        let mut stream = q.execute().await.map_err(|e| format!("{:?}", e))?;
-        use arrow::record_batch::RecordBatch as ArrowRecordBatch;
-        let mut out = Vec::new();
-        while let Some(batch_res) = stream.next().await {
-            let b: ArrowRecordBatch = batch_res.map_err(|e| format!("{:?}", e))?;
-            let schema = b.schema();
-            let idx = |name: &str| schema.index_of(name).ok();
-            let id_i = idx("id");
-            let kind_i = idx("kind");
-            let dataset_i = idx("dataset_id");
-            let field_i = idx("field");
-            let text_i = idx("text");
-            let epoch_i = idx("epoch");
-            let dist_i = idx("_distance");
-            for r in 0..b.num_rows() {
-                let s_val = |i: Option<usize>| -> String {
-                    i.and_then(|j| {
-                        arrow::util::display::array_value_to_string(b.column(j).as_ref(), r).ok()
-                    })
-                    .unwrap_or_default()
-                };
-                let namespace_s = s_val(kind_i);
-                if let Some(ns) = namespace {
-                    if ns != namespace_s {
-                        continue;
-                    }
-                }
-                let dataset_id = s_val(dataset_i);
-                let field = s_val(field_i);
-                let metadata_json = serde_json::json!({
-                    "dataset_id": if dataset_id.is_empty() { None::<String> } else { Some(dataset_id) },
-                    "field": if field.is_empty() { None::<String> } else { Some(field) }
-                })
-                .to_string();
-                out.push(ScoredChunk {
-                    item: Chunk {
-                        id: s_val(id_i),
-                        namespace: namespace_s,
-                        text: s_val(text_i),
-                        metadata_json,
-                        vector: Vec::new(),
-                        epoch: s_val(epoch_i).parse::<u64>().unwrap_or(0),
-                    },
-                    score: s_val(dist_i).parse::<f32>().unwrap_or(0.0),
-                });
-            }
-        }
-        Ok(out)
-    }
-
     pub async fn query(
         &self,
         query_vec: &[f32],
         k: usize,
         namespace: Option<&str>,
     ) -> Result<Vec<ScoredChunk>, String> {
+        // v2 is the only embeddings schema. See top-of-file comment for the retirement rationale.
         let mut out = self.query_v2(query_vec, k, namespace).await?;
-        out.extend(self.query_v1_legacy(query_vec, k, namespace).await?);
         out.sort_by(|a, b| {
             a.score
                 .partial_cmp(&b.score)
@@ -331,31 +264,76 @@ impl LanceDbStore {
 
     pub async fn delete_thread_embeddings(&self, thread_id: &str) -> Result<(), String> {
         let pred = format!("id LIKE '%:{}:%'", Self::escape_sql_literal(thread_id));
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str())
-            .await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, pred.as_str()).await
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str()).await
     }
 
     pub async fn delete_pipeline_embeddings(&self) -> Result<(), String> {
         self.delete_where(EMBEDDINGS_TABLE_V2, "id IS NOT NULL")
-            .await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, "id IS NOT NULL")
             .await
     }
 
     pub async fn delete_namespace(&self, namespace: &str) -> Result<(), String> {
-        let pred_v2 = self.delete_predicate("namespace", namespace);
-        let pred_v1 = self.delete_predicate("kind", namespace);
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred_v2.as_str())
-            .await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, pred_v1.as_str())
-            .await
+        let pred = self.delete_predicate("namespace", namespace);
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str()).await
     }
 
     pub async fn delete_ids_with_prefix(&self, prefix: &str) -> Result<(), String> {
         let pred = self.like_prefix_predicate("id", prefix);
-        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str())
-            .await?;
-        self.delete_where(EMBEDDINGS_TABLE_V1, pred.as_str()).await
+        self.delete_where(EMBEDDINGS_TABLE_V2, pred.as_str()).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Compile-time-ish guard: the v1 embeddings table has been retired and must not be
+    // reintroduced. We assert by inspecting the module source for any lingering reference to the
+    // legacy v1 table identifier or the v1 schema column names. The dual-table design caused
+    // stale results bleeding into v2 queries and is documented at the top of the file.
+    const SOURCE: &str = include_str!("lance_store.rs");
+
+    /// Reconstruct the forbidden v1 identifier at runtime so the literal does not appear in this
+    /// test's own source. Without this trick the `include_str!` self-read would falsely report
+    /// the v1 constant as still present.
+    fn v1_table_const_name() -> String {
+        let mut s = String::from("EMBEDDINGS_TABLE_V");
+        s.push('1');
+        s
+    }
+
+    fn v1_legacy_fn_name() -> String {
+        let mut s = String::from("query_v");
+        s.push_str("1_legacy");
+        s
+    }
+
+    #[test]
+    fn lance_query_no_longer_touches_v1_table() {
+        let v1_const = v1_table_const_name();
+        let v1_fn = v1_legacy_fn_name();
+        assert!(
+            !SOURCE.contains(&v1_const),
+            "v1 embeddings table constant must not be reintroduced"
+        );
+        assert!(
+            !SOURCE.contains(&v1_fn),
+            "v1 legacy query path must not be reintroduced"
+        );
+        // The v1 schema used distinct column names; their reappearance would indicate a
+        // regression on the v2-only contract.
+        let kind_col = format!("idx({:?})", "kind");
+        let dataset_col = format!("idx({:?})", "dataset_id");
+        assert!(
+            !SOURCE.contains(&kind_col),
+            "v1 'kind' column must not be re-read"
+        );
+        assert!(
+            !SOURCE.contains(&dataset_col),
+            "v1 'dataset_id' column must not be re-read"
+        );
+        // Single positive assertion: v2 remains the only embeddings table this store reads.
+        assert!(
+            SOURCE.contains("EMBEDDINGS_TABLE_V2"),
+            "v2 embeddings table constant must remain"
+        );
     }
 }

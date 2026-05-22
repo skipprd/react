@@ -45,6 +45,11 @@ pub struct AgentCtx {
     exec_ctx: Option<ExecutionContext>,
     resolved_config: Option<Arc<crate::resolved_config::ReactResolvedConfig>>,
     capabilities: CapabilityMap,
+    /// Optional throttle observer fired by the LLM gateway on transient
+    /// classifications. Used by adaptive concurrency limiters to react
+    /// before the gateway's own backoff completes. Default `None` —
+    /// observation is opt-in per call site.
+    pub(crate) throttle_observer: Option<crate::llm::LlmThrottleObserver>,
 }
 
 impl std::fmt::Debug for AgentCtx {
@@ -134,6 +139,15 @@ impl AgentCtx {
     }
     pub fn set_pre_step_tx(&mut self, v: Option<tokio::sync::mpsc::UnboundedSender<String>>) {
         self.pre_step_tx = v;
+    }
+
+    /// Install (or clear) a throttle observer. The observer is invoked
+    /// synchronously inside the LLM gateway's transient-classification
+    /// branch, before backoff, with an [`crate::llm::LlmThrottleEvent`].
+    /// Observers MUST be non-blocking and side-effect-bounded (e.g. update
+    /// an atomic, send on a channel) — they run on the gateway's task.
+    pub fn set_throttle_observer(&mut self, v: Option<crate::llm::LlmThrottleObserver>) {
+        self.throttle_observer = v;
     }
 
     /// Retrieve a suite-specific capability by concrete type.
@@ -281,6 +295,7 @@ impl AgentCtxBuilder {
             exec_ctx: self.exec_ctx,
             resolved_config: self.resolved_config,
             capabilities: self.capabilities,
+            throttle_observer: None,
         }
     }
 }

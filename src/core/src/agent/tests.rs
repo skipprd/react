@@ -139,6 +139,7 @@ async fn per_tool_timeout_override_is_used() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block(
@@ -205,6 +206,7 @@ async fn run_until_block_passes_llm_call_options_through() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
     let opts = crate::llm::LlmCallOptions {
         prompt_id: "react_core.agent.tests.capture_options",
@@ -257,6 +259,7 @@ async fn complete_payload_round_trips_as_json_value() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block(
@@ -380,6 +383,7 @@ async fn invalid_json_from_model_is_retried_with_minimal_prompt() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block(
@@ -446,6 +450,7 @@ async fn llm_error_text_does_not_trigger_invalid_json_retries() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let res = Agent::run_until_block(
@@ -580,6 +585,7 @@ async fn patch_protocol_response_is_wrapped_as_file_patch_action() {
             ctx
         }),
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block(
@@ -680,6 +686,7 @@ async fn run_until_block_non_interactive_suppresses_policy_interrupts() {
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block_non_interactive(
@@ -744,6 +751,7 @@ async fn run_until_block_non_interactive_returns_step_boundary_on_step_budget_ex
         thread_store: None,
         exec_ctx: None,
         resolved_config: None,
+        throttle_observer: None,
     };
 
     let out = Agent::run_until_block_non_interactive(

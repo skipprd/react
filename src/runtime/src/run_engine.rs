@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use react_core::resolved_config as rc;
 use react_core::suite::SuiteRegistry;
+use std::io::IsTerminal;
 use tokio::sync::mpsc;
 use tracing_subscriber::prelude::*;
 
@@ -15,6 +16,18 @@ pub struct HeadlessRunOpts {
     pub agent: String,
     /// When `true`, skip `init_logging` (caller already called it).
     pub skip_logging_init: bool,
+    /// Initial user message for headless `new` / `open` (defaults: `go` / `continue`).
+    pub headless_prompt: Option<String>,
+    /// Stream [`react_transport::headless::RunOpts::stream_jsonl`] events to stdout.
+    pub stream_jsonl: bool,
+}
+
+/// Result of [`run_headless_with_ctx`] (and thin wrappers).
+#[derive(Clone, Debug)]
+pub struct HeadlessRunOutcome {
+    pub exit_code: i32,
+    pub thread_id: Option<String>,
+    pub failure_summary: Option<String>,
 }
 
 pub(crate) struct TracingGuards {
@@ -122,9 +135,10 @@ pub(crate) fn init_tracing(
     };
 
     let console_layer_opt = if enable_console {
+        let stderr_supports_ansi = std::io::stderr().is_terminal();
         Some(
             tracing_subscriber::fmt::layer()
-                .with_ansi(true)
+                .with_ansi(stderr_supports_ansi)
                 .with_target(true)
                 .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
         )
@@ -146,21 +160,22 @@ pub(crate) fn init_tracing(
 
 /// Run a headless agent pipeline from an already-resolved config.
 ///
-/// Returns the process exit code (0 = success). The caller decides whether to
-/// call `std::process::exit` or handle the code differently.
-///
 /// Set `skip_logging_init` to `true` when the caller has already called
 /// `init_logging` (e.g. from the generic CLI path).
 pub async fn run_headless_from_config(
     cfg: rc::ReactResolvedConfig,
     registry: SuiteRegistry,
     opts: HeadlessRunOpts,
-) -> i32 {
+) -> HeadlessRunOutcome {
     let suite_ctx = match crate::bootstrap::build_base_suite_ctx(&cfg).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::error!("{}", e);
-            return 1;
+            return HeadlessRunOutcome {
+                exit_code: 1,
+                thread_id: None,
+                failure_summary: Some(e),
+            };
         }
     };
     run_headless_with_ctx(cfg, registry, suite_ctx, opts).await
@@ -170,13 +185,17 @@ pub async fn run_headless_with_host(
     cfg: rc::ReactResolvedConfig,
     host: &dyn crate::host::HostComposition,
     opts: HeadlessRunOpts,
-) -> i32 {
+) -> HeadlessRunOutcome {
     let registry = crate::host::registry_from_host(host);
     let suite_ctx = match crate::bootstrap::build_suite_ctx_with(&cfg, host).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::error!("{}", e);
-            return 1;
+            return HeadlessRunOutcome {
+                exit_code: 1,
+                thread_id: None,
+                failure_summary: Some(e),
+            };
         }
     };
     run_headless_with_ctx(cfg, registry, suite_ctx, opts).await
@@ -187,7 +206,7 @@ pub async fn run_headless_with_ctx(
     registry: SuiteRegistry,
     suite_ctx: react_core::suite::SuiteCtx,
     opts: HeadlessRunOpts,
-) -> i32 {
+) -> HeadlessRunOutcome {
     if !opts.skip_logging_init {
         init_logging(&opts.log_level, opts.verbose_debug);
     }
@@ -281,15 +300,21 @@ pub async fn run_headless_with_ctx(
         .or_else(|| resolve_default_suite_id(&registry));
     let Some(suite_id) = suite_id else {
         tracing::error!("no suites registered for headless execution");
-        return 1;
+        return HeadlessRunOutcome {
+            exit_code: 1,
+            thread_id: None,
+            failure_summary: Some("no suites registered for headless execution".to_string()),
+        };
     };
     let run_fut = react_transport::headless::run_headless(
         suite_ctx,
         react_transport::headless::RunOpts {
-            thread_id: opts.thread_id,
+            thread_id: opts.thread_id.clone(),
             suite_id,
             agent: opts.agent,
             thread_id_tx,
+            headless_prompt: opts.headless_prompt,
+            stream_jsonl: opts.stream_jsonl,
         },
         registry,
     );
@@ -347,5 +372,9 @@ pub async fn run_headless_with_ctx(
         }
     }
 
-    exit_code
+    HeadlessRunOutcome {
+        exit_code,
+        thread_id: thread_id_for_logs.or_else(|| requested_thread_id.clone()),
+        failure_summary,
+    }
 }

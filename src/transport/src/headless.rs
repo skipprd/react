@@ -96,6 +96,10 @@ pub struct RunOpts {
     pub agent: String, // default: agent
     /// Optional channel to publish the thread_id as soon as it is observed.
     pub thread_id_tx: Option<mpsc::UnboundedSender<String>>,
+    /// Initial user message for headless `new` / `open` (defaults: `go` / `continue`).
+    pub headless_prompt: Option<String>,
+    /// When true, emit one JSON value per line on stdout for each `ServerMessage` (IDE / CLI streaming).
+    pub stream_jsonl: bool,
 }
 
 /// Result returned by [`run_headless`].
@@ -124,6 +128,7 @@ pub async fn run_headless(
         .ok()
         .filter(|v| !v.trim().is_empty() && v != "0" && v.to_ascii_lowercase() != "false")
         .is_some();
+    let stream_jsonl = opts.stream_jsonl;
 
     // Capture the thread id from events (for `new`) and detect completion.
     let mut tid_tx = opts.thread_id_tx.clone();
@@ -134,6 +139,11 @@ pub async fn run_headless(
         loop {
             match rx.recv().await {
                 Ok(msg) => {
+                    if stream_jsonl {
+                        if let Ok(s) = serde_json::to_string(&msg) {
+                            println!("{s}");
+                        }
+                    }
                     match msg {
                         api::ServerMessage::Phase(r) => {
                             if plain_progress {
@@ -225,15 +235,16 @@ pub async fn run_headless(
 
     let requested_tid = opts.thread_id.clone();
     let suite_id = opts.suite_id.clone();
-    let tid = crate::ws::server::run_headless_with_hub(
+    let run_result = crate::ws::server::run_headless_with_hub(
         ctx.clone(),
         opts.thread_id,
         opts.suite_id,
         opts.agent,
         hub.clone(),
         registry,
+        opts.headless_prompt,
     )
-    .await?;
+    .await;
 
     // Closing the hub allows the capture task to finish even if final wasn't observed.
     drop(hub);
@@ -241,9 +252,22 @@ pub async fn run_headless(
         .await
         .map_err(|e| format!("internal: capture task failed: {e}"))?;
 
-    let thread_id = requested_tid
-        .or_else(|| captured_tid)
-        .unwrap_or_else(|| tid.clone());
+    let observed_thread_id = requested_tid.or(captured_tid);
+    let tid = match run_result {
+        Ok(tid) => tid,
+        Err(e) => {
+            if let Some(thread_id) = observed_thread_id {
+                return Ok(HeadlessResult {
+                    exit_code: 1,
+                    thread_id,
+                    failure_summary: Some(e),
+                });
+            }
+            return Err(e);
+        }
+    };
+
+    let thread_id = observed_thread_id.unwrap_or_else(|| tid.clone());
 
     // Determine exit code: prefer ControlState, fall back to view cache.
     let reader = ctx.log_reader();

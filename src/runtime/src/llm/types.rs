@@ -65,8 +65,9 @@ pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'sta
 /// Extract the model's text output from an OpenAI-style response.
 ///
 /// When `structured` is true the caller expects a single JSON object (e.g. strict
-/// JSON-schema mode). If the `output[]` fallback path finds multiple text chunks we
-/// take only the first to avoid silently concatenating independent objects.
+/// JSON-schema mode). Providers can still split one logical assistant message across
+/// multiple text parts, so preserve all non-empty chunks and let the schema parser
+/// decide whether the joined text is valid.
 pub(crate) fn extract_response_text(v: &serde_json::Value, structured: bool) -> Option<String> {
     if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
         if !s.trim().is_empty() {
@@ -102,10 +103,9 @@ pub(crate) fn extract_response_text(v: &serde_json::Value, structured: bool) -> 
     }
     if structured && chunks.len() > 1 {
         tracing::warn!(
-            "structured response contained {} output text items; taking only the first",
+            "structured response contained {} output text items; joining chunks before schema parse",
             chunks.len()
         );
-        return chunks.into_iter().next();
     }
     let joined = chunks.join("");
     if joined.trim().is_empty() {
@@ -260,7 +260,29 @@ pub struct ProviderHttpResponse {
     pub status: u16,
     pub body_text: String,
     /// True when the request used a structured response format (JsonSchema).
-    /// Passed through to `extract_response_text` so it can avoid joining
-    /// multiple output items that should be treated as a single object.
+    /// Passed through to `extract_response_text` so multipart structured
+    /// provider payloads can be reassembled before schema parsing.
     pub structured: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_response_text;
+
+    #[test]
+    fn structured_response_text_joins_multiple_text_parts() {
+        let response = serde_json::json!({
+            "output": [{
+                "content": [
+                    {"type": "output_text", "text": "{\"type\":\"tool\","},
+                    {"type": "output_text", "text": "\"name\":\"noop\"}"}
+                ]
+            }]
+        });
+
+        assert_eq!(
+            extract_response_text(&response, true).as_deref(),
+            Some("{\"type\":\"tool\",\"name\":\"noop\"}")
+        );
+    }
 }

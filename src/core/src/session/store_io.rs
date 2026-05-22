@@ -8,8 +8,8 @@ use crate::storage::{
 };
 
 use super::{
-    session_write_lock, CacheEntry, LoadState, Observation, ThreadLog, ThreadStep, ThreadStore,
-    ThreadStoreConfig, VersionedValue, THREAD_SCHEMA_VERSION,
+    session_write_lock, CacheEntry, LoadState, Observation, ThreadLog, ThreadResult, ThreadStep,
+    ThreadStore, ThreadStoreConfig, VersionedValue, THREAD_SCHEMA_VERSION,
 };
 
 impl ThreadStore {
@@ -137,6 +137,19 @@ impl ThreadStore {
             LoadState::Missing => ThreadLog::default(),
             LoadState::Loaded(v) => v.value,
         };
+        if let ThreadStep::Complete {
+            kind,
+            payload,
+            display,
+            ..
+        } = &step
+        {
+            log.result = Some(ThreadResult {
+                kind: kind.clone(),
+                payload: payload.clone(),
+                display: display.clone(),
+            });
+        }
         log.steps.push(step);
         self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
             .await?;
