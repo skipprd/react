@@ -28,8 +28,8 @@ PY
 run_with_docker() {
   if command -v docker >/dev/null 2>&1; then
     docker run --rm -v "${REPO_ROOT}:/local" openapitools/openapi-generator-cli:v7.9.0 \
-      generate -i /local/src/runtime/openapi/ws-core.yaml -g rust -o /local/src/transport/src/ws/api_gen --global-property models
-    return 0
+      generate -i /local/src/runtime/openapi/ws-core.yaml -g rust -o /local/src/transport/src/ws/api_gen --global-property models \
+      && return 0
   fi
   return 1
 }
@@ -50,7 +50,7 @@ elif run_with_local_jar; then
   strip_rustfmt_skip
   exit 0
 else
-  echo "WARNING: Could not find Docker or local openapi-generator jar."
-  echo "Core OpenAPI generation skipped."
-  exit 0
+  echo "ERROR: Could not run OpenAPI generation (Docker unavailable and no local jar)." >&2
+  echo "Install Docker or download openapi-generator-cli-7.9.0.jar to openapi-generator-cli.jar" >&2
+  exit 1
 fi

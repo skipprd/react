@@ -7,3 +7,4 @@ skippr.yaml
 .env.example
 debug-reports
 models
+openapi-generator-cli.jar
