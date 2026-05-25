@@ -303,6 +303,17 @@ pub async fn run_headless_with_hub(
             .clone()
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "continue".to_string());
+        if question != "continue" && question != "go" {
+            let v = json!({
+                "v": 1,
+                "type": "user",
+                "cid": "headless",
+                "thread_id": tid,
+                "text": question,
+            });
+            process_user(&v, &mut state, &mut write).await?;
+            return Ok(tid);
+        }
         let v = json!({
             "v": 1,
             "type": "open",
