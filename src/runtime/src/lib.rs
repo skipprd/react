@@ -13,5 +13,5 @@ pub mod llm;
 pub mod run_engine;
 pub mod runtime_context;
 pub mod runtime_settings;
-pub mod thread_logs;
 pub(crate) mod secrets;
+pub mod thread_logs;

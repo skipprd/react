@@ -37,7 +37,10 @@ pub fn build_router(suite_ctx: SuiteCtx, registry: Arc<SuiteRegistry>) -> Router
         .route("/health", get(health))
         .route("/api/suites", get(list_suites))
         .route("/api/executions", post(execute))
-        .with_state(HttpState { suite_ctx, registry })
+        .with_state(HttpState {
+            suite_ctx,
+            registry,
+        })
 }
 
 pub async fn serve(

@@ -92,11 +92,7 @@ pub(crate) fn resolve_log_dir(cfg: &crate::config::ReactResolvedConfig) -> PathB
 }
 
 pub(crate) fn resolve_default_suite_id(registry: &SuiteRegistry) -> Option<String> {
-    registry
-        .list_ids()
-        .into_iter()
-        .next()
-        .map(str::to_string)
+    registry.list_ids().into_iter().next().map(str::to_string)
 }
 
 pub(crate) fn bind_runtime_scope_preference(scope: &react_core::scope::RequestScope) {

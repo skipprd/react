@@ -93,9 +93,7 @@ pub enum FlowFrame {
 
 pub fn terminal_frame(frames: &[FlowFrame]) -> Option<&FlowFrame> {
     frames.iter().rev().find(|frame| match frame {
-        FlowFrame::Complete { .. } | FlowFrame::Review { .. } | FlowFrame::Interrupt { .. } => {
-            true
-        }
+        FlowFrame::Complete { .. } | FlowFrame::Review { .. } | FlowFrame::Interrupt { .. } => true,
         FlowFrame::Checkpoint { .. } => false,
     })
 }

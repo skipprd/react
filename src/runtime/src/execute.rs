@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use react_core::scope::RequestScope;
-use react_core::suite::{FlowFrame as CoreFlowFrame, FlowKind as CoreFlowKind, SuiteCtx, SuiteCtxBuilder, SuiteRegistry};
+use react_core::suite::{
+    FlowFrame as CoreFlowFrame, FlowKind as CoreFlowKind, SuiteCtx, SuiteCtxBuilder, SuiteRegistry,
+};
 pub use react_http_protocol::{
     ExecuteAction, ExecuteContext, ExecuteRequest, ExecuteResponse, ExecuteScopeOverride,
 };
@@ -61,7 +63,9 @@ pub async fn execute_request(
     );
 
     let frames = match request.action {
-        ExecuteAction::New => suite.handle_new(&thread_id, &request.question, &agent_type, &suite_ctx),
+        ExecuteAction::New => {
+            suite.handle_new(&thread_id, &request.question, &agent_type, &suite_ctx)
+        }
         ExecuteAction::Open => {
             suite.handle_open(&thread_id, &request.question, &agent_type, &suite_ctx)
         }
@@ -127,7 +131,10 @@ fn request_suite_ctx(
     base_suite_ctx: &SuiteCtx,
     context: Option<&ExecuteContext>,
 ) -> Result<SuiteCtx, ExecuteError> {
-    let scope = resolve_scope(base_suite_ctx.scope(), context.and_then(|ctx| ctx.scope.as_ref()))?;
+    let scope = resolve_scope(
+        base_suite_ctx.scope(),
+        context.and_then(|ctx| ctx.scope.as_ref()),
+    )?;
     let resolved_config = base_suite_ctx.resolved_config().as_ref().map(|config| {
         let mut next = (**config).clone();
         next.scope = scope.clone();
