@@ -396,7 +396,7 @@ impl AgentCtx {
         }
     }
 
-    /// Convenience: `llm_chat` + JSON parse with escape-repair and one retry.
+    /// Convenience: `llm_chat` + JSON parse with repair and one retry.
     pub async fn llm_chat_json<T: serde::de::DeserializeOwned>(
         &self,
         messages: &[ChatMessage],
@@ -404,12 +404,7 @@ impl AgentCtx {
     ) -> Result<T, CoreError> {
         let raw = self.llm_chat(messages, options).await?;
 
-        if let Ok(v) = serde_json::from_str::<T>(&raw) {
-            return Ok(v);
-        }
-
-        let repaired = crate::json_repair::escape_control_chars_in_json_strings(&raw);
-        if let Ok(v) = serde_json::from_str::<T>(&repaired) {
+        if let Ok(v) = crate::json_repair::resilient_parse::<T>(&raw) {
             return Ok(v);
         }
         let first_err = serde_json::from_str::<serde_json::Value>(&raw).unwrap_err();
@@ -420,7 +415,7 @@ impl AgentCtx {
             content: "IMPORTANT: Return ONLY a single valid JSON object. No markdown, no code fences, no prose.".to_string(),
         });
         let raw2 = self.llm_chat(&retry_messages, options).await?;
-        serde_json::from_str::<T>(&raw2).map_err(|e2| {
+        crate::json_repair::resilient_parse::<T>(&raw2).map_err(|e2| {
             CoreError::Agent(format!(
                 "{}: expected JSON, got parse error: {} (first_error: {})",
                 options.prompt_id, e2, first_err
