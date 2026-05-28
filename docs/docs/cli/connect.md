@@ -503,6 +503,41 @@ skippr connect source websocket \
 | `--url` | WebSocket URL (`ws://` or `wss://`) |
 | `--mode` | Consumption mode |
 
+### Google Analytics (GA4)
+
+```bash
+skippr connect source google-analytics \
+  --property-id 123456789 \
+  --start-date 2024-01-01 \
+  --stream-profile full \
+  --lookback-days 7 \
+  --processing-lag-days 1 \
+  --window-in-days 1 \
+  --access-token ${GA4_ACCESS_TOKEN}
+```
+
+| Flag | Description |
+|---|---|
+| `--property-id` | GA4 property ID (numeric) |
+| `--start-date` | First sync date (`YYYY-MM-DD`) |
+| `--end-date` | Last sync date (optional) |
+| `--stream-profile` | `minimal`, `standard`, or `full` (default in plugin: `full`, 23 namespaces) |
+| `--lookback-days` | Days before checkpoint to re-fetch (default: 3) |
+| `--processing-lag-days` | Skip last N calendar days (default: 1) |
+| `--window-in-days` | Days per API date range (default: 1; >1 may sample) |
+| `--keep-empty-rows` | Include zero-metric dimension rows (default: true) |
+| `--access-token` | Bearer token or `${GA4_ACCESS_TOKEN}` |
+| `--oauth-token-url` | OAuth token URL (refresh flow) |
+| `--oauth-client-id` | OAuth client ID |
+| `--oauth-client-secret` | OAuth client secret |
+| `--oauth-refresh-token` | OAuth refresh token |
+| `--service-account-json-path` | Service account JSON key path |
+| `--streams` | Comma-separated namespaces (overrides profile) |
+
+Writes `GoogleAnalytics` under `data_sources` in engine `skippr.yml`, or `source.kind: google_analytics` in public `skippr.yaml`. Pair with Athena or Iceberg for `replace_partition` landing.
+
+**Auth setup (public docs):** [Service account](https://docs.skippr.io/connectors/sources/google-analytics#service-account) · [OAuth refresh](https://docs.skippr.io/connectors/sources/google-analytics#oauth-refresh) · [Bearer token (`GA4_ACCESS_TOKEN`)](https://docs.skippr.io/connectors/sources/google-analytics#bearer-access-token-ga4_access_token)
+
 ### HTTP Client
 
 ```bash

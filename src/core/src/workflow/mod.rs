@@ -111,6 +111,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[allow(dead_code)]
     enum DummyReason {
         X,
     }
