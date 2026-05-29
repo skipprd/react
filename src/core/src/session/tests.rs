@@ -385,9 +385,15 @@ async fn control_state_store_returns_none_for_wrong_suite() {
 #[tokio::test]
 async fn append_step_propagates_read_failure_instead_of_defaulting() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
-        head_responses: Arc::new(Mutex::new(vec![Err(CoreError::Storage(
-            "boom".to_string(),
-        ))])),
+        head_responses: Arc::new(Mutex::new(vec![
+            Err(CoreError::Storage("boom-1".to_string())),
+            Err(CoreError::Storage("boom-2".to_string())),
+            Err(CoreError::Storage("boom-3".to_string())),
+            Err(CoreError::Storage("boom-4".to_string())),
+            Err(CoreError::Storage("boom-5".to_string())),
+            Err(CoreError::Storage("boom-6".to_string())),
+            Err(CoreError::Storage("boom-7".to_string())),
+        ])),
         json_value: Arc::new(Mutex::new(None)),
     });
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
@@ -406,7 +412,7 @@ async fn append_step_propagates_read_failure_instead_of_defaulting() {
         )
         .await
         .expect_err("read failure must not be treated as empty thread");
-    assert!(err.to_string().contains("boom"));
+    assert!(err.to_string().contains("boom-7"));
 }
 
 #[tokio::test]
@@ -512,6 +518,9 @@ async fn control_state_load_propagates_read_failure_instead_of_none() {
             Err(CoreError::Storage("boom-2".to_string())),
             Err(CoreError::Storage("boom-3".to_string())),
             Err(CoreError::Storage("boom-4".to_string())),
+            Err(CoreError::Storage("boom-5".to_string())),
+            Err(CoreError::Storage("boom-6".to_string())),
+            Err(CoreError::Storage("boom-7".to_string())),
         ])),
         json_value: Arc::new(Mutex::new(None)),
     });
@@ -523,7 +532,7 @@ async fn control_state_load_propagates_read_failure_instead_of_none() {
         .load::<serde_json::Value>("tid-control-read-failure", "suite")
         .await
         .expect_err("read failure must not be treated as missing control state");
-    assert!(err.to_string().contains("boom-4"));
+    assert!(err.to_string().contains("boom-7"));
 }
 
 #[tokio::test]

@@ -5723,7 +5723,7 @@ dependencies = [
 
 [[package]]
 name = "react-core"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "async-trait",
  "chrono",

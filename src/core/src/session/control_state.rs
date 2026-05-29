@@ -1,20 +1,19 @@
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::error::{CoreError, CoreResult};
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
-use crate::storage::{should_retry_storage_error, ConditionalWriteStatus, StorageAdapter};
+use crate::storage::{
+    retry_delete_object, retry_get_json, retry_head_etag, retry_put_json,
+    retry_put_json_if_etag_matches, ConditionalWriteStatus, StorageAdapter,
+};
 
 use super::{
     session_write_lock, ControlStateEnvelope, LoadState, VersionedValue,
     CONTROL_STATE_ENVELOPE_SCHEMA_VERSION,
 };
-
-const CONTROL_STATE_STORAGE_RETRY_DELAYS_MS: [u64; 3] = [25, 75, 150];
 
 #[derive(Clone)]
 pub struct ControlStateStore {
@@ -90,64 +89,13 @@ impl ControlStateStore {
         })
     }
 
-    async fn retry_storage_call<T, Fut, F>(
-        &self,
-        operation: &'static str,
-        key: &str,
-        mut call: F,
-    ) -> CoreResult<T>
-    where
-        F: FnMut() -> Fut,
-        Fut: Future<Output = CoreResult<T>>,
-    {
-        let mut retry_count = 0usize;
-        loop {
-            match call().await {
-                Ok(value) => {
-                    if retry_count > 0 {
-                        tracing::info!(
-                            operation,
-                            key,
-                            retry_count,
-                            "control-state storage retry succeeded"
-                        );
-                    }
-                    return Ok(value);
-                }
-                Err(err) => {
-                    if !should_retry_storage_error(&err)
-                        || retry_count == CONTROL_STATE_STORAGE_RETRY_DELAYS_MS.len()
-                    {
-                        return Err(err);
-                    }
-                    let backoff_ms = CONTROL_STATE_STORAGE_RETRY_DELAYS_MS[retry_count];
-                    retry_count += 1;
-                    tracing::warn!(
-                        operation,
-                        key,
-                        retry_count,
-                        max_retries = CONTROL_STATE_STORAGE_RETRY_DELAYS_MS.len(),
-                        backoff_ms,
-                        error = %err,
-                        "control-state storage failed; retrying"
-                    );
-                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-                }
-            }
-        }
-    }
-
     async fn load_raw(&self, thread_id: &str) -> CoreResult<LoadState<Value>> {
         let key = self.key(thread_id)?;
-        let etag = self
-            .retry_storage_call("head_etag", &key, || self.storage.head_etag(&key))
-            .await?;
+        let etag = retry_head_etag(self.storage.as_ref(), &key).await?;
         let Some(etag) = etag else {
             return Ok(LoadState::Missing);
         };
-        let value = self
-            .retry_storage_call("get_json", &key, || self.storage.get_json(&key))
-            .await?;
+        let value = retry_get_json(self.storage.as_ref(), &key).await?;
         Ok(LoadState::Loaded(VersionedValue {
             etag: Some(etag),
             value,
@@ -156,8 +104,7 @@ impl ControlStateStore {
 
     async fn save_raw(&self, thread_id: &str, value: &Value) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        self.retry_storage_call("put_json", &key, || self.storage.put_json(&key, value))
-            .await
+        retry_put_json(self.storage.as_ref(), &key, value).await
     }
 
     async fn save_raw_if_etag_matches(
@@ -168,12 +115,13 @@ impl ControlStateStore {
     ) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let expected = expected_etag.map(str::to_string);
-        match self
-            .retry_storage_call("put_json_if_etag_matches", &key, || {
-                self.storage
-                    .put_json_if_etag_matches(&key, value, expected_etag)
-            })
-            .await?
+        match retry_put_json_if_etag_matches(
+            self.storage.as_ref(),
+            &key,
+            value,
+            expected_etag,
+        )
+        .await?
         {
             ConditionalWriteStatus::Written => Ok(()),
             ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
@@ -257,9 +205,7 @@ impl ControlStateStore {
 
     pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let _ = self
-            .retry_storage_call("delete_object", &key, || self.storage.delete_object(&key))
-            .await;
+        let _ = retry_delete_object(self.storage.as_ref(), &key).await;
         Ok(())
     }
 }

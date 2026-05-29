@@ -13,7 +13,8 @@ pub enum ConditionalWriteStatus {
     Conflict { current_etag: Option<String> },
 }
 
-pub const SAFE_STORAGE_RETRY_DELAYS_MS: [u64; 3] = [25, 75, 150];
+/// Exponential backoff for transient S3/client errors (e.g. empty 400 ServiceError on head_object).
+pub const SAFE_STORAGE_RETRY_DELAYS_MS: [u64; 6] = [100, 200, 400, 800, 1_600, 3_200];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageErrorKind {
@@ -663,6 +664,7 @@ mod tests {
             "ServiceError: SlowDown",
             "DispatchFailure: connector error",
             "ServiceError: service unavailable",
+            "head_object key: ServiceError(ServiceError { source: Unhandled(Unhandled { source: ErrorMetadata { code: None, message: None, extras: None } }), meta: ErrorMetadata { code: None, message: None, extras: None } }): unhandled error (HTTP status 400)",
         ] {
             assert!(
                 should_retry_storage_error(&CoreError::Storage(message.to_string())),
