@@ -1,6 +1,6 @@
 [package]
 name = "react-module-storage-local"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 description = "Private Skippr React crate: react-module-storage-local"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ async-trait = "0.1.77"
 serde_json = "1.0.85"
 tokio = { version = "1", features = ["rt"] }
 uuid = { version = "1", features = ["v4"] }
-react-core = { path = "../../../core", version = "1.4.0", registry = "react-cargo" }
+react-core = { path = "../../../core", version = "1.4.1", registry = "react-cargo" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
