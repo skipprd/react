@@ -132,26 +132,16 @@ impl LanceDbStore {
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;
-        use arrow::error::Result as ArrowResult;
-        use arrow::record_batch::RecordBatchIterator;
-        let rb_iter = RecordBatchIterator::new(
-            vec![ArrowResult::Ok(batch.clone())].into_iter(),
-            batch.schema(),
-        );
         let tbl = match db.open_table(EMBEDDINGS_TABLE_V2).execute().await {
             Ok(t) => t,
             Err(_) => db
-                .create_table(EMBEDDINGS_TABLE_V2, rb_iter)
+                .create_table(EMBEDDINGS_TABLE_V2, vec![batch.clone()])
                 .execute()
                 .await
                 .map_err(|e| format!("{:?}", e))?,
         };
-        let add_iter = RecordBatchIterator::new(
-            vec![ArrowResult::Ok(batch.clone())].into_iter(),
-            batch.schema(),
-        );
         let _ = tbl
-            .add(add_iter)
+            .add(vec![batch.clone()])
             .execute()
             .await
             .map_err(|e| format!("{:?}", e))?;

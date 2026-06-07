@@ -1,6 +1,6 @@
 [package]
 name = "react-module-provider-vector-lance"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 description = "Private Skippr React crate: react-module-provider-vector-lance"
 license = "Apache-2.0"
@@ -8,9 +8,9 @@ publish = ["react-cargo"]
 
 [dependencies]
 async-trait = "0.1.77"
-arrow = { version = "56.2.0", features = ["ipc_compression"] }
-lancedb = "0.22.3"
-arrow-buffer = "56.2.0"
+arrow = { version = "58.3.0", features = ["ipc_compression"] }
+lancedb = "0.30.0"
+arrow-buffer = "58.3.0"
 futures = "0.3.25"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.85"
