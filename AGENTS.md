@@ -14,34 +14,7 @@ Always favour compile errors over runtime convention
 
 ## Overview
 
-This repository contains **Skippr** — a Rust-based data ingestion and transformation CLI.
-
-## System dependencies (already installed in snapshot)
-
-- Rust 1.88.0 (via `rust-toolchain.toml`)
-- `protobuf-compiler` (`protoc`) — required at compile time by Arrow/Lance-related crates
-- `libssl-dev` — required by `openssl-sys` crate
-
-## Publishing / consuming crates (`react-cargo` on CodeArtifact)
-
-Release CI (`.github/workflows/react-ci.yml`) publishes workspace crates to the private Cargo registry **`react-cargo`** on CodeArtifact domain **`skippr`** (`domain-owner` **`132355036174`**, region **`us-east-1`**).
-
-Before `cargo publish --registry react-cargo` or any consumer build that resolves published versions, export:
-
-```bash
-export CARGO_REGISTRIES_REACT_CARGO_TOKEN="$(
-  aws codeartifact get-authorization-token \
-    --domain skippr \
-    --domain-owner 132355036174 \
-    --region us-east-1 \
-    --query authorizationToken \
-    --output text
-)"
-```
-
-CI sets this in the **Login to CodeArtifact** step; `skipprd` uses the same variable via `.github/actions/setup-builder`. Use AWS credentials with `codeartifact:GetAuthorizationToken` on that domain (e.g. `AWS_PROFILE=skippr-prod` for Skippr maintainers).
-
-Downstream repos (`skipprd`) can avoid the token when patching from a local `react` checkout — see `skipprd/scripts/cargo-with-local-react.sh` and `skipprd/docs/docs/maintainers/local-development.md`.
+This repository is **Skippr ReAct** — shared runtime crates consumed by Skippr Data Engineer (`sde`). Public install is git/path (and later crates.io). CodeArtifact `react-cargo` is not a required path.
 
 ## Build, test, and lint
 

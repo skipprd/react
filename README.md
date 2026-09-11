@@ -40,24 +40,9 @@ cargo build -p react
 cargo test -p react --lib --tests
 ```
 
-Headless and product-specific CLIs are owned by downstream host repositories. For Skippr data-engineer workflows, use the `skipprd` repository.
+Headless and product-specific CLIs are owned by downstream host repositories. Skippr Data Engineer is **`sde`** in `skipprd/sde`.
 
-### Publishing
-
-Generic React crates are published to the private CodeArtifact Cargo registry `skippr/react-cargo`.
-
-For local publish or dependency-resolution testing, log Cargo into CodeArtifact first:
-
-```bash
-AWS_PROFILE=skippr-prod aws codeartifact get-authorization-token \
-  --domain skippr \
-  --domain-owner 132355036174 \
-  --region us-east-1 \
-  --query authorizationToken \
-  --output text
-```
-
-Set the returned token as `CARGO_REGISTRIES_REACT_CARGO_TOKEN`. The release workflow does this automatically before publishing crates in dependency order.
+Consume this workspace as a git/path dependency. CodeArtifact `react-cargo` is not the public install path.
 
 ### WebSocket Server
 
@@ -69,7 +54,7 @@ Interactive WebSocket serving runs through host binaries or daemons that call th
 
 ### Workspace
 
-The React workspace contains the shared runtime/core crates, generic transport/view crates, storage/vector adapters, and non-Skippr suites such as `react-suite-kb`. Skippr-specific data-engineer code is owned by `skipprd`.
+The React workspace contains the shared runtime/core crates, generic transport/view crates, storage/vector adapters, and non-Skippr suites such as `react-suite-kb`. Skippr Data Engineer code is owned by `skipprd/sde`.
 
 
 This repository is **source-available** under [PolyForm Shield 1.0.0](./LICENSE), not OSI open source.
