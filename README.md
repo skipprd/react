@@ -1,3 +1,6 @@
+[![CI](https://github.com/skipprd/react/actions/workflows/ci.yml/badge.svg)](https://github.com/skipprd/react/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/skipprd/react)](https://github.com/skipprd/react/releases)
+
 ## ReAct (react crate)
 
 A suite-neutral ReAct host/runtime library. Product binaries such as `skippr`, `skippr-admin`, and `goggles-reactd` live in their product repositories and register suites on top of the shared `react` runtime and `react-core` kernel.
@@ -65,3 +68,10 @@ Interactive WebSocket serving runs through host binaries or daemons that call th
 ### Workspace
 
 The React workspace contains the shared runtime/core crates, generic transport/view crates, storage/vector adapters, and non-Skippr suites such as `react-suite-kb`. Skippr-specific data-engineer code is owned by `skipprd`.
+
+
+This repository is **source-available** under [PolyForm Shield 1.0.0](./LICENSE), not OSI open source.
+
+Licensor Line of Business: Skippr ReAct (https://react.skippr.io)
+
+Used by [Skippr Data Engineer](https://data-engineer.skippr.io) (`sde`).

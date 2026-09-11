@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: [self-hosted, skippr-linux-x64-16]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test --workspace
+      - name: Docs
+        if: true
+        run: |
+          cd docs
+          npm install
+          npx vitepress build
+
+  darwin:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: [self-hosted, skippr-darwin-arm64-8]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test --workspace
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, darwin]
+    runs-on: [self-hosted, skippr-linux-x64-16]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release artifacts
+        run: echo 'crates.io and/or git tag'
