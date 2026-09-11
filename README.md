@@ -3,7 +3,9 @@
 
 ## ReAct (react crate)
 
-A suite-neutral ReAct host/runtime library. Product binaries such as `skippr`, `skippr-admin`, and `goggles-reactd` live in their product repositories and register suites on top of the shared `react` runtime and `react-core` kernel.
+A suite-neutral ReAct host/runtime library. Product binaries such as **`sde`** (Skippr Data Engineer) live in their product repositories and register suites on top of the shared `react` runtime and `react-core` kernel.
+
+Docs: https://react.skippr.io
 
 ### Prerequisites
 
