@@ -8,3 +8,5 @@ skippr.yaml
 debug-reports
 models
 openapi-generator-cli.jar
+docs/.vitepress/dist
+docs/node_modules
