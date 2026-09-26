@@ -4,6 +4,7 @@ snowflake_key.p8
 snowflake_key.pub
 .skippr
 skippr.yaml
+.env
 .env.example
 debug-reports
 models

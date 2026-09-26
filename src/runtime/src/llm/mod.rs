@@ -41,7 +41,7 @@ pub fn create_llm(_cfg: &LlmConfig) -> Arc<dyn LargeLanguageModel> {
 
 /// Build LLM config from a resolved `react` config file (with env overrides already applied).
 ///
-/// `LLM_API_KEY` remains env-driven and is intentionally not stored in YAML.
+/// `LLM_API_KEY` or `OPENAI_API_KEY` remains env-driven and is intentionally not stored in YAML.
 pub fn config_from_resolved(cfg: &crate::config::ReactResolvedConfig) -> LlmConfig {
     use crate::runtime_settings as rs;
     use react_core::resolved_config::LlmProvider;
@@ -126,14 +126,23 @@ pub struct LlmUsage {
 type LlmUsageHandler = Box<dyn Fn(LlmUsage) + Send + Sync>;
 static LLM_USAGE_HANDLER: OnceCell<LlmUsageHandler> = OnceCell::new();
 
+pub use crate::bypass::{BYPASS_AUTH, BYPASS_BILLING};
+
 pub fn set_llm_usage_handler(f: LlmUsageHandler) {
     let _ = LLM_USAGE_HANDLER.set(f);
 }
 
-pub(crate) fn report_llm_usage(usage: LlmUsage) {
-    if let Some(handler) = LLM_USAGE_HANDLER.get() {
+fn emit_llm_usage(bypass_billing: bool, handler: Option<&LlmUsageHandler>, usage: LlmUsage) {
+    if bypass_billing {
+        return;
+    }
+    if let Some(handler) = handler {
         handler(usage);
     }
+}
+
+pub(crate) fn report_llm_usage(usage: LlmUsage) {
+    emit_llm_usage(BYPASS_BILLING, LLM_USAGE_HANDLER.get(), usage);
 }
 
 type LlmPreCallGuard = Box<dyn Fn() -> Result<(), String> + Send + Sync>;
@@ -143,9 +152,76 @@ pub fn set_llm_pre_call_guard(f: LlmPreCallGuard) {
     let _ = LLM_PRE_CALL_GUARD.set(f);
 }
 
-pub(crate) fn check_llm_pre_call() -> Result<(), String> {
-    match LLM_PRE_CALL_GUARD.get() {
+fn run_pre_call_guard(bypass_billing: bool, guard: Option<&LlmPreCallGuard>) -> Result<(), String> {
+    if bypass_billing {
+        return Ok(());
+    }
+    match guard {
         Some(guard) => guard(),
         None => Ok(()),
+    }
+}
+
+pub(crate) fn check_llm_pre_call() -> Result<(), String> {
+    run_pre_call_guard(BYPASS_BILLING, LLM_PRE_CALL_GUARD.get())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn sample_usage() -> LlmUsage {
+        LlmUsage {
+            input_tokens: 1,
+            output_tokens: 1,
+            model: crate::config::DEFAULT_LLM_MODEL.to_string(),
+            kind: LlmUsageKind::Chat,
+            prompt_id: None,
+            thread_id: None,
+            project_id: None,
+            provider_usage: None,
+        }
+    }
+
+    #[test]
+    fn billing_is_hard_bypassed() {
+        assert!(BYPASS_BILLING);
+        assert!(BYPASS_AUTH);
+    }
+
+    #[test]
+    fn billing_bypass_ignores_failing_pre_call_guard() {
+        let guard: LlmPreCallGuard = Box::new(|| Err("balance is $0.00".into()));
+        assert_eq!(run_pre_call_guard(true, Some(&guard)), Ok(()));
+    }
+
+    #[test]
+    fn billing_enforced_when_not_bypassed() {
+        let guard: LlmPreCallGuard = Box::new(|| Err("balance is $0.00".into()));
+        assert_eq!(
+            run_pre_call_guard(false, Some(&guard)),
+            Err("balance is $0.00".into())
+        );
+    }
+
+    #[test]
+    fn billing_bypass_does_not_report_usage() {
+        static CALLED: AtomicBool = AtomicBool::new(false);
+        let handler: LlmUsageHandler = Box::new(|_| {
+            CALLED.store(true, Ordering::SeqCst);
+        });
+        emit_llm_usage(true, Some(&handler), sample_usage());
+        assert!(!CALLED.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn billing_reports_usage_when_not_bypassed() {
+        static CALLED: AtomicBool = AtomicBool::new(false);
+        let handler: LlmUsageHandler = Box::new(|_| {
+            CALLED.store(true, Ordering::SeqCst);
+        });
+        emit_llm_usage(false, Some(&handler), sample_usage());
+        assert!(CALLED.load(Ordering::SeqCst));
     }
 }

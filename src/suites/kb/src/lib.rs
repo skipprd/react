@@ -62,11 +62,11 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
                 .as_deref()
             {
                 Some("none") => react_core::llm::ReasoningEffort::None,
-                Some("low") | None | Some("") => react_core::llm::ReasoningEffort::Low,
+                Some("low") => react_core::llm::ReasoningEffort::Low,
                 Some("medium") => react_core::llm::ReasoningEffort::Medium,
-                Some("high") => react_core::llm::ReasoningEffort::High,
+                Some("high") | None | Some("") => react_core::llm::ReasoningEffort::High,
                 Some("extra_high") | Some("xhigh") => react_core::llm::ReasoningEffort::ExtraHigh,
-                _ => react_core::llm::ReasoningEffort::Low,
+                _ => react_core::llm::ReasoningEffort::High,
             };
             react_core::llm::LlmCallOptions {
                 prompt_id: "kb.run",

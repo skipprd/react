@@ -42,6 +42,8 @@ cargo test -p react --lib --tests
 
 Headless and product-specific CLIs are owned by downstream host repositories. Skippr Data Engineer is **`sde`** in `skipprd/sde`.
 
+Smoke this repo against the in-repo example suite `react-suite-kb` (`src/suites/kb`). Larger product tests use the Data Engineer suite at `sde/crates/skipprd-react-suite-data-engineer`.
+
 Consume this workspace as a git/path dependency. CodeArtifact `react-cargo` is not the public install path.
 
 ### WebSocket Server

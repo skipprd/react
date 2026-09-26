@@ -15,7 +15,9 @@ A **suite** is a product surface that defines how the agent behaves for a partic
 
 ## Registered suites
 
-The generic React repo only owns suite-neutral runtime pieces and non-Skippr suites such as `kb`. Product repositories can register additional suites through their host binaries.
+The generic React repo only owns suite-neutral runtime pieces and in-repo example suites such as `kb`. Product repositories register additional suites through their host binaries.
+
+**Smoke this repository** with `kb` (`src/suites/kb`). **Larger / product tests** use the Data Engineer suite in sibling `sde/crates/skipprd-react-suite-data-engineer` (`react-suite-data-engineer`), run from the `sde` host.
 
 | Suite ID | Label | Agent types | Description |
 |---|---|---|---|

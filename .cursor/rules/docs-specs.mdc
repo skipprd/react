@@ -1,0 +1,16 @@
+---
+description: Normative specs and decisions for Skippr ReAct
+globs: "specs/**/*.md"
+alwaysApply: false
+---
+
+# Specs (`specs/`)
+
+- Language: **MUST** / **MUST NOT** / **SHOULD** / **MAY** — keep normative tone.
+- Disagreements → prefer `specs/decisions.md` (R1–R6), then update the conflicting doc. If two decisions (or a decision and the code) describe different designs, amend them to **one** design in the same change.
+- Platform dialect: `specs/tiger-style.md` (R1) — kernel EOS vs host delivery; injected world; simulation.
+- Construction: `specs/style.md` (R2).
+- Verification: `specs/testing.md` (R5) — unit, functional, sim, property, fuzz.
+- Layout: `specs/layout.md`.
+- Implementation changes that alter behavior MUST update the matching spec in the same change.
+- Public how-to → `docs/`. Maintainer audits → `docs-internal/`. Do not hide MUST language only in audits.

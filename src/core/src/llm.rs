@@ -56,7 +56,7 @@ pub struct LlmCallOptions {
     pub top_p: Option<f32>,
     /// Optional provider hint for additional deliberation.
     ///
-    /// Callers should assume the runtime default is `Low` unless overridden.
+    /// Callers should assume the runtime default is `High` unless overridden.
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Per-call timeout in seconds. When set, `AgentCtx::llm_chat` wraps the call in
     /// `tokio::time::timeout`. The transport-level HTTP timeout remains as a safety net.

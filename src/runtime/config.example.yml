@@ -5,9 +5,9 @@ storage:
   # Local-first storage: artifacts/threads/catalog/vectors are persisted under this path.
   mode: local
   path: "./.react"
-  # For S3 storage instead:
-  # mode: s3
-  # bucket: "example-bucket"
+  # Cloudflare R2 (S3-compatible). Auth is Skippr Cloud OBJECTS_* keys.
+  # mode: r2
+  # bucket: skippr-react-runtime
 
 scope:
   tenant: "example"

@@ -1,0 +1,28 @@
+---
+description: Skippr ReAct core — one design, construction, Tiger Style, kernel purity, full verification stack
+alwaysApply: true
+---
+
+# Skippr ReAct — core agent rules
+
+Product: **Skippr ReAct**. Specs in `specs/`; public docs in `docs/`; kernel in `src/core`. See root `AGENTS.md`.
+
+## Principles (priority)
+
+1. **One design** — one authority/type/CLI/journal per job. Delete the old way in the same change. Amend `specs/decisions.md` when lock text keeps a fork alive. Skill: **`hard-cutover`**.
+2. **Design by construction** — types/enums/newtypes over runtime checks. Illegal states unrepresentable. Compile errors over runtime convention. [specs/style.md](specs/style.md), **R2**.
+3. Simplest design that works — no trait hierarchies with one implementor; no re-export-only modules.
+4. **Tiger Style (ReAct dialect)** — async/multi-threaded event-based kernel; effectively exactly-once + OCC/monotonics for durable handlers; host/adapters MAY be at-least-once; **auto-tune** pools/channels/batches/depths/memory — no impl knobs. Kernel has **no external side effects** (injected clock/entropy/storage/LLM/net). Spec: `specs/tiger-style.md` (**R1**). Skill: **`tiger-style`**.
+5. DRY — shared logic in crates; no copy-paste validation/serialization.
+6. Reuse/extend existing code **into that one design** — never as a second path, adapter, or “legacy” module.
+7. **Verification stack** — failing test first; **unit**, **functional**, **deterministic simulation**, **property**, **fuzz**. No sleep/wall-clock/live I/O as correctness. Spec: `specs/testing.md` (**R5**). Skill: **`tdd-react`**.
+
+## Kernel purity (R4)
+
+`react-core` MUST NOT call `std::env`, real filesystem, sockets, `Instant::now`, `sleep`, or OS RNG. Production adapters and the simulator implement the **same** traits. MUST NOT a second test-only commit path.
+
+## Specs
+
+- Behavior MUST match `specs/*.md`. Locks: `specs/decisions.md` (R1–R6). If two locks (or a lock and the code) disagree, amend them to one design in the same change.
+- Layout: `specs/layout.md`. Product hosts (`sde`) stay out of this repo’s domain suites. Smoke ReAct with `src/suites/kb`; larger tests use sibling `sde/crates/skipprd-react-suite-data-engineer`.
+- Public how-to → `docs/`. Maintainer audits → `docs-internal/`. MUST language → `specs/`.

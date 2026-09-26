@@ -1,0 +1,15 @@
+---
+description: TDD required — unit, functional, deterministic simulation, property, and fuzz
+alwaysApply: true
+---
+
+# TDD (Skippr ReAct)
+
+1. Write the **failing test first**. Do not implement feature code without it.
+2. Cover the stack in [specs/testing.md](specs/testing.md): **unit**, **functional**, **deterministic simulation**, **property**, **fuzz**. Skip a layer only with a named reason (generated code, docs-only).
+3. Kernel and durable host paths: the **simulator runs production code**. Injected clock/llm/net/storage/entropy. Seeded replay. MUST NOT `sleep`, wall-clock races, or live LLM/S3 as correctness.
+4. Property tests (`proptest`) for codecs, keyspace, budgets, idempotency. Fuzz MAY mutate codecs and simulator schedules; it MUST NOT replace the checker. A crashing fuzz input becomes a named regression test.
+5. Red → green → refactor; hard-cutover obsolete tests with the code. If a test encoded the discarded path, replace it rather than keeping both.
+6. Shared fakes live in one place (core test support or `react-test-support`). Do not copy fake clocks/LLMs per crate.
+7. Skill: **`tdd-react`**. Durable retry/OCC cases: skill **`tiger-style`**.
+8. Smoke this repo with an in-repo example suite (`src/suites/kb`). Larger tests use the DE suite in sibling `sde/crates/skipprd-react-suite-data-engineer`.

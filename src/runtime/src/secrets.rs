@@ -8,6 +8,9 @@ pub struct EnvSecretsProvider;
 #[async_trait]
 impl SecretsProvider for EnvSecretsProvider {
     async fn get_secret(&self, name: &str) -> Result<Option<String>, String> {
+        if name == "LLM_API_KEY" {
+            return Ok(crate::runtime_settings::llm_api_key());
+        }
         Ok(std::env::var(name).ok())
     }
 }

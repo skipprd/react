@@ -1,0 +1,47 @@
+---
+description: Tiger Style ReAct dialect — async/MT kernel EOS+OCC; injected world; no external side effects
+alwaysApply: true
+---
+
+# Tiger Style (ReAct dialect)
+
+Normative: `specs/tiger-style.md`, decision **R1**. Skill: **`tiger-style`**.
+
+## Two layers
+
+- **Kernel** (`react-core`): pure given injected world; consistent; **effectively exactly-once** under retry.
+- **Host / adapters**: real I/O; MAY be at-least-once (network, LLM). Kernel EOS MUST NOT be sold as product EOS; host at-least-once MUST NOT weaken the kernel.
+
+## Runtime
+
+- Async, event-based, **multi-threaded** — OK and expected.
+- MUST NOT require process-wide single-threading for correctness.
+- Logical ownership via types + monotonics + OCC. Logical time is an injected **Clock**.
+
+## Kernel durable paths
+
+- Idempotency key (or natural key) + durable dedupe/result.
+- Commit boundary: state + side effect together or neither.
+- Conditional writes; conflict → abort/retry with a fresh read.
+- Fixed safety ceilings (budgets, payload, in-flight) in code — not operator knobs.
+- Assert / fail-closed on protocol, tenancy, budget — no silent fallbacks.
+- **No external side effects** in the kernel (`std::env`, FS, net, wall clock, OS RNG).
+
+## Auto-tune
+
+- Pools, channels, memory targets, batches, depths derive from hardware/load under ceilings.
+- MUST NOT grow env knobs for those. Product config (model, bind, storage URI) stays explicit.
+- Buffers/channels stay bounded.
+
+## Simulation
+
+- Same owner code under a seeded simulator. MUST NOT `sleep` as correctness.
+- Fuzz MAY mutate codecs/schedules; MUST NOT replace the checker.
+
+## Anti-patterns
+
+- Best-effort dual-write without dedupe.
+- Unbounded buffers/channels.
+- Last-write-wins on concurrent thread/store mutations without a decision.
+- Impl env sprawl (`FOO_BATCH_SIZE`, `WORKER_THREADS`, …).
+- Test-only fork of the run loop. Sleep-based tests.

@@ -8,6 +8,8 @@ use react_core::resolved_config as rc;
 use react_core::scope::RequestScope;
 
 pub const DEFAULT_OPENAI_COMPAT_BASE_URL: &str = "https://api.openai.com";
+/// GPT-5.6 Luna (OpenAI). Pair with reasoning effort `high`.
+pub const DEFAULT_LLM_MODEL: &str = "gpt-5.6-luna";
 
 /// # `react` configuration
 ///
@@ -43,7 +45,7 @@ pub const DEFAULT_OPENAI_COMPAT_BASE_URL: &str = "https://api.openai.com";
 /// llm:
 ///   provider: OPENAI_COMPAT
 ///   base_url: https://api.openai.com
-///   reason_model: gpt-5.1
+///   reason_model: gpt-5.6-luna
 ///   embed_model: text-embedding-3-small
 ///   context_length: 4096
 ///   http_timeout_secs: 30
@@ -79,9 +81,10 @@ pub const DEFAULT_OPENAI_COMPAT_BASE_URL: &str = "https://api.openai.com";
 /// ```
 ///
 /// Notes:
-/// - Secrets remain env-driven (e.g. `LLM_API_KEY`).
+/// - Secrets remain env-driven (`LLM_API_KEY` or `OPENAI_API_KEY`).
 /// - Local-first: `storage.mode` defaults to `local` (stores artifacts under `storage.path`).
-/// - For S3: set `storage.mode: s3` and provide `storage.bucket` (or env `SKIPPR_S3_BUCKET` / CLI `--bucket`).
+/// - For R2: set `storage.mode: r2` (alias `s3`) and optional `storage.bucket`
+///   (defaults to `skippr-react-runtime`; auth is `OBJECTS_*`).
 
 /// CLI overrides for a host that serves `react` over WS/HTTP.
 ///
@@ -209,10 +212,10 @@ fn resolve_config_inner(
         .unwrap_or_else(|| "local".to_string());
     let mode = match mode_str.trim().to_ascii_lowercase().as_str() {
         "local" => StorageMode::Local,
-        "s3" => StorageMode::S3,
+        "s3" | "r2" => StorageMode::S3,
         other => {
             return Err(format!(
-                "unsupported storage.mode '{other}' (expected local|s3)"
+                "unsupported storage.mode '{other}' (expected local|s3|r2)"
             ))
         }
     };
@@ -232,14 +235,13 @@ fn resolve_config_inner(
 
     // Resolve storage fields based on mode.
     let (bucket, path) = if mode == StorageMode::S3 {
-        // Bucket: CLI > env > YAML
+        // Bucket: CLI > SKIPPR_S3_BUCKET > OBJECTS_BUCKET_REACT_RUNTIME > YAML > default
         let b = ov
-                .bucket
-                .or_else(|| getenv_nonempty("SKIPPR_S3_BUCKET"))
-                .or_else(|| file.storage.as_ref().and_then(|s| s.bucket.clone()))
-                .ok_or_else(|| {
-                    "missing storage bucket for s3 mode (set --bucket, env SKIPPR_S3_BUCKET, or storage.bucket in YAML)".to_string()
-                })?;
+            .bucket
+            .or_else(|| getenv_nonempty("SKIPPR_S3_BUCKET"))
+            .or_else(|| getenv_nonempty("OBJECTS_BUCKET_REACT_RUNTIME"))
+            .or_else(|| file.storage.as_ref().and_then(|s| s.bucket.clone()))
+            .unwrap_or_else(|| react_module_storage_s3::DEFAULT_RUNTIME_BUCKET.to_string());
         (Some(b), None)
     } else {
         // Path: CLI > env > YAML > default(./.react)
@@ -289,8 +291,12 @@ fn resolve_config_inner(
         base_url: getenv_nonempty("LLM_BASE_URL")
             .or(llmf.base_url)
             .or_else(|| Some(DEFAULT_OPENAI_COMPAT_BASE_URL.to_string())),
-        reason_model: getenv_nonempty("LLM_REASON_MODEL").or(llmf.reason_model),
-        task_model: getenv_nonempty("LLM_TASK_MODEL").or(llmf.task_model),
+        reason_model: getenv_nonempty("LLM_REASON_MODEL")
+            .or(llmf.reason_model)
+            .or_else(|| Some(DEFAULT_LLM_MODEL.to_string())),
+        task_model: getenv_nonempty("LLM_TASK_MODEL")
+            .or(llmf.task_model)
+            .or_else(|| Some(DEFAULT_LLM_MODEL.to_string())),
         embed_model: getenv_nonempty("LLM_EMBED_MODEL").or(llmf.embed_model),
         context_length: getenv_nonempty("LLM_CONTEXT_LENGTH")
             .and_then(|v| v.parse::<usize>().ok())
@@ -312,13 +318,25 @@ fn resolve_config_inner(
             .or(llmf.top_p),
     };
 
+    let s3_credentials = file
+        .storage
+        .as_ref()
+        .and_then(|s| s.s3_credentials.clone())
+        .or_else(|| {
+            if mode == StorageMode::S3 {
+                react_module_storage_s3::objects_credentials_from_env().ok()
+            } else {
+                None
+            }
+        });
+
     let cfg = ReactResolvedConfig {
         server: ServerResolved { port: server_port },
         storage: StorageResolved {
             mode: mode.clone(),
             bucket: bucket.clone(),
             path: path.clone(),
-            s3_credentials: file.storage.as_ref().and_then(|s| s.s3_credentials.clone()),
+            s3_credentials,
         },
         scope: RequestScope::parse(tenant, workspace, project_id).map_err(|e| e.to_string())?,
         llm,
@@ -341,6 +359,11 @@ mod tests {
         "SKIPPR_S3_BUCKET",
         "REACT_STORAGE_MODE",
         "REACT_STORAGE_PATH",
+        "OBJECTS_ACCESS_KEY_ID",
+        "OBJECTS_SECRET_ACCESS_KEY",
+        "OBJECTS_S3_ENDPOINT",
+        "OBJECTS_S3_REGION",
+        "OBJECTS_BUCKET_REACT_RUNTIME",
         "LLM_PROVIDER",
         "LLM_REASON_MODEL",
         "LLM_TASK_MODEL",
@@ -420,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bucket_errors_if_missing_everywhere() {
+    fn resolve_s3_defaults_runtime_bucket() {
         with_clean_env(|| {
             clear_env(ALL_TEST_ENV_KEYS);
             let file = ReactConfigFile {
@@ -428,11 +451,15 @@ mod tests {
                 ..Default::default()
             };
             let ov = ServeOverrides {
-                storage_mode: Some("s3".into()),
+                storage_mode: Some("r2".into()),
                 ..Default::default()
             };
-            let err = resolve_config(file, ov).err().unwrap_or_default();
-            assert!(err.contains("missing storage bucket for s3 mode"));
+            let cfg = resolve_config(file, ov).expect("resolve");
+            assert_eq!(cfg.storage.mode, StorageMode::S3);
+            assert_eq!(
+                cfg.storage.bucket.as_deref(),
+                Some(react_module_storage_s3::DEFAULT_RUNTIME_BUCKET)
+            );
         });
     }
 
@@ -489,6 +516,20 @@ mod tests {
                 cfg.llm.base_url.as_deref(),
                 Some(DEFAULT_OPENAI_COMPAT_BASE_URL)
             );
+        });
+    }
+
+    #[test]
+    fn resolve_defaults_reason_and_task_models_to_luna() {
+        with_clean_env(|| {
+            clear_env(ALL_TEST_ENV_KEYS);
+            let file = ReactConfigFile {
+                providers: Some(minimal_providers_json()),
+                ..Default::default()
+            };
+            let cfg = resolve_config(file, ServeOverrides::default()).expect("resolve");
+            assert_eq!(cfg.llm.reason_model.as_deref(), Some(DEFAULT_LLM_MODEL));
+            assert_eq!(cfg.llm.task_model.as_deref(), Some(DEFAULT_LLM_MODEL));
         });
     }
 

@@ -1,0 +1,18 @@
+---
+description: Rust style for Skippr ReAct — construction, one design, kernel purity, Tiger Style
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust (Skippr ReAct)
+
+- **One design:** one type, enum, CLI, and journal per job. If a parallel module exists, delete it in the same change and amend `specs/` when they still describe the old way. Do not wrap the old path.
+- **Design by construction:** encode invariants in the type system (`enum`, newtypes, `Option`/`Result`). Prefer compile failure over runtime “don’t call this wrong.”
+- Flat modules and functions over premature traits. Extract a trait only when there are (or will immediately be) multiple implementors.
+- Errors: typed error enums in `react-core`; avoid stringly `anyhow` sprawl at library boundaries.
+- Feature gates must compile: `cargo check --all-features` when touching `cfg(feature)`.
+- Prefer deleting obsolete modules over `#[allow(dead_code)]` or `_legacy` modules.
+- Match existing formatting; run `cargo fmt` on touched packages.
+- **Kernel purity:** no `std::env`, sockets, filesystem, `Instant::now`, `sleep`, or OS RNG in `react-core`. Inject `Clock` / `Entropy` / `Storage` / `Llm` / `Net`. The simulator runs this code.
+- **Tiger Style:** production asserts / fail-closed; OCC for concurrent durable state; idempotent retryable handlers; fixed safety ceilings in code; auto-tune pools/channels/batches — no impl env knobs; no silent fallbacks (`specs/tiger-style.md`, R1).
+- **Tests:** unit + functional; deterministic simulation for state machines; property tests for codecs/budgets; fuzz feeds the checker. MUST NOT sleep as correctness (`specs/testing.md`).

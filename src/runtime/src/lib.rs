@@ -5,6 +5,7 @@
 //! host-specific wiring via `host::HostComposition`.
 
 pub mod bootstrap;
+pub mod bypass;
 pub mod config;
 pub mod execute;
 pub mod host;

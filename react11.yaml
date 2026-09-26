@@ -13,11 +13,11 @@ scope:
   # project_id: test
 
 llm:
-  # Keep secrets (api keys) in env via EnvSecretsProvider (e.g. LLM_API_KEY).
+  # Keep secrets in env: OPENAI_API_KEY (or LLM_API_KEY).
   provider: OPENAI_COMPAT
   base_url: https://api.openai.com
-  reason_model: gpt-5.4
-  task_model: gpt-5.4
+  reason_model: gpt-5.6-luna
+  task_model: gpt-5.6-luna
   embed_model: text-embedding-3-small
   context_length: 8192
   http_timeout_secs: 120

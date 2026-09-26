@@ -8,6 +8,42 @@ use react_core::storage::ConditionalWriteStatus;
 pub use react_core::storage::StorageAdapter;
 use react_core::CoreError;
 
+pub const DEFAULT_RUNTIME_BUCKET: &str = "skippr-react-runtime";
+pub const DEFAULT_VECTORS_BUCKET: &str = "skippr-react-vectors";
+
+fn env_nonempty(key: &str) -> Option<String> {
+    std::env::var(key).ok().and_then(|v| {
+        let t = v.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    })
+}
+
+/// Cloudflare R2 credentials from Skippr Cloud `OBJECTS_*` env (R7).
+/// Does **not** read the AWS default credential chain.
+pub fn objects_credentials_from_env() -> Result<S3Credentials, String> {
+    let access_key_id = env_nonempty("OBJECTS_ACCESS_KEY_ID")
+        .ok_or_else(|| "missing OBJECTS_ACCESS_KEY_ID (R2 S3 API key)".to_string())?;
+    let secret_access_key = env_nonempty("OBJECTS_SECRET_ACCESS_KEY")
+        .ok_or_else(|| "missing OBJECTS_SECRET_ACCESS_KEY (R2 S3 API secret)".to_string())?;
+    let endpoint = env_nonempty("OBJECTS_S3_ENDPOINT")
+        .ok_or_else(|| "missing OBJECTS_S3_ENDPOINT (R2 S3 API endpoint)".to_string())?;
+    let region = env_nonempty("OBJECTS_S3_REGION").unwrap_or_else(|| "auto".to_string());
+    Ok(S3Credentials {
+        access_key_id,
+        secret_access_key,
+        session_token: None,
+        region,
+        endpoint: Some(endpoint),
+        force_path_style: true,
+        expires_at: None,
+        provider: None,
+    })
+}
+
 pub struct ObjectMeta {
     pub key: String,
     pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
@@ -35,14 +71,17 @@ impl S3StorageAdapter {
             &credentials.secret_access_key,
             credentials.session_token.clone(),
             None,
-            "skippr-auth",
+            "skippr-objects",
         );
-        let s3_config = aws_sdk_s3::Config::builder()
+        let mut builder = aws_sdk_s3::Config::builder()
             .behavior_version_latest()
             .region(aws_sdk_s3::config::Region::new(credentials.region.clone()))
             .credentials_provider(creds)
-            .build();
-        aws_sdk_s3::Client::from_conf(s3_config)
+            .force_path_style(credentials.force_path_style);
+        if let Some(endpoint) = credentials.endpoint.as_deref() {
+            builder = builder.endpoint_url(endpoint);
+        }
+        aws_sdk_s3::Client::from_conf(builder.build())
     }
 
     async fn refresh_client(&self) -> Result<(), CoreError> {
@@ -164,16 +203,9 @@ impl S3StorageAdapter {
         ))
     }
 
-    pub async fn from_env(bucket: String) -> Self {
-        let aws_cfg = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .load()
-            .await;
-        let client = aws_sdk_s3::Client::new(&aws_cfg);
-        Self {
-            bucket,
-            client: Self::wrap_client(client),
-            credentials_provider: None,
-        }
+    pub async fn from_env(bucket: String) -> Result<Self, String> {
+        let credentials = objects_credentials_from_env()?;
+        Ok(Self::from_resolved_credentials(bucket, &credentials).await)
     }
 
     pub async fn list_prefix_meta(&self, prefix: &str) -> Result<Vec<ObjectMeta>, CoreError> {
@@ -229,6 +261,8 @@ impl S3StorageAdapter {
             secret_access_key: secret_access_key.to_string(),
             session_token: session_token.map(|s| s.to_string()),
             region: region.to_string(),
+            endpoint: None,
+            force_path_style: false,
             expires_at: None,
             provider: None,
         };
@@ -440,5 +474,48 @@ impl StorageAdapter for S3StorageAdapter {
             }
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn objects_credentials_require_r2_env() {
+        let saved = [
+            "OBJECTS_ACCESS_KEY_ID",
+            "OBJECTS_SECRET_ACCESS_KEY",
+            "OBJECTS_S3_ENDPOINT",
+            "OBJECTS_S3_REGION",
+        ]
+        .map(|k| (k, std::env::var(k).ok()));
+        for (k, _) in &saved {
+            std::env::remove_var(k);
+        }
+        let err = objects_credentials_from_env().expect_err("missing env must fail");
+        assert!(err.contains("OBJECTS_ACCESS_KEY_ID"), "{err}");
+
+        std::env::set_var("OBJECTS_ACCESS_KEY_ID", "ak");
+        std::env::set_var("OBJECTS_SECRET_ACCESS_KEY", "sk");
+        std::env::set_var(
+            "OBJECTS_S3_ENDPOINT",
+            "https://example.r2.cloudflarestorage.com",
+        );
+        std::env::set_var("OBJECTS_S3_REGION", "auto");
+        let creds = objects_credentials_from_env().expect("OBJECTS_* present");
+        assert_eq!(creds.access_key_id, "ak");
+        assert_eq!(creds.region, "auto");
+        assert_eq!(
+            creds.endpoint.as_deref(),
+            Some("https://example.r2.cloudflarestorage.com")
+        );
+        assert!(creds.force_path_style);
+        for (k, v) in saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
     }
 }

@@ -55,7 +55,11 @@ pub async fn build_base_suite_ctx(cfg: &rc::ReactResolvedConfig) -> Result<Suite
             Arc::new(S3StorageAdapter::from_resolved_credentials(bucket.clone(), creds).await)
                 as Arc<dyn StorageAdapter>
         } else {
-            Arc::new(S3StorageAdapter::from_env(bucket.clone()).await) as Arc<dyn StorageAdapter>
+            Arc::new(
+                S3StorageAdapter::from_env(bucket.clone())
+                    .await
+                    .map_err(|e| format!("R2 OBJECTS_* credentials: {e}"))?,
+            ) as Arc<dyn StorageAdapter>
         };
         let keyspace = Arc::new(DefaultKeyspace::new(bucket)) as Arc<dyn Keyspace>;
         (storage, keyspace)

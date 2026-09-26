@@ -121,6 +121,10 @@ pub struct S3Credentials {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub region: String,
+    /// S3-compatible endpoint (Cloudflare R2). `None` uses the SDK default.
+    pub endpoint: Option<String>,
+    /// Path-style addressing. R2 requires this (`true`).
+    pub force_path_style: bool,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub provider: Option<Arc<dyn S3CredentialsProvider>>,
 }
@@ -135,6 +139,8 @@ impl fmt::Debug for S3Credentials {
                 &self.session_token.as_ref().map(|_| "<redacted>"),
             )
             .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .field("force_path_style", &self.force_path_style)
             .field("expires_at", &self.expires_at)
             .field(
                 "provider",

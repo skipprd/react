@@ -75,19 +75,21 @@ pub fn llm_base_url() -> Option<String> {
 }
 
 pub fn llm_api_key() -> Option<String> {
-    env_opt("LLM_API_KEY")
+    env_opt("LLM_API_KEY").or_else(|| env_opt("OPENAI_API_KEY"))
 }
 
 pub fn llm_reason_model() -> Option<String> {
     resolved_config()
         .and_then(|cfg| cfg.llm.reason_model.clone())
         .or_else(|| env_opt("LLM_REASON_MODEL"))
+        .or_else(|| Some(crate::config::DEFAULT_LLM_MODEL.to_string()))
 }
 
 pub fn llm_task_model() -> Option<String> {
     resolved_config()
         .and_then(|cfg| cfg.llm.task_model.clone())
         .or_else(|| env_opt("LLM_TASK_MODEL"))
+        .or_else(|| Some(crate::config::DEFAULT_LLM_MODEL.to_string()))
 }
 
 pub fn llm_embed_model() -> Option<String> {
@@ -122,6 +124,11 @@ pub fn llm_max_tokens() -> Option<u32> {
 
 pub fn llm_temperature() -> Option<f32> {
     resolved_config().and_then(|cfg| cfg.llm.temperature)
+}
+
+/// Default reasoning effort for Luna High (`gpt-5.6-luna` + `high`).
+pub fn llm_reasoning_effort() -> react_core::llm::ReasoningEffort {
+    react_core::llm::ReasoningEffort::High
 }
 
 pub fn llm_top_p() -> Option<f32> {
@@ -181,4 +188,57 @@ pub fn get_pipeline_name() -> String {
         return project_id;
     }
     getenv("PIPELINE", "default")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    fn with_clean_env<F: FnOnce() + std::panic::UnwindSafe>(keys: &[&str], body: F) {
+        let _g = ENV_LOCK.lock().unwrap();
+        let saved: Vec<(&str, Option<String>)> =
+            keys.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+        for k in keys {
+            std::env::remove_var(k);
+        }
+        let result = std::panic::catch_unwind(body);
+        for (k, v) in saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+        if let Err(e) = result {
+            std::panic::resume_unwind(e);
+        }
+    }
+
+    #[test]
+    fn llm_api_key_falls_back_to_openai_api_key() {
+        with_clean_env(&["LLM_API_KEY", "OPENAI_API_KEY"], || {
+            std::env::set_var("OPENAI_API_KEY", "sk-openai");
+            assert_eq!(llm_api_key().as_deref(), Some("sk-openai"));
+        });
+    }
+
+    #[test]
+    fn llm_api_key_prefers_llm_api_key_over_openai() {
+        with_clean_env(&["LLM_API_KEY", "OPENAI_API_KEY"], || {
+            std::env::set_var("LLM_API_KEY", "sk-llm");
+            std::env::set_var("OPENAI_API_KEY", "sk-openai");
+            assert_eq!(llm_api_key().as_deref(), Some("sk-llm"));
+        });
+    }
+
+    #[test]
+    fn llm_reasoning_effort_is_high() {
+        assert_eq!(
+            llm_reasoning_effort(),
+            react_core::llm::ReasoningEffort::High
+        );
+    }
 }

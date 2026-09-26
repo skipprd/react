@@ -320,4 +320,39 @@ mod tests {
         );
         assert_eq!(http.body.get("store").and_then(|x| x.as_bool()), Some(true));
     }
+
+    #[test]
+    fn build_chat_http_sends_luna_high_reasoning() {
+        let ad = OpenAIResponsesAdapter::new();
+        let req = ChatRequest {
+            model: "gpt-5.6-luna".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "hi".to_string(),
+            }],
+            max_output_tokens: None,
+            temperature: Some(0.2),
+            top_p: Some(1.0),
+            response_format: None,
+            reasoning_effort: Some("high".to_string()),
+            prompt_id: None,
+            thread_id: None,
+            execution_mode: None,
+        };
+        let http = ad.build_chat_http(&req).expect("build");
+        assert_eq!(http.url, "/v1/responses");
+        assert_eq!(
+            http.body.get("model").and_then(|x| x.as_str()),
+            Some("gpt-5.6-luna")
+        );
+        assert_eq!(
+            http.body
+                .get("reasoning")
+                .and_then(|r| r.get("effort"))
+                .and_then(|x| x.as_str()),
+            Some("high")
+        );
+        assert!(http.body.get("temperature").is_none());
+        assert!(http.body.get("top_p").is_none());
+    }
 }

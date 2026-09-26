@@ -36,3 +36,14 @@ pub fn pick_openai_adapter_for_model(model: &str) -> Arc<dyn Adapter> {
         Arc::new(crate::llm::openai_chat_adapter::OpenAIChatAdapter::new())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn luna_uses_responses_api() {
+        let ad = pick_openai_adapter_for_model("gpt-5.6-luna");
+        assert!(ad.capabilities("gpt-5.6-luna").supports_responses_api);
+    }
+}

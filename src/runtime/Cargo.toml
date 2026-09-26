@@ -42,6 +42,7 @@ react-transport = { path = "../transport", version = "1.5.0" }
 [dev-dependencies]
 httpmock = "0.7"
 react-module-storage-memory = { path = "../modules/adaptors/storage-memory", version = "1.5.0" }
+react-suite-kb = { path = "../suites/kb", version = "1.5.0" }
 
 [features]
 llama_cpp = []

@@ -69,7 +69,7 @@ impl LargeLanguageModel for RouterModel {
             .model
             .clone()
             .or_else(|| crate::runtime_settings::llm_reason_model())
-            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+            .unwrap_or_else(|| crate::config::DEFAULT_LLM_MODEL.to_string());
 
         let default_max_output_tokens = crate::runtime_settings::llm_max_tokens().or_else(|| {
             crate::runtime_settings::getenv("LLM_MAX_TOKENS", "1024")
@@ -92,7 +92,10 @@ impl LargeLanguageModel for RouterModel {
         );
         let temperature = options.temperature.or(default_temperature);
         let top_p = options.top_p.or(default_top_p);
-        let reasoning_effort = match options.reasoning_effort.unwrap_or(ReasoningEffort::Low) {
+        let reasoning_effort = match options
+            .reasoning_effort
+            .unwrap_or_else(crate::runtime_settings::llm_reasoning_effort)
+        {
             ReasoningEffort::None => Some("none".to_string()),
             ReasoningEffort::Low => Some("low".to_string()),
             ReasoningEffort::Medium => Some("medium".to_string()),
