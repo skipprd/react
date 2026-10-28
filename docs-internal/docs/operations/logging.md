@@ -13,7 +13,7 @@ Control log verbosity via:
 
 | Output | Location | Description |
 |---|---|---|
-| **stdout** | Terminal | Real-time log stream (when `--terminal` is off or `REACT_PLAIN_PROGRESS=true`) |
+| **stdout** | Terminal | Real-time log stream (when `--terminal` is off or the host sets `HeadlessRunOpts.plain_progress`) |
 | **Per-thread log** | `{scope}/logs/{thread_id}.log` | Detailed log for each agent run |
 | **Rotating log** | `{REACT_LOG_DIR}/react.log` | Daily-rotating log file (when `REACT_LOG_DIR` is set) |
 
@@ -63,4 +63,4 @@ When an app-owned host enables the terminal UI, a rich terminal display is shown
 - Tool execution timeline
 - LLM call indicators
 
-Disable with `REACT_PLAIN_PROGRESS=true` for CI environments or non-TTY terminals.
+Product hosts set `HeadlessRunOpts.plain_progress` for CI environments or non-TTY terminals.

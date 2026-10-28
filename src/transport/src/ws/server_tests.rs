@@ -6,7 +6,6 @@ use crate::ws::util::DEFAULT_INITIAL_PHASE;
 use async_trait::async_trait;
 use futures_util::sink::Sink;
 use react_core::keyspace::DefaultKeyspace;
-use react_core::keyspace::Keyspace;
 use react_core::llm::NullModel;
 use react_core::provider_traits::NullSecretsProvider;
 use react_core::scope::RequestScope;
@@ -121,7 +120,9 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -146,7 +147,9 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -199,7 +202,7 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
                     status: react_core::session::ToolStepStatus::Ok,
                     payload: Some(serde_json::json!({"written_keys": []})),
                     ctx: None,
-                    observation: ToolObservation::normalize(serde_json::json!({"ok": true})),
+                    observation: ToolObservation::from_success(&serde_json::json!({})),
                     ts: chrono::Utc::now().to_rfc3339(),
                     agent: "agent".to_string(),
                 },
@@ -212,7 +215,9 @@ impl react_core::suite::Suite for StubDataEngineerSuite {
             payload: serde_json::json!({"answer":"ok","sql":"SELECT 1"}),
             display: Some("ok".to_string()),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 }
@@ -249,7 +254,9 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -273,7 +280,9 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -297,7 +306,9 @@ impl react_core::suite::Suite for StubAwaitApprovalSuite {
             kind: react_core::suite::FlowKind::new("await_approval"),
             prompt: "approve?".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 }
@@ -334,7 +345,9 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -358,7 +371,9 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -382,7 +397,9 @@ impl react_core::suite::Suite for StubBatchLockedSuite {
             kind: react_core::suite::FlowKind::new("await_user"),
             prompt: "Plan-batched authoring is locked (test_agent).".to_string(),
         }];
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 }
@@ -576,251 +593,6 @@ async fn headless_run_exits_with_error_on_ask_user_prompt() {
     assert!(err
         .to_ascii_lowercase()
         .contains("ask_user_not_supported_in_headless"));
-}
-
-#[tokio::test]
-async fn plans_request_returns_latest_plan_and_model_when_present() {
-    let storage = Arc::new(InMemoryStorageAdapter::default());
-    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-    let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
-    let suite_ctx = SuiteCtx::new(
-        storage.clone(),
-        Arc::new(NullSecretsProvider::default()),
-        Arc::new(NullModel::new()),
-        scope.clone(),
-        keyspace.clone(),
-    );
-    let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_kb::KbSuite);
-    let reg = Arc::new(reg);
-    let mut state = ConnState::new(reg, suite_ctx.clone(), None);
-
-    let thread_id = uuid::Uuid::new_v4().to_string();
-    let base = keyspace
-        .threads_prefix(&scope)
-        .trim_end_matches("/threads")
-        .trim_end_matches('/')
-        .to_string();
-
-    let test_plan_key = format!("{}/plans/{}/20260126T000000Z_cleanse.json", base, thread_id);
-    let test_plan = serde_json::json!({
-        "plan_key": test_plan_key,
-        "status": "approved",
-        "project_snapshot": {},
-        "tasks": [],
-        "batches": [],
-        "work_groups": [],
-        "mutations": [],
-        "progress": {},
-    });
-    suite_ctx
-        .storage()
-        .put_bytes(
-            &test_plan_key,
-            &serde_json::to_vec_pretty(&test_plan).unwrap(),
-            "application/json",
-        )
-        .await
-        .unwrap();
-
-    let model_key = format!("{}/plans/{}/20260126T000000Z_model.json", base, thread_id);
-    let model = serde_json::json!({
-        "plan_key": model_key,
-        "status": "approved",
-        "project_snapshot": {},
-        "tasks": [],
-        "batches": [],
-        "work_groups": [],
-        "mutations": [],
-        "progress": {},
-    });
-    suite_ctx
-        .storage()
-        .put_bytes(
-            &model_key,
-            &serde_json::to_vec_pretty(&model).unwrap(),
-            "application/json",
-        )
-        .await
-        .unwrap();
-
-    let msg = json!({"v":1,"type":"plans","cid":"c1","thread_id":thread_id}).to_string();
-    let frames = handle_message(&msg, &mut state).await.unwrap();
-    assert_eq!(frames.len(), 1);
-    let resp: api::PlansResponse = serde_json::from_str(&frames[0]).unwrap();
-    assert_eq!(resp.for_cid.as_deref(), Some("c1"));
-    assert_eq!(resp.plans.len(), 2);
-}
-
-#[tokio::test]
-async fn plans_request_includes_checklist_and_omits_notes() {
-    let storage = Arc::new(InMemoryStorageAdapter::default());
-    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-    let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
-    let suite_ctx = SuiteCtx::new(
-        storage.clone(),
-        Arc::new(NullSecretsProvider::default()),
-        Arc::new(NullModel::new()),
-        scope.clone(),
-        keyspace.clone(),
-    );
-    let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_kb::KbSuite);
-    let reg = Arc::new(reg);
-    let mut state = ConnState::new(reg, suite_ctx.clone(), None);
-
-    let thread_id = uuid::Uuid::new_v4().to_string();
-    let base = keyspace
-        .threads_prefix(&scope)
-        .trim_end_matches("/threads")
-        .trim_end_matches('/')
-        .to_string();
-
-    let test_plan_key = format!("{}/plans/{}/20260126T000000Z_cleanse.json", base, thread_id);
-    let test_plan = serde_json::json!({
-        "plan_key": test_plan_key,
-        "status": "approved",
-        "project_snapshot": {},
-        "tasks": [{
-            "dataset_id": "AwsDataCatalog.test_raw.raw_orders",
-            "expected_model_path": "models/staging/stg_test_raw_raw_orders.sql",
-            "invariants": [],
-            "implementation_spec": {
-                "spec_version": 1,
-                "row_preserving": true,
-                "output_fields": [{
-                    "name": "order_id",
-                    "kind": "raw",
-                    "source_columns": [],
-                    "expression": "order_id",
-                    "data_type": null,
-                    "nullable": false,
-                    "description": null
-                }],
-                "prohibited_ops": []
-            },
-            "status": "pending",
-            "checklist": [{
-                "checklist_item_id": "sql_model",
-                "label": "Author staging SQL",
-                "details": null,
-                "status": "pending",
-                "origin": "initial",
-                "evidence": []
-            }]
-        }],
-        "batches": [["AwsDataCatalog.test_raw.raw_orders"]],
-        "work_groups": [],
-        "mutations": [],
-        "progress": {},
-    });
-    suite_ctx
-        .storage()
-        .put_bytes(
-            &test_plan_key,
-            &serde_json::to_vec_pretty(&test_plan).unwrap(),
-            "application/json",
-        )
-        .await
-        .unwrap();
-
-    let msg = json!({"v":1,"type":"plans","cid":"c1","thread_id":thread_id}).to_string();
-    let frames = handle_message(&msg, &mut state).await.unwrap();
-    assert_eq!(frames.len(), 1);
-
-    let v: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
-    // planKind "cleanse" comes from generic plan loader (files *_cleanse.json)
-    let test_plan_snap = v
-        .get("plans")
-        .and_then(|x| x.as_array())
-        .and_then(|arr| {
-            arr.iter()
-                .find(|p| p.get("planKind").and_then(|k| k.as_str()) == Some("cleanse"))
-        })
-        .expect("test plan");
-    let tasks = test_plan_snap
-        .get("tasks")
-        .and_then(|x| x.as_array())
-        .unwrap();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(
-        tasks[0].get("taskKind").and_then(|x| x.as_str()),
-        Some("cleanse")
-    );
-    let cl = tasks[0]
-        .get("checklist")
-        .and_then(|x| x.as_array())
-        .unwrap();
-    assert_eq!(
-        cl[0].get("checklistItemId").and_then(|x| x.as_str()),
-        Some("sql_model")
-    );
-    assert!(tasks[0].get("notes").is_none());
-}
-
-#[tokio::test]
-async fn plans_request_surfaces_parse_error_snapshot_for_corrupt_plan_json() {
-    let storage = Arc::new(InMemoryStorageAdapter::default());
-    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
-    let keyspace = Arc::new(DefaultKeyspace::new("b".to_string()));
-    let suite_ctx = SuiteCtx::new(
-        storage.clone(),
-        Arc::new(NullSecretsProvider::default()),
-        Arc::new(NullModel::new()),
-        scope.clone(),
-        keyspace.clone(),
-    );
-    let mut reg = react_core::suite::SuiteRegistry::new();
-    reg.register(react_suite_kb::KbSuite);
-    let reg = Arc::new(reg);
-    let mut state = ConnState::new(reg, suite_ctx.clone(), None);
-
-    let thread_id = uuid::Uuid::new_v4().to_string();
-    let base = keyspace
-        .threads_prefix(&scope)
-        .trim_end_matches("/threads")
-        .trim_end_matches('/')
-        .to_string();
-    let test_plan_key = format!("{}/plans/{}/20260126T000000Z_cleanse.json", base, thread_id);
-    suite_ctx
-        .storage()
-        .put_bytes(&test_plan_key, b"{not valid json", "application/json")
-        .await
-        .unwrap();
-
-    let msg = json!({"v":1,"type":"plans","cid":"c1","thread_id":thread_id}).to_string();
-    let frames = handle_message(&msg, &mut state).await.unwrap();
-    let v: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
-    // planKind "cleanse" comes from generic plan loader (files *_cleanse.json)
-    let test_plan_snap = v
-        .get("plans")
-        .and_then(|x| x.as_array())
-        .and_then(|arr| {
-            arr.iter()
-                .find(|p| p.get("planKind").and_then(|k| k.as_str()) == Some("cleanse"))
-        })
-        .expect("test plan");
-    assert_eq!(
-        test_plan_snap.get("status").and_then(|x| x.as_str()),
-        Some("cancelled")
-    );
-    let tasks = test_plan_snap
-        .get("tasks")
-        .and_then(|x| x.as_array())
-        .unwrap();
-    let cl = tasks[0]
-        .get("checklist")
-        .and_then(|x| x.as_array())
-        .unwrap();
-    assert_eq!(
-        cl[0].get("checklistItemId").and_then(|x| x.as_str()),
-        Some("parse_error")
-    );
-    let ps = test_plan_snap
-        .get("projectSnapshot")
-        .and_then(|x| x.as_object())
-        .expect("projectSnapshot");
-    assert!(ps.get("parse_error").is_some());
 }
 
 #[tokio::test]

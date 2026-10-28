@@ -42,6 +42,34 @@ pub(super) enum SuiteRunKind {
     User,
 }
 
+use tokio::task::JoinHandle;
+
+struct AbortOnDrop<T> {
+    handle: JoinHandle<T>,
+    armed: bool,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: JoinHandle<T>) -> Self {
+        Self {
+            handle,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.handle.abort();
+        }
+    }
+}
+
 pub(super) async fn run_suite_and_stream(
     thread_id: &str,
     question: &str,
@@ -135,7 +163,7 @@ async fn run_agent_with_processing_suite(
         let sctx3 = sctx2.clone();
         let thread_id_s = thread_id.to_string();
         let agent_s = agent.to_string();
-        tokio::spawn(async move {
+        AbortOnDrop::new(tokio::spawn(async move {
             let tid_scope = thread_id_s.clone();
             react_core::thread_ctx::scope_thread_id(&tid_scope, async move {
                 match run_kind {
@@ -151,7 +179,7 @@ async fn run_agent_with_processing_suite(
                 }
             })
             .await
-        })
+        }))
     };
 
     let mut agent_task = spawn_task(kind, question.to_string());
@@ -173,6 +201,7 @@ async fn run_agent_with_processing_suite(
     let mut last_sent_step_count: Option<i32> = None;
     let mut state_tick = tokio::time::interval(std::time::Duration::from_millis(250));
     state_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut auto_resumes: u8 = 0;
 
     loop {
         tokio::select! {
@@ -562,7 +591,8 @@ async fn run_agent_with_processing_suite(
                 resp.for_cid = Some(cid.to_string());
                 emit_ws(state, write, api::ServerMessage::ThreadState(resp)).await;
             }
-            res = &mut agent_task => {
+            res = &mut agent_task.handle => {
+                agent_task.disarm();
                 let frames = match res {
                     Ok(Ok(v)) => v,
                     Ok(Err(e)) => return Err(e),
@@ -706,7 +736,7 @@ async fn run_agent_with_processing_suite(
                                 InterruptDecision::AutoApprove => {
                                     {
                                         let writer = state.log_writer();
-                                        let _ = writer
+                                        writer
                                             .append_step(
                                                 thread_id,
                                                 ThreadStep::User {
@@ -716,7 +746,8 @@ async fn run_agent_with_processing_suite(
                                                     agent: agent.to_string(),
                                                 },
                                             )
-                                            .await;
+                                            .await
+                                            .map_err(|e| e.to_string())?;
                                     }
                                     if let Some(t) = state.term() {
                                         t.emit(TerminalEvent::Info(format!(
@@ -758,6 +789,8 @@ async fn run_agent_with_processing_suite(
                     }
                 }
                 if let Some((k2, q2)) = rerun {
+                    auto_resumes = react_core::budget::charge_auto_resume(auto_resumes)
+                        .map_err(|_| "budget exhausted: auto_resumes".to_string())?;
                     agent_task = spawn_task(k2, q2);
                     continue;
                 }

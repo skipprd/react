@@ -28,12 +28,13 @@ pub fn pick_adapter_from_config() -> Arc<dyn Adapter> {
 }
 
 pub fn pick_openai_adapter_for_model(model: &str) -> Arc<dyn Adapter> {
-    let m = model.to_lowercase();
-    // Inference rules: gpt-5.* and o4.* → Responses API, otherwise Chat
-    if m.starts_with("gpt-5") || m.starts_with("o4") {
-        Arc::new(crate::llm::openai_responses_adapter::OpenAIResponsesAdapter::new())
-    } else {
-        Arc::new(crate::llm::openai_chat_adapter::OpenAIChatAdapter::new())
+    match react_core::llm::openai_api_for_model(model) {
+        react_core::llm::OpenAiApi::Responses => {
+            Arc::new(crate::llm::openai_responses_adapter::OpenAIResponsesAdapter::new())
+        }
+        react_core::llm::OpenAiApi::ChatCompletions => {
+            Arc::new(crate::llm::openai_chat_adapter::OpenAIChatAdapter::new())
+        }
     }
 }
 

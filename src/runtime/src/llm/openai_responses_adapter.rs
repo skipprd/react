@@ -1,5 +1,6 @@
 use crate::llm::adapter::Adapter;
 use crate::llm::types::*;
+use react_core::llm::LlmError;
 use serde::Serialize;
 
 pub struct OpenAIResponsesAdapter;
@@ -10,12 +11,7 @@ impl OpenAIResponsesAdapter {
 }
 
 fn responses_supports_sampling_controls(model: &str) -> bool {
-    // Some newer "reasoning" model families reject temperature/top_p on the Responses API.
-    // Example: gpt-5.1 returns `Unsupported parameter: 'temperature' is not supported with this model.`
-    //
-    // When unsupported, omit the parameters entirely rather than failing the request.
-    let m = model.trim();
-    !(m.starts_with("gpt-5") || m.starts_with("o"))
+    react_core::llm::openai_api_for_model(model) == react_core::llm::OpenAiApi::ChatCompletions
 }
 
 #[derive(Serialize)]
@@ -75,25 +71,17 @@ impl Adapter for OpenAIResponsesAdapter {
         }
     }
 
-    fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, LlmError> {
+        react_core::llm::require_nonempty_messages(&req.messages)?;
         let mut msgs: Vec<RespMsg> = Vec::new();
         for m in req.messages.iter() {
             let part = RespPart {
-                r#type: "input_text".to_string(),
+                r#type: responses_content_part_type_for_role(&m.role)?.to_string(),
                 text: m.content.clone(),
             };
             msgs.push(RespMsg {
                 role: m.role.to_string(),
                 content: vec![part],
-            });
-        }
-        if msgs.is_empty() {
-            msgs.push(RespMsg {
-                role: "user".to_string(),
-                content: vec![RespPart {
-                    r#type: "input_text".to_string(),
-                    text: String::new(),
-                }],
             });
         }
 
@@ -146,26 +134,24 @@ impl Adapter for OpenAIResponsesAdapter {
             method: "POST".to_string(),
             url: "/v1/responses".to_string(),
             headers: vec![],
-            body: serde_json::to_value(body).map_err(|e| e.to_string())?,
+            body: serde_json::to_value(body).map_err(|e| LlmError::protocol(e.to_string()))?,
         })
     }
 
-    fn parse_chat_http(&self, resp: &ProviderHttpResponse) -> Result<ChatResponse, String> {
+    fn parse_chat_http(&self, resp: &ProviderHttpResponse) -> Result<ChatResponse, LlmError> {
         let v: serde_json::Value =
-            serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
+            serde_json::from_str(&resp.body_text).map_err(|e| LlmError::protocol(e.to_string()))?;
         let raw = Some(v.clone());
-        if let Some(t) = extract_response_text(&v, resp.structured) {
-            return Ok(ChatResponse { text: t, raw });
+        match extract_response_text(&v, resp.structured, resp.status, &resp.body_text)? {
+            Some(t) => Ok(ChatResponse { text: t, raw }),
+            None => {
+                let snippet = react_core::text::truncate_chars_ellipsis(&resp.body_text, 1200);
+                Err(LlmError::protocol(format!("empty response: {snippet}")))
+            }
         }
-        let snippet = if resp.body_text.len() > 1200 {
-            format!("{}...", &resp.body_text[..1200])
-        } else {
-            resp.body_text.clone()
-        };
-        Err(format!("empty response: {}", snippet))
     }
 
-    fn build_embed_http(&self, req: &EmbedRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_embed_http(&self, req: &EmbedRequest) -> Result<ProviderHttpRequest, LlmError> {
         let body = OaiEmbReq {
             model: req.model.clone(),
             input: req.inputs.clone(),
@@ -174,12 +160,13 @@ impl Adapter for OpenAIResponsesAdapter {
             method: "POST".to_string(),
             url: "/v1/embeddings".to_string(),
             headers: vec![],
-            body: serde_json::to_value(body).map_err(|e| e.to_string())?,
+            body: serde_json::to_value(body).map_err(|e| LlmError::protocol(e.to_string()))?,
         })
     }
 
-    fn parse_embed_http(&self, resp: &ProviderHttpResponse) -> Result<EmbedResponse, String> {
-        let obj: OaiEmbResp = serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
+    fn parse_embed_http(&self, resp: &ProviderHttpResponse) -> Result<EmbedResponse, LlmError> {
+        let obj: OaiEmbResp =
+            serde_json::from_str(&resp.body_text).map_err(|e| LlmError::protocol(e.to_string()))?;
         let vecs: Vec<Vec<f32>> = obj.data.into_iter().map(|d| d.embedding).collect();
         let dim = vecs.get(0).map(|v| v.len()).unwrap_or(0);
         Ok(EmbedResponse { vectors: vecs, dim })
@@ -296,6 +283,46 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_http_uses_output_text_for_assistant_turns() {
+        let ad = OpenAIResponsesAdapter::new();
+        let req = ChatRequest {
+            model: "gpt-5.6-luna".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "rules".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "hi".to_string(),
+                },
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "{\"type\":\"tool\"}".to_string(),
+                },
+            ],
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            response_format: None,
+            reasoning_effort: None,
+            prompt_id: None,
+            thread_id: None,
+            execution_mode: None,
+        };
+        let http = ad.build_chat_http(&req).expect("build");
+        let input = http
+            .body
+            .get("input")
+            .and_then(|x| x.as_array())
+            .expect("input");
+        assert_eq!(input[0]["content"][0]["type"].as_str(), Some("input_text"));
+        assert_eq!(input[1]["content"][0]["type"].as_str(), Some("input_text"));
+        assert_eq!(input[2]["content"][0]["type"].as_str(), Some("output_text"));
+        assert_eq!(input[2]["role"].as_str(), Some("assistant"));
+    }
+
+    #[test]
     fn build_chat_http_enables_background_when_requested() {
         let ad = OpenAIResponsesAdapter::new();
         let req = ChatRequest {
@@ -354,5 +381,57 @@ mod tests {
         );
         assert!(http.body.get("temperature").is_none());
         assert!(http.body.get("top_p").is_none());
+    }
+
+    #[test]
+    fn build_chat_http_rejects_empty_messages() {
+        let ad = OpenAIResponsesAdapter::new();
+        let req = ChatRequest {
+            model: "gpt-5.6-luna".to_string(),
+            messages: vec![],
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            response_format: None,
+            reasoning_effort: None,
+            prompt_id: None,
+            thread_id: None,
+            execution_mode: None,
+        };
+        let err = ad.build_chat_http(&req).expect_err("empty");
+        match err {
+            LlmError::Protocol(msg) => assert!(msg.contains("no messages"), "{msg}"),
+            other => panic!("expected protocol, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_chat_http_accepts_completed_luna_payload_with_null_error() {
+        let ad = OpenAIResponsesAdapter::new();
+        let body = serde_json::json!({
+            "id": "resp_luna_high",
+            "status": "completed",
+            "background": true,
+            "error": null,
+            "output": [
+                {"type": "reasoning", "id": "rs_1", "summary": []},
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "{\"type\":\"tool\",\"name\":\"catalog\"}"}
+                    ]
+                }
+            ]
+        })
+        .to_string();
+        let parsed = ad
+            .parse_chat_http(&ProviderHttpResponse {
+                status: 200,
+                body_text: body,
+                structured: true,
+            })
+            .expect("parse");
+        assert_eq!(parsed.text, "{\"type\":\"tool\",\"name\":\"catalog\"}");
     }
 }

@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::error::Error as _;
+use std::time::Duration;
 
 pub(crate) fn pretty_json(text: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(text) {
@@ -30,36 +32,125 @@ pub(crate) fn text_from_part(p: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// Classify an OpenAI-style error response into a severity prefix.
-/// Permanent errors (quota, auth, billing) get `LLM_FATAL_ERROR:` so callers
-/// can fail-fast instead of burning retries on a dead API key.
-pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'static str, String)> {
+use react_core::llm::{ChatRole, LlmError};
+
+/// Responses API content part type for a prior turn replayed as `input`.
+///
+/// User/system turns are `input_text`. Assistant turns are previous model
+/// output and MUST be `output_text` (`input_text` is rejected on those slots).
+pub(crate) fn responses_content_part_type(role: ChatRole) -> &'static str {
+    match role {
+        ChatRole::Assistant => "output_text",
+        ChatRole::System | ChatRole::User => "input_text",
+    }
+}
+
+pub(crate) fn responses_content_part_type_for_role(role: &str) -> Result<&'static str, LlmError> {
+    let parsed = ChatRole::try_from(role).map_err(LlmError::protocol)?;
+    Ok(responses_content_part_type(parsed))
+}
+
+/// Classify an OpenAI-style error object from HTTP JSON into [`LlmError`].
+pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<LlmError> {
     let msg = error_obj.get("message").and_then(|x| x.as_str())?;
     if msg.trim().is_empty() {
         return None;
     }
     let code = error_obj.get("code").and_then(|x| x.as_str()).unwrap_or("");
     let etype = error_obj.get("type").and_then(|x| x.as_str()).unwrap_or("");
-    let lower = msg.to_ascii_lowercase();
 
     let is_permanent = code == "insufficient_quota"
         || code == "billing_hard_limit_reached"
         || code == "account_deactivated"
         || etype == "insufficient_quota"
-        || lower.contains("exceeded your current quota")
-        || lower.contains("billing")
-        || lower.contains("account is not active")
-        || lower.contains("invalid api key")
-        || lower.contains("incorrect api key")
-        || lower.contains("permission denied")
-        || lower.contains("organization has been disabled");
+        || code == "invalid_api_key"
+        || (etype == "invalid_request_error" && code == "invalid_api_key");
 
-    let prefix = if is_permanent {
-        "LLM_FATAL_ERROR"
+    Some(if is_permanent {
+        LlmError::Fatal(msg.to_string())
+    } else if code == "rate_limit_exceeded"
+        || etype == "rate_limit_error"
+        || etype == "server_error"
+        || code == "server_error"
+    {
+        LlmError::Transient(msg.to_string())
     } else {
-        "LLM_ERROR"
-    };
-    Some((prefix, msg.to_string()))
+        return None;
+    })
+}
+
+pub(crate) fn llm_error_from_http(status: u16, body: &str) -> LlmError {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(error_obj) = v.get("error") {
+            if let Some(err) = classify_oai_error(error_obj) {
+                return err;
+            }
+        }
+    }
+    let snippet = react_core::text::truncate_chars_ellipsis(body, 500);
+    match status {
+        401 | 402 | 403 => LlmError::Fatal(format!("http {status}: {snippet}")),
+        429 | 502 | 503 | 504 | 529 => LlmError::Transient(format!("http {status}: {snippet}")),
+        s if (500..600).contains(&s) => LlmError::Transient(format!("http {s}: {snippet}")),
+        _ => LlmError::Protocol(format!("http {status}: {snippet}")),
+    }
+}
+
+pub(crate) fn llm_error_from_ureq(url: &str, err: ureq::Error) -> LlmError {
+    let msg = format!("LLM request failed: {url}: {err}");
+    if let ureq::Error::Transport(t) = &err {
+        if let Some(io) = t.source().and_then(|s| s.downcast_ref::<std::io::Error>()) {
+            if io.kind() == std::io::ErrorKind::TimedOut {
+                return LlmError::Timeout(Duration::from_secs(30));
+            }
+        }
+        return LlmError::Transient(msg);
+    }
+    LlmError::Protocol(msg)
+}
+
+pub(crate) fn ureq_send_json(
+    agent: &ureq::Agent,
+    method: &str,
+    url: &str,
+    extra_headers: &[(String, String)],
+    bearer: Option<&str>,
+    payload: serde_json::Value,
+) -> Result<(u16, String), LlmError> {
+    let mut r = agent
+        .request(method, url)
+        .set("Content-Type", "application/json");
+    if let Some(k) = bearer {
+        r = r.set("Authorization", &format!("Bearer {k}"));
+    }
+    for (h, v) in extra_headers {
+        r = r.set(h, v);
+    }
+    match r.send_json(payload) {
+        Ok(resp) => Ok((resp.status() as u16, resp.into_string().unwrap_or_default())),
+        Err(ureq::Error::Status(s, rr)) => Ok((s as u16, rr.into_string().unwrap_or_default())),
+        Err(e) => Err(llm_error_from_ureq(url, e)),
+    }
+}
+
+pub(crate) fn ureq_get(
+    agent: &ureq::Agent,
+    url: &str,
+    extra_headers: &[(String, String)],
+    bearer: Option<&str>,
+) -> Result<(u16, String), LlmError> {
+    let mut r = agent.request("GET", url);
+    if let Some(k) = bearer {
+        r = r.set("Authorization", &format!("Bearer {k}"));
+    }
+    for (h, v) in extra_headers {
+        r = r.set(h, v);
+    }
+    match r.call() {
+        Ok(resp) => Ok((resp.status() as u16, resp.into_string().unwrap_or_default())),
+        Err(ureq::Error::Status(s, rr)) => Ok((s as u16, rr.into_string().unwrap_or_default())),
+        Err(e) => Err(llm_error_from_ureq(url, e)),
+    }
 }
 
 /// Extract the model's text output from an OpenAI-style response.
@@ -68,15 +159,22 @@ pub(crate) fn classify_oai_error(error_obj: &serde_json::Value) -> Option<(&'sta
 /// JSON-schema mode). Providers can still split one logical assistant message across
 /// multiple text parts, so preserve all non-empty chunks and let the schema parser
 /// decide whether the joined text is valid.
-pub(crate) fn extract_response_text(v: &serde_json::Value, structured: bool) -> Option<String> {
-    if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
-        if !s.trim().is_empty() {
-            return Some(s.to_string());
+pub(crate) fn extract_response_text(
+    v: &serde_json::Value,
+    structured: bool,
+    http_status: u16,
+    body_text: &str,
+) -> Result<Option<String>, LlmError> {
+    match v.get("error") {
+        None | Some(serde_json::Value::Null) => {}
+        Some(error_obj) => {
+            return Err(classify_oai_error(error_obj)
+                .unwrap_or_else(|| llm_error_from_http(http_status, body_text)));
         }
     }
-    if let Some(error_obj) = v.get("error") {
-        if let Some((prefix, msg)) = classify_oai_error(error_obj) {
-            return Some(format!("{prefix}: {msg}"));
+    if let Some(s) = v.get("output_text").and_then(|x| x.as_str()) {
+        if !s.trim().is_empty() {
+            return Ok(Some(s.to_string()));
         }
     }
     let mut chunks: Vec<String> = Vec::new();
@@ -109,9 +207,9 @@ pub(crate) fn extract_response_text(v: &serde_json::Value, structured: bool) -> 
     }
     let joined = chunks.join("");
     if joined.trim().is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(joined)
+        Ok(Some(joined))
     }
 }
 
@@ -267,7 +365,11 @@ pub struct ProviderHttpResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_response_text;
+    use super::{
+        extract_response_text, llm_error_from_http, responses_content_part_type,
+        responses_content_part_type_for_role,
+    };
+    use react_core::llm::{ChatRole, LlmError};
 
     #[test]
     fn structured_response_text_joins_multiple_text_parts() {
@@ -281,8 +383,141 @@ mod tests {
         });
 
         assert_eq!(
-            extract_response_text(&response, true).as_deref(),
+            extract_response_text(&response, true, 200, "{}")
+                .expect("extract")
+                .as_deref(),
             Some("{\"type\":\"tool\",\"name\":\"noop\"}")
         );
+    }
+
+    #[test]
+    fn http_503_server_error_json_is_transient() {
+        let err = llm_error_from_http(
+            503,
+            r#"{"error":{"message":"The server had an error","type":"server_error"}}"#,
+        );
+        assert!(err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Transient(_)), "{err:?}");
+    }
+
+    #[test]
+    fn http_500_with_only_message_is_transient() {
+        let err = llm_error_from_http(500, r#"{"error":{"message":"internal"}}"#);
+        assert!(err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Transient(_)), "{err:?}");
+    }
+
+    #[test]
+    fn http_400_with_message_is_protocol() {
+        let err = llm_error_from_http(
+            400,
+            r#"{"error":{"message":"bad request","type":"invalid_request_error","code":"invalid_prompt"}}"#,
+        );
+        assert!(!err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn insufficient_quota_is_fatal_even_on_429() {
+        let err = llm_error_from_http(
+            429,
+            r#"{"error":{"message":"you exceeded your current quota","code":"insufficient_quota"}}"#,
+        );
+        assert!(!err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Fatal(_)), "{err:?}");
+    }
+
+    #[test]
+    fn extract_unclassified_error_uses_http_status() {
+        let v = serde_json::json!({"error":{"message":"internal"}});
+        let body = v.to_string();
+        let err = extract_response_text(&v, false, 503, &body).expect_err("error envelope");
+        assert!(err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Transient(_)), "{err:?}");
+
+        let err = extract_response_text(&v, false, 200, &body).expect_err("error envelope");
+        assert!(!err.retry(), "{err:?}");
+        assert!(matches!(err, LlmError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn completed_responses_payload_with_null_error_extracts_text() {
+        let response = serde_json::json!({
+            "id": "resp_luna_high",
+            "object": "response",
+            "status": "completed",
+            "background": true,
+            "error": null,
+            "output": [
+                {"type": "reasoning", "id": "rs_1", "summary": []},
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "{\"type\":\"tool\",\"name\":\"catalog\"}"}
+                    ]
+                }
+            ],
+            "output_text": "{\"type\":\"tool\",\"name\":\"catalog\"}"
+        });
+        let body = response.to_string();
+        assert_eq!(
+            extract_response_text(&response, true, 200, &body)
+                .expect("null error is not an envelope")
+                .as_deref(),
+            Some("{\"type\":\"tool\",\"name\":\"catalog\"}")
+        );
+    }
+
+    #[test]
+    fn completed_responses_without_output_text_uses_message_content() {
+        let response = serde_json::json!({
+            "status": "completed",
+            "background": true,
+            "error": null,
+            "output": [
+                {"type": "reasoning", "id": "rs_1", "summary": []},
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "{\"ok\":true}"}
+                    ]
+                }
+            ]
+        });
+        let body = response.to_string();
+        assert_eq!(
+            extract_response_text(&response, true, 200, &body)
+                .expect("message content")
+                .as_deref(),
+            Some("{\"ok\":true}")
+        );
+    }
+
+    #[test]
+    fn responses_error_string_is_fail_closed() {
+        let response = serde_json::json!({
+            "status": "failed",
+            "error": "upstream timeout"
+        });
+        let body = response.to_string();
+        let err = extract_response_text(&response, false, 200, &body).expect_err("string error");
+        assert!(matches!(err, LlmError::Protocol(_)), "{err:?}");
+    }
+
+    #[test]
+    fn responses_content_part_type_is_role_exhaustive() {
+        assert_eq!(responses_content_part_type(ChatRole::User), "input_text");
+        assert_eq!(responses_content_part_type(ChatRole::System), "input_text");
+        assert_eq!(
+            responses_content_part_type(ChatRole::Assistant),
+            "output_text"
+        );
+        assert_eq!(
+            responses_content_part_type_for_role("assistant").expect("role"),
+            "output_text"
+        );
+        assert!(responses_content_part_type_for_role("tool").is_err());
     }
 }

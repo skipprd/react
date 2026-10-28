@@ -10,19 +10,3 @@ Rules:
 - When you answer, cite the filename(s) you used and keep quotes short.
 "#
 }
-
-pub fn tool_card() -> &'static str {
-    r#"
-Tools:
-
-1) kb_ingest_dir
-args: {dir:string, dataset_id:string, max_files?:int, max_bytes?:int, chunk_chars?:int}
-
-2) kb_search
-args: {query:string, k:int, dataset_id:string}
-
-Notes:
-- kb_search searches only kind="doc" embeddings.
-- dataset_id is a logical identifier for your knowledge base. Use "kb" unless you have multiple KBs.
-"#
-}

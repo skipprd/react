@@ -20,15 +20,10 @@ impl DebugProvider for KbDebugProvider {
         "\
 The KB (Knowledge Base) suite manages vector-indexed document collections.
 
-## Tools
-- kb_search(query, k?, dataset_id?): Searches the vector store for relevant documents. \
-  Returns top-k results with scores.
-- kb_ingest_dir(path, dataset_id?): Ingests documents from a directory into the vector store.
-
 ## Common Failure Patterns
-- Empty search results: kb_search returning zero items usually means the dataset hasn't \
+- Empty search results: a search tool returning zero items usually means the dataset hasn't \
   been ingested yet or the query doesn't match any documents.
-- Unnecessary re-ingestion: Calling kb_ingest_dir repeatedly on the same directory without \
+- Unnecessary re-ingestion: ingesting the same directory repeatedly without \
   changes. Each call re-indexes all documents.
 - Missing vector store: The suite requires a vector provider to be configured. If missing, \
   all operations will fail."

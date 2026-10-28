@@ -26,7 +26,6 @@ struct ToolEndPanicGuard {
     thread_step: Option<ThreadStep>,
     tool_name: String,
     phase: String,
-    start_logged: bool,
     armed: bool,
 }
 
@@ -37,7 +36,6 @@ impl ToolEndPanicGuard {
         thread_step: ThreadStep,
         tool_name: String,
         phase: String,
-        start_logged: bool,
     ) -> Self {
         Self {
             thread_store,
@@ -45,7 +43,6 @@ impl ToolEndPanicGuard {
             thread_step: Some(thread_step),
             tool_name,
             phase,
-            start_logged,
             armed: true,
         }
     }
@@ -58,7 +55,7 @@ impl ToolEndPanicGuard {
 
 impl Drop for ToolEndPanicGuard {
     fn drop(&mut self) {
-        if !self.armed || !self.start_logged || !std::thread::panicking() {
+        if !self.armed || !std::thread::panicking() {
             return;
         }
         let Some(step) = self.thread_step.take() else {
@@ -107,15 +104,16 @@ impl ThreadStore {
     /// Execute `operation` inside a paired ToolStart/ToolEnd bracket.
     ///
     /// **Guarantees:**
-    /// - A `ToolStart` step is appended before the operation runs.
-    /// - A `ToolEnd` step is **always** appended, even if the operation errors.
-    /// - Append failures are logged with structured observability-gap markers so
-    ///   monitoring can alert on unmatched events.
+    /// - A `ToolStart` step is appended before the operation runs; append failure
+    ///   returns `Err` and the operation does not run.
+    /// - A `ToolEnd` step is appended after the operation (success or error);
+    ///   append failure returns `Err`.
+    /// - If the operation panics, a `Drop` finalizer best-effort appends `ToolEnd`
+    ///   (cannot return from `Drop`). Missing runtime / append failure is warned.
     ///
     /// `to_observation` converts a successful operation result `&T` into a raw
-    /// JSON value that is then normalised via [`ToolObservation::normalize`].
-    /// If `to_observation` itself returns `Err`, a failed observation is recorded
-    /// and the error is propagated as the return value.
+    /// JSON value stored on `ToolEnd`. Success/failure of the tool is the `Result`
+    /// from `operation`, not an `"ok"` key in that JSON.
     pub async fn run_observed<T, F, Fut, Obs>(
         &self,
         thread_id: &str,
@@ -130,35 +128,22 @@ impl ThreadStore {
     {
         let tool_id = uuid::Uuid::new_v4().to_string();
 
-        let start_logged = match self
-            .append_step(
-                thread_id,
-                ThreadStep::ToolStart {
-                    tool_id: tool_id.clone(),
-                    name: meta.name.clone(),
-                    clean_name: meta.clean_name.clone(),
-                    args: meta.args.clone(),
-                    status: ToolStepStatus::Running,
-                    payload: None,
-                    ctx: meta.ctx.clone(),
-                    ts: chrono::Utc::now().to_rfc3339(),
-                    agent: meta.agent.clone(),
-                },
-            )
-            .await
-        {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!(
-                    "run_observed: failed to append tool_start name={} thread_id={} phase={}: {}",
-                    meta.name,
-                    thread_id,
-                    meta.phase,
-                    e
-                );
-                false
-            }
-        };
+        self.append_step(
+            thread_id,
+            ThreadStep::ToolStart {
+                tool_id: tool_id.clone(),
+                name: meta.name.clone(),
+                clean_name: meta.clean_name.clone(),
+                args: meta.args.clone(),
+                status: ToolStepStatus::Running,
+                payload: None,
+                ctx: meta.ctx.clone(),
+                ts: chrono::Utc::now().to_rfc3339(),
+                agent: meta.agent.clone(),
+            },
+        )
+        .await
+        .map_err(|e| format!("audit unavailable (tool_start): {e}"))?;
 
         let mut panic_guard = ToolEndPanicGuard::new(
             self.clone(),
@@ -171,16 +156,15 @@ impl ThreadStore {
                 status: ToolStepStatus::Failed,
                 payload: None,
                 ctx: meta.ctx.clone(),
-                observation: ToolObservation::normalize(serde_json::json!({
-                    "ok": false,
-                    "errors": [format!("tool '{}' panicked before producing a normal observation", meta.name)],
-                })),
+                observation: ToolObservation::from_failure(format!(
+                    "tool '{}' panicked before producing a normal observation",
+                    meta.name
+                )),
                 ts: chrono::Utc::now().to_rfc3339(),
                 agent: meta.agent.clone(),
             },
             meta.name.clone(),
             meta.phase.clone(),
-            start_logged,
         );
 
         let result = operation().await;
@@ -188,31 +172,23 @@ impl ThreadStore {
         let (status, obs, return_result) = match result {
             Ok(value) => match to_observation(&value) {
                 Ok(raw) => {
-                    let obs = ToolObservation::normalize(raw);
-                    let status = if obs.ok {
-                        ToolStepStatus::Ok
-                    } else {
-                        ToolStepStatus::Failed
-                    };
-                    (status, obs, Ok(value))
+                    let obs = ToolObservation::from_success(&raw);
+                    (ToolStepStatus::Ok, obs, Ok(value))
                 }
                 Err(e) => {
                     let msg = format!("failed to build observation for {}: {}", meta.name, e);
                     (
                         ToolStepStatus::Failed,
-                        ToolObservation::normalize(
-                            serde_json::json!({"ok": false, "errors": [msg.clone()]}),
-                        ),
+                        ToolObservation::from_failure(msg.clone()),
                         Err(msg),
                     )
                 }
             },
-            Err(e) => {
-                let obs = ToolObservation::normalize(
-                    serde_json::json!({"ok": false, "errors": [e.clone()]}),
-                );
-                (ToolStepStatus::Failed, obs, Err(e))
-            }
+            Err(e) => (
+                ToolStepStatus::Failed,
+                ToolObservation::from_failure(e.clone()),
+                Err(e),
+            ),
         };
 
         let payload = obs
@@ -221,40 +197,23 @@ impl ThreadStore {
             .cloned()
             .or_else(|| obs.extra.get("ui_payload").cloned());
 
-        if let Err(e) = self
-            .append_step(
-                thread_id,
-                ThreadStep::ToolEnd {
-                    tool_id,
-                    name: meta.name.clone(),
-                    clean_name: meta.clean_name.clone(),
-                    args: meta.args,
-                    status,
-                    payload,
-                    ctx: meta.ctx,
-                    observation: obs,
-                    ts: chrono::Utc::now().to_rfc3339(),
-                    agent: meta.agent.clone(),
-                },
-            )
-            .await
-        {
-            tracing::warn!(
-                "run_observed: failed to append tool_end name={} thread_id={} phase={}: {}",
-                meta.name,
-                thread_id,
-                meta.phase,
-                e
-            );
-            if start_logged {
-                tracing::warn!(
-                    "observability_gap kind=unmatched_tool_start tool={} thread_id={} phase={}",
-                    meta.name,
-                    thread_id,
-                    meta.phase
-                );
-            }
-        }
+        self.append_step(
+            thread_id,
+            ThreadStep::ToolEnd {
+                tool_id,
+                name: meta.name.clone(),
+                clean_name: meta.clean_name.clone(),
+                args: meta.args,
+                status,
+                payload,
+                ctx: meta.ctx,
+                observation: obs,
+                ts: chrono::Utc::now().to_rfc3339(),
+                agent: meta.agent.clone(),
+            },
+        )
+        .await
+        .map_err(|e| format!("audit unavailable (tool_end): {e}"))?;
         panic_guard.disarm();
 
         return_result

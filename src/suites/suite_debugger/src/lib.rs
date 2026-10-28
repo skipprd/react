@@ -72,7 +72,7 @@ impl<'a> PhaseExecutor for DebugExecutor<'a> {
         };
         let summary_ref = pre_summary.as_ref().unwrap_or(&default_summary);
         let sys = prompts::system_prompt(summary_ref, domain_ctx, debugger_cfg.strict_audit);
-        let tools_card = tools::tool_card(debugger_cfg.enable_admin_repo_query);
+        let tools_card = registry.tool_card();
 
         let mut actx = AgentCtxBuilder::new(
             self.sctx.llm().clone(),
@@ -152,7 +152,7 @@ impl SuiteDebugger {
 
     fn build_tools(enable_admin_repo_query: bool) -> Result<ToolRegistry, String> {
         let mut registry = ToolRegistry::new();
-        tools::register_all(&mut registry, enable_admin_repo_query);
+        tools::register_all(&mut registry, enable_admin_repo_query).map_err(|e| e.to_string())?;
         Ok(registry)
     }
 
@@ -181,7 +181,9 @@ impl SuiteDebugger {
             ..Default::default()
         };
 
-        react_core::workflow::runner::run(&executor, &config).await
+        react_core::workflow::runner::run(&executor, &config)
+            .await
+            .map_err(|(e, _)| e.to_string())
     }
 }
 
@@ -215,17 +217,18 @@ impl Suite for SuiteDebugger {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_debug(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -237,17 +240,18 @@ impl Suite for SuiteDebugger {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_debug(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -259,17 +263,18 @@ impl Suite for SuiteDebugger {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_debug(thread_id, text, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 }

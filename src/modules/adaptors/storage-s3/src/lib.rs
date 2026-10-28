@@ -4,8 +4,8 @@ use std::future::Future;
 use std::sync::{Arc, RwLock};
 
 use react_core::resolved_config::S3Credentials;
-use react_core::storage::ConditionalWriteStatus;
 pub use react_core::storage::StorageAdapter;
+use react_core::storage::{is_storage_not_found_error, ConditionalWriteStatus, StorageError};
 use react_core::CoreError;
 
 pub const DEFAULT_RUNTIME_BUCKET: &str = "skippr-react-runtime";
@@ -89,10 +89,10 @@ impl S3StorageAdapter {
             return Ok(());
         };
         let credentials = provider.s3_credentials().await.map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "s3 credential refresh failed (bucket='{}'): {e}",
                 self.bucket
-            ))
+            )))
         })?;
         let client = Self::client_from_credentials(&credentials);
         *self.client.write().expect("s3 client lock poisoned") = client;
@@ -100,7 +100,98 @@ impl S3StorageAdapter {
     }
 
     fn is_expired_token_error(err: &CoreError) -> bool {
-        matches!(err, CoreError::Storage(message) if message.contains("ExpiredToken"))
+        matches!(err, CoreError::Storage(StorageError::AuthExpired(_)))
+    }
+
+    fn map_sdk_error<E, R>(err: aws_sdk_s3::error::SdkError<E, R>) -> StorageError
+    where
+        E: std::fmt::Debug + aws_sdk_s3::error::ProvideErrorMetadata,
+        R: std::fmt::Debug,
+    {
+        match &err {
+            aws_sdk_s3::error::SdkError::TimeoutError(_) => {
+                StorageError::Timeout(format!("{err:?}"))
+            }
+            aws_sdk_s3::error::SdkError::DispatchFailure(_) => {
+                StorageError::Throttle(format!("{err:?}"))
+            }
+            aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
+                match ctx.err().code().unwrap_or("") {
+                    "NoSuchKey" | "NotFound" | "NoSuchBucket" => {
+                        StorageError::NotFound(ctx.err().code().unwrap_or("not found").to_string())
+                    }
+                    "ExpiredToken" | "ExpiredTokenException" | "InvalidToken" => {
+                        StorageError::AuthExpired(ctx.err().code().unwrap_or("").to_string())
+                    }
+                    "SlowDown"
+                    | "Throttling"
+                    | "ThrottlingException"
+                    | "RequestLimitExceeded"
+                    | "TooManyRequestsException" => {
+                        StorageError::Throttle(ctx.err().code().unwrap_or("").to_string())
+                    }
+                    "RequestTimeout" => {
+                        StorageError::Timeout(ctx.err().code().unwrap_or("").to_string())
+                    }
+                    "PreconditionFailed" | "ConditionalRequestConflict" => {
+                        StorageError::Conflict(ctx.err().code().unwrap_or("").to_string())
+                    }
+                    _ => StorageError::Other(format!("{err:?}")),
+                }
+            }
+            _ => StorageError::Other(format!("{err:?}")),
+        }
+    }
+
+    fn key_error<E, R>(
+        &self,
+        _op: &str,
+        key: &str,
+        err: aws_sdk_s3::error::SdkError<E, R>,
+    ) -> CoreError
+    where
+        E: std::fmt::Debug + aws_sdk_s3::error::ProvideErrorMetadata,
+        R: std::fmt::Debug,
+    {
+        match Self::map_sdk_error(err) {
+            StorageError::NotFound(_) => CoreError::from(StorageError::NotFound(key.to_string())),
+            other => CoreError::from(other),
+        }
+    }
+
+    fn prefix_error<E, R>(
+        &self,
+        _op: &str,
+        prefix: &str,
+        err: aws_sdk_s3::error::SdkError<E, R>,
+    ) -> CoreError
+    where
+        E: std::fmt::Debug + aws_sdk_s3::error::ProvideErrorMetadata,
+        R: std::fmt::Debug,
+    {
+        match Self::map_sdk_error(err) {
+            StorageError::NotFound(_) => {
+                CoreError::from(StorageError::NotFound(prefix.to_string()))
+            }
+            other => CoreError::from(other),
+        }
+    }
+
+    fn conditional_write_error<E, R>(
+        &self,
+        _op: &str,
+        key: &str,
+        _expected_etag: Option<&str>,
+        err: aws_sdk_s3::error::SdkError<E, R>,
+    ) -> CoreError
+    where
+        E: std::fmt::Debug + aws_sdk_s3::error::ProvideErrorMetadata,
+        R: std::fmt::Debug,
+    {
+        match Self::map_sdk_error(err) {
+            StorageError::NotFound(_) => CoreError::from(StorageError::NotFound(key.to_string())),
+            other => CoreError::from(other),
+        }
     }
 
     async fn request_with_refresh<T, F, Fut>(&self, request: F) -> Result<T, CoreError>
@@ -163,46 +254,6 @@ impl S3StorageAdapter {
         "artifact"
     }
 
-    fn key_error(&self, op: &str, key: &str, detail: String) -> CoreError {
-        CoreError::Storage(format!(
-            "s3 {op} failed (bucket='{}', key='{}', key_family='{}'): {detail}",
-            self.bucket,
-            key,
-            Self::key_family(key)
-        ))
-    }
-
-    fn prefix_error(&self, op: &str, prefix: &str, detail: String) -> CoreError {
-        CoreError::Storage(format!(
-            "s3 {op} failed (bucket='{}', prefix='{}', key_family='{}'): {detail}",
-            self.bucket,
-            prefix,
-            Self::key_family(prefix)
-        ))
-    }
-
-    fn conditional_write_error(
-        &self,
-        op: &str,
-        key: &str,
-        expected_etag: Option<&str>,
-        detail: String,
-    ) -> CoreError {
-        let condition = if expected_etag.is_some() {
-            "if_match"
-        } else {
-            "if_none_match"
-        };
-        CoreError::Storage(format!(
-            "s3 {op} failed (bucket='{}', key='{}', key_family='{}', condition='{}', expected_etag={:?}): {detail}",
-            self.bucket,
-            key,
-            Self::key_family(key),
-            condition,
-            expected_etag
-        ))
-    }
-
     pub async fn from_env(bucket: String) -> Result<Self, String> {
         let credentials = objects_credentials_from_env()?;
         Ok(Self::from_resolved_credentials(bucket, &credentials).await)
@@ -227,9 +278,9 @@ impl S3StorageAdapter {
                         if let Some(t) = page_token.as_ref() {
                             req = req.continuation_token(t);
                         }
-                        req.send().await.map_err(|e| {
-                            self.prefix_error("list_objects_v2", prefix, format!("{:?}", e))
-                        })
+                        req.send()
+                            .await
+                            .map_err(|e| self.prefix_error("list_objects_v2", prefix, e))
                     }
                 })
                 .await?;
@@ -283,11 +334,13 @@ impl S3StorageAdapter {
 impl StorageAdapter for S3StorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
-        serde_json::from_slice::<Value>(&bytes).map_err(|e| CoreError::Storage(e.to_string()))
+        serde_json::from_slice::<Value>(&bytes)
+            .map_err(|e| CoreError::from(StorageError::other(e.to_string())))
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
-        let bytes = serde_json::to_vec(value).map_err(|e| CoreError::Storage(e.to_string()))?;
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::from(StorageError::other(e.to_string())))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
 
@@ -297,7 +350,8 @@ impl StorageAdapter for S3StorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let bytes = serde_json::to_vec(value).map_err(|e| CoreError::Storage(e.to_string()))?;
+        let bytes = serde_json::to_vec(value)
+            .map_err(|e| CoreError::from(StorageError::other(e.to_string())))?;
         let bucket = self.bucket.clone();
         let expected = expected_etag.map(str::to_string);
         match self
@@ -316,22 +370,21 @@ impl StorageAdapter for S3StorageAdapter {
                         Some(etag) => req.if_match(etag),
                         None => req.if_none_match("*"),
                     };
-                    req.send().await.map(|_| ()).map_err(|e| {
-                        self.conditional_write_error(
-                            "put_object",
-                            key,
-                            expected_etag,
-                            format!("{:?}", e),
-                        )
+                    let out = req.send().await.map_err(|e| {
+                        self.conditional_write_error("put_object", key, expected_etag, e)
+                    })?;
+                    out.e_tag().map(|s| s.to_string()).ok_or_else(|| {
+                        CoreError::from(StorageError::other(format!(
+                            "put_object('{key}'): response missing etag"
+                        )))
                     })
                 }
             })
             .await
         {
-            Ok(_) => Ok(ConditionalWriteStatus::Written),
+            Ok(etag) => Ok(ConditionalWriteStatus::Written { etag }),
             Err(e) => {
-                let s = e.to_string();
-                if s.contains("PreconditionFailed") || s.contains("ConditionalRequestConflict") {
+                if matches!(e, CoreError::Storage(StorageError::Conflict(_))) {
                     let current_etag = self.head_etag(key).await?;
                     return Ok(ConditionalWriteStatus::Conflict { current_etag });
                 }
@@ -352,7 +405,7 @@ impl StorageAdapter for S3StorageAdapter {
                         .key(key)
                         .send()
                         .await
-                        .map_err(|e| self.key_error("get_object", key, format!("{:?}", e)))
+                        .map_err(|e| self.key_error("get_object", key, e))
                 }
             })
             .await?;
@@ -360,7 +413,11 @@ impl StorageAdapter for S3StorageAdapter {
             .body
             .collect()
             .await
-            .map_err(|e| self.key_error("get_object_body", key, format!("{:?}", e)))?
+            .map_err(|e| {
+                CoreError::from(StorageError::other(format!(
+                    "s3 get_object_body failed (key='{key}'): {e:?}"
+                )))
+            })?
             .into_bytes();
         Ok(bytes.to_vec())
     }
@@ -386,7 +443,7 @@ impl StorageAdapter for S3StorageAdapter {
                     .send()
                     .await
                     .map(|_| ())
-                    .map_err(|e| self.key_error("put_object", key, format!("{:?}", e)))
+                    .map_err(|e| self.key_error("put_object", key, e))
             }
         })
         .await
@@ -404,7 +461,7 @@ impl StorageAdapter for S3StorageAdapter {
                     .send()
                     .await
                     .map(|_| ())
-                    .map_err(|e| self.key_error("delete_object", key, format!("{:?}", e)))
+                    .map_err(|e| self.key_error("delete_object", key, e))
             }
         })
         .await
@@ -422,19 +479,14 @@ impl StorageAdapter for S3StorageAdapter {
                         .key(key)
                         .send()
                         .await
-                        .map_err(|e| self.key_error("head_object", key, format!("{:?}", e)))
+                        .map_err(|e| self.key_error("head_object", key, e))
                 }
             })
             .await;
         match resp {
             Ok(r) => Ok(r.e_tag().map(|s| s.to_string())),
-            Err(e) => {
-                let s = e.to_string();
-                if s.contains("NoSuchKey") || s.contains("NotFound") {
-                    return Ok(None);
-                }
-                Err(e)
-            }
+            Err(e) if is_storage_not_found_error(&e) => Ok(None),
+            Err(e) => Err(e),
         }
     }
 
@@ -457,9 +509,9 @@ impl StorageAdapter for S3StorageAdapter {
                         if let Some(t) = page_token.as_ref() {
                             req = req.continuation_token(t);
                         }
-                        req.send().await.map_err(|e| {
-                            self.prefix_error("list_objects_v2", prefix, format!("{:?}", e))
-                        })
+                        req.send()
+                            .await
+                            .map_err(|e| self.prefix_error("list_objects_v2", prefix, e))
                     }
                 })
                 .await?;

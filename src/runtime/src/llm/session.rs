@@ -3,7 +3,7 @@ use crate::llm::thread_ctx;
 use crate::llm::types::ChatResponseFormat;
 use crate::llm::types::LlmExecutionMode;
 use crate::llm::{ChatMessage, LargeLanguageModel};
-use react_core::llm::{LlmCallOptions, LlmExpectedFormat, ReasoningEffort};
+use react_core::llm::{LlmCallOptions, LlmError, LlmExpectedFormat, OpenAiApi, ReasoningEffort};
 
 fn openai_schema_name(s: &str) -> String {
     // OpenAI Responses `text.format.name` requires: ^[a-zA-Z0-9_-]+$
@@ -61,9 +61,14 @@ fn apply_hard_cap_max_output_tokens(requested: Option<u32>) -> Option<u32> {
     requested.map(|v| v.min(cap))
 }
 
+#[async_trait::async_trait]
 impl LargeLanguageModel for RouterModel {
-    fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String> {
-        super::check_llm_pre_call()?;
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        options: &LlmCallOptions,
+    ) -> Result<String, LlmError> {
+        super::check_llm_pre_call().map_err(LlmError::fatal)?;
 
         let model = options
             .model
@@ -109,11 +114,7 @@ impl LargeLanguageModel for RouterModel {
             match mode.as_str() {
                 "1" | "true" | "on" | "always" => true,
                 "0" | "false" | "off" | "never" => false,
-                _ => {
-                    // Auto: prefer background for longer-running reasoning model families.
-                    let m = model.trim().to_ascii_lowercase();
-                    m.starts_with("gpt-5") || m.starts_with("o")
-                }
+                _ => react_core::llm::openai_api_for_model(model) == OpenAiApi::Responses,
             }
         }
         let execution_mode = if should_use_background_mode(&model) {
@@ -151,10 +152,13 @@ impl LargeLanguageModel for RouterModel {
                 .or_else(|| thread_ctx::current_thread_id()),
             execution_mode,
         };
-        let r = self.router.chat(&req)?;
-        Ok(r.text)
+        let router = self.router.clone();
+        tokio::task::spawn_blocking(move || router.chat(&req))
+            .await
+            .map_err(|e| LlmError::protocol(format!("LLM join: {e}")))?
+            .map(|r| r.text)
     }
-    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, LlmError> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
@@ -164,7 +168,10 @@ impl LargeLanguageModel for RouterModel {
             model,
             inputs: texts.to_vec(),
         };
-        let r = self.router.embed(&req)?;
-        Ok(r.vectors)
+        let router = self.router.clone();
+        tokio::task::spawn_blocking(move || router.embed(&req))
+            .await
+            .map_err(|e| LlmError::protocol(format!("LLM join: {e}")))?
+            .map(|r| r.vectors)
     }
 }

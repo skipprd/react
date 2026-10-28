@@ -28,23 +28,11 @@ pub(super) fn now_iso() -> String {
 }
 
 pub(super) fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    match s.char_indices().take_while(|(i, _)| *i < max).last() {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.chars().take(max).collect(),
-    }
+    react_core::text::truncate_chars_fit(s, max)
 }
 
 pub(super) fn truncate_title(s: &str, max_chars: usize) -> String {
-    if s.len() <= max_chars {
-        return s.to_string();
-    }
-    match s.char_indices().take_while(|(i, _)| *i < max_chars).last() {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.chars().take(max_chars).collect(),
-    }
+    truncate_str(s, max_chars)
 }
 
 pub(super) fn ws_log_in(txt: &str) {

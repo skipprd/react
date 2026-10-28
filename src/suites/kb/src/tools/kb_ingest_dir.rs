@@ -29,6 +29,23 @@ fn safe_rel(root: &Path, p: &Path) -> String {
         .replace('\\', "/")
 }
 
+fn hard_chunks(text: &str, chunk_chars: usize) -> Vec<String> {
+    if chunk_chars == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let (chunk, next) = react_core::text::split_at_chars(rest, chunk_chars);
+        if chunk.is_empty() {
+            break;
+        }
+        out.push(chunk.to_string());
+        rest = next;
+    }
+    out
+}
+
 fn chunk_text(text: &str, chunk_chars: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut buf = String::new();
@@ -37,7 +54,16 @@ fn chunk_text(text: &str, chunk_chars: usize) -> Vec<String> {
         if p.is_empty() {
             continue;
         }
-        if buf.len() + p.len() + 2 > chunk_chars && !buf.is_empty() {
+        if p.chars().count() > chunk_chars {
+            if !buf.trim().is_empty() {
+                out.push(buf.trim().to_string());
+                buf.clear();
+            }
+            out.extend(hard_chunks(p, chunk_chars));
+            continue;
+        }
+        let sep = if buf.is_empty() { 0 } else { 2 };
+        if buf.chars().count() + p.chars().count() + sep > chunk_chars && !buf.is_empty() {
             out.push(buf.trim().to_string());
             buf.clear();
         }
@@ -49,16 +75,8 @@ fn chunk_text(text: &str, chunk_chars: usize) -> Vec<String> {
     if !buf.trim().is_empty() {
         out.push(buf.trim().to_string());
     }
-    // Fallback: if we produced nothing (e.g., single huge line), split hard.
     if out.is_empty() && !text.trim().is_empty() {
-        let t = text.trim();
-        let chars: Vec<char> = t.chars().collect();
-        let mut start = 0usize;
-        while start < chars.len() {
-            let end = (start + chunk_chars).min(chars.len());
-            out.push(chars[start..end].iter().collect());
-            start = end;
-        }
+        out = hard_chunks(text.trim(), chunk_chars);
     }
     out
 }
@@ -67,6 +85,9 @@ fn chunk_text(text: &str, chunk_chars: usize) -> Vec<String> {
 impl Tool for KbIngestDirTool {
     fn name(&self) -> &'static str {
         "kb_ingest_dir"
+    }
+    fn description(&self) -> &'static str {
+        "Ingest a local directory of text files. args: {dir, dataset_id, max_files?, max_bytes?, chunk_chars?}."
     }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
@@ -170,6 +191,7 @@ impl Tool for KbIngestDirTool {
                 .collect();
             let vecs = ctx
                 .llm_embed(&texts)
+                .await
                 .map_err(|e| format!("embed failed: {}", e))?;
             for (k, v) in vecs.into_iter().enumerate() {
                 let doc = &chunks[idx + k];

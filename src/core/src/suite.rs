@@ -12,6 +12,7 @@ use crate::scope::RequestScope;
 use crate::session::{
     ControlStateStore, Observation, ThreadLogReader, ThreadLogWriter, ThreadStep, ThreadStore,
 };
+use crate::storage::StorageError;
 use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
 use serde::{Deserialize, Serialize};
@@ -177,6 +178,19 @@ impl SuiteCtx {
         )
     }
 
+    pub async fn ensure_preflight_phase_step(
+        &self,
+        thread_id: &str,
+        agent: &str,
+        suite_id: Option<&str>,
+        initial_phase: &str,
+    ) -> crate::error::CoreResult<()> {
+        self.log_writer()
+            .ensure_preflight_phase_step(thread_id, agent, suite_id, initial_phase)
+            .await?;
+        Ok(())
+    }
+
     /// Read-only ThreadLog access for display/projection consumers.
     pub fn log_reader(&self) -> impl ThreadLogReader {
         ThreadStore::new(
@@ -186,8 +200,8 @@ impl SuiteCtx {
         )
     }
 
-    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
-        self.llm.embed(texts).map_err(crate::CoreError::generic)
+    pub async fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, crate::CoreError> {
+        self.llm.embed(texts).await.map_err(crate::CoreError::from)
     }
 
     /// Retrieve a suite-specific capability by concrete type.
@@ -207,19 +221,20 @@ impl SuiteCtx {
         thread_id: &str,
         agent_type: &str,
         frames: &[FlowFrame],
-    ) {
+    ) -> crate::error::CoreResult<()> {
         let writer = self.log_writer();
         for frame in frames {
             let step = flow_frame_to_step(frame, agent_type);
             match &step {
                 ThreadStep::Complete { .. } | ThreadStep::Interrupt { .. } => {
-                    writer.append_step_if_new(thread_id, step).await;
+                    writer.append_step_if_new(thread_id, step).await?;
                 }
                 _ => {
-                    let _ = writer.append_step(thread_id, step).await;
+                    writer.append_step(thread_id, step).await?;
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -350,14 +365,14 @@ struct NullStorageAdapter;
 #[async_trait]
 impl StorageAdapter for NullStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: get_json('{key}')"
-        )))
+        ))))
     }
     async fn put_json(&self, key: &str, _value: &Value) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: put_json('{key}')"
-        )))
+        ))))
     }
     async fn put_json_if_etag_matches(
         &self,
@@ -365,34 +380,34 @@ impl StorageAdapter for NullStorageAdapter {
         _value: &Value,
         _expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: put_json_if_etag_matches('{key}')"
-        )))
+        ))))
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: get_bytes('{key}')"
-        )))
+        ))))
     }
     async fn put_bytes(&self, key: &str, _bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: put_bytes('{key}')"
-        )))
+        ))))
     }
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: delete_object('{key}')"
-        )))
+        ))))
     }
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: head_etag('{key}')"
-        )))
+        ))))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "NullStorageAdapter: list_prefix('{prefix}')"
-        )))
+        ))))
     }
 }
 

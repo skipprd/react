@@ -1,5 +1,6 @@
 use crate::llm::adapter::Adapter;
 use crate::llm::types::*;
+use react_core::llm::LlmError;
 
 pub struct OpenAIChatAdapter;
 
@@ -19,7 +20,8 @@ impl Adapter for OpenAIChatAdapter {
         }
     }
 
-    fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, LlmError> {
+        react_core::llm::require_nonempty_messages(&req.messages)?;
         let response_format = match req.response_format.as_ref() {
             None | Some(ChatResponseFormat::Text) => None,
             Some(ChatResponseFormat::JsonObject) => Some(serde_json::json!({"type":"json_object"})),
@@ -56,12 +58,13 @@ impl Adapter for OpenAIChatAdapter {
             method: "POST".to_string(),
             url: "/v1/chat/completions".to_string(),
             headers: vec![],
-            body: serde_json::to_value(body).map_err(|e| e.to_string())?,
+            body: serde_json::to_value(body).map_err(|e| LlmError::protocol(e.to_string()))?,
         })
     }
 
-    fn parse_chat_http(&self, resp: &ProviderHttpResponse) -> Result<ChatResponse, String> {
-        let obj: OaiChatResp = serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
+    fn parse_chat_http(&self, resp: &ProviderHttpResponse) -> Result<ChatResponse, LlmError> {
+        let obj: OaiChatResp =
+            serde_json::from_str(&resp.body_text).map_err(|e| LlmError::protocol(e.to_string()))?;
         let mut out = String::new();
         for c in obj.choices.iter() {
             if let Some(m) = &c.message {
@@ -79,7 +82,7 @@ impl Adapter for OpenAIChatAdapter {
         })
     }
 
-    fn build_embed_http(&self, req: &EmbedRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_embed_http(&self, req: &EmbedRequest) -> Result<ProviderHttpRequest, LlmError> {
         let body = OaiEmbReq {
             model: req.model.clone(),
             input: req.inputs.clone(),
@@ -88,12 +91,13 @@ impl Adapter for OpenAIChatAdapter {
             method: "POST".to_string(),
             url: "/v1/embeddings".to_string(),
             headers: vec![],
-            body: serde_json::to_value(body).map_err(|e| e.to_string())?,
+            body: serde_json::to_value(body).map_err(|e| LlmError::protocol(e.to_string()))?,
         })
     }
 
-    fn parse_embed_http(&self, resp: &ProviderHttpResponse) -> Result<EmbedResponse, String> {
-        let obj: OaiEmbResp = serde_json::from_str(&resp.body_text).map_err(|e| e.to_string())?;
+    fn parse_embed_http(&self, resp: &ProviderHttpResponse) -> Result<EmbedResponse, LlmError> {
+        let obj: OaiEmbResp =
+            serde_json::from_str(&resp.body_text).map_err(|e| LlmError::protocol(e.to_string()))?;
         let vecs: Vec<Vec<f32>> = obj.data.into_iter().map(|d| d.embedding).collect();
         let dim = vecs.get(0).map(|v| v.len()).unwrap_or(0);
         Ok(EmbedResponse { vectors: vecs, dim })
@@ -149,5 +153,27 @@ mod tests {
                 .and_then(|x| x.as_str()),
             Some("object")
         );
+    }
+
+    #[test]
+    fn build_chat_http_rejects_empty_messages() {
+        let ad = OpenAIChatAdapter::new();
+        let req = ChatRequest {
+            model: "gpt-4.1-mini".to_string(),
+            messages: vec![],
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            response_format: None,
+            reasoning_effort: None,
+            prompt_id: None,
+            thread_id: None,
+            execution_mode: None,
+        };
+        let err = ad.build_chat_http(&req).expect_err("empty");
+        match err {
+            LlmError::Protocol(msg) => assert!(msg.contains("no messages"), "{msg}"),
+            other => panic!("expected protocol, got {other:?}"),
+        }
     }
 }

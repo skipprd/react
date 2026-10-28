@@ -32,6 +32,9 @@ If an invariant can be enforced by the compiler, it **MUST** be.
 
 - Illegal states unrepresentable: `enum` modes, newtype ids, `Option`/`Result`, non-zero budgets.
 - Typed errors at crate boundaries. Stringly `anyhow` sprawl is forbidden in `react-core`.
+- **Host retry (R8):** LLM failures are `LlmError`; storage failures are `StorageError`; backoff is `retry_classified`. Provider HTTP is one-shot. **MUST NOT** encode errors as `Ok` prefixes, classify storage by substring, grep model-name prefixes outside `openai_api_for_model`, or keep a second sleep/backoff loop in an adapter.
+- **Run budget (R9):** `BudgetMeter` charges LLM/tool/agent steps; `Cancel` aborts awaits; `WorkflowError` is the phase-loop error. **MUST NOT** `headless_budget_exhausted` strings or saturating replan-backtrack.
+- **Transcript (R10):** `Transcript::render(PromptBudget)` emits real `ChatRole`s. Tool success is `Result::Ok` / `ToolOutcome::Ok`. **MUST NOT** prefix-sniff `Vec<String>` or treat missing JSON `"ok"` as failure.
 - Feature-gated code MUST compile when enabled (`cargo check --all-features`).
 - Always favour compile errors over runtime convention.
 - A runtime “don’t call this wrong” comment is a missing type.

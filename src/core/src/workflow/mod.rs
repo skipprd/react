@@ -9,6 +9,20 @@ use serde_json::Value;
 
 use crate::suite::{WorkflowNodeContract, WorkflowSuiteContract};
 
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorkflowError {
+    #[error("hard ceiling: total={total}")]
+    HardCeiling { total: u32 },
+    #[error("phase budget exhausted after {total} steps")]
+    PhaseBudget { total: u32 },
+    #[error("stuck waiting {waits} times: {last}")]
+    Stuck { waits: u32, last: String },
+    #[error("replan backtrack cap {cap} reached")]
+    BacktrackCap { cap: u16 },
+    #[error("{0}")]
+    Failed(String),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransitionIntent {
@@ -47,15 +61,21 @@ pub fn next_replan_backtracks(
     intent: TransitionIntent,
     is_backtrack: bool,
     cap: usize,
-) -> usize {
+) -> Result<usize, WorkflowError> {
     match intent {
-        TransitionIntent::Annotation => current,
-        TransitionIntent::Forward => 0,
+        TransitionIntent::Annotation => Ok(current),
+        TransitionIntent::Forward => Ok(0),
         TransitionIntent::Loopback => {
-            if is_backtrack {
-                current.saturating_add(1).min(cap)
+            if !is_backtrack {
+                return Ok(current);
+            }
+            let next = current.saturating_add(1);
+            if next > cap {
+                Err(WorkflowError::BacktrackCap {
+                    cap: u16::try_from(cap).unwrap_or(u16::MAX),
+                })
             } else {
-                current
+                Ok(next)
             }
         }
     }
@@ -88,19 +108,23 @@ mod tests {
     fn loopback_counter_rules() {
         assert_eq!(
             next_replan_backtracks(2, TransitionIntent::Annotation, true, 5),
-            2
+            Ok(2)
         );
         assert_eq!(
             next_replan_backtracks(2, TransitionIntent::Forward, true, 5),
-            0
+            Ok(0)
         );
         assert_eq!(
             next_replan_backtracks(2, TransitionIntent::Loopback, false, 5),
-            2
+            Ok(2)
         );
         assert_eq!(
             next_replan_backtracks(2, TransitionIntent::Loopback, true, 3),
-            3
+            Ok(3)
+        );
+        assert_eq!(
+            next_replan_backtracks(3, TransitionIntent::Loopback, true, 3),
+            Err(WorkflowError::BacktrackCap { cap: 3 })
         );
     }
 

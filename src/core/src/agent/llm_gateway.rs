@@ -1,6 +1,7 @@
 use crate::error::CoreError;
-use crate::llm::{ChatMessage, ChatRole, LlmCallOptions};
+use crate::llm::{ChatMessage, ChatRole, LlmCallOptions, LlmError};
 use crate::llm_observability;
+use crate::retry::retry_classified;
 use crate::session::{LlmStepStatus, Observation, ThreadStep};
 
 use super::AgentCtx;
@@ -44,7 +45,7 @@ impl AgentCtx {
             &obs_ctx.phase,
             &agent,
         )
-        .await;
+        .await?;
 
         let mut options = options.clone();
         if options.thread_id.is_none() {
@@ -61,7 +62,7 @@ impl AgentCtx {
             &agent,
             &res,
         )
-        .await;
+        .await?;
 
         self.record_llm_observation(
             obs_ctx.call_id,
@@ -73,131 +74,78 @@ impl AgentCtx {
             &obs_ctx.prompt_hash,
             &res,
         )
-        .await;
+        .await?;
 
         res
     }
 
-    const LLM_TRANSIENT_MAX_RETRIES: usize = 2;
-    const LLM_TRANSIENT_BACKOFF_BASE_MS: u64 = 2000;
+    fn retry_delays() -> &'static [u64] {
+        #[cfg(test)]
+        {
+            &[0, 0]
+        }
+        #[cfg(not(test))]
+        {
+            &crate::llm::LLM_TRANSIENT_RETRY_DELAYS_MS
+        }
+    }
 
     async fn invoke_llm_once(
         &self,
         messages: &[ChatMessage],
         options: &LlmCallOptions,
-    ) -> Result<String, CoreError> {
-        let model = self.llm.clone();
-        let messages_owned = messages.to_vec();
-        let options = options.clone();
-        if let Some(timeout) = options.timeout_secs {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(timeout),
-                tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options)),
-            )
-            .await
-            {
-                Ok(join_result) => join_result
-                    .map_err(|e| CoreError::Agent(format!("LLM execution failed: {e}")))?
-                    .map_err(|e| CoreError::Agent(format!("LLM request failed: {e}"))),
-                Err(_) => Err(CoreError::Agent(format!(
-                    "LLM call timed out after {timeout}s"
-                ))),
+    ) -> Result<String, LlmError> {
+        if self.cancel.is_cancelled() {
+            return Err(LlmError::Cancelled);
+        }
+        self.budget
+            .charge(crate::budget::Charge::LlmCall)
+            .map_err(LlmError::Budget)?;
+        let chat = self.llm.chat(messages, options);
+        let result = if let Some(timeout) = options.timeout_secs {
+            tokio::select! {
+                _ = self.cancel.cancelled() => Err(LlmError::Cancelled),
+                _ = tokio::time::sleep(std::time::Duration::from_secs(timeout)) => {
+                    Err(LlmError::Timeout(std::time::Duration::from_secs(timeout)))
+                }
+                result = chat => result,
             }
         } else {
-            tokio::task::spawn_blocking(move || model.chat(&messages_owned, &options))
-                .await
-                .map_err(|e| CoreError::Agent(format!("LLM execution failed: {e}")))?
-                .map_err(|e| CoreError::Agent(format!("LLM request failed: {e}")))
-        }
+            tokio::select! {
+                _ = self.cancel.cancelled() => Err(LlmError::Cancelled),
+                result = chat => result,
+            }
+        };
+        result
     }
 
-    fn is_llm_fatal(msg: &str) -> bool {
-        msg.contains("LLM_FATAL_ERROR:")
-    }
-
-    fn is_llm_error_prefix(text: &str) -> bool {
-        let t = text.trim_start();
-        t.starts_with("LLM_ERROR:") || t.starts_with("LLM_FATAL_ERROR:")
-    }
-
-    /// Wraps `invoke_llm_once` with retry for transient LLM errors.
-    ///
-    /// Fatal errors (quota, auth, billing) are never retried — the provider
-    /// prefixes these with `LLM_FATAL_ERROR:` so we can fail-fast.
+    /// Wraps `invoke_llm_once` with retry for [`LlmError::retry`].
     async fn invoke_llm(
         &self,
         messages: &[ChatMessage],
         options: &LlmCallOptions,
     ) -> Result<String, CoreError> {
-        let mut last_result = self.invoke_llm_once(messages, options).await;
-
-        for attempt in 1..=Self::LLM_TRANSIENT_MAX_RETRIES {
-            let is_fatal = match &last_result {
-                Err(CoreError::Agent(msg)) => Self::is_llm_fatal(msg),
-                Ok(text) => Self::is_llm_fatal(text),
-                _ => false,
-            };
-            if is_fatal {
-                break;
-            }
-
-            let should_retry = match &last_result {
-                Err(CoreError::Agent(msg)) => crate::llm::is_throttle(msg),
-                Ok(text) if Self::is_llm_error_prefix(text) => crate::llm::is_throttle(text),
-                _ => false,
-            };
-            if !should_retry {
-                break;
-            }
-
-            let err_summary = match &last_result {
-                Err(e) => e.to_string(),
-                Ok(text) => text.trim().to_string(),
-            };
-
-            // Fire the throttle observer BEFORE backoff so adaptive limiters
-            // can shrink concurrency immediately, rather than waiting for the
-            // gateway-level retry to either succeed or finally propagate the
-            // error. This is the early-signal hook referenced by
-            // `enrichment_concurrency::AdaptiveLimiter`.
-            if let Some(observer) = self.throttle_observer.clone() {
-                observer(crate::llm::LlmThrottleEvent {
-                    prompt_id: options.prompt_id,
-                    error_summary: err_summary.clone(),
-                    attempt,
-                });
-            }
-
-            let backoff_ms = Self::LLM_TRANSIENT_BACKOFF_BASE_MS * (1u64 << (attempt - 1).min(3));
-            tracing::warn!(
-                prompt_id = %options.prompt_id,
-                attempt,
-                max_retries = Self::LLM_TRANSIENT_MAX_RETRIES,
-                backoff_ms,
-                error = %err_summary,
-                "LLM transient error; retrying after backoff"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-
-            last_result = self.invoke_llm_once(messages, options).await;
-
-            if let Ok(ref text) = last_result {
-                if !Self::is_llm_error_prefix(text) {
-                    tracing::info!(
-                        prompt_id = %options.prompt_id,
+        retry_classified(
+            Self::retry_delays(),
+            || async { self.invoke_llm_once(messages, options).await },
+            |attempt, err| {
+                if let Some(observer) = self.throttle_observer.clone() {
+                    observer(crate::llm::LlmThrottleEvent {
+                        prompt_id: options.prompt_id,
+                        error_summary: err.to_string(),
                         attempt,
-                        "LLM transient retry succeeded"
-                    );
+                    });
                 }
-            }
-        }
-
-        if let Ok(ref text) = last_result {
-            if Self::is_llm_error_prefix(text) {
-                return Err(CoreError::Agent(text.trim().to_string()));
-            }
-        }
-        last_result
+                tracing::warn!(
+                    prompt_id = %options.prompt_id,
+                    attempt,
+                    error = %err,
+                    "LLM transient error; retrying after backoff"
+                );
+            },
+        )
+        .await
+        .map_err(CoreError::from)
     }
 
     async fn prepare_observability(
@@ -283,10 +231,10 @@ impl AgentCtx {
         store_opt: Option<&crate::session::ThreadStore>,
         phase: &str,
         agent: &str,
-    ) {
+    ) -> Result<(), CoreError> {
         if let (Some(call_id), Some(tid), Some(store)) = (call_id_opt, thread_id, store_opt) {
             let model = self.resolved_model_name();
-            let _ = store
+            store
                 .append_step(
                     tid,
                     ThreadStep::LlmStart {
@@ -298,8 +246,9 @@ impl AgentCtx {
                         agent: agent.to_string(),
                     },
                 )
-                .await;
+                .await?;
         }
+        Ok(())
     }
 
     async fn emit_llm_end_step(
@@ -310,14 +259,14 @@ impl AgentCtx {
         phase: &str,
         agent: &str,
         res: &Result<String, CoreError>,
-    ) {
+    ) -> Result<(), CoreError> {
         if let (Some(call_id), Some(tid), Some(store)) = (call_id_opt, thread_id, store_opt) {
             let model = self.resolved_model_name();
             let (ok, response_raw) = match res.as_ref() {
                 Ok(txt) => (true, txt.clone()),
                 Err(e) => (false, e.to_string()),
             };
-            let _ = store
+            store
                 .append_step(
                     tid,
                     ThreadStep::LlmEnd {
@@ -335,8 +284,9 @@ impl AgentCtx {
                         agent: agent.to_string(),
                     },
                 )
-                .await;
+                .await?;
         }
+        Ok(())
     }
 
     async fn record_llm_observation(
@@ -349,7 +299,7 @@ impl AgentCtx {
         agent: &str,
         prompt_hash: &str,
         res: &Result<String, CoreError>,
-    ) {
+    ) -> Result<(), CoreError> {
         if let (Some(call_id), Some(thread_id), Some(store), Some(built)) =
             (call_id_opt, thread_id, store_opt, parts_built)
         {
@@ -371,7 +321,7 @@ impl AgentCtx {
             };
 
             let ts = chrono::Utc::now().to_rfc3339();
-            let _ = store
+            store
                 .append_step(
                     thread_id,
                     ThreadStep::LlmCall {
@@ -392,8 +342,9 @@ impl AgentCtx {
                         agent: agent.to_string(),
                     },
                 )
-                .await;
+                .await?;
         }
+        Ok(())
     }
 
     /// Convenience: `llm_chat` + JSON parse with repair and one retry.
@@ -407,7 +358,12 @@ impl AgentCtx {
         if let Ok(v) = crate::json_repair::resilient_parse::<T>(&raw) {
             return Ok(v);
         }
-        let first_err = serde_json::from_str::<serde_json::Value>(&raw).unwrap_err();
+        let first_err = match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(_) => crate::parse_error::StepParseError::ShapeMismatch(
+                "valid JSON of the wrong shape".to_string(),
+            ),
+            Err(e) => crate::parse_error::StepParseError::NotJson(e.to_string()),
+        };
 
         let mut retry_messages = messages.to_vec();
         retry_messages.push(ChatMessage {
@@ -416,15 +372,24 @@ impl AgentCtx {
         });
         let raw2 = self.llm_chat(&retry_messages, options).await?;
         crate::json_repair::resilient_parse::<T>(&raw2).map_err(|e2| {
-            CoreError::Agent(format!(
-                "{}: expected JSON, got parse error: {} (first_error: {})",
-                options.prompt_id, e2, first_err
-            ))
+            CoreError::Parse(crate::parse_error::StepParseError::NotJson(format!(
+                "{}: {e2} (first_error: {first_err})",
+                options.prompt_id
+            )))
         })
     }
 
     /// Embed texts via the underlying LLM provider.
-    pub fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, CoreError> {
-        self.llm.embed(texts).map_err(CoreError::generic)
+    pub async fn llm_embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, CoreError> {
+        if self.cancel.is_cancelled() {
+            return Err(LlmError::Cancelled.into());
+        }
+        self.budget
+            .charge(crate::budget::Charge::LlmCall)
+            .map_err(CoreError::from)?;
+        tokio::select! {
+            _ = self.cancel.cancelled() => Err(LlmError::Cancelled.into()),
+            result = self.llm.embed(texts) => result.map_err(CoreError::from),
+        }
     }
 }

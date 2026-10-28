@@ -26,11 +26,7 @@ impl DebugSession {
             .as_deref()
             .unwrap_or_else(|| result.payload.as_str().unwrap_or("(no display)"));
 
-        let trimmed = if display.len() > 2000 {
-            format!("{}...", &display[..2000])
-        } else {
-            display.to_string()
-        };
+        let trimmed = react_core::text::truncate_chars_ellipsis(display, 2000);
 
         self.prior_findings.push(trimmed);
         while self.prior_findings.len() > MAX_PRIOR_FINDINGS {
@@ -47,5 +43,24 @@ impl DebugSession {
             out.push_str(&format!("\n### Turn {}\n{}\n", i + 1, f));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DebugSession;
+    use react_core::session::ThreadResult;
+
+    #[test]
+    fn extract_findings_does_not_panic_on_utf8_boundary() {
+        let mut s = DebugSession::new("tid".into(), None);
+        s.extract_findings(&ThreadResult {
+            kind: "completed".into(),
+            payload: serde_json::json!({}),
+            display: Some("é".repeat(2001)),
+        });
+        assert_eq!(s.prior_findings.len(), 1);
+        assert!(s.prior_findings[0].ends_with("..."));
+        assert_eq!(s.prior_findings[0].chars().count(), 2003); // 2000 + "..."
     }
 }

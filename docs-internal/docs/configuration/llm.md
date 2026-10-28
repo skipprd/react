@@ -15,7 +15,7 @@ Configures the Large Language Model provider used by the ReAct agent loop.
 |---|---|
 | `OPENAI_COMPAT` | Any OpenAI-compatible HTTP API (OpenAI, Azure OpenAI, vLLM, etc.) |
 | `OPENAI` | OpenAI API directly |
-| `LLAMA_CPP` | Local Llama.cpp inference (requires `llama_cpp` feature flag) |
+| `LLAMA_CPP` | Local Llama.cpp inference (stub until a native backend is wired) |
 | `null` | No LLM — server starts without model access (useful for smoke tests) |
 
 ## llm.base_url

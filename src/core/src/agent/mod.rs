@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
+use crate::budget::{BudgetMeter, Cancel, RunBudget};
 use crate::capability::CapabilityMap;
 use crate::keyspace::Keyspace;
 use crate::provider_traits::VectorStore;
@@ -15,6 +16,9 @@ mod helpers;
 mod llm_gateway;
 mod parsing;
 mod run_loop;
+mod transcript;
+
+pub use transcript::{Entry, ErrorLedger, LedgerEntry, PromptBudget, Transcript};
 
 #[derive(serde::Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -29,7 +33,8 @@ pub struct CompleteEnvelope {
 pub struct AgentCtx {
     top_k: usize,
     per_step_timeout_secs: u64,
-    max_steps: usize,
+    budget: Arc<BudgetMeter>,
+    cancel: Cancel,
     thread_id: Option<String>,
     progress_tx: Option<tokio::sync::mpsc::UnboundedSender<usize>>,
     pre_step_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
@@ -66,11 +71,17 @@ impl AgentCtx {
     pub fn per_step_timeout_secs(&self) -> u64 {
         self.per_step_timeout_secs
     }
+    pub fn budget(&self) -> &Arc<BudgetMeter> {
+        &self.budget
+    }
+    pub fn cancel(&self) -> &Cancel {
+        &self.cancel
+    }
     pub fn max_steps(&self) -> usize {
-        self.max_steps
+        self.budget.max_agent_steps() as usize
     }
     pub fn set_max_steps(&mut self, v: usize) {
-        self.max_steps = v;
+        self.budget.raise_agent_steps(v as u32);
     }
     pub fn thread_id(&self) -> &Option<String> {
         &self.thread_id
@@ -110,6 +121,15 @@ impl AgentCtx {
     }
     pub fn resolved_config(&self) -> &Option<Arc<crate::resolved_config::ReactResolvedConfig>> {
         &self.resolved_config
+    }
+    pub fn prompt_budget(&self) -> PromptBudget {
+        match self.resolved_config.as_ref() {
+            Some(c) => PromptBudget::from_resolved(&c.llm),
+            None => PromptBudget::from_model(
+                PromptBudget::DEFAULT_CONTEXT,
+                PromptBudget::DEFAULT_MAX_OUTPUT,
+            ),
+        }
     }
     pub fn capabilities_ref(&self) -> &CapabilityMap {
         &self.capabilities
@@ -171,7 +191,8 @@ impl AgentCtx {
 pub struct AgentCtxBuilder {
     top_k: usize,
     per_step_timeout_secs: u64,
-    max_steps: usize,
+    budget: RunBudget,
+    cancel: Cancel,
     thread_id: Option<String>,
     progress_tx: Option<tokio::sync::mpsc::UnboundedSender<usize>>,
     pre_step_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
@@ -200,7 +221,8 @@ impl AgentCtxBuilder {
         Self {
             top_k: 10,
             per_step_timeout_secs: 30,
-            max_steps: 10,
+            budget: RunBudget::STANDARD,
+            cancel: Cancel::new(),
             thread_id: None,
             progress_tx: None,
             pre_step_tx: None,
@@ -228,7 +250,15 @@ impl AgentCtxBuilder {
         self
     }
     pub fn max_steps(mut self, v: usize) -> Self {
-        self.max_steps = v;
+        self.budget = RunBudget::agent_steps(v as u32);
+        self
+    }
+    pub fn budget(mut self, v: RunBudget) -> Self {
+        self.budget = v;
+        self
+    }
+    pub fn cancel(mut self, v: Cancel) -> Self {
+        self.cancel = v;
         self
     }
     pub fn thread_id(mut self, v: impl Into<String>) -> Self {
@@ -279,7 +309,8 @@ impl AgentCtxBuilder {
         AgentCtx {
             top_k: self.top_k,
             per_step_timeout_secs: self.per_step_timeout_secs,
-            max_steps: self.max_steps,
+            budget: BudgetMeter::new(self.budget),
+            cancel: self.cancel,
             thread_id: self.thread_id,
             progress_tx: self.progress_tx,
             pre_step_tx: self.pre_step_tx,
@@ -303,7 +334,7 @@ impl AgentCtxBuilder {
 pub struct Agent;
 
 #[derive(Clone, Debug)]
-pub(crate) enum ParsedStep {
+pub(crate) enum AgentStep {
     Tool { name: String, args: Value },
     Complete { complete_env: CompleteEnvelope },
 }
@@ -365,13 +396,13 @@ pub enum RunLoopStop {
 
 #[async_trait]
 pub trait AgentPolicy: Send + Sync {
-    /// Extra transcript lines to inject after system/tool-card and before the user question.
-    fn prelude_lines(
+    /// Extra head entries (typically [`Entry::Prelude`]) after system/tool-card and before the user question.
+    fn prelude_entries(
         &self,
         _ctx: &AgentCtx,
         _store: Option<&ThreadStore>,
         _thread_id: &str,
-    ) -> Vec<String> {
+    ) -> Vec<Entry> {
         Vec::new()
     }
 
@@ -408,7 +439,7 @@ pub trait AgentPolicy: Send + Sync {
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
-        transcript: &mut Vec<String>,
+        transcript: &mut Transcript,
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
@@ -419,7 +450,7 @@ pub trait AgentPolicy: Send + Sync {
         &self,
         _tools: &ToolRegistry,
         _ctx: &AgentCtx,
-        _transcript: &mut Vec<String>,
+        _transcript: &mut Transcript,
         _store: Option<&ThreadStore>,
         thread_id: &str,
     ) -> Result<RunOutcome, String> {
@@ -441,7 +472,7 @@ impl AgentPolicy for DefaultPolicy {
         &self,
         _tools: &ToolRegistry,
         ctx: &AgentCtx,
-        _transcript: &mut Vec<String>,
+        _transcript: &mut Transcript,
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
@@ -454,7 +485,7 @@ impl AgentPolicy for DefaultPolicy {
         if let Some(store) = store {
             let agent = ctx.agent_name_or_default();
             let ts = chrono::Utc::now().to_rfc3339();
-            let _ = store
+            store
                 .append_step(
                     thread_id,
                     ThreadStep::Complete {
@@ -466,7 +497,8 @@ impl AgentPolicy for DefaultPolicy {
                         agent,
                     },
                 )
-                .await;
+                .await
+                .map_err(|e| e.to_string())?;
         }
         Ok(CompleteDecision::Accept { result })
     }
@@ -482,13 +514,13 @@ pub struct NonInteractivePolicyAdapter {
 
 #[async_trait]
 impl AgentPolicy for NonInteractivePolicyAdapter {
-    fn prelude_lines(
+    fn prelude_entries(
         &self,
         ctx: &AgentCtx,
         store: Option<&ThreadStore>,
         thread_id: &str,
-    ) -> Vec<String> {
-        self.inner.prelude_lines(ctx, store, thread_id)
+    ) -> Vec<Entry> {
+        self.inner.prelude_entries(ctx, store, thread_id)
     }
 
     fn interrupt_for_action(
@@ -512,7 +544,7 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
-        transcript: &mut Vec<String>,
+        transcript: &mut Transcript,
         store: Option<&ThreadStore>,
         thread_id: &str,
         complete_env: &CompleteEnvelope,
@@ -526,7 +558,7 @@ impl AgentPolicy for NonInteractivePolicyAdapter {
         &self,
         tools: &ToolRegistry,
         ctx: &AgentCtx,
-        transcript: &mut Vec<String>,
+        transcript: &mut Transcript,
         store: Option<&ThreadStore>,
         thread_id: &str,
     ) -> Result<RunOutcome, String> {

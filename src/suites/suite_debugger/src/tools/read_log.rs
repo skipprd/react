@@ -11,6 +11,9 @@ impl Tool for ReadRunLogTool {
     fn name(&self) -> &'static str {
         "read_run_log"
     }
+    fn description(&self) -> &'static str {
+        "Read the plain-text run log. args: {thread_id, max_chars?}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let thread_id = args
@@ -36,8 +39,8 @@ impl Tool for ReadRunLogTool {
             .get("max_chars")
             .and_then(|v| v.as_u64())
             .unwrap_or(50_000) as usize;
-        let truncated = text.len() > max_len;
-        let output = if truncated { &text[..max_len] } else { &text };
+        let truncated = text.chars().count() > max_len;
+        let output = react_core::text::truncate_chars(&text, max_len);
 
         Ok(serde_json::json!({
             "thread_id": thread_id,
@@ -45,5 +48,18 @@ impl Tool for ReadRunLogTool {
             "truncated": truncated,
             "total_bytes": bytes.len(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn utf8_truncate_does_not_panic() {
+        let text = "é".repeat(20);
+        let max_len = 1usize;
+        let truncated = text.chars().count() > max_len;
+        let output = react_core::text::truncate_chars(&text, max_len);
+        assert!(truncated);
+        assert_eq!(output, "é");
     }
 }

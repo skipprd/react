@@ -14,3 +14,6 @@ members = [
   "src/modules/adaptors/storage-memory",
   "src/modules/providers/vector-lance",
 ]
+
+[workspace.package]
+rust-version = "1.91.0"

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::CoreError;
+use crate::storage::StorageError;
 use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 
 /// Minimal in-memory storage for core-internal tests only.
@@ -30,11 +31,11 @@ impl StorageAdapter for InMemoryStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
         serde_json::from_slice(&bytes)
-            .map_err(|e| CoreError::Storage(format!("get_json('{key}'): {e}")))
+            .map_err(|e| CoreError::from(StorageError::other(format!("get_json('{key}'): {e}"))))
     }
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(format!("put_json('{key}'): {e}")))?;
+            .map_err(|e| CoreError::from(StorageError::other(format!("put_json('{key}'): {e}"))))?;
         self.put_bytes(key, &bytes, "application/json").await
     }
     async fn put_json_if_etag_matches(
@@ -43,34 +44,38 @@ impl StorageAdapter for InMemoryStorageAdapter {
         value: &Value,
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
-        let bytes = serde_json::to_vec(value)
-            .map_err(|e| CoreError::Storage(format!("put_json_if_etag_matches('{key}'): {e}")))?;
+        let bytes = serde_json::to_vec(value).map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "put_json_if_etag_matches('{key}'): {e}"
+            )))
+        })?;
         let mut g = self
             .inner
             .write()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         let current_etag = g.get(key).map(|b| Self::etag(b));
         let expected = expected_etag.map(|s| s.to_string());
         if current_etag != expected {
             return Ok(ConditionalWriteStatus::Conflict { current_etag });
         }
+        let etag = Self::etag(&bytes);
         g.insert(key.to_string(), bytes);
-        Ok(ConditionalWriteStatus::Written)
+        Ok(ConditionalWriteStatus::Written { etag })
     }
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         let g = self
             .inner
             .read()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         g.get(key)
             .cloned()
-            .ok_or_else(|| CoreError::Storage(format!("not found: {key}")))
+            .ok_or_else(|| CoreError::from(StorageError::not_found(key)))
     }
     async fn put_bytes(&self, key: &str, bytes: &[u8], _ct: &str) -> Result<(), CoreError> {
         let mut g = self
             .inner
             .write()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         g.insert(key.to_string(), bytes.to_vec());
         Ok(())
     }
@@ -78,7 +83,7 @@ impl StorageAdapter for InMemoryStorageAdapter {
         let mut g = self
             .inner
             .write()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         g.remove(key);
         Ok(())
     }
@@ -86,14 +91,14 @@ impl StorageAdapter for InMemoryStorageAdapter {
         let g = self
             .inner
             .read()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         Ok(g.get(key).map(|b| Self::etag(b)))
     }
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         let g = self
             .inner
             .read()
-            .map_err(|_| CoreError::Storage("lock poisoned".into()))?;
+            .map_err(|_| CoreError::from(StorageError::other("lock poisoned")))?;
         let mut out: Vec<String> = g
             .keys()
             .filter(|k| k.starts_with(prefix))

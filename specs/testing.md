@@ -33,6 +33,7 @@ Live LLM, S3, or network tests **MAY** exist as ignored / feature-gated extras. 
 ## 3. Unit tests
 
 - Cover type construction, parsing, JSON repair, keyspace, schema, budget arithmetic, transcript folds.
+- `react_core::budget::charge_auto_resume` and `Transcript::render` are unit-tested (auto-resume ceiling; newest observation and User message kept; token ceiling).
 - **MUST NOT** touch filesystem, network, env, or sleep.
 - **MUST NOT** `unwrap` the success path being asserted — assert `Result` / `Option`.
 

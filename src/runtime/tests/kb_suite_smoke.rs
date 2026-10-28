@@ -18,16 +18,17 @@ struct FixedJsonModel {
     out: String,
 }
 
+#[async_trait]
 impl LargeLanguageModel for FixedJsonModel {
-    fn chat(
+    async fn chat(
         &self,
         _messages: &[ChatMessage],
         _options: &react_core::llm::LlmCallOptions,
-    ) -> Result<String, String> {
+    ) -> Result<String, react_core::llm::LlmError> {
         Ok(self.out.clone())
     }
 
-    fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+    async fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, react_core::llm::LlmError> {
         Ok(vec![vec![0.0; 8]])
     }
 }
@@ -73,7 +74,7 @@ impl AgentPolicy for InterruptOnAskUser {
         &self,
         _tools: &ToolRegistry,
         _ctx: &react_core::agent::AgentCtx,
-        _transcript: &mut Vec<String>,
+        _transcript: &mut react_core::agent::Transcript,
         _store: Option<&ThreadStore>,
         _thread_id: &str,
         _complete_env: &CompleteEnvelope,
@@ -152,7 +153,7 @@ async fn agent_does_not_special_case_ask_user_tool_name() {
     .agent_name("test".to_string())
     .build();
     let mut reg = ToolRegistry::new();
-    reg.register(AskUserTool);
+    reg.register(AskUserTool).expect("unique tool");
     let out = Agent::run_until_block(
         &reg,
         &ctx,
@@ -202,7 +203,7 @@ async fn agent_interrupts_only_when_policy_requests_it() {
     .agent_name("test".to_string())
     .build();
     let mut reg = ToolRegistry::new();
-    reg.register(AskUserTool);
+    reg.register(AskUserTool).expect("unique tool");
     let out = Agent::run_until_block(
         &reg,
         &ctx,

@@ -1,5 +1,6 @@
 use crate::llm::adapter::Adapter;
 use crate::llm::types::*;
+use react_core::llm::LlmError;
 
 pub struct LlamaCppAdapter;
 impl LlamaCppAdapter {
@@ -18,7 +19,8 @@ impl Adapter for LlamaCppAdapter {
         }
     }
 
-    fn build_chat_http(&self, _req: &ChatRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_chat_http(&self, req: &ChatRequest) -> Result<ProviderHttpRequest, LlmError> {
+        react_core::llm::require_nonempty_messages(&req.messages)?;
         // Router will not use HTTP for llama.cpp; we return a sentinel URL for detection
         Ok(ProviderHttpRequest {
             method: "LOCAL".to_string(),
@@ -28,11 +30,11 @@ impl Adapter for LlamaCppAdapter {
         })
     }
 
-    fn parse_chat_http(&self, _resp: &ProviderHttpResponse) -> Result<ChatResponse, String> {
-        Err("local-llama: not an HTTP provider".to_string())
+    fn parse_chat_http(&self, _resp: &ProviderHttpResponse) -> Result<ChatResponse, LlmError> {
+        Err(LlmError::protocol("local-llama: not an HTTP provider"))
     }
 
-    fn build_embed_http(&self, _req: &EmbedRequest) -> Result<ProviderHttpRequest, String> {
+    fn build_embed_http(&self, _req: &EmbedRequest) -> Result<ProviderHttpRequest, LlmError> {
         Ok(ProviderHttpRequest {
             method: "LOCAL".to_string(),
             url: "local://embed".to_string(),
@@ -41,7 +43,7 @@ impl Adapter for LlamaCppAdapter {
         })
     }
 
-    fn parse_embed_http(&self, _resp: &ProviderHttpResponse) -> Result<EmbedResponse, String> {
-        Err("local-llama: not an HTTP provider".to_string())
+    fn parse_embed_http(&self, _resp: &ProviderHttpResponse) -> Result<EmbedResponse, LlmError> {
+        Err(LlmError::protocol("local-llama: not an HTTP provider"))
     }
 }

@@ -44,8 +44,6 @@ pub struct LlmCallOptions {
     /// If you see a compile error about missing `prompt_id`, add an explicit id.
     pub prompt_id: &'static str,
     /// Optional thread id (UUID) for observability and provider thread affinity.
-    ///
-    /// This must be passed explicitly because `spawn_blocking` does not propagate tokio task-locals.
     pub thread_id: Option<String>,
     /// Per-call model override. When `Some`, the runtime uses this model instead of the
     /// default reason_model. Used by `ModelDispatch` to route gather calls to the task_model.
@@ -63,14 +61,90 @@ pub struct LlmCallOptions {
     pub timeout_secs: Option<u64>,
 }
 
-/// High-level abstraction for large language models used by the ReAct runtime.
-/// Implementations may be local (llama.cpp) or remote (OpenAI-compatible HTTP).
-pub trait LargeLanguageModel: Send + Sync {
-    fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String>;
-    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String>;
+/// LLM failures. Success is `Ok(text)`; encoding errors into `Ok` is illegal.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LlmError {
+    #[error("fatal: {0}")]
+    Fatal(String),
+    #[error("transient: {0}")]
+    Transient(String),
+    #[error("timeout after {0:?}")]
+    Timeout(std::time::Duration),
+    #[error("cancelled")]
+    Cancelled,
+    #[error("budget: {0}")]
+    Budget(crate::budget::BudgetExhausted),
+    #[error("protocol: {0}")]
+    Protocol(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl LlmError {
+    pub fn retry(&self) -> bool {
+        matches!(self, Self::Transient(_) | Self::Timeout(_))
+    }
+
+    pub fn protocol(msg: impl Into<String>) -> Self {
+        Self::Protocol(msg.into())
+    }
+
+    pub fn fatal(msg: impl Into<String>) -> Self {
+        Self::Fatal(msg.into())
+    }
+
+    pub fn transient(msg: impl Into<String>) -> Self {
+        Self::Transient(msg.into())
+    }
+}
+
+/// Provider HTTP bodies MUST NOT be built from an empty chat. One law for every adapter.
+pub fn require_nonempty_messages<T>(messages: &[T]) -> Result<(), LlmError> {
+    if messages.is_empty() {
+        Err(LlmError::protocol("chat request has no messages"))
+    } else {
+        Ok(())
+    }
+}
+
+impl crate::retry::Classify for LlmError {
+    fn retry(&self) -> bool {
+        self.retry()
+    }
+}
+
+/// Which OpenAI HTTP API a model speaks. Call sites MUST use
+/// [`openai_api_for_model`]; grepping model-name prefixes is illegal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenAiApi {
+    Responses,
+    ChatCompletions,
+}
+
+/// Model families that speak the OpenAI Responses API (`gpt-5*` and `o` + digit).
+pub fn openai_api_for_model(model: &str) -> OpenAiApi {
+    let m = model.trim().to_ascii_lowercase();
+    if m.starts_with("gpt-5") {
+        return OpenAiApi::Responses;
+    }
+    let bytes = m.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'o' && bytes[1].is_ascii_digit() {
+        return OpenAiApi::Responses;
+    }
+    OpenAiApi::ChatCompletions
+}
+
+/// High-level abstraction for large language models used by the ReAct runtime.
+/// Implementations may be local (llama.cpp) or remote (OpenAI-compatible HTTP).
+#[async_trait::async_trait]
+pub trait LargeLanguageModel: Send + Sync {
+    async fn chat(
+        &self,
+        messages: &[ChatMessage],
+        options: &LlmCallOptions,
+    ) -> Result<String, LlmError>;
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, LlmError>;
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatRole {
     System,
@@ -92,7 +166,7 @@ impl TryFrom<&str> for ChatRole {
     type Error = String;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
+        match s.trim().to_ascii_lowercase().as_str() {
             "system" => Ok(Self::System),
             "user" => Ok(Self::User),
             "assistant" => Ok(Self::Assistant),
@@ -122,47 +196,25 @@ impl NullModel {
     }
 }
 
+#[async_trait::async_trait]
 impl LargeLanguageModel for NullModel {
-    fn chat(&self, _messages: &[ChatMessage], _options: &LlmCallOptions) -> Result<String, String> {
-        Err("LLM provider not configured".to_string())
+    async fn chat(
+        &self,
+        _messages: &[ChatMessage],
+        _options: &LlmCallOptions,
+    ) -> Result<String, LlmError> {
+        Err(LlmError::Fatal("LLM provider not configured".to_string()))
     }
-    fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
-        Err("LLM provider not configured".to_string())
+    async fn embed(&self, _texts: &[String]) -> Result<Vec<Vec<f32>>, LlmError> {
+        Err(LlmError::Fatal("LLM provider not configured".to_string()))
     }
 }
+
+/// Host LLM transient backoff (milliseconds). Gateway and out-of-tree
+/// callers that retry [`LlmError`] MUST use this array with [`retry_classified`].
+pub const LLM_TRANSIENT_RETRY_DELAYS_MS: [u64; 2] = [2000, 4000];
 
 pub type DynLlm = Arc<dyn LargeLanguageModel>;
-
-/// Canonical classifier for transient (a.k.a. throttle-shaped) LLM errors.
-///
-/// This is the **single source of truth** for "is this an upstream rate
-/// limit / overload / timeout signal we should react to". It is used by:
-///
-/// - the retry loop in [`crate::agent::AgentCtx`]'s LLM gateway, and
-/// - adaptive concurrency limiters built on top of `AgentCtx` (e.g. the
-///   enrichment scatter-gather).
-///
-/// Keeping the string list in one place avoids the classic bug where two
-/// classifiers drift and one path retries while another doesn't.
-pub fn is_throttle(msg: &str) -> bool {
-    let s = msg.to_ascii_lowercase();
-    s.contains("an error occurred while processing your request")
-        || s.contains("timeout")
-        || s.contains("timed out")
-        || s.contains("rate limit")
-        || s.contains("too many requests")
-        || s.contains("service unavailable")
-        || s.contains("internal server error")
-        || s.contains("bad gateway")
-        || s.contains("gateway timeout")
-        || s.contains("http 502")
-        || s.contains("http 503")
-        || s.contains("http 504")
-        || s.contains("http 529")
-        || s.contains("overloaded")
-        || s.contains("connection reset")
-        || s.contains("connection aborted")
-}
 
 /// Notification emitted by [`crate::agent::AgentCtx`] when an LLM call hits
 /// a throttle-shaped transient. Adaptive limiters subscribe via
@@ -171,8 +223,7 @@ pub fn is_throttle(msg: &str) -> bool {
 #[derive(Clone, Debug)]
 pub struct LlmThrottleEvent {
     pub prompt_id: &'static str,
-    /// Short, lowercased excerpt of the upstream error/message used to make
-    /// the throttle classification. Useful for tracing only.
+    /// Display of the typed [`LlmError`] that classified as retryable.
     pub error_summary: String,
     /// Which retry attempt (1-indexed) triggered the observation, so
     /// observers can distinguish "first failure" from "still throttling".
@@ -185,42 +236,44 @@ pub struct LlmThrottleEvent {
 pub type LlmThrottleObserver = Arc<dyn Fn(LlmThrottleEvent) + Send + Sync>;
 
 #[cfg(test)]
-mod is_throttle_tests {
-    use super::is_throttle;
+mod llm_error_tests {
+    use super::*;
 
     #[test]
-    fn matches_rate_limit_variants() {
-        assert!(is_throttle("rate limit exceeded"));
-        assert!(is_throttle("HTTP 429 Too Many Requests"));
-        assert!(is_throttle("OpenAI: too many requests"));
+    fn fatal_and_protocol_are_not_retried() {
+        assert!(!LlmError::Fatal("quota".into()).retry());
+        assert!(!LlmError::Protocol("empty".into()).retry());
     }
 
     #[test]
-    fn matches_overload_and_5xx() {
-        assert!(is_throttle("Server overloaded"));
-        assert!(is_throttle("HTTP 503 Service Unavailable"));
-        assert!(is_throttle("HTTP 502 bad gateway"));
-        assert!(is_throttle("HTTP 504 gateway timeout"));
-        assert!(is_throttle("HTTP 529 site is overloaded"));
-        assert!(is_throttle("internal server error"));
+    fn transient_and_timeout_are_retried() {
+        assert!(LlmError::Transient("429".into()).retry());
+        assert!(LlmError::Timeout(std::time::Duration::from_secs(30)).retry());
     }
 
     #[test]
-    fn matches_timeout_variants() {
-        assert!(is_throttle("connection timed out"));
-        assert!(is_throttle("LLM call timeout"));
+    fn openai_api_for_model_is_the_sole_router() {
+        assert_eq!(openai_api_for_model("gpt-5.6-luna"), OpenAiApi::Responses);
+        assert_eq!(openai_api_for_model("o4-mini"), OpenAiApi::Responses);
+        assert_eq!(openai_api_for_model("o3"), OpenAiApi::Responses);
+        assert_eq!(openai_api_for_model("gpt-4o"), OpenAiApi::ChatCompletions);
+        assert_eq!(
+            openai_api_for_model("openai-gpt"),
+            OpenAiApi::ChatCompletions
+        );
     }
 
     #[test]
-    fn matches_connection_drops() {
-        assert!(is_throttle("connection reset by peer"));
-        assert!(is_throttle("Connection aborted unexpectedly"));
+    fn empty_messages_are_protocol() {
+        let err = require_nonempty_messages::<u8>(&[]).expect_err("empty");
+        assert!(matches!(err, LlmError::Protocol(m) if m.contains("no messages")));
+        require_nonempty_messages(&[1u8]).expect("non-empty");
     }
 
     #[test]
-    fn rejects_unrelated_errors() {
-        assert!(!is_throttle("invalid api key"));
-        assert!(!is_throttle("schema validation failed"));
-        assert!(!is_throttle("LLM_FATAL_ERROR: billing"));
+    fn unknown_chat_role_is_rejected() {
+        assert_eq!(ChatRole::try_from("USER").unwrap(), ChatRole::User);
+        assert!(ChatRole::try_from("tool").is_err());
+        assert!(ChatRole::try_from("").is_err());
     }
 }

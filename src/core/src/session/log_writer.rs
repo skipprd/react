@@ -61,7 +61,7 @@ impl ThreadLogWriter {
         self.store.delete(thread_id).await
     }
 
-    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
+    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         self.store.append_step_if_new(thread_id, step).await
     }
 

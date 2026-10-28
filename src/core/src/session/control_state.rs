@@ -123,7 +123,7 @@ impl ControlStateStore {
         )
         .await?
         {
-            ConditionalWriteStatus::Written => Ok(()),
+            ConditionalWriteStatus::Written { .. } => Ok(()),
             ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
                 "control_state('{thread_id}'): write conflict detected (expected_etag={expected:?}, current_etag={current_etag:?})"
             ))),
@@ -205,7 +205,7 @@ impl ControlStateStore {
 
     pub async fn delete(&self, thread_id: &str) -> CoreResult<()> {
         let key = self.key(thread_id)?;
-        let _ = retry_delete_object(self.storage.as_ref(), &key).await;
+        retry_delete_object(self.storage.as_ref(), &key).await?;
         Ok(())
     }
 }

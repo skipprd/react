@@ -1,33 +1,75 @@
+use crate::error::CoreError;
+use crate::retry::{retry_classified, Classify};
+use crate::text::truncate_chars_ellipsis;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
-
-use crate::error::CoreError;
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConditionalWriteStatus {
-    Written,
+    Written { etag: String },
     Conflict { current_etag: Option<String> },
 }
 
-/// Exponential backoff for transient S3/client errors (e.g. empty 400 ServiceError on head_object).
+/// Exponential backoff for transient S3/client errors.
 pub const SAFE_STORAGE_RETRY_DELAYS_MS: [u64; 6] = [100, 200, 400, 800, 1_600, 3_200];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StorageErrorKind {
-    NotFound,
-    AuthExpired,
-    Throttle,
-    Timeout,
-    Unknown,
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum StorageError {
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
+    #[error("auth expired: {0}")]
+    AuthExpired(String),
+    #[error("throttle: {0}")]
+    Throttle(String),
+    #[error("timeout: {0}")]
+    Timeout(String),
+    #[error("{0}")]
+    Other(String),
+}
+
+impl StorageError {
+    pub fn other(msg: impl Into<String>) -> Self {
+        Self::Other(msg.into())
+    }
+
+    pub fn not_found(key: impl Into<String>) -> Self {
+        Self::NotFound(key.into())
+    }
+
+    pub fn retry(&self) -> bool {
+        matches!(
+            self,
+            Self::AuthExpired(_) | Self::Throttle(_) | Self::Timeout(_)
+        )
+    }
+
+    pub fn from_io(op: &str, key: &str, err: std::io::Error) -> Self {
+        match err.kind() {
+            std::io::ErrorKind::NotFound => Self::NotFound(key.to_string()),
+            std::io::ErrorKind::TimedOut => Self::Timeout(format!("{op}('{key}'): {err}")),
+            _ => Self::Other(format!("{op}('{key}'): {err}")),
+        }
+    }
+}
+
+impl Classify for StorageError {
+    fn retry(&self) -> bool {
+        self.retry()
+    }
 }
 
 #[derive(Clone, Debug)]
 enum CacheEntry {
-    Bytes(Vec<u8>),
+    Bytes {
+        bytes: Vec<u8>,
+        etag: Option<String>,
+    },
     Missing,
 }
 
@@ -68,14 +110,18 @@ impl CachingStorageAdapter {
 
     fn read_entry(&self, key: &str) -> Result<Option<CacheEntry>, CoreError> {
         let entries = self.entries.read().map_err(|_| {
-            CoreError::Storage(format!("storage cache read lock poisoned for '{key}'"))
+            CoreError::from(StorageError::other(format!(
+                "storage cache read lock poisoned for '{key}'"
+            )))
         })?;
         Ok(entries.get(key).cloned())
     }
 
     fn write_entry(&self, key: &str, entry: CacheEntry) -> Result<(), CoreError> {
         let mut entries = self.entries.write().map_err(|_| {
-            CoreError::Storage(format!("storage cache write lock poisoned for '{key}'"))
+            CoreError::from(StorageError::other(format!(
+                "storage cache write lock poisoned for '{key}'"
+            )))
         })?;
         entries.insert(key.to_string(), entry);
         Ok(())
@@ -83,14 +129,25 @@ impl CachingStorageAdapter {
 
     fn invalidate_entry(&self, key: &str) -> Result<(), CoreError> {
         let mut entries = self.entries.write().map_err(|_| {
-            CoreError::Storage(format!("storage cache write lock poisoned for '{key}'"))
+            CoreError::from(StorageError::other(format!(
+                "storage cache write lock poisoned for '{key}'"
+            )))
         })?;
         entries.remove(key);
         Ok(())
     }
 
     fn cached_missing_error(key: &str) -> CoreError {
-        CoreError::Storage(format!("cached storage miss for key '{key}': not found"))
+        CoreError::from(StorageError::not_found(key))
+    }
+
+    async fn remember_bytes(
+        &self,
+        key: &str,
+        bytes: Vec<u8>,
+        etag: Option<String>,
+    ) -> Result<(), CoreError> {
+        self.write_entry(key, CacheEntry::Bytes { bytes, etag })
     }
 }
 
@@ -103,20 +160,22 @@ impl StorageAdapter for CachingStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
         serde_json::from_slice::<Value>(&bytes).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "get_json('{key}'): failed to deserialize JSON: {e}"
-            ))
+            )))
         })
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!("put_json('{key}'): failed to serialize JSON: {e}"))
+            CoreError::from(StorageError::other(format!(
+                "put_json('{key}'): failed to serialize JSON: {e}"
+            )))
         })?;
         self.inner
             .put_bytes(key, &bytes, "application/json")
             .await?;
-        self.write_entry(key, CacheEntry::Bytes(bytes))
+        self.remember_bytes(key, bytes, None).await
     }
 
     async fn put_json_if_etag_matches(
@@ -126,18 +185,18 @@ impl StorageAdapter for CachingStorageAdapter {
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
         let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json_if_etag_matches('{key}'): failed to serialize JSON: {e}"
-            ))
+            )))
         })?;
         let status = self
             .inner
             .put_json_if_etag_matches(key, value, expected_etag)
             .await?;
         match status {
-            ConditionalWriteStatus::Written => {
-                self.write_entry(key, CacheEntry::Bytes(bytes))?;
-                Ok(ConditionalWriteStatus::Written)
+            ConditionalWriteStatus::Written { etag } => {
+                self.remember_bytes(key, bytes, Some(etag.clone())).await?;
+                Ok(ConditionalWriteStatus::Written { etag })
             }
             ConditionalWriteStatus::Conflict { current_etag } => {
                 self.invalidate_entry(key)?;
@@ -148,14 +207,24 @@ impl StorageAdapter for CachingStorageAdapter {
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         match self.read_entry(key)? {
-            Some(CacheEntry::Bytes(bytes)) => return Ok(bytes),
+            Some(CacheEntry::Bytes {
+                bytes,
+                etag: Some(etag),
+            }) => {
+                if self.inner.head_etag(key).await?.as_deref() == Some(etag.as_str()) {
+                    return Ok(bytes);
+                }
+            }
+            Some(CacheEntry::Bytes { bytes, etag: None }) => return Ok(bytes),
             Some(CacheEntry::Missing) => return Err(Self::cached_missing_error(key)),
             None => {}
         }
 
+        let current_etag = self.inner.head_etag(key).await?;
         match self.inner.get_bytes(key).await {
             Ok(bytes) => {
-                self.write_entry(key, CacheEntry::Bytes(bytes.clone()))?;
+                self.remember_bytes(key, bytes.clone(), current_etag)
+                    .await?;
                 Ok(bytes)
             }
             Err(err) if is_storage_not_found_error(&err) => {
@@ -173,7 +242,7 @@ impl StorageAdapter for CachingStorageAdapter {
         content_type: &str,
     ) -> Result<(), CoreError> {
         self.inner.put_bytes(key, bytes, content_type).await?;
-        self.write_entry(key, CacheEntry::Bytes(bytes.to_vec()))
+        self.remember_bytes(key, bytes.to_vec(), None).await
     }
 
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
@@ -193,233 +262,55 @@ impl StorageAdapter for CachingStorageAdapter {
     }
 }
 
-pub fn classify_storage_error(err: &CoreError) -> Option<StorageErrorKind> {
+pub fn classify_storage_error(err: &CoreError) -> Option<&StorageError> {
     match err {
-        CoreError::Storage(message) => Some(classify_storage_error_message(message)),
+        CoreError::Storage(e) => Some(e),
         _ => None,
     }
 }
 
 pub fn is_storage_not_found_error(err: &CoreError) -> bool {
-    matches!(
-        classify_storage_error(err),
-        Some(StorageErrorKind::NotFound)
-    )
-}
-
-fn classify_storage_error_message(message: &str) -> StorageErrorKind {
-    let lower = message.to_ascii_lowercase();
-
-    if lower.contains("nosuchkey")
-        || lower.contains("no such key")
-        || lower.contains("notfound")
-        || lower.contains("not found")
-        || lower.contains("no such file or directory")
-        || lower.contains("os error 2")
-        || lower.contains("status code: 404")
-        || lower.contains("404 not found")
-    {
-        return StorageErrorKind::NotFound;
-    }
-    if lower.contains("expiredtoken") || lower.contains("token has expired") {
-        return StorageErrorKind::AuthExpired;
-    }
-    if lower.contains("slowdown")
-        || lower.contains("throttl")
-        || lower.contains("too many requests")
-        || lower.contains("rate exceeded")
-        || lower.contains("requestlimitexceeded")
-    {
-        return StorageErrorKind::Throttle;
-    }
-    if lower.contains("timeout") || lower.contains("timed out") || lower.contains("requesttimeout")
-    {
-        return StorageErrorKind::Timeout;
-    }
-
-    StorageErrorKind::Unknown
+    matches!(err, CoreError::Storage(StorageError::NotFound(_)))
 }
 
 pub fn should_retry_storage_error(err: &CoreError) -> bool {
-    matches!(
-        classify_storage_error(err),
-        Some(
-            StorageErrorKind::AuthExpired
-                | StorageErrorKind::Throttle
-                | StorageErrorKind::Timeout
-                | StorageErrorKind::Unknown
-        )
-    )
-}
-
-fn truncate_for_log(value: &str, max_chars: usize) -> String {
-    let mut out = String::with_capacity(value.len().min(max_chars) + 3);
-    for (idx, ch) in value.chars().enumerate() {
-        if idx >= max_chars {
-            out.push_str("...");
-            return out;
-        }
-        out.push(ch);
-    }
-    out
+    matches!(err, CoreError::Storage(e) if e.retry())
 }
 
 fn summarize_storage_retry_error(err: &CoreError) -> String {
-    match err {
-        CoreError::Storage(message) => summarize_storage_retry_message(message),
-        _ => truncate_for_log(&err.to_string(), 240),
-    }
-}
-
-fn summarize_storage_retry_message(message: &str) -> String {
-    let trimmed = message.trim();
-    let raw_detail_markers = [
-        ": ServiceError(",
-        ": DispatchFailure(",
-        ": ResponseError(",
-        ": TimeoutError(",
-        ": ConstructionFailure(",
-    ];
-
-    for marker in raw_detail_markers {
-        if let Some((context, detail)) = trimmed.split_once(marker) {
-            return format!(
-                "{}: {}",
-                context.trim_end(),
-                summarize_storage_retry_detail(marker.trim_start_matches(": "), detail)
-            );
-        }
-    }
-
-    truncate_for_log(trimmed, 240)
-}
-
-fn summarize_storage_retry_detail(kind: &str, detail: &str) -> String {
-    let compact_kind = kind.trim_end_matches('(');
-    let detail = detail.trim();
-    let response_message =
-        extract_quoted_detail_field(detail, &["message: Some(\"", "message: \""]);
-    let response_key = extract_quoted_detail_field(detail, &["key: Some(\"", "key: \""]);
-
-    let known_codes = [
-        "NoSuchKey",
-        "NotFound",
-        "AccessDenied",
-        "ExpiredToken",
-        "InvalidAccessKeyId",
-        "SlowDown",
-        "Throttling",
-        "RequestTimeout",
-    ];
-    for code in known_codes {
-        if detail.contains(code) {
-            return decorate_storage_retry_code(
-                code,
-                response_message.as_deref(),
-                response_key.as_deref(),
-            );
-        }
-    }
-
-    if detail.contains("ConnectorError") {
-        return format!("{compact_kind}: connector error");
-    }
-    if detail.contains("Timeout") {
-        return format!("{compact_kind}: timeout");
-    }
-    if detail.contains("Credentials") || detail.contains("credential") {
-        return format!("{compact_kind}: credentials error");
-    }
-
-    format!("{compact_kind}: {}", truncate_for_log(detail, 120))
-}
-
-fn extract_quoted_detail_field(detail: &str, patterns: &[&str]) -> Option<String> {
-    for pattern in patterns {
-        if let Some((_, rest)) = detail.split_once(pattern) {
-            if let Some((value, _)) = rest.split_once('"') {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn decorate_storage_retry_code(
-    code: &str,
-    response_message: Option<&str>,
-    response_key: Option<&str>,
-) -> String {
-    let mut extras = Vec::new();
-    if let Some(message) = response_message {
-        extras.push(format!("message: {}", truncate_for_log(message, 120)));
-    }
-    if let Some(key) = response_key {
-        extras.push(format!("response_key: {}", truncate_for_log(key, 120)));
-    }
-    if extras.is_empty() {
-        code.to_string()
-    } else {
-        format!("{code} ({})", extras.join(", "))
-    }
+    truncate_chars_ellipsis(&err.to_string(), 240)
 }
 
 pub async fn retry_storage_call<T, Fut, F>(
     operation: &'static str,
     target_kind: &'static str,
     target: &str,
-    mut call: F,
+    call: F,
 ) -> Result<T, CoreError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, CoreError>>,
 {
-    let mut retry_count = 0usize;
-    loop {
-        match call().await {
-            Ok(value) => {
-                if retry_count > 0 {
-                    tracing::info!(
-                        operation,
-                        target_kind,
-                        target,
-                        retry_count,
-                        "storage retry succeeded"
-                    );
-                }
-                return Ok(value);
-            }
-            Err(err) => {
-                if !should_retry_storage_error(&err)
-                    || retry_count == SAFE_STORAGE_RETRY_DELAYS_MS.len()
-                {
-                    return Err(err);
-                }
-                let backoff_ms = SAFE_STORAGE_RETRY_DELAYS_MS[retry_count];
-                retry_count += 1;
-                tracing::warn!(
-                    operation,
-                    target_kind,
-                    target,
-                    retry_count,
-                    max_retries = SAFE_STORAGE_RETRY_DELAYS_MS.len(),
-                    backoff_ms,
-                    error = %summarize_storage_retry_error(&err),
-                    "storage operation failed; retrying"
-                );
-                tracing::debug!(
-                    operation,
-                    target_kind,
-                    target,
-                    retry_count,
-                    backoff_ms,
-                    full_error = %err,
-                    "storage retry raw error detail"
-                );
-                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-            }
-        }
-    }
+    retry_classified(&SAFE_STORAGE_RETRY_DELAYS_MS, call, |retry_count, err| {
+        tracing::warn!(
+            operation,
+            target_kind,
+            target,
+            retry_count,
+            max_retries = SAFE_STORAGE_RETRY_DELAYS_MS.len(),
+            error = %summarize_storage_retry_error(err),
+            "storage operation failed; retrying"
+        );
+        tracing::debug!(
+            operation,
+            target_kind,
+            target,
+            retry_count,
+            full_error = %err,
+            "storage retry raw error detail"
+        );
+    })
+    .await
 }
 
 pub async fn retry_get_json(storage: &dyn StorageAdapter, key: &str) -> Result<Value, CoreError> {
@@ -490,8 +381,8 @@ pub async fn retry_list_prefix(
 mod tests {
     use super::{
         is_storage_not_found_error, retry_storage_call, should_retry_storage_error,
-        summarize_storage_retry_error, truncate_for_log, CachingStorageAdapter,
-        ConditionalWriteStatus, StorageAdapter,
+        summarize_storage_retry_error, CachingStorageAdapter, ConditionalWriteStatus,
+        StorageAdapter, StorageError,
     };
     use crate::error::CoreError;
     use async_trait::async_trait;
@@ -511,6 +402,15 @@ mod tests {
     }
 
     impl CountingStorageAdapter {
+        fn etag_for(bytes: &[u8]) -> String {
+            let mut hash: u64 = 1469598103934665603;
+            for b in bytes {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(1099511628211);
+            }
+            format!("count-etag-{:016x}-{}", hash, bytes.len())
+        }
+
         fn seed_bytes(&self, key: &str, bytes: &[u8]) {
             self.bytes
                 .lock()
@@ -539,13 +439,15 @@ mod tests {
     impl StorageAdapter for CountingStorageAdapter {
         async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
             let bytes = self.get_bytes(key).await?;
-            serde_json::from_slice::<Value>(&bytes)
-                .map_err(|e| CoreError::Storage(format!("get_json('{key}'): {e}")))
+            serde_json::from_slice::<Value>(&bytes).map_err(|e| {
+                CoreError::from(StorageError::other(format!("get_json('{key}'): {e}")))
+            })
         }
 
         async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
-            let bytes = serde_json::to_vec(value)
-                .map_err(|e| CoreError::Storage(format!("put_json('{key}'): {e}")))?;
+            let bytes = serde_json::to_vec(value).map_err(|e| {
+                CoreError::from(StorageError::other(format!("put_json('{key}'): {e}")))
+            })?;
             self.put_bytes(key, &bytes, "application/json").await
         }
 
@@ -561,7 +463,12 @@ mod tests {
                 });
             }
             self.put_json(key, value).await?;
-            Ok(ConditionalWriteStatus::Written)
+            let bytes = serde_json::to_vec(value).map_err(|e| {
+                CoreError::from(StorageError::other(format!("put_json('{key}'): {e}")))
+            })?;
+            Ok(ConditionalWriteStatus::Written {
+                etag: Self::etag_for(&bytes),
+            })
         }
 
         async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
@@ -571,7 +478,7 @@ mod tests {
                 .expect("bytes lock")
                 .get(key)
                 .cloned()
-                .ok_or_else(|| CoreError::Storage(format!("get_bytes('{key}'): not found")))
+                .ok_or_else(|| CoreError::from(StorageError::not_found(key)))
         }
 
         async fn put_bytes(
@@ -597,8 +504,8 @@ mod tests {
                 .bytes
                 .lock()
                 .expect("bytes lock")
-                .contains_key(key)
-                .then(|| "etag".to_string()))
+                .get(key)
+                .map(|bytes| Self::etag_for(bytes)))
         }
 
         async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
@@ -616,28 +523,8 @@ mod tests {
     }
 
     #[test]
-    fn storage_retry_summary_extracts_s3_error_code() {
-        let err = CoreError::Storage("s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): ServiceError(ServiceError { source: NoSuchKey(NoSuchKey { message: Some(\"The specified key does not exist.\"), meta: ErrorMetadata { code: Some(\"NoSuchKey\") } }) })".to_string());
-
-        assert_eq!(
-            summarize_storage_retry_error(&err),
-            "s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): NoSuchKey (message: The specified key does not exist.)"
-        );
-    }
-
-    #[test]
-    fn storage_retry_summary_includes_response_key_when_present() {
-        let err = CoreError::Storage("s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): ServiceError(ServiceError { source: NoSuchKey(NoSuchKey { message: Some(\"The specified key does not exist.\"), key: Some(\"missing/thread.json\"), meta: ErrorMetadata { code: Some(\"NoSuchKey\") } }) })".to_string());
-
-        assert_eq!(
-            summarize_storage_retry_error(&err),
-            "s3 get_object failed (bucket='skippr-prod', key='abc', key_family='thread_log'): NoSuchKey (message: The specified key does not exist., response_key: missing/thread.json)"
-        );
-    }
-
-    #[test]
     fn storage_retry_summary_truncates_unstructured_errors() {
-        let err = CoreError::Storage("x".repeat(400));
+        let err: CoreError = CoreError::from(StorageError::other("x".repeat(400)));
         let summary = summarize_storage_retry_error(&err);
 
         assert!(summary.len() <= 243);
@@ -645,31 +532,28 @@ mod tests {
     }
 
     #[test]
-    fn truncate_for_log_keeps_short_strings_unchanged() {
-        assert_eq!(truncate_for_log("short", 10), "short");
-    }
-
-    #[test]
     fn storage_retry_policy_does_not_retry_not_found() {
-        let err = CoreError::Storage("ServiceError: NoSuchKey".to_string());
+        let err: CoreError = CoreError::from(StorageError::not_found("abc"));
 
         assert!(is_storage_not_found_error(&err));
         assert!(!should_retry_storage_error(&err));
     }
 
     #[test]
+    fn storage_retry_policy_does_not_retry_other() {
+        let err: CoreError = CoreError::from(StorageError::other("failed to deserialize JSON"));
+        assert!(!should_retry_storage_error(&err));
+        assert!(!is_storage_not_found_error(&err));
+    }
+
+    #[test]
     fn storage_retry_policy_retries_transient_storage_errors() {
-        for message in [
-            "ServiceError: ExpiredToken",
-            "ServiceError: SlowDown",
-            "DispatchFailure: connector error",
-            "ServiceError: service unavailable",
-            "head_object key: ServiceError(ServiceError { source: Unhandled(Unhandled { source: ErrorMetadata { code: None, message: None, extras: None } }), meta: ErrorMetadata { code: None, message: None, extras: None } }): unhandled error (HTTP status 400)",
+        for err in [
+            CoreError::from(StorageError::AuthExpired("ExpiredToken".into())),
+            CoreError::from(StorageError::Throttle("SlowDown".into())),
+            CoreError::from(StorageError::Timeout("RequestTimeout".into())),
         ] {
-            assert!(
-                should_retry_storage_error(&CoreError::Storage(message.to_string())),
-                "{message}"
-            );
+            assert!(should_retry_storage_error(&err), "{err}");
         }
     }
 
@@ -680,7 +564,7 @@ mod tests {
             let attempts = Arc::clone(&attempts);
             async move {
                 attempts.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(CoreError::Storage("NoSuchKey".to_string()))
+                Err::<(), _>(CoreError::from(StorageError::not_found("missing")))
             }
         })
         .await;
@@ -690,13 +574,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retry_storage_call_retries_unknown_storage_errors() {
+    async fn retry_storage_call_retries_throttle_storage_errors() {
         let attempts = Arc::new(AtomicUsize::new(0));
         let result = retry_storage_call("get_bytes", "key", "flaky", || {
             let attempts = Arc::clone(&attempts);
             async move {
                 attempts.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(CoreError::Storage("service unavailable".to_string()))
+                Err::<(), _>(CoreError::from(StorageError::Throttle("SlowDown".into())))
             }
         })
         .await;
@@ -758,6 +642,7 @@ mod tests {
         assert_eq!(cache.get_bytes("key").await.unwrap(), b"value");
         assert_eq!(inner.put_bytes_calls(), 1);
         assert_eq!(inner.get_bytes_calls(), 0);
+        assert_eq!(inner.head_etag_calls(), 0);
 
         cache.delete_object("key").await.unwrap();
         assert!(cache.get_bytes("key").await.is_err());
@@ -787,6 +672,20 @@ mod tests {
 
         inner.force_conflict.store(false, Ordering::SeqCst);
         assert_eq!(cache.get_bytes("key").await.unwrap(), b"backend");
+        assert_eq!(inner.get_bytes_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn cache_does_not_serve_conditional_put_under_peer_etag() {
+        let inner = Arc::new(CountingStorageAdapter::default());
+        let cache = CachingStorageAdapter::new(inner.clone());
+        let status = cache
+            .put_json_if_etag_matches("key", &serde_json::json!({"ours": true}), None)
+            .await
+            .unwrap();
+        assert!(matches!(status, ConditionalWriteStatus::Written { .. }));
+        inner.seed_bytes("key", br#"{"peer":true}"#);
+        assert_eq!(cache.get_bytes("key").await.unwrap(), br#"{"peer":true}"#);
         assert_eq!(inner.get_bytes_calls(), 1);
     }
 }

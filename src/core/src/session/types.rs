@@ -346,47 +346,31 @@ impl ToolObservation {
         }
     }
 
+    pub fn extra_from_value(v: &Value) -> BTreeMap<String, Value> {
+        match v {
+            Value::Object(m) => m.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            other => {
+                let mut m = BTreeMap::new();
+                m.insert("value".to_string(), other.clone());
+                m
+            }
+        }
+    }
+
+    pub fn from_success(v: &Value) -> Self {
+        Self::ok(Self::extra_from_value(v))
+    }
+
+    pub fn from_failure(message: impl Into<String>) -> Self {
+        Self::fail(vec![message.into()], BTreeMap::new())
+    }
+
     fn non_empty_string_field(extra: &BTreeMap<String, Value>, key: &str) -> Option<String> {
         extra
             .get(key)
             .and_then(|v| v.as_str())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-    }
-
-    fn extract_errors_from_extra(extra: &BTreeMap<String, Value>) -> Vec<String> {
-        if let Some(Value::Array(arr)) = extra.get("errors") {
-            let out: Vec<String> = arr
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty())
-                .collect();
-            if !out.is_empty() {
-                return out;
-            }
-        }
-        if let Some(v) = extra.get("error") {
-            match v {
-                Value::String(s) => {
-                    let t = s.trim();
-                    if !t.is_empty() {
-                        return vec![t.to_string()];
-                    }
-                }
-                other => {
-                    let s = other.to_string();
-                    if !s.trim().is_empty() {
-                        return vec![s];
-                    }
-                }
-            }
-        }
-        for key in ["message", "reason", "detail"] {
-            if let Some(s) = Self::non_empty_string_field(extra, key) {
-                return vec![s];
-            }
-        }
-        Vec::new()
     }
 
     pub fn first_error_or_context(&self) -> Option<String> {
@@ -398,51 +382,6 @@ impl ToolObservation {
             }
             None
         })
-    }
-
-    /// Normalize a tool output `Value` into the canonical envelope:
-    /// - `errors` is ALWAYS present (even if 0/1)
-    /// - singular `error: string` is promoted to `errors: [error]` and removed from `extra`
-    pub fn normalize(v: Value) -> Self {
-        let mut extra: BTreeMap<String, Value> = match v {
-            Value::Object(m) => m.into_iter().collect(),
-            other => {
-                let mut m = BTreeMap::new();
-                m.insert("raw".to_string(), other);
-                m
-            }
-        };
-
-        let ok = extra.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
-
-        let errors = Self::extract_errors_from_extra(&extra);
-
-        let warnings = if let Some(Value::Array(arr)) = extra.get("warnings") {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .filter(|s| !s.trim().is_empty())
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-
-        let mut errors = errors;
-
-        extra.remove("ok");
-        extra.remove("errors");
-        extra.remove("warnings");
-        extra.remove("error");
-
-        if !ok && errors.is_empty() {
-            errors.push("no error details were captured".to_string());
-        }
-
-        Self {
-            ok,
-            errors,
-            warnings,
-            extra,
-        }
     }
 }
 

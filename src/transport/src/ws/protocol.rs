@@ -273,7 +273,7 @@ async fn handle_delete_message(v: &Value, state: &mut ConnState) -> Result<Vec<S
     }
     {
         let writer = state.log_writer();
-        let _ = writer.delete(&thread_id).await;
+        writer.delete(&thread_id).await.map_err(|e| e.to_string())?;
     }
     if let Some(vs) = state.suite_ctx.vector().as_ref() {
         let _ = vs

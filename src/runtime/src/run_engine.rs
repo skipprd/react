@@ -20,6 +20,8 @@ pub struct HeadlessRunOpts {
     pub headless_prompt: Option<String>,
     /// Stream [`react_transport::headless::RunOpts::stream_jsonl`] events to stdout.
     pub stream_jsonl: bool,
+    /// Print phase/tool progress on stdout during the run (typed SoT; not an env knob).
+    pub plain_progress: bool,
 }
 
 /// Result of [`run_headless_with_ctx`] (and thin wrappers).
@@ -311,6 +313,7 @@ pub async fn run_headless_with_ctx(
             thread_id_tx,
             headless_prompt: opts.headless_prompt,
             stream_jsonl: opts.stream_jsonl,
+            plain_progress: opts.plain_progress,
         },
         registry,
     );

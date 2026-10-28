@@ -13,6 +13,9 @@ impl Tool for SummarizeThreadTool {
     fn name(&self) -> &'static str {
         "summarize_thread"
     }
+    fn description(&self) -> &'static str {
+        "Structured ThreadSummary with phases, tool/LLM counts, and detected issues. args: {thread_id}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let thread_id = args

@@ -45,11 +45,7 @@ export REACT_HEADLESS=true
 
 ## Plain progress output
 
-For CI environments without TTY support, use plain log output:
-
-```bash
-export REACT_PLAIN_PROGRESS=true
-```
+Product hosts set `HeadlessRunOpts.plain_progress` (for example `sde model`) so phase and tool events print during a headless run. Do not gate that on an environment variable.
 
 ## Where output goes
 

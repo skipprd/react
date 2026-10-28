@@ -100,6 +100,8 @@ pub struct RunOpts {
     pub headless_prompt: Option<String>,
     /// When true, emit one JSON value per line on stdout for each `ServerMessage` (IDE / CLI streaming).
     pub stream_jsonl: bool,
+    /// Print phase/tool progress on stdout. Product hosts set this explicitly.
+    pub plain_progress: bool,
 }
 
 /// Result returned by [`run_headless`].
@@ -124,11 +126,8 @@ pub async fn run_headless(
 ) -> Result<HeadlessResult, String> {
     let hub = EventHub::new(DEFAULT_EVENT_HUB_CAPACITY);
     let mut rx = hub.subscribe();
-    let plain_progress = std::env::var("REACT_PLAIN_PROGRESS")
-        .ok()
-        .filter(|v| !v.trim().is_empty() && v != "0" && v.to_ascii_lowercase() != "false")
-        .is_some();
     let stream_jsonl = opts.stream_jsonl;
+    let plain_progress = opts.plain_progress && !stream_jsonl;
 
     // Capture the thread id from events (for `new`) and detect completion.
     let mut tid_tx = opts.thread_id_tx.clone();

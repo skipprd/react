@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -227,11 +228,14 @@ pub fn json_schema(id: SchemaId) -> Value {
         .unwrap_or_else(|| schema_for_id(id).expect("schema_for_id fallback"))
 }
 
+static AGENT_STEP_VALIDATOR: Lazy<jsonschema::Validator> = Lazy::new(|| {
+    jsonschema::validator_for(&json_schema(SchemaId::AgentStepV1))
+        .expect("AgentStepV1 schema compiles")
+});
+
 pub fn validate(id: SchemaId, instance: &Value) -> Result<(), crate::CoreError> {
-    let schema_json = json_schema(id);
-    let validator = jsonschema::validator_for(&schema_json)
-        .map_err(|e| crate::CoreError::Schema(format!("failed to compile {}: {}", id.name(), e)))?;
-    if let Err(first) = validator.validate(instance) {
+    let SchemaId::AgentStepV1 = id;
+    if let Err(first) = AGENT_STEP_VALIDATOR.validate(instance) {
         return Err(crate::CoreError::Schema(format!(
             "{} validation error: {}",
             id.name(),

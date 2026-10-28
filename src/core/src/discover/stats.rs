@@ -157,10 +157,7 @@ impl FieldStats {
         if self.examples.len() >= MAX_EXAMPLE_VALUES {
             return;
         }
-        let mut v = val;
-        if v.len() > 64 {
-            v.truncate(64);
-        }
+        let v = crate::text::truncate_chars(&val, 64);
         if !self.examples.iter().any(|e| e == &v) {
             self.examples.push(v);
         }

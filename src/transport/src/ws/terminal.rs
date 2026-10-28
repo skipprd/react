@@ -304,86 +304,7 @@ fn refresh_stdout(
 }
 
 fn fit_line(s: &str, width: u16) -> String {
-    // Prevent wrapping (which breaks cursor math) by truncating to terminal width.
-    // We keep it cheap and byte-based since our output is primarily ASCII.
-    let w = width.max(10) as usize;
-    ansi_fit_line(s, w)
-}
-
-fn ansi_fit_line(s: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if ansi_display_width(s) <= width {
-        return s.to_string();
-    }
-
-    let mut out = String::new();
-    let mut w = 0usize;
-    let mut i = 0usize;
-    let bytes = s.as_bytes();
-
-    while i < bytes.len() && w + 1 < width {
-        // Skip ANSI CSI SGR sequences: ESC [ ... m
-        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            let start = i;
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'm' {
-                i += 1;
-            }
-            if i < bytes.len() && bytes[i] == b'm' {
-                i += 1;
-                out.push_str(&String::from_utf8_lossy(&bytes[start..i]));
-                continue;
-            } else {
-                // Malformed escape; stop copying.
-                break;
-            }
-        }
-
-        // Copy one UTF-8 char.
-        let ch = match s[i..].chars().next() {
-            None => break,
-            Some(c) => c,
-        };
-        let len = ch.len_utf8();
-        out.push(ch);
-        i += len;
-        w += 1;
-    }
-
-    out.push('…');
-    // Ensure we reset styles so truncated lines don't leak color.
-    if out.contains('\u{1b}') && !out.ends_with("\u{1b}[0m") {
-        out.push_str("\u{1b}[0m");
-    }
-    out
-}
-
-fn ansi_display_width(s: &str) -> usize {
-    // Count visible characters, ignoring ANSI CSI sequences.
-    let mut w = 0usize;
-    let bytes = s.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'm' {
-                i += 1;
-            }
-            if i < bytes.len() && bytes[i] == b'm' {
-                i += 1;
-            }
-            continue;
-        }
-        let ch = match s[i..].chars().next() {
-            None => break,
-            Some(c) => c,
-        };
-        i += ch.len_utf8();
-        w += 1;
-    }
-    w
+    react_core::text::ansi_fit_line(s, width.max(10) as usize)
 }
 
 fn apply_event(m: &mut Model, ev: TerminalEvent) {
@@ -895,18 +816,14 @@ use super::terminal_dbt::{
 };
 
 fn condense_one_line(s: &str, max_len: usize) -> String {
-    let mut out = s
+    let out = s
         .trim()
         .replace('\n', " ; ")
         .replace('\r', " ")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    if out.len() > max_len {
-        out.truncate(max_len);
-        out.push('…');
-    }
-    out
+    react_core::text::truncate_chars_fit(&out, max_len)
 }
 
 fn clean_multiline(s: &str, max_lines: usize, max_chars: usize) -> String {
@@ -934,12 +851,7 @@ fn clean_multiline(s: &str, max_lines: usize, max_chars: usize) -> String {
     while out.last().map(|x| x.is_empty()).unwrap_or(false) {
         out.pop();
     }
-    let mut joined = out.join("\n");
-    if joined.len() > max_chars {
-        joined.truncate(max_chars);
-        joined.push('…');
-    }
-    joined
+    react_core::text::truncate_chars_fit(&out.join("\n"), max_chars)
 }
 
 fn first_nonempty_line(s: &str) -> Option<&str> {
@@ -1225,13 +1137,7 @@ fn phase_reason_summary(t: &ThreadView, ph: &str) -> Option<String> {
         .unwrap_or("");
     let rd = t.phase_reason_detail.get(ph);
     let trunc = |s: &str, max_chars: usize| -> String {
-        let s = s.trim();
-        if s.chars().count() <= max_chars {
-            return s.to_string();
-        }
-        let mut out: String = s.chars().take(max_chars.saturating_sub(1)).collect();
-        out.push('…');
-        out
+        react_core::text::truncate_chars_fit(s.trim(), max_chars)
     };
     match rc {
         "review_actionable_true" => {

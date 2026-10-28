@@ -30,7 +30,7 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
         };
 
         let sys = prompts::system_prompt();
-        let tools_card = prompts::tool_card();
+        let tools_card = registry.tool_card();
 
         let actx = react_core::agent::AgentCtxBuilder::new(
             self.sctx.llm().clone(),
@@ -81,7 +81,7 @@ impl<'a> PhaseExecutor for KbExecutor<'a> {
             }
         };
 
-        match Agent::run_until_block(&registry, &actx, sys, tools_card, self.question, llm_opts)
+        match Agent::run_until_block(&registry, &actx, sys, &tools_card, self.question, llm_opts)
             .await
         {
             Ok(RunOutcome::Complete {
@@ -134,8 +134,12 @@ impl KbSuite {
 
     fn build_tools(sctx: &SuiteCtx) -> Result<ToolRegistry, String> {
         let mut registry = ToolRegistry::new();
-        registry.register(tools::kb_ingest_dir::KbIngestDirTool);
-        registry.register(tools::kb_search::KbSearchTool);
+        registry
+            .register(tools::kb_ingest_dir::KbIngestDirTool)
+            .map_err(|e| e.to_string())?;
+        registry
+            .register(tools::kb_search::KbSearchTool)
+            .map_err(|e| e.to_string())?;
 
         if sctx.vector().is_none() {
             return Err("vector provider missing".to_string());
@@ -168,7 +172,9 @@ impl KbSuite {
             ..Default::default()
         };
 
-        react_core::workflow::runner::run(&executor, &config).await
+        react_core::workflow::runner::run(&executor, &config)
+            .await
+            .map_err(|(e, _)| e.to_string())
     }
 }
 
@@ -203,17 +209,18 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_kb(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -225,17 +232,18 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_kb(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 
@@ -247,17 +255,18 @@ impl Suite for KbSuite {
         ctx: &SuiteCtx,
     ) -> Result<Vec<FlowFrame>, String> {
         Self::validate_agent_type(agent_type)?;
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_kb(thread_id, text, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 }

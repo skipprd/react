@@ -19,11 +19,7 @@ huggingface-cli download TheBloke/Mistral-7B-Instruct-v0.2-GGUF \
   mistral-7b-instruct-v0.2.Q4_K_M.gguf --local-dir ./models
 ```
 
-3) Run a chat:
-```bash
-# Build with local llama.cpp enabled
-cargo run --features llama_cpp --quiet llm --chat "Say hello briefly"
-```
+3) Run a chat against an OpenAI-compatible HTTP provider (`LLM_API_KEY` / `OPENAI_API_KEY`). The `LLAMA_CPP` provider is a disabled stub in this workspace; there is no `llama_cpp` Cargo feature.
 
 If `LLM_CHAT_MODEL` is not set, Skippr will try to auto-locate a GGUF file in `./models/` and auto-tune GPU offload layers.
 

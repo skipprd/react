@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use react_core::error::CoreError;
-use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
+use react_core::storage::{ConditionalWriteStatus, StorageAdapter, StorageError};
 
 /// Local filesystem-backed storage adapter.
 ///
@@ -18,8 +18,11 @@ pub struct LocalFileStorageAdapter {
 impl LocalFileStorageAdapter {
     pub fn new(base_dir: impl Into<PathBuf>) -> Result<Self, CoreError> {
         let p: PathBuf = base_dir.into();
-        std::fs::create_dir_all(&p)
-            .map_err(|e| CoreError::Storage(format!("failed to create base dir: {e}")))?;
+        std::fs::create_dir_all(&p).map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "failed to create base dir: {e}"
+            )))
+        })?;
         Ok(Self {
             base_dir: Arc::new(p),
         })
@@ -28,22 +31,24 @@ impl LocalFileStorageAdapter {
     fn resolve_key(&self, key: &str) -> Result<PathBuf, CoreError> {
         let k = key.trim().trim_start_matches('/');
         if k.is_empty() {
-            return Err(CoreError::Storage("empty key".to_string()));
+            return Err(CoreError::from(StorageError::other("empty key")));
         }
         let mut out = (*self.base_dir).clone();
         for seg in k.split('/') {
             if seg.is_empty() {
-                return Err(CoreError::Storage(
-                    "invalid key (empty path segment)".to_string(),
-                ));
+                return Err(CoreError::from(StorageError::other(
+                    "invalid key (empty path segment)",
+                )));
             }
             if seg == "." || seg == ".." || seg.contains("..") {
-                return Err(CoreError::Storage(
-                    "invalid key (path traversal)".to_string(),
-                ));
+                return Err(CoreError::from(StorageError::other(
+                    "invalid key (path traversal)",
+                )));
             }
             if seg.contains('\\') {
-                return Err(CoreError::Storage("invalid key (backslash)".to_string()));
+                return Err(CoreError::from(StorageError::other(
+                    "invalid key (backslash)",
+                )));
             }
             out.push(seg);
         }
@@ -96,19 +101,19 @@ impl StorageAdapter for LocalFileStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
         serde_json::from_slice::<Value>(&bytes).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "get_json('{}'): failed to deserialize JSON: {}",
                 key, e
-            ))
+            )))
         })
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         let bytes = serde_json::to_vec_pretty(value).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json('{}'): failed to serialize JSON: {}",
                 key, e
-            ))
+            )))
         })?;
         self.put_bytes(key, &bytes, "application/json").await
     }
@@ -121,10 +126,10 @@ impl StorageAdapter for LocalFileStorageAdapter {
     ) -> Result<ConditionalWriteStatus, CoreError> {
         let path = self.resolve_key(key)?;
         let bytes = serde_json::to_vec_pretty(value).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json_if_etag_matches('{}'): failed to serialize JSON: {}",
                 key, e
-            ))
+            )))
         })?;
         let key_owned = key.to_string();
         let expected = expected_etag.map(|s| s.to_string());
@@ -133,10 +138,10 @@ impl StorageAdapter for LocalFileStorageAdapter {
                 Ok(bytes) => Some(bytes),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
                 Err(e) => {
-                    return Err(CoreError::Storage(format!(
+                    return Err(CoreError::from(StorageError::other(format!(
                         "put_json_if_etag_matches('{}'): read current: {}",
                         key_owned, e
-                    )))
+                    ))))
                 }
             };
             let current_etag = current_bytes.as_ref().map(|b| Self::etag_for_bytes(b));
@@ -145,26 +150,28 @@ impl StorageAdapter for LocalFileStorageAdapter {
             }
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    CoreError::Storage(format!(
+                    CoreError::from(StorageError::other(format!(
                         "put_json_if_etag_matches('{}'): mkdir: {}",
                         key_owned, e
-                    ))
+                    )))
                 })?;
             }
             std::fs::write(&path, &bytes).map_err(|e| {
-                CoreError::Storage(format!(
+                CoreError::from(StorageError::other(format!(
                     "put_json_if_etag_matches('{}'): write: {}",
                     key_owned, e
-                ))
+                )))
             })?;
-            Ok(ConditionalWriteStatus::Written)
+            Ok(ConditionalWriteStatus::Written {
+                etag: Self::etag_for_bytes(&bytes),
+            })
         })
         .await
         .map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json_if_etag_matches('{}'): join error: {}",
                 key, e
-            ))
+            )))
         })?
     }
 
@@ -173,10 +180,15 @@ impl StorageAdapter for LocalFileStorageAdapter {
         let key_owned = key.to_string();
         tokio::task::spawn_blocking(move || {
             std::fs::read(&path)
-                .map_err(|e| CoreError::Storage(format!("get_bytes('{}'): {}", key_owned, e)))
+                .map_err(|e| CoreError::from(StorageError::from_io("get_bytes", &key_owned, e)))
         })
         .await
-        .map_err(|e| CoreError::Storage(format!("get_bytes('{}'): join error: {}", key, e)))?
+        .map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "get_bytes('{}'): join error: {}",
+                key, e
+            )))
+        })?
     }
 
     async fn put_bytes(
@@ -191,15 +203,26 @@ impl StorageAdapter for LocalFileStorageAdapter {
         tokio::task::spawn_blocking(move || {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    CoreError::Storage(format!("put_bytes('{}'): mkdir: {}", key_owned, e))
+                    CoreError::from(StorageError::other(format!(
+                        "put_bytes('{}'): mkdir: {}",
+                        key_owned, e
+                    )))
                 })?;
             }
             std::fs::write(&path, &b).map_err(|e| {
-                CoreError::Storage(format!("put_bytes('{}'): write: {}", key_owned, e))
+                CoreError::from(StorageError::other(format!(
+                    "put_bytes('{}'): write: {}",
+                    key_owned, e
+                )))
             })
         })
         .await
-        .map_err(|e| CoreError::Storage(format!("put_bytes('{}'): join error: {}", key, e)))?
+        .map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "put_bytes('{}'): join error: {}",
+                key, e
+            )))
+        })?
     }
 
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
@@ -208,13 +231,18 @@ impl StorageAdapter for LocalFileStorageAdapter {
         tokio::task::spawn_blocking(move || match std::fs::remove_file(&path) {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(CoreError::Storage(format!(
+            Err(e) => Err(CoreError::from(StorageError::other(format!(
                 "delete_object('{}'): {}",
                 key_owned, e
-            ))),
+            )))),
         })
         .await
-        .map_err(|e| CoreError::Storage(format!("delete_object('{}'): join error: {}", key, e)))?
+        .map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "delete_object('{}'): join error: {}",
+                key, e
+            )))
+        })?
     }
 
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
@@ -223,13 +251,18 @@ impl StorageAdapter for LocalFileStorageAdapter {
         tokio::task::spawn_blocking(move || match std::fs::read(&path) {
             Ok(bytes) => Ok(Some(Self::etag_for_bytes(&bytes))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(CoreError::Storage(format!(
+            Err(e) => Err(CoreError::from(StorageError::other(format!(
                 "head_etag('{}'): {}",
                 key_owned, e
-            ))),
+            )))),
         })
         .await
-        .map_err(|e| CoreError::Storage(format!("head_etag('{}'): join error: {}", key, e)))?
+        .map_err(|e| {
+            CoreError::from(StorageError::other(format!(
+                "head_etag('{}'): join error: {}",
+                key, e
+            )))
+        })?
     }
 
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
@@ -255,10 +288,10 @@ impl StorageAdapter for LocalFileStorageAdapter {
         })
         .await
         .map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "list_prefix('{}'): join error: {}",
                 prefix_owned, e
-            ))
+            )))
         })?
     }
 }
@@ -327,9 +360,12 @@ mod tests {
             .put_json_if_etag_matches("a/state.json", &first, None)
             .await
             .expect("create");
-        assert_eq!(created, ConditionalWriteStatus::Written);
-
+        let created_etag = match created {
+            ConditionalWriteStatus::Written { etag } => etag,
+            other => panic!("expected Written, got {other:?}"),
+        };
         let etag = st.head_etag("a/state.json").await.expect("head");
+        assert_eq!(etag.as_deref(), Some(created_etag.as_str()));
         let conflict = st
             .put_json_if_etag_matches("a/state.json", &second, None)
             .await
@@ -345,7 +381,17 @@ mod tests {
             .put_json_if_etag_matches("a/state.json", &second, etag.as_deref())
             .await
             .expect("update");
-        assert_eq!(updated, ConditionalWriteStatus::Written);
+        let updated_etag = match updated {
+            ConditionalWriteStatus::Written { etag } => etag,
+            other => panic!("expected Written, got {other:?}"),
+        };
+        assert_eq!(
+            st.head_etag("a/state.json")
+                .await
+                .expect("head after update")
+                .as_deref(),
+            Some(updated_etag.as_str())
+        );
         assert_eq!(st.get_json("a/state.json").await.expect("get"), second);
 
         let _ = std::fs::remove_dir_all(root);

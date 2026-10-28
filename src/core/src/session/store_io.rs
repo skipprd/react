@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::error::{CoreError, CoreResult};
 use crate::storage::{
@@ -80,19 +79,18 @@ impl ThreadStore {
         let Some(etag) = current_etag else {
             return Ok(LoadState::Missing);
         };
-        let log = if let Some(entry) = self.cache.get(key) {
-            if entry.ts.elapsed().as_secs() < self.config.cache_ttl_secs {
-                entry.log.clone()
-            } else {
-                drop(entry);
-                let v = retry_get_json(self.storage.as_ref(), key).await?;
-                serde_json::from_value::<ThreadLog>(v)
-                    .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
-            }
+        let cached = self
+            .cache
+            .get(key)
+            .and_then(|entry| (entry.etag == etag).then(|| entry.log.clone()));
+        let log = if let Some(log) = cached {
+            log
         } else {
             let v = retry_get_json(self.storage.as_ref(), key).await?;
-            serde_json::from_value::<ThreadLog>(v)
-                .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?
+            let log = serde_json::from_value::<ThreadLog>(v)
+                .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?;
+            self.remember_log(key, log.clone(), etag.clone());
+            log
         };
         Self::ensure_thread_log_schema(&log)?;
         Ok(LoadState::Loaded(VersionedValue {
@@ -107,7 +105,7 @@ impl ThreadStore {
         key: &str,
         log: &ThreadLog,
         expected_etag: Option<&str>,
-    ) -> CoreResult<()> {
+    ) -> CoreResult<String> {
         let expected = expected_etag.map(str::to_string);
         let val = serde_json::to_value(log).map_err(|e| {
             CoreError::Session(format!(
@@ -117,18 +115,46 @@ impl ThreadStore {
         match retry_put_json_if_etag_matches(self.storage.as_ref(), key, &val, expected_etag)
             .await?
         {
-            ConditionalWriteStatus::Written => Ok(()),
-            ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::Session(format!(
-                "thread_log('{thread_id}'): write conflict detected (expected_etag={expected:?}, current_etag={current_etag:?})"
-            ))),
+            ConditionalWriteStatus::Written { etag } => Ok(etag),
+            ConditionalWriteStatus::Conflict { current_etag } => Err(CoreError::AuditConflict(
+                format!(
+                    "thread_log('{thread_id}'): write conflict detected (expected_etag={expected:?}, current_etag={current_etag:?})"
+                ),
+            )),
         }
+    }
+
+    fn remember_log(&self, key: &str, log: ThreadLog, etag: String) {
+        self.cache.insert(key.to_string(), CacheEntry { log, etag });
     }
 
     pub async fn append_step(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let key = self.key(thread_id)?;
         let lock = session_write_lock(&key);
         let _guard = lock.lock().await;
-        let loaded = self.load_thread_log_for_write(&key).await?;
+        for _attempt in 0..=crate::budget::AUDIT_MAX_CONFLICT_RETRIES {
+            match self.append_step_locked(&key, thread_id, step.clone()).await {
+                Ok(()) => return Ok(()),
+                Err(CoreError::AuditConflict(_)) => {
+                    self.cache.remove(&key);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(CoreError::AuditUnavailable {
+            thread: thread_id.to_string(),
+            retries: crate::budget::AUDIT_MAX_CONFLICT_RETRIES,
+        })
+    }
+
+    async fn append_step_locked(
+        &self,
+        key: &str,
+        thread_id: &str,
+        step: ThreadStep,
+    ) -> CoreResult<()> {
+        let loaded = self.load_thread_log_for_write(key).await?;
         let expected_etag = match &loaded {
             LoadState::Missing => None,
             LoadState::Loaded(v) => v.etag.clone(),
@@ -151,19 +177,14 @@ impl ThreadStore {
             });
         }
         log.steps.push(step);
-        self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+        let etag = self
+            .save_thread_log_if_etag_matches(thread_id, key, &log, expected_etag.as_deref())
             .await?;
-        self.cache.insert(
-            key.clone(),
-            CacheEntry {
-                log,
-                ts: Instant::now(),
-            },
-        );
+        self.remember_log(key, log, etag);
         Ok(())
     }
 
-    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) {
+    pub async fn append_step_if_new(&self, thread_id: &str, step: ThreadStep) -> CoreResult<()> {
         let is_dup = match &step {
             ThreadStep::Complete { kind, payload, .. } => self
                 .get(thread_id)
@@ -188,8 +209,9 @@ impl ThreadStore {
             _ => false,
         };
         if !is_dup {
-            let _ = self.append_step(thread_id, step).await;
+            self.append_step(thread_id, step).await?;
         }
+        Ok(())
     }
 
     pub async fn ensure_preflight_phase_step(
@@ -227,23 +249,21 @@ impl ThreadStore {
             agent: agent.to_string(),
         });
         let idx = log.steps.len().saturating_sub(1);
-        self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+        let etag = self
+            .save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
             .await?;
-        self.cache.insert(
-            key.clone(),
-            CacheEntry {
-                log,
-                ts: Instant::now(),
-            },
-        );
+        self.remember_log(&key, log, etag);
         Ok(Some((idx, initial_phase.to_string())))
     }
 
     pub async fn get(&self, thread_id: &str) -> CoreResult<ThreadLog> {
         let key = self.key(thread_id)?;
-        if let Some(entry) = self.cache.get(&key) {
-            if entry.ts.elapsed().as_secs() < self.config.cache_ttl_secs {
-                return Ok(entry.log.clone());
+        let current_etag = retry_head_etag(self.storage.as_ref(), &key).await?;
+        if let Some(etag) = current_etag.as_ref() {
+            if let Some(entry) = self.cache.get(&key) {
+                if entry.etag == *etag {
+                    return Ok(entry.log.clone());
+                }
             }
         }
         let v = self.storage.as_ref();
@@ -253,13 +273,9 @@ impl ThreadStore {
         let log = serde_json::from_value::<ThreadLog>(v)
             .map_err(|e| CoreError::Session(format!("failed to parse thread log: {e}")))?;
         Self::ensure_thread_log_schema(&log)?;
-        self.cache.insert(
-            key.clone(),
-            CacheEntry {
-                log: log.clone(),
-                ts: Instant::now(),
-            },
-        );
+        if let Some(etag) = current_etag {
+            self.remember_log(&key, log.clone(), etag);
+        }
         Ok(log)
     }
 
@@ -293,10 +309,9 @@ impl ThreadStore {
             thread_id
         );
         retry_delete_object(self.storage.as_ref(), &key).await?;
-        if let Ok(keys) = retry_list_prefix(self.storage.as_ref(), &thread_prefix).await {
-            for k in keys {
-                let _ = retry_delete_object(self.storage.as_ref(), &k).await;
-            }
+        let keys = retry_list_prefix(self.storage.as_ref(), &thread_prefix).await?;
+        for k in keys {
+            retry_delete_object(self.storage.as_ref(), &k).await?;
         }
         self.cache.remove(&key);
         Ok(())
@@ -317,15 +332,10 @@ impl ThreadStore {
         };
         if log.title.is_none() || log.title.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
             log.title = Some(title.to_string());
-            self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+            let etag = self
+                .save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
                 .await?;
-            self.cache.insert(
-                key.clone(),
-                CacheEntry {
-                    log,
-                    ts: Instant::now(),
-                },
-            );
+            self.remember_log(&key, log, etag);
         }
         Ok(())
     }
@@ -346,15 +356,10 @@ impl ThreadStore {
         if !log.title_locked {
             log.title = Some(title.to_string());
             log.title_locked = true;
-            self.save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
+            let etag = self
+                .save_thread_log_if_etag_matches(thread_id, &key, &log, expected_etag.as_deref())
                 .await?;
-            self.cache.insert(
-                key.clone(),
-                CacheEntry {
-                    log,
-                    ts: Instant::now(),
-                },
-            );
+            self.remember_log(&key, log, etag);
         }
         Ok(())
     }

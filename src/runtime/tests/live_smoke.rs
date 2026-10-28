@@ -94,6 +94,7 @@ async fn live_llm_ping() {
                 ..Default::default()
             },
         )
+        .await
         .expect("llm chat");
     let lower = text.to_ascii_lowercase();
     assert!(

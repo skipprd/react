@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::outcome::PhaseOutcome;
+use super::{outcome::PhaseOutcome, WorkflowError};
 use crate::suite::FlowFrame;
 
 /// Configuration for the workflow orchestration loop.
@@ -49,14 +49,12 @@ pub trait PhaseExecutor: Send + Sync {
 
 /// Generic workflow orchestration loop.
 ///
-/// Repeatedly calls `executor.execute_turn()` and manages:
-/// - Per-progress step budget (reset on `StayedWithProgress`)
-/// - Idle detection via consecutive `StayedWaiting` outcomes
-/// - Budget exhaustion (delegates to `executor.on_budget_exhausted`)
+/// Returns accumulated frames on success. On failure, returns the typed error
+/// **and** frames collected so far (including `on_budget_exhausted` output).
 pub async fn run(
     executor: &(dyn PhaseExecutor + '_),
     config: &Config,
-) -> Result<Vec<FlowFrame>, String> {
+) -> Result<Vec<FlowFrame>, (WorkflowError, Vec<FlowFrame>)> {
     let max_phase_steps = config.max_phase_steps;
     let mut remaining_steps = max_phase_steps;
     let mut total_steps: usize = 0;
@@ -71,9 +69,11 @@ pub async fn run(
             executor
                 .on_budget_exhausted(&mut out_frames, total_steps)
                 .await;
-            return Err(format!(
-                "headless_hard_ceiling: absolute step limit reached.\n\nBudget:\n- max_total_steps={}\n- total_steps={total_steps}",
-                config.max_total_steps,
+            return Err((
+                WorkflowError::HardCeiling {
+                    total: total_steps as u32,
+                },
+                out_frames,
             ));
         }
 
@@ -86,7 +86,6 @@ pub async fn run(
                 consecutive_waiting = 0;
             }
             PhaseOutcome::StayedWaiting { reason } => {
-                remaining_steps += 1;
                 let step_count_after = executor.step_count().await;
                 let was_active = step_count_after > step_count_before + 2;
                 if was_active {
@@ -110,24 +109,36 @@ pub async fn run(
                         consecutive_waiting,
                         "phase returned StayedWaiting {consecutive_waiting} times consecutively without progress",
                     );
-                    return Err(format!(
-                        "phase stuck: returned StayedWaiting {consecutive_waiting} times consecutively without progress (last reason: {reason})",
+                    return Err((
+                        WorkflowError::Stuck {
+                            waits: consecutive_waiting as u32,
+                            last: reason,
+                        },
+                        out_frames,
                     ));
                 }
             }
             PhaseOutcome::TransitionCommitted => {
                 consecutive_waiting = 0;
             }
-            PhaseOutcome::Return(frames) => return Ok(frames),
-            PhaseOutcome::Failed { reason } => return Err(reason),
+            PhaseOutcome::Return(frames) => {
+                out_frames.extend(frames);
+                return Ok(out_frames);
+            }
+            PhaseOutcome::Failed { reason } => {
+                return Err((WorkflowError::Failed(reason), out_frames));
+            }
         }
     }
 
     executor
         .on_budget_exhausted(&mut out_frames, total_steps)
         .await;
-    Err(format!(
-        "headless_budget_exhausted: Agent reached the phase-step budget without completing.\n\nBudget:\n- max_steps_per_progress={max_phase_steps}\n- total_steps={total_steps}",
+    Err((
+        WorkflowError::PhaseBudget {
+            total: total_steps as u32,
+        },
+        out_frames,
     ))
 }
 
@@ -208,7 +219,10 @@ mod tests {
         );
         let config = Config::default();
         let result = run(&exec, &config).await;
-        assert_eq!(result.unwrap_err(), "boom");
+        assert_eq!(
+            result.unwrap_err().0,
+            WorkflowError::Failed("boom".to_string())
+        );
     }
 
     #[tokio::test]
@@ -226,8 +240,12 @@ mod tests {
             ..Default::default()
         };
         let result = run(&exec, &config).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("budget_exhausted"));
+        let (err, frames) = result.unwrap_err();
+        assert!(
+            matches!(err, WorkflowError::PhaseBudget { total: 3 }),
+            "{err:?}"
+        );
+        let _ = frames;
         assert_eq!(exec.budget_exhausted_called.load(Ordering::Relaxed), 1);
     }
 
@@ -270,10 +288,11 @@ mod tests {
             ..Default::default()
         };
         let result = run(&exec, &config).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.contains("StayedWaiting"));
-        assert!(err.contains("without progress"));
+        let err = result.unwrap_err().0;
+        assert!(
+            matches!(err, WorkflowError::Stuck { waits: 4, .. }),
+            "{err:?}"
+        );
     }
 
     #[tokio::test]

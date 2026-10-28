@@ -49,6 +49,9 @@ impl Tool for AssessRequirementTool {
     fn name(&self) -> &'static str {
         "assess_requirement"
     }
+    fn description(&self) -> &'static str {
+        "Assess whether extracted text satisfies a requirement. args: {extracted_text, requirement_label, requirement_description, question_prompt}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let extracted_text = args
@@ -114,7 +117,7 @@ impl Tool for AssessRequirementTool {
             serde_json::json!({
                 "verdict": "needs_human_review",
                 "confidence": 0.0,
-                "reasoning": format!("Failed to parse LLM response as JSON. Raw: {}", &response[..response.len().min(500)]),
+                "reasoning": format!("Failed to parse LLM response as JSON. Raw: {}", react_core::text::truncate_chars_ellipsis(&response, 500)),
                 "citations": []
             })
         });

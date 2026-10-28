@@ -219,7 +219,7 @@ pub fn resilient_parse<T: DeserializeOwned>(text: &str) -> Result<T, String> {
     }
 
     let vals = extract_all_json_values(s, 8);
-    for vtxt in vals.iter().rev() {
+    for vtxt in vals.iter() {
         if let Ok(v) = serde_json::from_str::<T>(vtxt) {
             return Ok(v);
         }
@@ -252,6 +252,7 @@ pub fn resilient_parse_string_field(raw_json: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
 
     #[test]
     fn try_first_extracts_from_concatenated() {
@@ -297,6 +298,16 @@ mod tests {
         let input = r#"{"a":1}{"b":2}"#;
         let v: Value = resilient_parse(input).unwrap();
         assert_eq!(v, serde_json::json!({"a": 1}));
+    }
+
+    #[test]
+    fn resilient_parse_prefers_first_matching_object() {
+        #[derive(Deserialize)]
+        struct OnlyA {
+            a: i32,
+        }
+        let v: OnlyA = resilient_parse(r#"{"a":1}{"a":2}"#).unwrap();
+        assert_eq!(v.a, 1);
     }
 
     #[test]

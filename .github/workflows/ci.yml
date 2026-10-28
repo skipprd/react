@@ -7,13 +7,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  hosted-linux:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: System deps
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.0
+          components: rustfmt, clippy
+      - name: Check all features
+        run: cargo check --workspace --all-features
+        env:
+          CARGO_BUILD_JOBS: "2"
+      - name: Test (exclude lance on hosted RAM)
+        run: cargo test --workspace --exclude react-module-provider-vector-lance
+        env:
+          CARGO_BUILD_JOBS: "2"
+
   linux:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: [self-hosted, skippr-linux-x64-16]
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Test
         run: cargo test --workspace
+      - name: Check all features
+        run: cargo check --workspace --all-features
       - name: Docs
         if: true
         run: |
@@ -24,6 +48,7 @@ jobs:
   darwin:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: [self-hosted, skippr-darwin-arm64-8]
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Test
@@ -33,6 +58,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [linux, darwin]
     runs-on: [self-hosted, skippr-linux-x64-16]
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:

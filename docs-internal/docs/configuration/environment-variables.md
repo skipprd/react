@@ -88,6 +88,5 @@ These variables carry sensitive values. Keep them in the environment rather than
 | Variable | Default | Description |
 |---|---|---|
 | `REACT_HEADLESS` | `false` | Auto-answer prompts in headless `run` mode |
-| `REACT_PLAIN_PROGRESS` | `false` | Plain progress output (no terminal UI) |
 | `REACT_LOG_DIR` | | Override log output directory |
 | `RUST_LOG` | | Standard Rust log filter (e.g. `info`, `react=debug`) |

@@ -34,7 +34,7 @@ pub(super) async fn process_new(
     // Persist initial suite/agent selection so it survives reconnects
     {
         let writer = state.log_writer();
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchSuite {
@@ -45,8 +45,9 @@ pub(super) async fn process_new(
                     agent: agent.clone(),
                 },
             )
-            .await;
-        let _ = writer
+            .await
+            .map_err(|e| e.to_string())?;
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchAgent {
@@ -57,7 +58,8 @@ pub(super) async fn process_new(
                     agent: agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     // ok
     let mut ok = api::OkResponse::new(1, m::ok_response::Type::Ok, now_iso());
@@ -89,7 +91,7 @@ pub(super) async fn process_new(
     if !question.trim().is_empty() {
         {
             let writer = state.log_writer();
-            let _ = writer
+            writer
                 .append_step(
                     &thread_id,
                     ThreadStep::User {
@@ -99,10 +101,12 @@ pub(super) async fn process_new(
                         agent: agent.clone(),
                     },
                 )
-                .await;
-            let _ = writer
+                .await
+                .map_err(|e| e.to_string())?;
+            writer
                 .set_title_if_absent(&thread_id, &truncate_title(&question, 64))
-                .await;
+                .await
+                .map_err(|e| e.to_string())?;
         }
         run_suite_and_stream(
             &thread_id,
@@ -143,7 +147,7 @@ pub(super) async fn process_open(
     let (current_suite, current_agent) = resolve_thread_context(state, &thread_id).await;
     let writer = state.log_writer();
     if current_suite != requested_suite {
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchSuite {
@@ -154,14 +158,15 @@ pub(super) async fn process_open(
                     agent: requested_agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     state
         .current_suite
         .insert(thread_id.clone(), requested_suite.clone());
 
     if current_agent != requested_agent {
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::SwitchAgent {
@@ -172,7 +177,8 @@ pub(super) async fn process_open(
                     agent: requested_agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
         state
             .current_agent
             .insert(thread_id.clone(), requested_agent.clone());
@@ -239,7 +245,7 @@ pub(super) async fn process_open(
     // if user supplied a prompt on open, record it
     if !question.trim().is_empty() {
         let writer = state.log_writer();
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -249,10 +255,12 @@ pub(super) async fn process_open(
                     agent: agent.clone(),
                 },
             )
-            .await;
-        let _ = writer
+            .await
+            .map_err(|e| e.to_string())?;
+        writer
             .set_title_if_absent(&thread_id, &truncate_title(&question, 64))
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     run_suite_and_stream(
         &thread_id,
@@ -297,7 +305,7 @@ pub(super) async fn process_user(
 
     {
         let writer = state.log_writer();
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -307,7 +315,8 @@ pub(super) async fn process_user(
                     agent: agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     run_suite_and_stream(
         &thread_id,
@@ -348,7 +357,7 @@ pub(super) async fn process_approve(
     }
     {
         let writer = state.log_writer();
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -358,7 +367,8 @@ pub(super) async fn process_approve(
                     agent: agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     tracing::info!("approve: thread_id={} agent={}", thread_id, agent);
     run_suite_and_stream(
@@ -401,7 +411,7 @@ pub(super) async fn process_reject(
     // append user=reject step
     {
         let writer = state.log_writer();
-        let _ = writer
+        writer
             .append_step(
                 &thread_id,
                 ThreadStep::User {
@@ -411,7 +421,8 @@ pub(super) async fn process_reject(
                     agent: agent.clone(),
                 },
             )
-            .await;
+            .await
+            .map_err(|e| e.to_string())?;
     }
     tracing::info!("reject: thread_id={} agent={}", thread_id, agent);
     run_suite_and_stream(

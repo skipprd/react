@@ -12,6 +12,9 @@ impl Tool for KbSearchTool {
     fn name(&self) -> &'static str {
         "kb_search"
     }
+    fn description(&self) -> &'static str {
+        "Semantic search over kind=doc embeddings. args: {query, k, dataset_id} (default dataset_id \"kb\")."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let query = args
@@ -35,6 +38,7 @@ impl Tool for KbSearchTool {
             .ok_or_else(|| "vector provider missing".to_string())?;
         let mut vecs = ctx
             .llm_embed(&[query.clone()])
+            .await
             .map_err(|e| format!("embed failed: {}", e))?;
         let qv = vecs.pop().unwrap_or_default();
         if qv.is_empty() {

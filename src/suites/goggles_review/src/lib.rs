@@ -24,10 +24,6 @@ Your job is to:
 Always call extract_text first, then assess_requirement with the extracted text.
 If text extraction fails or returns empty, return a needs_human_review verdict."#;
 
-const TOOL_CARD: &str = r#"Available tools:
-- extract_text: Download and extract text from a document in S3. Args: {"s3_key": "...", "content_type": "..."}
-- assess_requirement: Assess whether extracted text satisfies a requirement. Args: {"extracted_text": "...", "requirement_label": "...", "requirement_description": "...", "question_prompt": "..."}"#;
-
 struct ReviewExecutor<'a> {
     thread_store: ThreadStore,
     sctx: &'a SuiteCtx,
@@ -39,8 +35,12 @@ struct ReviewExecutor<'a> {
 impl<'a> PhaseExecutor for ReviewExecutor<'a> {
     async fn execute_turn(&self, _out_frames: &mut Vec<FlowFrame>) -> PhaseOutcome {
         let mut registry = ToolRegistry::new();
-        registry.register(tools::extract_text::ExtractTextTool);
-        registry.register(tools::assess_requirement::AssessRequirementTool);
+        registry
+            .register(tools::extract_text::ExtractTextTool)
+            .expect("unique tool");
+        registry
+            .register(tools::assess_requirement::AssessRequirementTool)
+            .expect("unique tool");
 
         let actx = react_core::agent::AgentCtxBuilder::new(
             self.sctx.llm().clone(),
@@ -73,7 +73,7 @@ impl<'a> PhaseExecutor for ReviewExecutor<'a> {
             &registry,
             &actx,
             SYSTEM_PROMPT,
-            TOOL_CARD,
+            &registry.tool_card(),
             self.question,
             llm_opts,
         )
@@ -142,7 +142,9 @@ impl GogglesReviewSuite {
             ..Default::default()
         };
 
-        react_core::workflow::runner::run(&executor, &config).await
+        react_core::workflow::runner::run(&executor, &config)
+            .await
+            .map_err(|(e, _)| e.to_string())
     }
 }
 
@@ -181,17 +183,18 @@ impl Suite for GogglesReviewSuite {
                 agent_type
             ));
         }
-        let _ = ctx
-            .log_writer()
-            .ensure_preflight_phase_step(
-                thread_id,
-                agent_type,
-                Some(self.id()),
-                self.initial_phase(),
-            )
-            .await;
+        ctx.ensure_preflight_phase_step(
+            thread_id,
+            agent_type,
+            Some(self.id()),
+            self.initial_phase(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         let frames = Self::run_review(thread_id, question, ctx).await?;
-        ctx.record_flow_frames(thread_id, agent_type, &frames).await;
+        ctx.record_flow_frames(thread_id, agent_type, &frames)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(frames)
     }
 

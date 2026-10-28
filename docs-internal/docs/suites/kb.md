@@ -77,7 +77,7 @@ providers:
 
 ## Agent policy
 
-The KB suite uses `DefaultPolicy`, which accepts any well-formed `FinalEnvelope` and does not inject prelude lines or trigger interrupts. The KB workflow is single-phase with no approval gates.
+The KB suite uses `DefaultPolicy`, which accepts any well-formed `CompleteEnvelope` and does not inject prelude lines or trigger interrupts. The KB workflow is single-phase with no approval gates.
 
 ## Example interaction
 

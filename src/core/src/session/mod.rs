@@ -1,6 +1,5 @@
 use dashmap::DashMap;
 use std::sync::{Arc, OnceLock};
-use std::time::Instant;
 
 use crate::keyspace::Keyspace;
 use crate::scope::RequestScope;
@@ -61,7 +60,7 @@ pub(crate) fn session_write_lock(key: &str) -> Arc<tokio::sync::Mutex<()>> {
 #[derive(Clone)]
 pub(crate) struct CacheEntry {
     pub(crate) log: ThreadLog,
-    pub(crate) ts: Instant,
+    pub(crate) etag: String,
 }
 
 mod store_io;

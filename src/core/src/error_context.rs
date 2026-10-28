@@ -5,8 +5,6 @@ use serde_json::Value;
 use crate::session::ToolObservation;
 
 const MIN_EXCERPT_CHARS: usize = 256;
-const DEFAULT_MAX_CHARS: usize = 8_000;
-const MAX_TOTAL_CHARS: usize = 32_000;
 const KEYWORD_CONTEXT_LINES_AFTER: usize = 9;
 
 /// Build a prompt-safe error context string for a failed tool call.
@@ -21,34 +19,6 @@ pub fn render_failure_context(observation: &ToolObservation, max_chars: usize) -
         return full;
     }
     excerpt_by_keywords(&full, max_chars, &default_error_markers())
-}
-
-/// Determine the maximum number of characters to allocate for error context.
-///
-/// Order:
-/// - `LLM_MAX_PROMPT_CHARS` (explicit override)
-/// - `LLM_CONTEXT_LENGTH` (tokens) * 4, minus a safety margin
-/// - default: 32_000 chars
-pub fn estimate_max_prompt_chars() -> usize {
-    if let Ok(v) = std::env::var("LLM_MAX_PROMPT_CHARS") {
-        if let Ok(n) = v.trim().parse::<usize>() {
-            if n >= 1024 {
-                return n;
-            }
-        }
-    }
-
-    let ctx_tokens = std::env::var("LLM_CONTEXT_LENGTH")
-        .ok()
-        .and_then(|v| v.trim().parse::<usize>().ok());
-    if let Some(toks) = ctx_tokens {
-        // Very conservative conversion: ~4 chars/token, with a reserved safety margin for the rest of the prompt.
-        let est = toks.saturating_mul(4);
-        // Leave room for system prompt, tool card, prior transcript, and the model response.
-        return est.saturating_sub(DEFAULT_MAX_CHARS).max(DEFAULT_MAX_CHARS);
-    }
-
-    MAX_TOTAL_CHARS
 }
 
 /// Deterministic excerpt: keyword-window matches (+ head/tail) under a char budget.
@@ -279,18 +249,7 @@ fn merge_overlapping_ranges(mut ranges: Vec<(usize, usize)>) -> Vec<(usize, usiz
 }
 
 fn trim_to_chars(s: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    let mut out = String::new();
-    out.reserve(max_chars.min(s.len()));
-    for (i, ch) in s.chars().enumerate() {
-        if i >= max_chars {
-            break;
-        }
-        out.push(ch);
-    }
-    out
+    crate::text::truncate_chars(s, max_chars)
 }
 
 #[cfg(test)]

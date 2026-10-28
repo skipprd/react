@@ -12,6 +12,9 @@ impl Tool for ListThreadsTool {
     fn name(&self) -> &'static str {
         "list_threads"
     }
+    fn description(&self) -> &'static str {
+        "List thread IDs in the current scope. Returns {thread_ids, count}."
+    }
 
     async fn call(&self, _args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let target_scope = crate::capabilities::target_scope_for_agent(ctx);

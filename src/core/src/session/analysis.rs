@@ -361,8 +361,8 @@ mod tests {
                 status: ToolStepStatus::Ok,
                 payload: None,
                 ctx: None,
-                observation: crate::session::ToolObservation::normalize(
-                    serde_json::json!({"ok": true}),
+                observation: crate::session::ToolObservation::from_success(
+                    &serde_json::json!({"ok": true}),
                 ),
                 ts: "2026-03-27T10:00:00Z".into(),
                 agent: "test".into(),

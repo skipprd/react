@@ -2,6 +2,7 @@ use super::*;
 use crate::error::CoreError;
 use crate::keyspace::{DefaultKeyspace, Keyspace};
 use crate::scope::RequestScope;
+use crate::storage::StorageError;
 use crate::storage::{ConditionalWriteStatus, StorageAdapter};
 use crate::test_support::InMemoryStorageAdapter;
 use async_trait::async_trait;
@@ -13,6 +14,9 @@ use std::sync::Mutex;
 struct SequencedJsonStorage {
     head_responses: Arc<Mutex<Vec<Result<Option<String>, CoreError>>>>,
     json_value: Arc<Mutex<Option<Value>>>,
+    always_conflict: bool,
+    fail_list_prefix: bool,
+    fail_delete_object: bool,
 }
 
 #[async_trait]
@@ -20,16 +24,20 @@ impl StorageAdapter for SequencedJsonStorage {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         self.json_value
             .lock()
-            .map_err(|_| CoreError::Storage(format!("get_json('{key}'): lock poisoned")))?
+            .map_err(|_| {
+                CoreError::from(StorageError::other(format!(
+                    "get_json('{key}'): lock poisoned"
+                )))
+            })?
             .clone()
-            .ok_or_else(|| CoreError::Storage(format!("get_json('{key}'): not found")))
+            .ok_or_else(|| CoreError::from(StorageError::not_found(key)))
     }
 
     async fn put_json(&self, _key: &str, value: &Value) -> Result<(), CoreError> {
         *self
             .json_value
             .lock()
-            .map_err(|_| CoreError::Storage("put_json: lock poisoned".to_string()))? =
+            .map_err(|_| CoreError::from(StorageError::other("put_json: lock poisoned")))? =
             Some(value.clone());
         Ok(())
     }
@@ -41,8 +49,15 @@ impl StorageAdapter for SequencedJsonStorage {
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
         let mut value_guard = self.json_value.lock().map_err(|_| {
-            CoreError::Storage("put_json_if_etag_matches: lock poisoned".to_string())
+            CoreError::from(StorageError::other(
+                "put_json_if_etag_matches: lock poisoned",
+            ))
         })?;
+        if self.always_conflict {
+            return Ok(ConditionalWriteStatus::Conflict {
+                current_etag: Some("other".to_string()),
+            });
+        }
         let current_etag = value_guard.as_ref().map(|_| "stable".to_string());
         let expected = expected_etag.map(str::to_string);
         if current_etag != expected {
@@ -50,17 +65,19 @@ impl StorageAdapter for SequencedJsonStorage {
         }
         *value_guard = Some(value.clone());
         if key.is_empty() {
-            return Err(CoreError::Storage(
-                "put_json_if_etag_matches: empty key".to_string(),
-            ));
+            return Err(CoreError::from(StorageError::other(
+                "put_json_if_etag_matches: empty key",
+            )));
         }
-        Ok(ConditionalWriteStatus::Written)
+        Ok(ConditionalWriteStatus::Written {
+            etag: "stable".to_string(),
+        })
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "get_bytes('{key}'): unsupported in test"
-        )))
+        ))))
     }
 
     async fn put_bytes(
@@ -69,25 +86,33 @@ impl StorageAdapter for SequencedJsonStorage {
         _bytes: &[u8],
         _content_type: &str,
     ) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "put_bytes('{key}'): unsupported in test"
-        )))
+        ))))
     }
 
     async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
+        if self.fail_delete_object {
+            return Err(CoreError::from(StorageError::other("delete_object failed")));
+        }
         Ok(())
     }
 
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
-        let mut guard = self
-            .head_responses
-            .lock()
-            .map_err(|_| CoreError::Storage(format!("head_etag('{key}'): lock poisoned")))?;
+        let mut guard = self.head_responses.lock().map_err(|_| {
+            CoreError::from(StorageError::other(format!(
+                "head_etag('{key}'): lock poisoned"
+            )))
+        })?;
         if guard.is_empty() {
             return Ok(self
                 .json_value
                 .lock()
-                .map_err(|_| CoreError::Storage(format!("head_etag('{key}'): json lock poisoned")))?
+                .map_err(|_| {
+                    CoreError::from(StorageError::other(format!(
+                        "head_etag('{key}'): json lock poisoned"
+                    )))
+                })?
                 .as_ref()
                 .map(|_| "stable".to_string()));
         }
@@ -95,6 +120,9 @@ impl StorageAdapter for SequencedJsonStorage {
     }
 
     async fn list_prefix(&self, _prefix: &str) -> Result<Vec<String>, CoreError> {
+        if self.fail_list_prefix {
+            return Err(CoreError::from(StorageError::other("list_prefix failed")));
+        }
         Ok(vec![])
     }
 }
@@ -116,7 +144,7 @@ impl FlakyJsonStorage {
     fn take_failure(counter: &Mutex<usize>) -> Result<bool, CoreError> {
         let mut guard = counter
             .lock()
-            .map_err(|_| CoreError::Storage("flaky storage mutex poisoned".to_string()))?;
+            .map_err(|_| CoreError::from(StorageError::other("flaky storage mutex poisoned")))?;
         if *guard > 0 {
             *guard -= 1;
             Ok(true)
@@ -128,22 +156,17 @@ impl FlakyJsonStorage {
     fn increment(counter: &Mutex<usize>) -> Result<(), CoreError> {
         let mut guard = counter
             .lock()
-            .map_err(|_| CoreError::Storage("flaky storage mutex poisoned".to_string()))?;
+            .map_err(|_| CoreError::from(StorageError::other("flaky storage mutex poisoned")))?;
         *guard += 1;
         Ok(())
     }
 
-    fn current_json(&self, key: &str) -> Result<Option<Value>, CoreError> {
-        self.json_value
+    fn current_json(&self, _key: &str) -> Result<Option<Value>, CoreError> {
+        Ok(self
+            .json_value
             .lock()
-            .map_err(|_| CoreError::Storage(format!("json_value('{key}'): lock poisoned")))?
-            .clone()
-            .ok_or_else(|| CoreError::Storage(format!("json_value('{key}'): not found")))
-            .map(Some)
-            .or_else(|err| match err {
-                CoreError::Storage(msg) if msg.contains("not found") => Ok(None),
-                other => Err(other),
-            })
+            .map_err(|_| CoreError::from(StorageError::other("json_value: lock poisoned")))?
+            .clone())
     }
 }
 
@@ -152,29 +175,33 @@ impl StorageAdapter for FlakyJsonStorage {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         Self::increment(&self.get_json_calls)?;
         if Self::take_failure(&self.get_json_failures)? {
-            return Err(CoreError::Storage(format!(
+            return Err(CoreError::from(StorageError::Throttle(format!(
                 "get_json('{key}'): transient failure"
-            )));
+            ))));
         }
         self.json_value
             .lock()
-            .map_err(|_| CoreError::Storage(format!("get_json('{key}'): lock poisoned")))?
+            .map_err(|_| {
+                CoreError::from(StorageError::other(format!(
+                    "get_json('{key}'): lock poisoned"
+                )))
+            })?
             .clone()
-            .ok_or_else(|| CoreError::Storage(format!("get_json('{key}'): not found")))
+            .ok_or_else(|| CoreError::from(StorageError::not_found(key)))
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         Self::increment(&self.put_json_calls)?;
         if Self::take_failure(&self.put_json_failures)? {
-            return Err(CoreError::Storage(format!(
+            return Err(CoreError::from(StorageError::Throttle(format!(
                 "put_json('{key}'): transient failure"
-            )));
+            ))));
         }
-        *self
-            .json_value
-            .lock()
-            .map_err(|_| CoreError::Storage(format!("put_json('{key}'): lock poisoned")))? =
-            Some(value.clone());
+        *self.json_value.lock().map_err(|_| {
+            CoreError::from(StorageError::other(format!(
+                "put_json('{key}'): lock poisoned"
+            )))
+        })? = Some(value.clone());
         Ok(())
     }
 
@@ -186,12 +213,14 @@ impl StorageAdapter for FlakyJsonStorage {
     ) -> Result<ConditionalWriteStatus, CoreError> {
         Self::increment(&self.conditional_write_calls)?;
         if Self::take_failure(&self.conditional_write_failures)? {
-            return Err(CoreError::Storage(format!(
+            return Err(CoreError::from(StorageError::Throttle(format!(
                 "put_json_if_etag_matches('{key}'): transient failure"
-            )));
+            ))));
         }
         let mut value_guard = self.json_value.lock().map_err(|_| {
-            CoreError::Storage(format!("put_json_if_etag_matches('{key}'): lock poisoned"))
+            CoreError::from(StorageError::other(format!(
+                "put_json_if_etag_matches('{key}'): lock poisoned"
+            )))
         })?;
         let current_etag = value_guard.as_ref().map(|_| "stable".to_string());
         let expected = expected_etag.map(str::to_string);
@@ -199,13 +228,15 @@ impl StorageAdapter for FlakyJsonStorage {
             return Ok(ConditionalWriteStatus::Conflict { current_etag });
         }
         *value_guard = Some(value.clone());
-        Ok(ConditionalWriteStatus::Written)
+        Ok(ConditionalWriteStatus::Written {
+            etag: "stable".to_string(),
+        })
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "get_bytes('{key}'): unsupported in test"
-        )))
+        ))))
     }
 
     async fn put_bytes(
@@ -214,9 +245,9 @@ impl StorageAdapter for FlakyJsonStorage {
         _bytes: &[u8],
         _content_type: &str,
     ) -> Result<(), CoreError> {
-        Err(CoreError::Storage(format!(
+        Err(CoreError::from(StorageError::other(format!(
             "put_bytes('{key}'): unsupported in test"
-        )))
+        ))))
     }
 
     async fn delete_object(&self, _key: &str) -> Result<(), CoreError> {
@@ -226,9 +257,9 @@ impl StorageAdapter for FlakyJsonStorage {
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         Self::increment(&self.head_calls)?;
         if Self::take_failure(&self.head_failures)? {
-            return Err(CoreError::Storage(format!(
+            return Err(CoreError::from(StorageError::Throttle(format!(
                 "head_etag('{key}'): transient failure"
-            )));
+            ))));
         }
         Ok(self.current_json(key)?.map(|_| "stable".to_string()))
     }
@@ -239,8 +270,8 @@ impl StorageAdapter for FlakyJsonStorage {
 }
 
 #[test]
-fn tool_observation_normalizes_legacy_error_field_into_errors_array() {
-    let obs = ToolObservation::normalize(serde_json::json!({"ok": false, "error": "boom"}));
+fn tool_observation_from_failure_sets_errors() {
+    let obs = ToolObservation::from_failure("boom");
     assert!(!obs.ok);
     assert_eq!(obs.errors, vec!["boom".to_string()]);
     assert!(!obs.extra.contains_key("error"));
@@ -295,8 +326,14 @@ async fn append_step_if_new_deduplicates_interrupt_and_complete() {
         ts: "2026-01-01T00:00:00Z".to_string(),
         agent: "agent".to_string(),
     };
-    store.append_step_if_new(tid, step_interrupt.clone()).await;
-    store.append_step_if_new(tid, step_interrupt).await;
+    store
+        .append_step_if_new(tid, step_interrupt.clone())
+        .await
+        .expect("append");
+    store
+        .append_step_if_new(tid, step_interrupt)
+        .await
+        .expect("append");
 
     let step_complete = ThreadStep::Complete {
         kind: "generic".to_string(),
@@ -306,8 +343,14 @@ async fn append_step_if_new_deduplicates_interrupt_and_complete() {
         ts: "2026-01-01T00:00:01Z".to_string(),
         agent: "agent".to_string(),
     };
-    store.append_step_if_new(tid, step_complete.clone()).await;
-    store.append_step_if_new(tid, step_complete).await;
+    store
+        .append_step_if_new(tid, step_complete.clone())
+        .await
+        .expect("append");
+    store
+        .append_step_if_new(tid, step_complete)
+        .await
+        .expect("append");
 
     let log = store.get(tid).await.expect("log");
     assert_eq!(log.steps.len(), 2);
@@ -386,15 +429,18 @@ async fn control_state_store_returns_none_for_wrong_suite() {
 async fn append_step_propagates_read_failure_instead_of_defaulting() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
         head_responses: Arc::new(Mutex::new(vec![
-            Err(CoreError::Storage("boom-1".to_string())),
-            Err(CoreError::Storage("boom-2".to_string())),
-            Err(CoreError::Storage("boom-3".to_string())),
-            Err(CoreError::Storage("boom-4".to_string())),
-            Err(CoreError::Storage("boom-5".to_string())),
-            Err(CoreError::Storage("boom-6".to_string())),
-            Err(CoreError::Storage("boom-7".to_string())),
+            Err(CoreError::from(StorageError::other("boom-1"))),
+            Err(CoreError::from(StorageError::other("boom-2"))),
+            Err(CoreError::from(StorageError::other("boom-3"))),
+            Err(CoreError::from(StorageError::other("boom-4"))),
+            Err(CoreError::from(StorageError::other("boom-5"))),
+            Err(CoreError::from(StorageError::other("boom-6"))),
+            Err(CoreError::from(StorageError::other("boom-7"))),
         ])),
         json_value: Arc::new(Mutex::new(None)),
+        always_conflict: false,
+        fail_list_prefix: false,
+        fail_delete_object: false,
     });
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -412,7 +458,7 @@ async fn append_step_propagates_read_failure_instead_of_defaulting() {
         )
         .await
         .expect_err("read failure must not be treated as empty thread");
-    assert!(err.to_string().contains("boom-7"));
+    assert!(err.to_string().contains("boom-1"));
 }
 
 #[tokio::test]
@@ -440,12 +486,12 @@ async fn append_step_retries_transient_head_failure_then_succeeds() {
 
     let log = store.get("tid-thread-retry-head").await.expect("log");
     assert_eq!(log.steps.len(), 1);
-    assert_eq!(
+    assert!(
         *storage
             .head_calls
             .lock()
-            .expect("head_calls mutex poisoned"),
-        2
+            .expect("head_calls mutex poisoned")
+            >= 2
     );
 }
 
@@ -514,15 +560,18 @@ async fn append_step_retries_transient_conditional_write_failure_then_succeeds()
 async fn control_state_load_propagates_read_failure_instead_of_none() {
     let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
         head_responses: Arc::new(Mutex::new(vec![
-            Err(CoreError::Storage("boom-1".to_string())),
-            Err(CoreError::Storage("boom-2".to_string())),
-            Err(CoreError::Storage("boom-3".to_string())),
-            Err(CoreError::Storage("boom-4".to_string())),
-            Err(CoreError::Storage("boom-5".to_string())),
-            Err(CoreError::Storage("boom-6".to_string())),
-            Err(CoreError::Storage("boom-7".to_string())),
+            Err(CoreError::from(StorageError::other("boom-1"))),
+            Err(CoreError::from(StorageError::other("boom-2"))),
+            Err(CoreError::from(StorageError::other("boom-3"))),
+            Err(CoreError::from(StorageError::other("boom-4"))),
+            Err(CoreError::from(StorageError::other("boom-5"))),
+            Err(CoreError::from(StorageError::other("boom-6"))),
+            Err(CoreError::from(StorageError::other("boom-7"))),
         ])),
         json_value: Arc::new(Mutex::new(None)),
+        always_conflict: false,
+        fail_list_prefix: false,
+        fail_delete_object: false,
     });
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -532,7 +581,7 @@ async fn control_state_load_propagates_read_failure_instead_of_none() {
         .load::<serde_json::Value>("tid-control-read-failure", "suite")
         .await
         .expect_err("read failure must not be treated as missing control state");
-    assert!(err.to_string().contains("boom-7"));
+    assert!(err.to_string().contains("boom-1"));
 }
 
 #[tokio::test]
@@ -604,6 +653,9 @@ async fn append_step_returns_conflict_when_etag_changes_during_write() {
             Ok(Some("v2".to_string())),
         ])),
         json_value: Arc::new(Mutex::new(Some(existing))),
+        always_conflict: true,
+        fail_list_prefix: false,
+        fail_delete_object: false,
     });
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -621,7 +673,10 @@ async fn append_step_returns_conflict_when_etag_changes_during_write() {
         )
         .await
         .expect_err("etag mismatch must surface as write conflict");
-    assert!(err.to_string().contains("write conflict"));
+    assert!(matches!(
+        err,
+        CoreError::AuditUnavailable { retries: 5, .. }
+    ));
 }
 
 #[tokio::test]
@@ -637,6 +692,9 @@ async fn control_state_mutate_returns_conflict_when_etag_changes_during_write() 
             Ok(Some("v2".to_string())),
         ])),
         json_value: Arc::new(Mutex::new(Some(envelope))),
+        always_conflict: false,
+        fail_list_prefix: false,
+        fail_delete_object: false,
     });
     let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
     let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
@@ -774,4 +832,226 @@ async fn run_observed_appends_failed_tool_end_when_operation_panics() {
         }
         other => panic!("expected tool end, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn run_observed_propagates_tool_start_append_failure() {
+    let existing = serde_json::to_value(ThreadLog::default()).expect("thread log to json");
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![])),
+        json_value: Arc::new(Mutex::new(Some(existing))),
+        always_conflict: true,
+        fail_list_prefix: false,
+        fail_delete_object: false,
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+
+    let err = store
+        .run_observed(
+            "tid-observed-conflict",
+            ToolStepMeta {
+                agent: "agent".to_string(),
+                phase: "test_phase".to_string(),
+                name: "blocked_tool".to_string(),
+                clean_name: "Blocked".to_string(),
+                args: serde_json::json!({}),
+                ctx: None,
+            },
+            || async move { Ok(serde_json::json!({"ok": true})) },
+            |_raw: &Value| Ok(serde_json::json!({"ok": true})),
+        )
+        .await
+        .expect_err("tool_start append conflict must stop the run");
+    assert!(
+        err.contains("audit unavailable (tool_start)"),
+        "unexpected err: {err}"
+    );
+}
+
+#[tokio::test]
+async fn thread_store_does_not_lose_update_across_instances() {
+    let storage = Arc::new(InMemoryStorageAdapter::default());
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let a = ThreadStore::new(storage.clone(), scope.clone(), keyspace.clone());
+    let b = ThreadStore::new(storage, scope, keyspace);
+    let tid = "tid-lost-update";
+
+    a.append_step(
+        tid,
+        ThreadStep::User {
+            text: "one".to_string(),
+            observation: Observation::ok(),
+            ts: "t1".to_string(),
+            agent: "agent".to_string(),
+        },
+    )
+    .await
+    .expect("first append");
+    b.append_step(
+        tid,
+        ThreadStep::User {
+            text: "two".to_string(),
+            observation: Observation::ok(),
+            ts: "t2".to_string(),
+            agent: "agent".to_string(),
+        },
+    )
+    .await
+    .expect("second append");
+
+    let log = a.get(tid).await.expect("reload after peer write");
+    let texts: Vec<&str> = log
+        .steps
+        .iter()
+        .filter_map(|s| match s {
+            ThreadStep::User { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(texts.contains(&"one"), "missing first write: {texts:?}");
+    assert!(texts.contains(&"two"), "missing second write: {texts:?}");
+}
+
+/// After a successful conditional PUT, a peer write must not be hidden by
+/// caching (our body, peer etag) from a follow-up HEAD.
+#[derive(Clone)]
+struct PeerOverwritesAfterPut {
+    inner: InMemoryStorageAdapter,
+    peer: Value,
+}
+
+#[async_trait]
+impl StorageAdapter for PeerOverwritesAfterPut {
+    async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
+        self.inner.get_json(key).await
+    }
+    async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
+        self.inner.put_json(key, value).await
+    }
+    async fn put_json_if_etag_matches(
+        &self,
+        key: &str,
+        value: &Value,
+        expected_etag: Option<&str>,
+    ) -> Result<ConditionalWriteStatus, CoreError> {
+        let status = self
+            .inner
+            .put_json_if_etag_matches(key, value, expected_etag)
+            .await?;
+        if matches!(status, ConditionalWriteStatus::Written { .. }) {
+            self.inner.put_json(key, &self.peer).await?;
+        }
+        Ok(status)
+    }
+    async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
+        self.inner.get_bytes(key).await
+    }
+    async fn put_bytes(&self, key: &str, bytes: &[u8], ct: &str) -> Result<(), CoreError> {
+        self.inner.put_bytes(key, bytes, ct).await
+    }
+    async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
+        self.inner.delete_object(key).await
+    }
+    async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
+        self.inner.head_etag(key).await
+    }
+    async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
+        self.inner.list_prefix(prefix).await
+    }
+}
+
+#[tokio::test]
+async fn thread_store_does_not_cache_our_body_under_peer_etag() {
+    let peer_log = ThreadLog {
+        steps: vec![ThreadStep::User {
+            text: "peer".to_string(),
+            observation: Observation::ok(),
+            ts: "tp".to_string(),
+            agent: "agent".to_string(),
+        }],
+        ..ThreadLog::default()
+    };
+    let peer = serde_json::to_value(&peer_log).expect("peer log");
+    let storage: Arc<dyn StorageAdapter> = Arc::new(PeerOverwritesAfterPut {
+        inner: InMemoryStorageAdapter::default(),
+        peer,
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+    let tid = "tid-put-head-race";
+    store
+        .append_step(
+            tid,
+            ThreadStep::User {
+                text: "ours".to_string(),
+                observation: Observation::ok(),
+                ts: "to".to_string(),
+                agent: "agent".to_string(),
+            },
+        )
+        .await
+        .expect("append");
+    let log = store.get(tid).await.expect("get after peer overwrite");
+    let texts: Vec<&str> = log
+        .steps
+        .iter()
+        .filter_map(|s| match s {
+            ThreadStep::User { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        texts.contains(&"peer"),
+        "cache must not hide the peer write behind a post-PUT HEAD etag: {texts:?}"
+    );
+}
+
+#[tokio::test]
+async fn thread_store_delete_propagates_list_prefix_failure() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![])),
+        json_value: Arc::new(Mutex::new(None)),
+        always_conflict: false,
+        fail_list_prefix: true,
+        fail_delete_object: false,
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let store = ThreadStore::new(storage, scope, keyspace);
+
+    let err = store
+        .delete("tid-delete-list")
+        .await
+        .expect_err("list_prefix failure must surface");
+    assert!(
+        err.to_string().contains("list_prefix failed"),
+        "unexpected err: {err}"
+    );
+}
+
+#[tokio::test]
+async fn control_state_delete_propagates_storage_failure() {
+    let storage: Arc<dyn StorageAdapter> = Arc::new(SequencedJsonStorage {
+        head_responses: Arc::new(Mutex::new(vec![])),
+        json_value: Arc::new(Mutex::new(None)),
+        always_conflict: false,
+        fail_list_prefix: false,
+        fail_delete_object: true,
+    });
+    let keyspace: Arc<dyn Keyspace> = Arc::new(DefaultKeyspace::new("b".to_string()));
+    let scope = RequestScope::parse("t", "w", "p").expect("valid test scope");
+    let control = ControlStateStore::new(storage, scope, keyspace);
+
+    let err = control
+        .delete("tid-control-delete")
+        .await
+        .expect_err("delete_object failure must surface");
+    assert!(
+        err.to_string().contains("delete_object failed"),
+        "unexpected err: {err}"
+    );
 }

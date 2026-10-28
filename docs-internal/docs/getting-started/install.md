@@ -89,17 +89,7 @@ Make sure the venv is activated whenever you run the server or any workflow that
 
 ## Feature flags
 
-The `react` crate supports optional Cargo features:
-
-| Feature | Default | Description |
-|---|---|---|
-| `llama_cpp` | off | Enables the Llama.cpp local LLM provider |
-
-Enable a feature at build time:
-
-```bash
-cargo build -p react --features llama_cpp
-```
+The `react` crate has no optional LLM features. `LLM_PROVIDER=LLAMA_CPP` uses a disabled stub until a native backend is added as a first-class adapter.
 
 ## Platform notes
 

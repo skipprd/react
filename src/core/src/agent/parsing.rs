@@ -1,8 +1,47 @@
 use serde_json::Value;
 
-use super::{Agent, AgentStepTypeV1, AgentStepV1, CompleteEnvelope, ParsedStep, SchemaId};
+use super::{Agent, AgentStep, AgentStepTypeV1, AgentStepV1, CompleteEnvelope, SchemaId};
 use crate::error::CoreError;
 use crate::json_repair;
+use crate::parse_error::StepParseError;
+use crate::schema_registry::CompleteEnvelopeV1;
+
+impl TryFrom<CompleteEnvelopeV1> for CompleteEnvelope {
+    type Error = StepParseError;
+
+    fn try_from(comp: CompleteEnvelopeV1) -> Result<Self, Self::Error> {
+        let payload: Value = json_repair::resilient_parse_string_field(&comp.payload)
+            .unwrap_or_else(|_| Value::String(comp.payload.clone()));
+        Ok(Self {
+            kind: comp.kind,
+            payload,
+            display: comp.display,
+        })
+    }
+}
+
+impl TryFrom<AgentStepV1> for AgentStep {
+    type Error = StepParseError;
+
+    fn try_from(step: AgentStepV1) -> Result<Self, Self::Error> {
+        match (step.type_, step.name, step.args, step.complete) {
+            (AgentStepTypeV1::Tool, Some(name), Some(args_json), None) => {
+                let args: Value = json_repair::resilient_parse_string_field(&args_json)
+                    .map_err(StepParseError::Args)?;
+                Ok(AgentStep::Tool { name, args })
+            }
+            (AgentStepTypeV1::Complete, None, None, Some(comp)) => Ok(AgentStep::Complete {
+                complete_env: CompleteEnvelope::try_from(comp)?,
+            }),
+            (t, n, a, c) => Err(StepParseError::ShapeMismatch(format!(
+                "type={t:?} name={} args={} complete={}",
+                n.is_some(),
+                a.is_some(),
+                c.is_some()
+            ))),
+        }
+    }
+}
 
 impl Agent {
     fn strip_markdown_code_fences(raw: &str) -> String {
@@ -20,16 +59,11 @@ impl Agent {
         t.to_string()
     }
 
-    pub(crate) fn parse_agent_step(raw: &str) -> Result<ParsedStep, CoreError> {
+    pub(crate) fn parse_agent_step(raw: &str) -> Result<AgentStep, CoreError> {
         let cleaned = Self::strip_markdown_code_fences(raw);
         let trimmed = cleaned.trim();
 
-        let v: Value = json_repair::resilient_parse(trimmed).map_err(|_| {
-            CoreError::Agent(format!(
-                "invalid JSON from model: {}",
-                serde_json::from_str::<Value>(trimmed).unwrap_err()
-            ))
-        })?;
+        let v: Value = json_repair::resilient_parse(trimmed).map_err(StepParseError::NotJson)?;
 
         if let Some(first_end) = json_repair::find_first_json_object_end(trimmed) {
             let tail = trimmed[first_end..].trim();
@@ -45,68 +79,44 @@ impl Agent {
             }
         }
 
-        crate::schema_registry::validate(SchemaId::AgentStepV1, &v)?;
+        crate::schema_registry::validate(SchemaId::AgentStepV1, &v)
+            .map_err(|e| StepParseError::Schema(e.to_string()))?;
         let step: AgentStepV1 = serde_json::from_value::<AgentStepV1>(v).map_err(|e| {
-            CoreError::Agent(format!(
-                "failed to deserialize {}: {}",
-                SchemaId::AgentStepV1.name(),
-                e
+            StepParseError::ShapeMismatch(format!(
+                "failed to deserialize {}: {e}",
+                SchemaId::AgentStepV1.name()
             ))
         })?;
 
-        match step.type_ {
-            AgentStepTypeV1::Tool => {
-                let Some(name) = step.name else {
-                    return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: missing tool name".to_string(),
-                    ));
-                };
-                let Some(args_json) = step.args else {
-                    return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: missing tool args".to_string(),
-                    ));
-                };
-                if step.complete.is_some() {
-                    return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: tool step must not include complete"
-                            .to_string(),
-                    ));
-                }
-                let args: Value =
-                    json_repair::resilient_parse_string_field(&args_json).map_err(|e| {
-                        CoreError::Agent(format!("agent.step.v1 validation error: args {e}"))
-                    })?;
-                Ok(ParsedStep::Tool { name, args })
+        AgentStep::try_from(step).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_with_name_is_shape_mismatch() {
+        let raw = "{\"type\":\"complete\",\"name\":\"oops\",\"args\":null,\"complete\":{\"kind\":\"generic\",\"payload\":\"{}\",\"display\":null}}";
+        let err = Agent::parse_agent_step(raw).expect_err("must not strip name");
+        match err {
+            CoreError::Parse(StepParseError::ShapeMismatch(msg)) => {
+                assert!(msg.contains("name=true"), "{msg}");
             }
-            AgentStepTypeV1::Complete => {
-                if step.name.is_some() || step.args.is_some() {
-                    tracing::warn!(
-                        "agent.step.v1: complete step included name={:?} args={:?}; stripping",
-                        step.name,
-                        step.args.as_deref().map(|s| &s[..s.len().min(60)]),
-                    );
-                }
-                let Some(comp) = step.complete else {
-                    return Err(CoreError::Agent(
-                        "agent.step.v1 validation error: missing complete".to_string(),
-                    ));
-                };
-                let payload: Value = json_repair::resilient_parse_string_field(&comp.payload)
-                    .unwrap_or_else(|_| {
-                        tracing::debug!(
-                            "complete.payload is not valid JSON; treating as plain text ({} bytes)",
-                            comp.payload.len(),
-                        );
-                        Value::String(comp.payload.clone())
-                    });
-                Ok(ParsedStep::Complete {
-                    complete_env: CompleteEnvelope {
-                        kind: comp.kind,
-                        payload,
-                        display: comp.display,
-                    },
-                })
+            other => panic!("expected shape mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn complete_with_args_is_shape_mismatch() {
+        let raw = "{\"type\":\"complete\",\"name\":null,\"args\":\"{}\",\"complete\":{\"kind\":\"generic\",\"payload\":\"{}\",\"display\":null}}";
+        let err = Agent::parse_agent_step(raw).expect_err("must not strip args");
+        match err {
+            CoreError::Parse(StepParseError::ShapeMismatch(msg)) => {
+                assert!(msg.contains("args=true"), "{msg}");
             }
+            other => panic!("expected shape mismatch, got {other:?}"),
         }
     }
 }

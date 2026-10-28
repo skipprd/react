@@ -49,7 +49,7 @@ Smoke **this repository** with a simple **in-repo** example suite. Do not pull S
 | **Smoke / ReAct inner loop** | `react-suite-kb` (suite id `kb`) | `src/suites/kb` |
 | **Larger / product tests** | `react-suite-data-engineer` | sibling [`sde/crates/skipprd-react-suite-data-engineer`](../sde/crates/skipprd-react-suite-data-engineer) |
 
-Other in-repo suites (`suite_debugger`, `goggles_review`) are also valid ReAct-local targets. Run DE coverage from the `sde` host, not by copying that crate here.
+Other in-repo suites (`suite_debugger`, `goggles_review`) are also valid ReAct-local targets. Run DE coverage from the `sde` host, not by copying that crate here. The DE suite follows this same ReAct dialect as a **host** (construction, one design, Tiger Style host layer, TDD): sibling `sde/AGENTS.md` and `sde/crates/skipprd-react-suite-data-engineer/docs-internal/react-style-audit.md`.
 
 ## Documentation (three layers)
 
@@ -71,7 +71,7 @@ cargo clippy
 cargo check --all-features
 ```
 
-- Toolchain: `rust-toolchain.toml` (currently 1.88.0 + rustfmt/clippy).
+- Toolchain: `rust-toolchain.toml` (currently 1.91.0 + rustfmt/clippy).
 - `protoc` is required at compile time by Arrow/Lance-related crates.
 - Do not add `-D warnings` to clippy unless asked.
 - Memory-constrained linking: test builds can be heavy; prefer `CARGO_BUILD_JOBS` over killing the machine.

@@ -2,6 +2,7 @@
 name = "react"
 version = "1.5.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Private Skippr React crate: react"
 license = "PolyForm-Shield-1.0.0"
 publish = false
@@ -45,5 +46,5 @@ react-module-storage-memory = { path = "../modules/adaptors/storage-memory", ver
 react-suite-kb = { path = "../suites/kb", version = "1.5.0" }
 
 [features]
-llama_cpp = []
+default = []
 

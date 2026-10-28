@@ -1,36 +1,33 @@
 
 # Skippr ReAct core audit: prioritized refactor list
 
-Scope: `react` workspace at `main@6b821c9` (react-core, react-transport, react-view, react runtime, in-repo suites). This was a read-only audit. Paths below are relative to `src/`. `P0` means correctness or termination is broken today, `P1` means a design flaw that will bite long-running suites, and `P2` means cleanup.
+Scope: `react` workspace. This document was a read-only audit at `main@6b821c9`. P0 compile/hotfixes from §11 PRs 1–2 (toolchain 1.91, delete broken `llama_cpp` feature, `jsonschema` default-features off, stale `plans_request_*` tests moved to the DE suite, StepParseError, UTF-8 truncation, transcript render, etag-checked caches, bounded auto-resumes, handled audit writes including delete and `ensure_preflight_phase_step`) landed after that snapshot. Treat remaining items as the live backlog; do not treat the original P0 table as current HEAD.
 
 ## 0. Grounding: build, test, and repro results
 
-| Check | Result |
+| Check | Result at `main@6b821c9` (historical) |
 |---|---|
-| `cargo build` (pinned `rust-toolchain.toml` = 1.88.0) | **FAILS**: `lance@7.0.0`/`lancedb@0.30.0` in `Cargo.lock` require rustc 1.91. |
-| `cargo build --workspace --exclude react-module-provider-vector-lance` (1.88) | OK |
-| `cargo +1.91.0 build --workspace` | OK. Needs system `libssl-dev` (lance → reqwest → native-tls). |
-| `cargo +1.91.0 clippy --workspace` | OK: 0 errors, 161 warnings (transport 114, mostly generated `api_gen`; runtime 38; core 4; kb 4; debugger 1) |
-| `cargo +1.91.0 check --workspace --all-features` | **FAILS**: 10 errors, because `llama_cpp` feature code imports the undeclared crate `llama_cpp_2` (V-2) |
-| `cargo +1.91.0 test --workspace --no-fail-fast` | **160 passed, 3 FAILED** (`react-transport` `ws::server::tests::plans_request_*`) |
-| CI (`.github/workflows/ci.yml`) | The last 4 runs on `main` were all **cancelled after 24h** (self-hosted runners). `main` is effectively unverified. |
+| `cargo build` (then `rust-toolchain.toml` = 1.88.0) | **FAILED**: `lance@7.0.0`/`lancedb@0.30.0` required rustc 1.91. **Fixed on HEAD:** toolchain is 1.91.0. |
+| `cargo check --workspace --all-features` | **FAILED** on undeclared `llama_cpp_2`. **Fixed on HEAD:** `llama_cpp` feature deleted; stub remains. |
+| `plans_request_*` transport tests | **FAILED** (stale KbSuite expectation). **Fixed on HEAD:** tests deleted; DE `Suite::load_ws_plans` covers parse-error snapshot. |
+| CI 24h cancel | **FAILED** (self-hosted jobs cancelled after 24h). **Fixed on HEAD:** hosted-linux job + `timeout-minutes` on self-hosted jobs. |
 
-Reproductions were written as a scratch crate outside the repo. It depends on the workspace crates by absolute path `/workspace/src/...`, so adjust the paths in `Cargo.toml` to run it elsewhere. A copy is kept at `internal/react-core-audit-repro/` in this project store; run it with `cargo +1.88.0 test -- --test-threads=1`. **All 8 reproductions confirmed the suspected bugs:**
+The original audit used an out-of-tree scratch crate against `main@6b821c9`. Those P0 cases now have in-tree regression tests (newest observation, User line, UTF-8 truncate, lost-update, auto-resume ceiling, parse panics, audit-write and delete propagation). HEAD is rustc 1.91.0.
 
-| Repro | Confirms |
+| Historical scratch repro (`main@6b821c9`) | In-tree test on HEAD |
 |---|---|
-| `llm_chat_json_panics_on_valid_json_wrong_shape` | P0 `S-2`: panic in `AgentCtx::llm_chat_json` |
-| `thread_store_lost_update_across_instances` | P0 `L-1`: audit-log steps silently overwritten |
-| `newest_observation_is_dropped_when_over_budget` | P0 `C-1`: model never sees its latest tool result |
-| `heavy_prelude_drops_user_question` | P1 `C-2`: user question truncated out of prompt |
-| `read_run_log_panics_on_utf8_boundary` | P0 `S-7`: tool panics on non-ASCII logs |
-| `tool_output_without_ok_key_is_failure` | P1 `T-4`: success classified as failure by convention |
-| `resilient_parse_prefers_last_object` | P2 `S-2`: first/last object inconsistency |
-| `headless_auto_approve_reruns_without_bound` | P0 `B-1`: **489 suite re-entries in 3 s**, never terminates |
+| `llm_chat_json_panics_on_valid_json_wrong_shape` | **Fixed on HEAD:** `llm_chat_json_does_not_panic_on_valid_json_wrong_shape` |
+| `thread_store_lost_update_across_instances` | **Fixed on HEAD:** `thread_store_does_not_lose_update_across_instances` |
+| `newest_observation_is_dropped_when_over_budget` | **Fixed on HEAD:** `newest_observation_is_kept_when_over_budget` |
+| `heavy_prelude_drops_user_question` | **Fixed on HEAD:** `heavy_prelude_keeps_user_question` |
+| `read_run_log_panics_on_utf8_boundary` | **Fixed on HEAD:** `truncate_chars_does_not_panic_on_utf8_boundary` / debugger `extract_findings_does_not_panic_on_utf8_boundary` |
+| `tool_output_without_ok_key_is_failure` | **Fixed on HEAD:** `ok_value_without_ok_key_is_success` / `run_until_block_ok_value_without_ok_key_is_success` |
+| `resilient_parse_prefers_last_object` | Remaining P2 `json_repair` |
+| `headless_auto_approve_reruns_without_bound` | **Fixed on HEAD:** `auto_resume_terminates_at_ceiling` |
 
 ### 0.1 Tooling notes
 
-- **Test failures:** `plans_request_returns_latest_plan_and_model_when_present`, `plans_request_includes_checklist_and_omits_notes`, and `plans_request_surfaces_parse_error_snapshot_for_corrupt_plan_json` (`transport/src/ws/server_tests.rs:581-802`). These tests write plans to storage and expect `KbSuite` to surface them, but plan loading moved behind `Suite::load_ws_plans` (default `Ok(vec![])`, `core/src/suite.rs:441-447`) when the product crates were moved out (`042ab99`). The tests are stale. Stalled CI hid this.
+- **Test failures (historical):** the three `plans_request_*` transport tests expected `KbSuite` to load plans. **Fixed on HEAD:** those tests are deleted; DE `Suite::load_ws_plans` covers the parse-error snapshot.
 - **Memory:** linking the full test graph (lance + datafusion + aws-sdk) peaked around 10 GB RSS with `CARGO_BUILD_JOBS=3` on a 4-core / 15 GB VM. A cold build takes about 7 min, and the full test build about 12 min.
 - **Clippy hotspots in hand-written code:** `too_many_arguments` at `core/src/agent/llm_gateway.rs:342`, `transport/src/ws/suite_runner.rs:45,115`, and `ws/terminal.rs:1417`. These point at the same design issue as D-1, D-2, and S-4 (parameter lists instead of request structs).
 
@@ -90,8 +87,8 @@ pub enum LlmError {
 ## 2. Types and state machine
 
 ### T-1 · P0 · The transcript is `Vec<String>` sniffed by prefix, sent as a single user message
-- `core/src/agent/run_loop.rs:153-169`, `run_loop.rs:25-46`, `agent/helpers.rs:34-113`, `run_loop.rs:84-94`
-- Roles are encoded as `"System:"`/`"Tools:"`/`"User:"`/`"Observation:"` prefixes and found again with `starts_with`. The entire transcript, system prompt included, is sent as **one `ChatRole::User` message**, so role semantics and provider prompt caching are lost.
+
+**Fixed on HEAD:** `Transcript::render(PromptBudget) -> Vec<ChatMessage>` with real `ChatRole` (`run_until_block_sends_system_and_user_roles`). Prefix `Vec<String>` and `starts_with("User:")` are deleted. Assistant entries remain raw model text until T-5 typed `StepRecord`.
 
 ```rust
 // current
@@ -115,8 +112,8 @@ impl Transcript {
 ```
 
 ### T-2 · P1 · The wire step is converted to the internal step with ad-hoc `Option` checks
-- `core/src/agent/parsing.rs:57-110`, `schema_registry.rs:53-69`
-- The OpenAI strict-schema constraint forces a flat `AgentStepV1`, but the conversion is hand-written and lenient: `complete` steps that carry `name`/`args` are silently "stripped" (`parsing.rs:81-88`).
+
+**Fixed on HEAD:** `impl TryFrom<AgentStepV1> for AgentStep`; complete+name/args is `ShapeMismatch` (`complete_with_name_is_shape_mismatch`). No warn-and-strip.
 
 ```rust
 // proposed
@@ -152,8 +149,8 @@ pub async fn run_agent<I: Interactivity>(spec: &AgentSpec<'_>, ctx: &AgentCtx) -
 ```
 
 ### T-4 · P1 · Tool success is a JSON-key convention; `ok: bool` + `errors: Vec` admits illegal states
-- `core/src/tools/mod.rs:7-11`, `session/types.rs:292-447` (`normalize` defaults `ok` to **false** at `:416`, injects `"no error details were captured"` at `:436-438`), `agent/run_loop.rs:298-320`
-- Two failure channels exist (`Err(String)` and `Ok({"ok":false})`). A tool returning `{"rows":[...]}` without `"ok": true` is recorded as failed (repro confirmed). `Observation{ok:true, errors:[..]}` is representable.
+
+**Fixed on HEAD:** `ToolOutcome::from_result`; `Ok(Value)` is success without an `"ok"` key (`ok_value_without_ok_key_is_success`, `run_until_block_ok_value_without_ok_key_is_success`). `ToolObservation::normalize` deleted. `call_and_record_tool` returns `ToolOutcome`. Associated `Args` types remain a later PR (every SDE tool). Audit `ToolObservation` stays until T-5.
 
 ```rust
 // current
@@ -326,10 +323,12 @@ pub enum Surface { Ws, Headless { auto_approve: bool }, IdeChat }     // passed 
 ## 4. Termination and budgets
 
 ### B-1 · P0 · Unbounded auto-approve / auto-resume loop (repro: 489 re-entries in 3 s)
-- `transport/src/ws/suite_runner.rs:586-763` (`rerun = Some((User, "Continue."))` → `spawn_task` → `continue`, no counter), `suite_runner.rs:706-720` (each iteration also appends a `User{"approve"}` step, so the log grows without bound)
+
+**Fixed on HEAD:** `charge_auto_resume` / `MAX_AUTO_RESUMES = 8` in `budget.rs`; suite runner charges before re-entry. Full `RunBudget` meter remains B-2 (PR 4).
+- Historical: `transport/src/ws/suite_runner.rs` (`rerun = Some((User, "Continue."))` → `spawn_task` → `continue`, no counter); each iteration also appended a `User{"approve"}` step.
 
 ```rust
-// current
+// historical (pre-fix)
 if let Some((k2, q2)) = rerun { agent_task = spawn_task(k2, q2); continue; }
 ```
 ```rust
@@ -345,54 +344,28 @@ if let Some(next) = rerun {
 ```
 
 ### B-2 · P0 · There is no run-level budget, and retries multiply across layers
-- HTTP retries: `runtime/src/llm/router.rs:188-208` (up to 10). Gateway: `core/src/agent/llm_gateway.rs:81-82, 127-201` (+2). Parse retries: `run_loop.rs:357-418` (+2 LLM calls per step, not counted in `max_steps`). Steps: `AgentCtx.max_steps`. Workflow: `workflow/runner.rs:16-23` (`max_total_steps: 500`, and `StayedWithProgress` resets the per-phase budget at `:83-86`).
-- The worst case per workflow is ≈ 500 × max_steps × 3 × 3 × 4 HTTP calls. There is no token, cost, or wall-clock ceiling, and no cancellation.
 
-```rust
-// proposed: one meter threaded through AgentCtx; every LLM/tool call charges it
-impl AgentCtx { pub fn budget(&self) -> &Arc<BudgetMeter>; pub fn cancel(&self) -> &tokio_util::sync::CancellationToken; }
-async fn invoke_llm(&self, req: &LlmRequest) -> Result<LlmResponse, LlmError> {
-    self.budget().charge(Charge::LlmCall { est_prompt_tokens: req.est_tokens() }).map_err(LlmError::Budget)?;
-    tokio::select! { r = self.llm.chat(req) => r, _ = self.cancel().cancelled() => Err(LlmError::Cancelled) }
-}
-```
+**Fixed on HEAD (PR 4):** `RunBudget` + `Arc<BudgetMeter>` on every `AgentCtx`. Each LLM attempt (`invoke_llm_once` / `llm_embed`), tool call, and agent step charges the meter. Clone shares counters. Workflow phase-loop ceilings remain `WorkflowConfig` + typed `WorkflowError` (second named layer). Blocking ureq `spawn_blocking` is still host-at-least-once (select cancels the await, not the OS thread).
 
 ### B-3 · P1 · No repeated-action detection; the model forgets older failures after about 9 steps
-- `core/src/agent/helpers.rs:37-39` (tail = 18 lines = 9 tool steps), `run_loop.rs:224-248`
-- The same `(tool, args)` can fail identically until `max_steps`. The failure detail is also subject to C-1.
 
-```rust
-pub struct ActionLedger { seen: HashMap<Fingerprint, FailureCount>, cap: NonZeroU8 }   // bounded: max_steps entries
-#[derive(Hash, Eq, PartialEq)] pub struct Fingerprint { tool: ToolName, args_hash: u64, error_class: ToolErrorClass }
-impl ActionLedger {
-    pub fn record(&mut self, fp: Fingerprint) -> Result<FailureCount, StopReason>; // Err(RepeatedFailure{fp, n}) at cap
-}
-```
+**Fixed on HEAD (PR 4):** `ActionLedger` stops identical `(tool, args)` failures at `MAX_REPEATED_ACTION_FAILURES` (3).
 
 ### B-4 · P1 · The workflow runner drops frames, only clamps backtracks, and returns `String` errors
-- `core/src/workflow/runner.rs:121` (`Return(frames)` discards the accumulated `out_frames`), `runner.rs:125-131` (the budget-exhaustion frames are also discarded), `runner.rs:88-90` (`StayedWaiting` does `remaining_steps += 1`, so waiting never consumes budget), `workflow/mod.rs:45-62` (`next_replan_backtracks` saturates at `cap` instead of failing), `runner.rs:74-77, 129-131` (`"headless_budget_exhausted: ..."` strings)
 
-```rust
-pub enum WorkflowError { HardCeiling { total: u32 }, PhaseBudget { phase: &'static str }, Stuck { waits: u32, last: String }, BacktrackCap { cap: u16 }, Failed(SuiteError), Budget(BudgetExhausted) }
-pub fn next_replan_backtracks(cur: u16, intent: TransitionIntent, is_backtrack: bool, cap: NonZeroU16) -> Result<u16, WorkflowError>;
-pub async fn run(exec: &dyn PhaseExecutor, cfg: &Config) -> Result<SuiteTurn, (WorkflowError, Vec<FlowFrame>)>;
-```
+**Fixed on HEAD (PR 4):** `run` returns `Result<Vec<FlowFrame>, (WorkflowError, Vec<FlowFrame>)>`. `Return` merges `out_frames`. `StayedWaiting` consumes remaining steps. `next_replan_backtracks` is `Result` and errors at cap. Suite `handle_*` still maps to `String` until S-4.
 
 ### B-5 · P1 · LLM calls and suite tasks cannot be cancelled, so resources leak on timeout or disconnect
-- `core/src/agent/llm_gateway.rs:92-111` (`spawn_blocking` + `tokio::time::timeout`: on timeout, the blocking thread keeps running), `runtime/src/llm/router.rs:211-266, 385` (a `Condvar` inflight permit is held by the abandoned thread, and the HTTP timeout is up to 1800 s at `:190-198`), `transport/src/ws/suite_runner.rs:138-155` (the `tokio::spawn`ed suite task is detached and not aborted when the socket closes)
 
-```rust
-#[async_trait] pub trait LargeLanguageModel: Send + Sync {
-    async fn chat(&self, req: &LlmRequest) -> Result<LlmResponse, LlmError>;   // async, cancel-safe
-}
-struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
-impl<T> Drop for AbortOnDrop<T> { fn drop(&mut self) { self.0.abort() } }
-```
+**Fixed on HEAD (PR 4):** `Cancel` on `AgentCtx`; gateway `select!` on `cancelled()` + timeout; tools race cancel vs timeout; WS suite tasks are `AbortOnDrop`. Blocking ureq still runs under `spawn_blocking` until the thread returns.
+
+**Partial leftover:** ureq in `spawn_blocking` is not OS-thread-cancellable (host I/O).
 
 ### B-6 · P2 · The LLM memo cache ignores format, temperature, and schema, and defeats resampling
-- `runtime/src/llm/router.rs:150-180, 310-327` (key = `model | hash(messages)`, TTL 120 s)
-- An adversarial loop that re-asks the same prompt for an independent sample gets the cached answer, and two calls that differ only in `response_format` share one response.
-- Fix: delete the memo, or key on `hash(serde_json::to_vec(&full_request))` and make it opt-in per `LlmCallOptions { cache: CachePolicy::Reuse }`.
+
+**Fixed on HEAD (PR 3):** memo cache deleted. Chat/embed always hit the provider (gateway still retries typed transients).
+
+- Historical: `runtime/src/llm/router.rs` keyed `model | hash(messages)`, TTL 120 s.
 
 ### B-7 · P1 · The typed workflow contract exists but nothing drives it
 - `core/src/suite.rs:474-500` (`WorkflowSuiteContract`, `WorkflowNodeContract`), `workflow/mod.rs:13-80` (`PhaseDirective`, `TransitionIntent`, `evaluate_pre_turn`, `reduce_event`, `phase_from_state`). There are zero consumers in this repo. All three in-repo suites run `max_phase_steps: 1` (`suites/kb/src/lib.rs:164-169`, etc.).
@@ -416,10 +389,12 @@ pub async fn drive<W: Workflow>(w: &W, st: &mut W::State, cfg: &Config, meter: &
 ## 5. Context and token bounding
 
 ### C-1 · P0 · When over budget, the newest observation is popped, permanently (repro confirmed)
-- `core/src/agent/helpers.rs:104-111` (`transcript.pop()` removes the *latest* line, and the transcript is mutated in place), `helpers.rs:37-39` (24 head + 18 tail × 2500 chars ≈ 105 k chars, against a default 32 k budget from `error_context.rs:9`), so this path is hit routinely
+
+**Fixed on HEAD:** `Transcript::render` never mutates history and evicts oldest tail first (`newest_observation_is_kept_when_over_budget`). Prefix `Vec<String>` / `render_transcript_prompt` / `starts_with("User:")` are deleted.
+- Historical: `core/src/agent/helpers.rs` (`transcript.pop()` removed the latest line).
 
 ```rust
-// current
+// historical (pre-fix)
 if transcript.len() <= 4 { return ...; }
 transcript.pop();                                   // drops the result the model just asked for
 ```
@@ -441,11 +416,13 @@ pub fn render(&self, b: PromptBudget) -> Vec<ChatMessage> {
 ```
 
 ### C-2 · P1 · More than 22 prelude lines truncates the user question (repro confirmed)
-- `core/src/agent/helpers.rs:50-60` (`head.truncate(MAX_HEAD_LINES)` runs after the head is taken *through* the first `User:` line)
-- Fix: this falls out of T-1 (the `Entry::User` is structurally part of the head). Budget the prelude separately as `PromptBudget.prelude`.
+
+**Fixed on HEAD:** render keeps `Entry::User` in the never-evicted head (`heavy_prelude_keeps_user_question`). Prefix `User:` sniffing is deleted.
+- Historical: `core/src/agent/helpers.rs` (`head.truncate(MAX_HEAD_LINES)` after taking the head through the first `User:` line).
 
 ### C-3 · P1 · Three conflicting truncation layers; the budget comes from env, not config
-- `core/src/agent/helpers.rs:39` (`MAX_LINE_CHARS = 2_500`), `error_context.rs:7-10` (8 k / 32 k), `error_context.rs:32-52` (`LLM_MAX_PROMPT_CHARS` / `LLM_CONTEXT_LENGTH` env), which ignores `LlmResolved.context_length` (`resolved_config.rs:162`). `run_loop.rs:341-354` computes a keyword excerpt for the *remaining* budget, and then `helpers.rs:42-48` head-truncates it to 2500 chars, which cuts away the excerpt's keyword windows.
+
+**Fixed on HEAD:** `PromptBudget::from_model` from `LlmResolved.context_length` / `max_tokens`. `LLM_MAX_PROMPT_CHARS` env and `MAX_LINE_CHARS`/`MAX_HEAD_LINES`/`MAX_TAIL_LINES` deleted.
 
 ```rust
 #[derive(Clone, Copy, Debug)]
@@ -454,8 +431,8 @@ impl PromptBudget { pub fn from_model(ctx_len: NonZeroU32, max_output: NonZeroU3
 ```
 
 ### C-4 · P1 · Tool outputs and LLM responses are unbounded in memory and in the audit log
-- `session/types.rs:487-503` (`ToolEnd.observation` holds the full output), `types.rs:532-552` (`LlmCall.response_text` holds the full response), `suites/suite_debugger/src/tools/read_log.rs:35-38` (default 50 000 chars returned, then cut to 2 500 by the transcript)
-- Fix: `Tool::MAX_OUTPUT_BYTES` (T-4), enforced in the registry's erased `call`. Outputs above the cap are stored as a `BlobRef` (content-addressed object in storage) and summarized in the step.
+
+**Fixed on HEAD (tool path):** `max_output_bytes()` default 16KiB, truncated in `ToolRegistry::call` and `call_and_record_tool` (`oversized_output_is_truncated`). `BlobRef` object-store spill remains with audit log v5 (PR 7). LLM `response_text` bound remains T-5.
 
 ```rust
 pub struct BoundedText<const N: usize>(String);          // constructor truncates on char boundary + marks
@@ -463,7 +440,8 @@ pub struct BlobRef { pub sha256: [u8; 32], pub bytes: u64 }
 ```
 
 ### C-5 · P1 · No structured error memory across steps, runs, or rounds
-- Parse errors (`run_loop.rs:376-389`), completion rejections (policy-written free text), and tool failures (`run_loop.rs:341-354`) are free-text lines that fall out of the 18-line tail.
+
+**Fixed on HEAD:** `ErrorLedger` on `Transcript` (cap 8) rendered into the never-evicted system head (`ledger_is_in_system_head`). Parse/tool/complete-reject call `record_error`.
 
 ```rust
 pub struct ErrorLedger { entries: IndexMap<Fingerprint, LedgerEntry>, cap: NonZeroU8 }   // LRU by last_seen
@@ -488,22 +466,21 @@ pub trait ThreadLogRead { async fn read_since(&self, t: ThreadId, after: Seq, li
 ## 6. Audit log
 
 ### L-1 · P0 · Lost update: a fresh etag is paired with a stale cached body (repro confirmed)
-- `core/src/session/store_io.rs:78-102` (`head_etag` is fresh, but the body comes from the per-instance `cache` for up to 5 s), `session/mod.rs:43-50` (each `ThreadStore::new` has its own cache), `suite.rs:172-178` and `conn_state.rs:58-71` (a new store per call). `AgentCtx.thread_store` is long-lived, while `SuiteCtx::log_writer()` creates new instances, so interleaved writes overwrite each other. `storage.rs:55-194` (`CachingStorageAdapter`) is an unbounded, never-evicted byte cache with the same staleness problem.
+
+**Fixed on HEAD:** `ConditionalWriteStatus::Written { etag }` is the PUT's stored etag. `ThreadStore::remember_log` takes that etag (no post-PUT HEAD). Cached bodies are served only when `entry.etag` matches a freshness HEAD (`thread_store_does_not_lose_update_across_instances`, `thread_store_does_not_cache_our_body_under_peer_etag`). `CachingStorageAdapter` binds `Bytes { bytes, etag }` from `Written` and re-fetches when inner HEAD disagrees. Dual `ThreadStore` factories remain H-1 (PR 8).
+- Historical: `head_etag` was fresh while the body came from a per-instance TTL cache; after PUT, a second HEAD could pair our body with a peer etag.
 
 ```rust
-// current
+// historical (pre-fix)
 let current_etag = retry_head_etag(...).await?;
 let log = if let Some(entry) = self.cache.get(key) { if fresh { entry.log.clone() } ... };
 ```
-```rust
-// minimal fix (PR 1)
-pub(crate) struct CacheEntry { pub etag: String, pub log: ThreadLog, pub ts: Instant }
-let log = match self.cache.get(key) { Some(e) if e.etag == etag => e.log.clone(), _ => reload().await? };
-// structural fix (PR 6): append-only segments, see L-3; no read-modify-write of a whole document.
-```
+Landed: cache hit only when `entry.etag == etag`. Remaining structural work is L-3 (PR 7).
 
 ### L-2 · P0 · Audit writes are fire-and-forget
-- **17 of 21** production `append_step` call sites discard the `Result` with `let _ =` (e.g. `agent/mod.rs:457`, `run_loop.rs:70`, `llm_gateway.rs:289, 320, 374`, `suite.rs:219`, `store_io.rs:191`, `transport/src/ws/handlers.rs:37, 49, 92, 146, 164, 242, 300, 351, 404`, `suite_runner.rs:709`). The other 4 only log a warning (`session/observed.rs:87, 134, 225`). An etag conflict returns `Err` with no retry (`store_io.rs:118-124`).
+
+**Fixed on HEAD:** `append_step` retries `AuditConflict` up to `AUDIT_MAX_CONFLICT_RETRIES`; production call sites (including `ensure_preflight_phase_step` and `ThreadStore`/`ControlStateStore` `delete`) propagate `Result` (`?` / `map_err`). `run_observed` ToolStart/ToolEnd append failures stop the run. Panic-path `Drop` finalizer remains warn-only (cannot return from `Drop`). Append-only segments remain L-3 (PR 7).
+- Historical: most production `append_step` call sites used `let _ =`; etag conflict returned `Err` with no retry.
 
 ```rust
 #[must_use = "audit writes must be handled"]
@@ -547,39 +524,46 @@ impl From<&ThreadState> for ExitCode { ... }
 ## 7. String parsing (replace with types)
 
 ### S-1 · P0 · LLM errors travel as `Ok(String)` with `LLM_ERROR:` / `LLM_FATAL_ERROR:` prefixes
-- `runtime/src/llm/types.rs:33-63, 77-81` (errors encoded into response text), `core/src/agent/llm_gateway.rs:114-121, 134-147, 195-199`, `run_loop.rs:181-184`, `core/src/llm.rs:147-165` (`is_throttle`: 16 substrings; `"timeout"` also matches non-transient errors, e.g. a 400 about a `timeout` parameter), `runtime/src/llm/router.rs:700-704, 755-759` (substring checks for transient errors), `llm_gateway.rs:81-82, 171`
+
+**Fixed on HEAD (PR 3):** `LargeLanguageModel::chat` / `embed` return `Result<_, LlmError>`. Gateway retries via `retry_classified` on `LlmError::retry()` (`Transient` / `Timeout`). Prefix classifiers deleted. HTTP classification is `classify_oai_error` (quota/rate_limit/`server_error` codes only) then `llm_error_from_http` status (429/5xx transient, 401/403 fatal). Unknown JSON `error.message` does not skip status. Tests: `llm_fatal_error_is_not_retried`, `openai_api_for_model_is_the_sole_router`, `gpt5_responses_400_does_not_fallback_to_chat_completions`, `http_429_is_transient_llm_error`, `http_503_server_error_json_is_transient`, `http_500_with_only_message_is_transient`, `insufficient_quota_is_fatal_even_on_429`, `throttle_observer_fires_on_first_transient`.
+
+- Historical: `runtime/src/llm/types.rs` encoded errors into response text; `llm_gateway` / `run_loop` grepped `LLM_ERROR:`; `is_throttle` used 16 substrings (`"timeout"` also matched non-transient errors).
 
 ```rust
-// current
+// historical (deleted)
 fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, String>;
 if trimmed.starts_with("LLM_ERROR:") || trimmed.starts_with("LLM_FATAL_ERROR:") { ... }
 ```
 ```rust
-// proposed (LlmError in §1)
-async fn chat(&self, req: &LlmRequest) -> Result<LlmResponse, LlmError>;
-pub struct LlmResponse { pub text: String, pub usage: Option<Usage>, pub finish: FinishReason }
-pub enum FinishReason { Stop, Length, ContentFilter, ToolCall }
-// classification happens once, in the provider adapter, from HTTP status + provider error `code`.
-impl LlmError { pub fn retry(&self) -> RetryClass { match self { Self::Transient{..} | Self::Timeout(_) => RetryClass::Backoff, _ => RetryClass::Never } } }
+// landed
+async fn chat(&self, messages: &[ChatMessage], options: &LlmCallOptions) -> Result<String, LlmError>;
+impl LlmError { pub fn retry(&self) -> bool { matches!(self, Self::Transient(_) | Self::Timeout(_)) } }
 ```
 
 ### S-2 · P0 · Parse-retry classification uses `Display` prefixes, and one path panics (repro confirmed)
-- `core/src/agent/run_loop.rs:16-23` (`s.starts_with("invalid JSON from model:") || s.contains("validation error:") ...`), `run_loop.rs:371-375` (`err_label` via `contains`), `llm_gateway.rs:410` (`serde_json::from_str::<Value>(&raw).unwrap_err()` **panics** when the model returns valid JSON of the wrong shape), `parsing.rs:26-31` (the same unwrap_err pattern), `json_repair.rs:221-226` (returns the *last* embedded object; its doc says first)
+
+**Fixed on HEAD:** `StepParseError` never panics; retry uses `retriable()` / `label()` / `CoreError::Parse|Schema` (`parse_agent_step_does_not_panic_on_valid_json_wrong_shape`, `llm_chat_json_does_not_panic_on_valid_json_wrong_shape`). `LlmError` prefixes landed in PR 3 (S-1). First-vs-last object in `json_repair` remains P2.
+- Historical: `is_retriable_parse_error` used `Display` prefixes; `llm_chat_json` / `parsing.rs` called `unwrap_err()` on valid JSON of the wrong shape.
 
 ```rust
+// historical proposed shape (landed in parse_error.rs; ShapeMismatch is String, not a struct)
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum StepParseError {
     #[error("not JSON: {0}")]            NotJson(String),
     #[error("schema: {0}")]              Schema(String),
-    #[error("shape: {ty:?}")]            ShapeMismatch { ty: AgentStepTypeV1, has_name: bool, has_args: bool, has_complete: bool },
+    #[error("shape: {0}")]               ShapeMismatch(String),
     #[error("args not JSON: {0}")]       Args(String),
 }
 impl StepParseError { pub const fn retriable(&self) -> bool { true } pub const fn label(&self) -> &'static str { /* match */ } }
-pub fn resilient_parse<T: DeserializeOwned>(s: &str) -> Result<T, StepParseError>;   // never panics; picks first object
 ```
 
 ### S-3 · P1 · Storage errors are classified by substring; "not found" is an error string
-- `core/src/storage.rs:196-253` (`"os error 2"`, `"not found"`, `"status code: 404"`), `storage.rs:243-252` (retries `Unknown`, including deserialization errors, 6× ≈ 6.3 s), `storage.rs:274-365` (parses AWS `Debug` output)
+
+**Fixed on HEAD (PR 3, typed variants):** `StorageError` `{NotFound, Conflict, AuthExpired, Throttle, Timeout, Other}`; `retry()` is AuthExpired/Throttle/Timeout only (`Other` including deserialize is not retried). Adapters map `io::ErrorKind` / S3 `ProvideErrorMetadata::code()`. Substring `"not found"` / AWS `Debug` parsers deleted. Tests: `storage_retry_policy_does_not_retry_not_found`, `storage_retry_policy_does_not_retry_other`, `storage_retry_policy_retries_transient_storage_errors`.
+
+`Ok(None)` StorageAdapter rewrite (NotFound as absence) remains a later structural PR — not the PR 3 SoT.
+
+- Historical: `classify_storage_error_message` (`"os error 2"`, `"not found"`, `"status code: 404"`); retried `Unknown` including deserialization, 6× ≈ 6.3 s.
 
 ```rust
 #[async_trait] pub trait StorageAdapter: Send + Sync {
@@ -617,7 +601,8 @@ pub enum ResultKind { Ask, Kb, Generic }            // or `S::Result: Serialize 
 ```
 
 ### S-6 · P1 · The OpenAI API is chosen by model-name prefix, in 4 places with inconsistent rules
-- `runtime/src/llm/registry.rs:30-38` (`gpt-5` | `o4`), `openai_responses_adapter.rs:18` (`gpt-5` | `o`), `llm/session.rs:112` (`gpt-5` | `o`), `openai_compat.rs:132, 304` (`gpt-5` | `o4`)
+
+**Fixed on HEAD (PR 3):** sole router is `openai_api_for_model` → `OpenAiApi`. Call sites: `registry.rs`, `openai_responses_adapter.rs` (sampling), `llm/session.rs`, `openai_compat.rs`. 400 chat.completions fallback deleted (`gpt5_responses_400_does_not_fallback_to_chat_completions`). Model-name `starts_with("gpt-5")` is legal only inside `openai_api_for_model`.
 
 ```rust
 #[derive(Deserialize, Clone, Copy)] #[serde(rename_all = "snake_case")]
@@ -626,9 +611,10 @@ pub struct ModelSpec { pub id: String, pub api: OpenAiApi, pub background: bool,
 ```
 
 ### S-7 · P0/P2 · The suite debugger infers inputs from free text, and one tool panics
-- **P0** `suites/suite_debugger/src/tools/read_log.rs:39-40` (`&text[..max_len]` byte-slices UTF-8, which panics on any multibyte log; repro confirmed)
-- P2 `suites/suite_debugger/src/lib.rs:277-285` (thread id = any hex-ish word ≥ 8 chars in the question), `lib.rs:287-296` (suite id via `lower.contains("kb")`), `lib.rs:298-311`
-- Fix: `BoundedText::truncate_chars`, typed `Args { thread_id: ThreadId, max_chars: Option<NonZeroU32> }` (T-4), and read the suite from the target thread's `ThreadState`/`SwitchSuite` step.
+
+**Fixed on HEAD (P0):** UTF-8 length-cap truncation lives in `text.rs` (`truncate_chars`, `truncate_chars_ellipsis`, `truncate_chars_fit`, `ansi_fit_line`). Callers (debugger `read_log` + `extract_findings`, LLM error snippets, storage retry summaries, example stats, terminal condense/fit) must not open a second truncator. Typed `Args` / debugger inference remain P2 (T-4 / PR 5).
+- Historical P0: byte slices such as `&text[..max_len]` and `&display[..2000]`.
+- Remaining P2: `suites/suite_debugger/src/lib.rs` (thread id = any hex-ish word ≥ 8 chars; suite id via `lower.contains("kb")`).
 
 ### S-8 · P2 · Configuration is read from about 52 env vars and mutated with `set_var` at runtime
 - `core/src/lib.rs:37-46` (`env_truthy`), `error_context.rs:32-52`, `llm_observability.rs:8-14`, `runtime/src/run_engine.rs:72-74, 219-232, 245-251` (`std::env::set_var("REACT_HEADLESS", "1")`, which is `unsafe` in edition 2024 and racy with concurrent readers), `suites/kb/src/lib.rs:52-70` (reasoning effort parsed from env with a hand-written `match` on lowercase strings)
@@ -679,12 +665,16 @@ pub async fn run_single_agent(spec: &AgentSpec<'_>, req: &SuiteRequest<'_>, ctx:
 - Fix: `AgentSpec.llm: AgentLlmOptions` (no format field). `LlmCallOptions.expected_format` stays only for direct `llm_chat` calls.
 
 ### D-5 · P2 · Retry/backoff is implemented 4 times
-- `core/src/storage.rs:367-423`, `agent/llm_gateway.rs:127-201`, `runtime/src/llm/router.rs:657-715, 717-770`
+
+**Fixed on HEAD (PR 3):** one `retry_classified` + `Classify`. Storage helpers (`retry_put_bytes`, `retry_get_bytes`, …) and the LLM gateway use it. SDE plan save and thread-step append do not wrap those with a second unclassified sleep loop. Provider HTTP is one-shot (`ureq_send_json` / `ureq_get`). Background Responses poll `thread::sleep` remains wait-for-completion, not failed-request retry. Warehouse `retry_transient` (query/dbt String errors) is a different job, not host storage/LLM retry.
 
 ```rust
-pub struct RetryPolicy { pub delays: &'static [Duration] }         // length = max attempts; const-constructible
-pub async fn retry<T, E: Classify, F: FnMut() -> Fut, Fut: Future<Output = Result<T, E>>>(p: &RetryPolicy, meter: &BudgetMeter, f: F) -> Result<T, E>;
-pub trait Classify { fn retry(&self) -> RetryClass; }
+pub trait Classify { fn retry(&self) -> bool; }
+pub async fn retry_classified<T, E: Classify, F, Fut, R>(
+    delays_ms: &[u64],
+    op: F,
+    on_retry: R,
+) -> Result<T, E>;
 ```
 
 ### D-6 · P2 · WS handlers duplicate the ack, switch, and user-append blocks 5 times
@@ -696,7 +686,8 @@ pub trait Classify { fn retry(&self) -> RetryClass; }
 - Fix: move these to their product repos, and keep only generic `ResultKind::Generic` in core.
 
 ### D-8 · P2 · `jsonschema` pulls an HTTP client into `react-core`; the validator is rebuilt on every call
-- `core/Cargo.toml` (`jsonschema = "0.42.0"` default features → reqwest + rustls compiled into core), `core/src/schema_registry.rs:230-242` (`validator_for` on every step)
+
+**Fixed on HEAD:** `jsonschema` is `default-features = false`. `AGENT_STEP_VALIDATOR` is a process-wide `Lazy` (not rebuilt per step).
 
 ```rust
 static AGENT_STEP_VALIDATOR: LazyLock<jsonschema::Validator> = LazyLock::new(|| jsonschema::validator_for(&json_schema(SchemaId::AgentStepV1)).expect("static schema"));
@@ -758,7 +749,8 @@ pub enum ServerMessage { ..., Step { thread: ThreadId, record: StepRecordView },
 ```
 
 ### H-4 · P2 · Registries silently overwrite duplicates; the tool card drifts from the registry
-- `core/src/suite.rs:521-524`, `tools/mod.rs:29-31` (`HashMap::insert`), `suites/goggles_review/src/lib.rs:28-29` (hand-written tool card)
+
+**Fixed on HEAD (tools):** `register` returns `DuplicateTool`; `tool_card()` is generated from name+description (empty registry is `"Available tools:"`). Goggles/KB/debugger hand-written cards deleted. SDE phase/ask/review/IDE/repair **and deterministic-phase** cards compose `registry.tool_card()` plus notes overlay. Policy docs and the SQL-policy reject test take `&mut Transcript`. `SuiteRegistry` overwrite remains a suite-registry issue (not this slice).
 
 ```rust
 pub fn register<T: Tool>(&mut self, t: T) -> Result<(), DuplicateTool>;
@@ -770,20 +762,13 @@ pub fn tool_card(&self) -> String;   // generated from NAME + DESCRIPTION + sche
 ## 10. Build and CI
 
 ### V-1 · P0 · The pinned toolchain cannot build the locked dependency graph, and CI has not run
-- `rust-toolchain.toml` (1.88.0) versus `Cargo.lock` (`lance 7.0.0`, `lancedb 0.30.0`, `roaring 0.11.4`, all requiring ≥ 1.90/1.91). The last 4 `main` CI runs were cancelled after 24 h. The environment also needs `libssl-dev` (lance → reqwest → native-tls).
-- Fix: bump `channel = "1.91.0"` (verified: the full workspace builds with it), or `cargo update -p lancedb --precise <1.88-compatible>`. Add `rust-version` to the manifests, and add a GitHub-hosted fallback job so CI can't silently stall.
 
-### V-2 · P0 · The `llama_cpp` feature does not compile (this violates AGENTS.md rule 1)
-- `runtime/Cargo.toml:47` (`llama_cpp = []`: it enables no dependency), `runtime/src/llm/llama_cpp.rs:3-12, 129` (`use llama_cpp_2::...`). `cargo check --workspace --all-features` fails with 10 errors: E0433/E0432 `llama_cpp_2` unresolved.
+**Fixed on HEAD:** `rust-toolchain.toml` and workspace `rust-version` are `1.91.0`. CI uses hosted-linux plus `timeout-minutes` on self-hosted jobs so a stall cancels.
+- Historical: toolchain 1.88.0 vs `lance`/`lancedb` requiring ≥ 1.91; `main` CI cancelled after 24 h.
 
-```toml
-# proposed
-[dependencies]
-llama-cpp-2 = { version = "…", optional = true }
-[features]
-llama_cpp = ["dep:llama-cpp-2"]
-```
-- Add `cargo check --workspace --all-features` to CI (after V-1), so feature-gated code is compiled on every PR.
+### V-2 · P0 · The `llama_cpp` feature did not compile
+
+**Fixed on HEAD:** the `llama_cpp` Cargo feature is deleted. `LlamaCppModel` is a disabled stub. `cargo check --workspace --all-features` compiles. Historical: `llama_cpp = []` enabled no dependency while the module imported `llama_cpp_2`.
 
 ---
 
@@ -793,11 +778,11 @@ Each PR compiles and passes tests on its own. The order puts unblocking first, t
 
 | # | PR | Items | Notes |
 |---|---|---|---|
-| 1 | **Unblock CI**: toolchain 1.91, `rust-version`, fix the `llama_cpp` feature, `--all-features` CI job, fix or move the 3 stale `plans_request_*` tests, `jsonschema` default-features off, CI fallback runner | V-1, V-2, D-8 | Tiny; nothing else is verifiable without it |
-| 2 | **P0 hotfixes (no public API change)** plus the 8 repro tests from `internal/react-core-audit-repro/` as regression tests | S-2 (panic), S-7 (UTF-8), C-1 (pop oldest), C-2 (head keeps User), L-1 (etag-checked cache), B-1 (`MAX_AUTO_RESUMES`), L-2 (retry conflicts; stop swallowing in core paths) | Keeps `sde` source-compatible |
-| 3 | **Typed errors**: `LlmError`, `StepParseError`, `StorageError`, one `retry()` helper; delete prefix/substring classifiers and the memo cache or key it correctly | S-1, S-2, S-3, S-6, D-5, B-6 | Breaking for provider/adapters. `LargeLanguageModel` becomes async (B-5) in the same PR to avoid breaking it twice |
-| 4 | **Budgets and termination**: `RunBudget`/`BudgetMeter`, `CancellationToken`, `ActionLedger`, `AbortOnDrop` suite tasks, typed `WorkflowError`, frames preserved | B-2, B-3, B-4, B-5 | Adds a required `budget` to `AgentCtx` construction (compile-time enforced) |
-| 5 | **Transcript and context**: `Entry` transcript rendered to real `ChatMessage` roles, `PromptBudget` from config, `ErrorLedger`, `Tool` v2 with typed `Args` and `MAX_OUTPUT_BYTES`, `BlobRef` | T-1, T-2, T-4, C-3, C-4, C-5, H-4 | Tool v2 can ship with an erased-compat shim for one release |
+| 1 | **Unblock CI** (landed) | V-1, V-2, D-8 HTTP-client | Toolchain 1.91, `llama_cpp` feature deleted, `--all-features` CI, stale `plans_request_*` tests moved to DE, `jsonschema` default-features off, hosted-linux fallback |
+| 2 | **P0 hotfixes** (landed) | S-2 panic, S-7 UTF-8, C-1, C-2, L-1, B-1, L-2 | In-tree regression tests; `sde` source-compatible. Full `RunBudget` remains B-2. Dual `ThreadStore` factories remain H-1. |
+| 3 | **Typed errors** (landed) | S-1, S-2, S-3, S-6, D-5, B-6; async `LargeLanguageModel` (B-5 partial, completed in PR 4) | `LlmError` / `StorageError` / `openai_api_for_model` / `retry_classified`. |
+| 4 | **Budgets and termination** (landed) | B-2, B-3, B-4, B-5 | `RunBudget`/`BudgetMeter`/`Cancel`/`ActionLedger`/`WorkflowError`/`AbortOnDrop`. Blocking ureq spawn_blocking is host leftover. Suite `handle_*` still `String` until S-4. |
+| 5 | **Transcript and context** (landed; two consecutive hostile audits green) | T-1, T-2, T-4, C-3, C-4 (bound, not BlobRef), C-5, H-4 | `Transcript`/`PromptBudget`/`ErrorLedger`/`ToolOutcome`/`DuplicateTool`. Typed `Tool::Args` and `BlobRef` remain later. |
 | 6 | **Typed protocol and modes**: `ClientMessage`/`EventSink`, `ThreadId`, `Mode`, `UserInput`/`ApprovalDecision`, `InterruptKind` in `FlowFrame`, `Surface` | S-4, S-5, M-1, M-4, M-5, T-8, D-6 | Regenerate OpenAPI (`scripts/gen-openapi-core.sh`); the wire format can stay JSON-compatible |
 | 7 | **Audit log v5**: `StepRecord{seq,run_id,parent}`, `StepBody`, append-only segments + `head.json`, single writer, blob-backed prompts, `read_since` + broadcast instead of polling | T-5, T-6, L-3, L-4, L-5, L-6, C-6, C-7 | Needs a migration reader for schema v4 logs |
 | 8 | **Suite API v2 and root of truth**: `Suite::handle(SuiteRequest) -> SuiteTurn`, `type Deps`, `ThreadState` machine, `ThreadRoot<S>` with CAS retry, `ConversationWindow` chat mode, shared `run_single_agent`, typed headless `ExitCode` | M-2, M-3, H-1, T-9, D-1, D-2, D-4, L-7 | The largest downstream break. Land it with the `sde` migration branch |

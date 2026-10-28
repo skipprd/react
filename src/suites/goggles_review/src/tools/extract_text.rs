@@ -11,6 +11,9 @@ impl Tool for ExtractTextTool {
     fn name(&self) -> &'static str {
         "extract_text"
     }
+    fn description(&self) -> &'static str {
+        "Download and extract text from a document in storage. args: {s3_key, content_type}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let s3_key = args

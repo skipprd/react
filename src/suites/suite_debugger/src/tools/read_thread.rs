@@ -12,6 +12,9 @@ impl Tool for ReadThreadTool {
     fn name(&self) -> &'static str {
         "read_thread"
     }
+    fn description(&self) -> &'static str {
+        "Read the ThreadLog for a thread. args: {thread_id}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let thread_id = args

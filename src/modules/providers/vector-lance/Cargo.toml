@@ -2,6 +2,7 @@
 name = "react-module-provider-vector-lance"
 version = "1.5.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Private Skippr React crate: react-module-provider-vector-lance"
 license = "PolyForm-Shield-1.0.0"
 publish = false

@@ -12,6 +12,9 @@ impl Tool for AdminRepoQueryTool {
     fn name(&self) -> &'static str {
         "admin_repo_query"
     }
+    fn description(&self) -> &'static str {
+        "Search admin-only repo embeddings. args: {query, k?}."
+    }
 
     async fn call(&self, args: Value, ctx: &AgentCtx) -> Result<Value, String> {
         let query = args
@@ -30,6 +33,7 @@ impl Tool for AdminRepoQueryTool {
             .ok_or_else(|| "vector provider missing".to_string())?;
         let mut qv = ctx
             .llm_embed(&[query])
+            .await
             .map_err(|e| format!("embed failed: {e}"))?;
         let qv = qv.pop().unwrap_or_default();
         if qv.is_empty() {

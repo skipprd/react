@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use react_core::error::CoreError;
-use react_core::storage::{ConditionalWriteStatus, StorageAdapter};
+use react_core::storage::{ConditionalWriteStatus, StorageAdapter, StorageError};
 
 #[derive(Clone, Default)]
 pub struct InMemoryStorageAdapter {
@@ -34,19 +34,19 @@ impl StorageAdapter for InMemoryStorageAdapter {
     async fn get_json(&self, key: &str) -> Result<Value, CoreError> {
         let bytes = self.get_bytes(key).await?;
         serde_json::from_slice::<Value>(&bytes).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "get_json('{}'): failed to deserialize JSON: {}",
                 key, e
-            ))
+            )))
         })
     }
 
     async fn put_json(&self, key: &str, value: &Value) -> Result<(), CoreError> {
         let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json('{}'): failed to serialize JSON: {}",
                 key, e
-            ))
+            )))
         })?;
         self.put_bytes(key, &bytes, "application/json").await
     }
@@ -58,39 +58,43 @@ impl StorageAdapter for InMemoryStorageAdapter {
         expected_etag: Option<&str>,
     ) -> Result<ConditionalWriteStatus, CoreError> {
         let bytes = serde_json::to_vec(value).map_err(|e| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json_if_etag_matches('{}'): failed to serialize JSON: {}",
                 key, e
-            ))
+            )))
         })?;
         let mut g = self.inner.write().map_err(|_| {
-            CoreError::Storage(format!(
+            CoreError::from(StorageError::other(format!(
                 "put_json_if_etag_matches('{}'): storage lock poisoned",
                 key
-            ))
+            )))
         })?;
         let current_etag = g.get(key).map(|o| o.etag.clone());
         let expected = expected_etag.map(|s| s.to_string());
         if current_etag != expected {
             return Ok(ConditionalWriteStatus::Conflict { current_etag });
         }
+        let etag = Self::next_etag(&bytes);
         g.insert(
             key.to_string(),
             StoredObject {
-                bytes: bytes.clone(),
-                etag: Self::next_etag(&bytes),
+                bytes,
+                etag: etag.clone(),
             },
         );
-        Ok(ConditionalWriteStatus::Written)
+        Ok(ConditionalWriteStatus::Written { etag })
     }
 
     async fn get_bytes(&self, key: &str) -> Result<Vec<u8>, CoreError> {
         let g = self.inner.read().map_err(|_| {
-            CoreError::Storage(format!("get_bytes('{}'): storage lock poisoned", key))
+            CoreError::from(StorageError::other(format!(
+                "get_bytes('{}'): storage lock poisoned",
+                key
+            )))
         })?;
         g.get(key)
             .map(|o| o.bytes.clone())
-            .ok_or_else(|| CoreError::Storage(format!("get_bytes('{}'): not found", key)))
+            .ok_or_else(|| CoreError::from(StorageError::not_found(key)))
     }
 
     async fn put_bytes(
@@ -100,7 +104,10 @@ impl StorageAdapter for InMemoryStorageAdapter {
         _content_type: &str,
     ) -> Result<(), CoreError> {
         let mut g = self.inner.write().map_err(|_| {
-            CoreError::Storage(format!("put_bytes('{}'): storage lock poisoned", key))
+            CoreError::from(StorageError::other(format!(
+                "put_bytes('{}'): storage lock poisoned",
+                key
+            )))
         })?;
         g.insert(
             key.to_string(),
@@ -114,7 +121,10 @@ impl StorageAdapter for InMemoryStorageAdapter {
 
     async fn delete_object(&self, key: &str) -> Result<(), CoreError> {
         let mut g = self.inner.write().map_err(|_| {
-            CoreError::Storage(format!("delete_object('{}'): storage lock poisoned", key))
+            CoreError::from(StorageError::other(format!(
+                "delete_object('{}'): storage lock poisoned",
+                key
+            )))
         })?;
         g.remove(key);
         Ok(())
@@ -122,14 +132,20 @@ impl StorageAdapter for InMemoryStorageAdapter {
 
     async fn head_etag(&self, key: &str) -> Result<Option<String>, CoreError> {
         let g = self.inner.read().map_err(|_| {
-            CoreError::Storage(format!("head_etag('{}'): storage lock poisoned", key))
+            CoreError::from(StorageError::other(format!(
+                "head_etag('{}'): storage lock poisoned",
+                key
+            )))
         })?;
         Ok(g.get(key).map(|o| o.etag.clone()))
     }
 
     async fn list_prefix(&self, prefix: &str) -> Result<Vec<String>, CoreError> {
         let g = self.inner.read().map_err(|_| {
-            CoreError::Storage(format!("list_prefix('{}'): storage lock poisoned", prefix))
+            CoreError::from(StorageError::other(format!(
+                "list_prefix('{}'): storage lock poisoned",
+                prefix
+            )))
         })?;
         let mut out: Vec<String> = g
             .keys()
@@ -189,9 +205,12 @@ mod tests {
             .put_json_if_etag_matches("k", &first, None)
             .await
             .unwrap();
-        assert_eq!(created, ConditionalWriteStatus::Written);
-
+        let created_etag = match created {
+            ConditionalWriteStatus::Written { etag } => etag,
+            other => panic!("expected Written, got {other:?}"),
+        };
         let etag = store.head_etag("k").await.unwrap();
+        assert_eq!(etag.as_deref(), Some(created_etag.as_str()));
         let conflict = store
             .put_json_if_etag_matches("k", &second, None)
             .await
@@ -207,7 +226,14 @@ mod tests {
             .put_json_if_etag_matches("k", &second, etag.as_deref())
             .await
             .unwrap();
-        assert_eq!(updated, ConditionalWriteStatus::Written);
+        let updated_etag = match updated {
+            ConditionalWriteStatus::Written { etag } => etag,
+            other => panic!("expected Written, got {other:?}"),
+        };
+        assert_eq!(
+            store.head_etag("k").await.unwrap().as_deref(),
+            Some(updated_etag.as_str())
+        );
         assert_eq!(store.get_json("k").await.unwrap(), second);
     }
 }

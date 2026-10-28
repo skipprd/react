@@ -1,8 +1,6 @@
-use dashmap::DashMap;
 use once_cell::sync::OnceCell;
+use react_core::llm::LlmError;
 use react_core::resolved_config::LlmProvider;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -13,20 +11,25 @@ use tracing::debug;
 use super::adapter::Adapter;
 use super::registry::pick_openai_adapter_for_model;
 use super::types::{
-    pretty_json, ChatRequest, ChatResponse, ChatResponseFormat, EmbedRequest, EmbedResponse,
-    ProviderHttpRequest, ProviderHttpResponse,
+    llm_error_from_http, pretty_json, ureq_get, ureq_send_json, ChatRequest, ChatResponse,
+    ChatResponseFormat, EmbedRequest, EmbedResponse, ProviderHttpRequest, ProviderHttpResponse,
 };
 use crate::llm::LargeLanguageModel;
 use react_core::llm::ChatMessage as CoreChatMessage;
 use react_core::llm_observability::{self, PartInput};
 
-fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<PartInput>) {
+fn chat_role_from_wire(role: &str) -> Result<react_core::llm::ChatRole, LlmError> {
+    react_core::llm::ChatRole::try_from(role).map_err(LlmError::protocol)
+}
+
+fn router_parts_for_messages(
+    req: &ChatRequest,
+) -> Result<(Vec<CoreChatMessage>, Vec<PartInput>), LlmError> {
     let mut core_msgs: Vec<CoreChatMessage> = Vec::new();
     let mut parts: Vec<PartInput> = Vec::new();
     for (i, m) in req.messages.iter().enumerate() {
         core_msgs.push(CoreChatMessage {
-            role: react_core::llm::ChatRole::try_from(m.role.as_str())
-                .unwrap_or(react_core::llm::ChatRole::User),
+            role: chat_role_from_wire(&m.role)?,
             content: m.content.clone(),
         });
         parts.push(PartInput {
@@ -34,7 +37,7 @@ fn router_parts_for_messages(req: &ChatRequest) -> (Vec<CoreChatMessage>, Vec<Pa
             text: m.content.clone(),
         });
     }
-    (core_msgs, parts)
+    Ok((core_msgs, parts))
 }
 
 const TOTAL_USAGE_PATHS: &[&[&str]] = &[&["total_tokens"]];
@@ -139,73 +142,25 @@ fn build_llm_usage(
     })
 }
 
+#[derive(Clone)]
 pub struct LlmRouter {
     adapter: Arc<dyn Adapter>,
     base_url: Option<String>,
     api_key: Option<String>,
     http: ureq::Agent,
-    retry_policy: HttpRetryPolicy,
 }
 
-#[derive(Clone)]
-struct MemoEntry {
-    at: Instant,
-    resp: ChatResponse,
-}
-const CHAT_MEMO_MAX_ENTRIES: usize = 256;
-const CHAT_MEMO_TTL_SECS: u64 = 120;
-
-// Known limitation: process-global singleton.  Once `LlmRouter` is owned by
-// `RuntimeContext`, this should become an instance field on the router.
-static CHAT_MEMO: OnceCell<DashMap<String, MemoEntry>> = OnceCell::new();
-fn chat_memo() -> &'static DashMap<String, MemoEntry> {
-    CHAT_MEMO.get_or_init(DashMap::new)
-}
-
-fn chat_memo_evict() {
-    let memo = chat_memo();
-    let ttl = Duration::from_secs(CHAT_MEMO_TTL_SECS);
-    memo.retain(|_, v| v.at.elapsed() < ttl);
-    if memo.len() > CHAT_MEMO_MAX_ENTRIES {
-        let mut entries: Vec<(String, Instant)> = memo
-            .iter()
-            .map(|e| (e.key().clone(), e.value().at))
-            .collect();
-        entries.sort_by_key(|(_, ts)| *ts);
-        let to_remove = entries.len() - CHAT_MEMO_MAX_ENTRIES;
-        for (key, _) in entries.into_iter().take(to_remove) {
-            memo.remove(&key);
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct HttpRetryPolicy {
-    request_timeout_secs: u64,
-    max_retries: usize,
-}
-
-impl HttpRetryPolicy {
-    fn from_env() -> Self {
-        let request_timeout_secs: u64 = crate::runtime_settings::llm_http_timeout_secs()
-            .or_else(|| {
-                runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
-                    .parse()
-                    .ok()
-            })
-            .unwrap_or(420)
-            .max(30)
-            .min(1800);
-        let max_retries: usize = runtime_settings::getenv("LLM_HTTP_MAX_RETRIES", "3")
-            .parse()
-            .unwrap_or(3)
-            .max(1)
-            .min(10);
-        Self {
-            request_timeout_secs,
-            max_retries,
-        }
-    }
+fn llm_http_timeout() -> std::time::Duration {
+    let secs: u64 = crate::runtime_settings::llm_http_timeout_secs()
+        .or_else(|| {
+            runtime_settings::getenv("LLM_HTTP_TIMEOUT_SECS", "1200")
+                .parse()
+                .ok()
+        })
+        .unwrap_or(420)
+        .max(30)
+        .min(1800);
+    std::time::Duration::from_secs(secs)
 }
 
 #[derive(Debug)]
@@ -266,40 +221,19 @@ fn llm_inflight_limiter() -> &'static InflightLimiter {
 }
 
 impl LlmRouter {
-    fn is_retryable_http_status(status: u16) -> bool {
-        matches!(status, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504)
-    }
-
-    fn status_backoff_ms(attempt: usize, retry_after_secs: Option<u64>) -> u64 {
-        let base = retry_after_secs
-            .map(|secs| secs.saturating_mul(1000))
-            .unwrap_or_else(|| 500u64.saturating_mul(1u64 << (attempt as u32 - 1)));
-        base.min(15_000)
-    }
-
-    fn transient_backoff_ms(attempt: usize) -> u64 {
-        250u64
-            .saturating_mul(1u64 << (attempt as u32 - 1))
-            .min(5_000)
-    }
-
     pub fn new() -> Self {
-        let retry_policy = HttpRetryPolicy::from_env();
         let http = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(
-                retry_policy.request_timeout_secs,
-            ))
+            .timeout(llm_http_timeout())
             .build();
         Self {
             adapter: Arc::new(crate::llm::llama_cpp_adapter::LlamaCppAdapter::new()),
             base_url: runtime_settings::llm_base_url(),
             api_key: runtime_settings::llm_api_key(),
             http,
-            retry_policy,
         }
     }
 
-    pub fn chat(&self, req: &ChatRequest) -> Result<ChatResponse, String> {
+    pub fn chat(&self, req: &ChatRequest) -> Result<ChatResponse, LlmError> {
         let provider = crate::runtime_settings::llm_provider().unwrap_or(LlmProvider::Null);
         let adapter: Arc<dyn Adapter> = match provider {
             LlmProvider::LlamaCpp | LlmProvider::Null => self.adapter.clone(),
@@ -307,24 +241,6 @@ impl LlmRouter {
                 pick_openai_adapter_for_model(&req.model)
             }
         };
-        // Memoization key: model + hash(messages JSON)
-        let mut hasher = DefaultHasher::new();
-        if let Ok(msgs_json) = serde_json::to_string(&req.messages) {
-            msgs_json.hash(&mut hasher);
-        } else {
-            // fallback: concatenate roles+contents
-            for m in req.messages.iter() {
-                m.role.hash(&mut hasher);
-                m.content.hash(&mut hasher);
-            }
-        }
-        let key = format!("{}|{:016x}", req.model, hasher.finish());
-        if let Some(entry) = chat_memo().get(&key) {
-            if entry.at.elapsed() < Duration::from_secs(CHAT_MEMO_TTL_SECS) {
-                tracing::debug!("LLM(router) chat memo hit");
-                return Ok(entry.resp.clone());
-            }
-        }
         let http_req = adapter.build_chat_http(req)?;
         // Local llama.cpp branch (no HTTP)
         if http_req.url.starts_with("local://chat") {
@@ -333,12 +249,13 @@ impl LlmRouter {
             let msgs: Vec<crate::llm::ChatMessage> = req
                 .messages
                 .iter()
-                .map(|m| crate::llm::ChatMessage {
-                    role: react_core::llm::ChatRole::try_from(m.role.as_str())
-                        .unwrap_or(react_core::llm::ChatRole::User),
-                    content: m.content.clone(),
+                .map(|m| {
+                    Ok(crate::llm::ChatMessage {
+                        role: chat_role_from_wire(&m.role)?,
+                        content: m.content.clone(),
+                    })
                 })
-                .collect();
+                .collect::<Result<_, LlmError>>()?;
             let expected_format = matches!(
                 req.response_format.as_ref(),
                 Some(ChatResponseFormat::JsonObject) | Some(ChatResponseFormat::JsonSchema { .. })
@@ -358,7 +275,7 @@ impl LlmRouter {
                 timeout_secs: None,
                 model: None,
             };
-            let text = model.chat(&msgs, &opts)?;
+            let text = futures::executor::block_on(model.chat(&msgs, &opts))?;
             return Ok(ChatResponse { text, raw: None });
         }
         // Log request (pretty JSON and readable message text)
@@ -381,7 +298,8 @@ impl LlmRouter {
         }
         // Execute
         let full_url = format!("{}{}", self.base_prefix(), http_req.url);
-        let payload = serde_json::to_value(&http_req.body).map_err(|e| e.to_string())?;
+        let payload =
+            serde_json::to_value(&http_req.body).map_err(|e| LlmError::protocol(e.to_string()))?;
         let _permit = llm_inflight_limiter().acquire();
 
         // LLM observability (parts): best-effort, thread-scoped when req.thread_id is provided.
@@ -390,7 +308,7 @@ impl LlmRouter {
             if llm_observability::llm_calls_enabled() {
                 if let Some(tid) = obs_thread_id.as_deref() {
                     let call_id = llm_observability::next_call_id(tid);
-                    let (core_msgs, parts) = router_parts_for_messages(req);
+                    let (core_msgs, parts) = router_parts_for_messages(req)?;
                     let prompt_hash = llm_observability::prompt_hash_for_messages(&core_msgs);
                     let built = llm_observability::build_parts_for_thread(tid, &parts);
                     let prompt_id = req.prompt_id.as_deref().unwrap_or("-");
@@ -421,7 +339,7 @@ impl LlmRouter {
             };
 
         let (status, body_text) =
-            self.request_json_with_retry(&http_req.method, &full_url, &http_req.headers, payload)?;
+            self.request_json(&http_req.method, &full_url, &http_req.headers, payload)?;
         let (status, body_text) = if self.should_poll_background_response(&http_req) {
             self.complete_background_response(&full_url, status, body_text)?
         } else {
@@ -448,15 +366,7 @@ impl LlmRouter {
             );
         }
         if !(200..300).contains(&(ph.status as i32)) {
-            let snippet = if ph.body_text.len() > 500 {
-                &ph.body_text[..500]
-            } else {
-                &ph.body_text
-            };
-            return Err(format!(
-                "LLM request failed: {}: http {}: {}",
-                full_url, ph.status, snippet
-            ));
+            return Err(llm_error_from_http(ph.status, &ph.body_text));
         }
         // Fail fast on Responses truncation due to output token budget.
         // When this happens, the response may contain *no usable output_text* or a partial/truncated JSON object.
@@ -487,7 +397,7 @@ impl LlmRouter {
                     .map(|n| n.to_string())
                     .unwrap_or_else(|| "-".to_string());
                 let prompt_id = req.prompt_id.as_deref().unwrap_or("-");
-                return Err(format!(
+                return Err(LlmError::protocol(format!(
                     "LLM output truncated (Responses status=incomplete reason=max_output_tokens). \
 Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} model={} reasoning_effort={} max_output_tokens={} usage_in={} usage_out={} response_id={}",
                     tid,
@@ -499,7 +409,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                     usage_in,
                     usage_out,
                     resp_id
-                ));
+                )));
             }
         }
 
@@ -559,18 +469,10 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
                 llm_observability::sha256_hex_str(&parsed.text)
             );
         }
-        chat_memo().insert(
-            key,
-            MemoEntry {
-                at: Instant::now(),
-                resp: parsed.clone(),
-            },
-        );
-        chat_memo_evict();
         Ok(parsed)
     }
 
-    pub fn embed(&self, req: &EmbedRequest) -> Result<EmbedResponse, String> {
+    pub fn embed(&self, req: &EmbedRequest) -> Result<EmbedResponse, LlmError> {
         let provider = crate::runtime_settings::llm_provider().unwrap_or(LlmProvider::Null);
         let adapter: Arc<dyn Adapter> = match provider {
             LlmProvider::LlamaCpp | LlmProvider::Null => self.adapter.clone(),
@@ -582,7 +484,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         if http_req.url.starts_with("local://embed") {
             let cfg = crate::llm::config_from_global();
             let model = crate::llm::llama_cpp::LlamaCppModel::new(cfg);
-            let vecs = model.embed(&req.inputs)?;
+            let vecs = futures::executor::block_on(model.embed(&req.inputs))?;
             let dim = vecs.get(0).map(|v| v.len()).unwrap_or(0);
             return Ok(EmbedResponse { vectors: vecs, dim });
         }
@@ -605,10 +507,11 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         }
         // Execute
         let full_url = format!("{}{}", self.base_prefix(), http_req.url);
-        let payload = serde_json::to_value(&http_req.body).map_err(|e| e.to_string())?;
+        let payload =
+            serde_json::to_value(&http_req.body).map_err(|e| LlmError::protocol(e.to_string()))?;
         let _permit = llm_inflight_limiter().acquire();
         let (status, body_text) =
-            self.request_json_with_retry(&http_req.method, &full_url, &http_req.headers, payload)?;
+            self.request_json(&http_req.method, &full_url, &http_req.headers, payload)?;
         let ph = ProviderHttpResponse {
             status: status as u16,
             body_text,
@@ -627,15 +530,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
             );
         }
         if !(200..300).contains(&(ph.status as i32)) {
-            let snippet = if ph.body_text.len() > 500 {
-                &ph.body_text[..500]
-            } else {
-                &ph.body_text
-            };
-            return Err(format!(
-                "LLM request failed: {}: http {}: {}",
-                full_url, ph.status, snippet
-            ));
+            return Err(llm_error_from_http(ph.status, &ph.body_text));
         }
         let parsed = adapter.parse_embed_http(&ph)?;
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&ph.body_text) {
@@ -654,119 +549,29 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         Ok(parsed)
     }
 
-    fn request_json_with_retry(
+    fn request_json(
         &self,
         method: &str,
         full_url: &str,
         headers: &[(String, String)],
         payload: serde_json::Value,
-    ) -> Result<(u16, String), String> {
-        let mut attempt = 0usize;
-        loop {
-            attempt += 1;
-            let mut r = self
-                .http
-                .request(method, full_url)
-                .set("Content-Type", "application/json");
-            if let Some(k) = self.api_key.as_ref() {
-                r = r.set("Authorization", &format!("Bearer {}", k));
-            }
-            for (h, v) in headers.iter() {
-                r = r.set(h, v);
-            }
-
-            match r.send_json(payload.clone()) {
-                Ok(resp_ok) => {
-                    return Ok((
-                        resp_ok.status() as u16,
-                        resp_ok.into_string().unwrap_or_default(),
-                    ))
-                }
-                Err(ureq::Error::Status(s, rr)) => {
-                    if Self::is_retryable_http_status(s as u16)
-                        && attempt < self.retry_policy.max_retries
-                    {
-                        let retry_after =
-                            rr.header("retry-after").and_then(|v| v.parse::<u64>().ok());
-                        let backoff_ms = Self::status_backoff_ms(attempt, retry_after);
-                        let jitter = rand::random::<u64>() % 250;
-                        std::thread::sleep(Duration::from_millis(backoff_ms + jitter));
-                        continue;
-                    }
-                    return Ok((s as u16, rr.into_string().unwrap_or_default()));
-                }
-                Err(e) => {
-                    let es = e.to_string().to_lowercase();
-                    let transient = es.contains("timed out")
-                        || es.contains("timeout")
-                        || es.contains("network error")
-                        || es.contains("connection")
-                        || es.contains("temporarily");
-                    if transient && attempt < self.retry_policy.max_retries {
-                        let backoff_ms = Self::transient_backoff_ms(attempt);
-                        let jitter = rand::random::<u64>() % 250;
-                        std::thread::sleep(Duration::from_millis(backoff_ms + jitter));
-                        continue;
-                    }
-                    return Err(format!("LLM request failed: {}: {}", full_url, e));
-                }
-            }
-        }
+    ) -> Result<(u16, String), LlmError> {
+        ureq_send_json(
+            &self.http,
+            method,
+            full_url,
+            headers,
+            self.api_key.as_deref(),
+            payload,
+        )
     }
 
-    fn request_get_with_retry(
+    fn request_get(
         &self,
         full_url: &str,
         headers: &[(String, String)],
-    ) -> Result<(u16, String), String> {
-        let mut attempt = 0usize;
-        loop {
-            attempt += 1;
-            let mut r = self.http.request("GET", full_url);
-            if let Some(k) = self.api_key.as_ref() {
-                r = r.set("Authorization", &format!("Bearer {}", k));
-            }
-            for (h, v) in headers.iter() {
-                r = r.set(h, v);
-            }
-
-            match r.call() {
-                Ok(resp_ok) => {
-                    return Ok((
-                        resp_ok.status() as u16,
-                        resp_ok.into_string().unwrap_or_default(),
-                    ))
-                }
-                Err(ureq::Error::Status(s, rr)) => {
-                    if Self::is_retryable_http_status(s as u16)
-                        && attempt < self.retry_policy.max_retries
-                    {
-                        let retry_after =
-                            rr.header("retry-after").and_then(|v| v.parse::<u64>().ok());
-                        let backoff_ms = Self::status_backoff_ms(attempt, retry_after);
-                        let jitter = rand::random::<u64>() % 250;
-                        std::thread::sleep(Duration::from_millis(backoff_ms + jitter));
-                        continue;
-                    }
-                    return Ok((s as u16, rr.into_string().unwrap_or_default()));
-                }
-                Err(e) => {
-                    let es = e.to_string().to_lowercase();
-                    let transient = es.contains("timed out")
-                        || es.contains("timeout")
-                        || es.contains("network error")
-                        || es.contains("connection")
-                        || es.contains("temporarily");
-                    if transient && attempt < self.retry_policy.max_retries {
-                        let backoff_ms = Self::transient_backoff_ms(attempt);
-                        let jitter = rand::random::<u64>() % 250;
-                        std::thread::sleep(Duration::from_millis(backoff_ms + jitter));
-                        continue;
-                    }
-                    return Err(format!("LLM request failed: {}: {}", full_url, e));
-                }
-            }
-        }
+    ) -> Result<(u16, String), LlmError> {
+        ureq_get(&self.http, full_url, headers, self.api_key.as_deref())
     }
 
     fn should_poll_background_response(&self, http_req: &ProviderHttpRequest) -> bool {
@@ -785,7 +590,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         full_url: &str,
         initial_status: u16,
         initial_body: String,
-    ) -> Result<(u16, String), String> {
+    ) -> Result<(u16, String), LlmError> {
         if !(200..300).contains(&(initial_status as i32)) {
             return Ok((initial_status, initial_body));
         }
@@ -804,7 +609,7 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         let response_id = v
             .get("id")
             .and_then(|x| x.as_str())
-            .ok_or_else(|| "background response missing id".to_string())?
+            .ok_or_else(|| LlmError::protocol("background response missing id"))?
             .to_string();
         let poll_every_secs: u64 = runtime_settings::getenv("LLM_BACKGROUND_POLL_SECS", "2")
             .parse()
@@ -822,15 +627,10 @@ Increase max_output_tokens for this call. thread_id={} call_id={} prompt_id={} m
         let mut latest_body = initial_body;
         while status == "queued" || status == "in_progress" {
             if started.elapsed().as_secs() >= max_wait_secs {
-                return Err(format!(
-                    "LLM background response timed out waiting for terminal state: id={} status={} waited={}s",
-                    response_id,
-                    status,
-                    started.elapsed().as_secs()
-                ));
+                return Err(LlmError::Timeout(Duration::from_secs(max_wait_secs)));
             }
             std::thread::sleep(Duration::from_secs(poll_every_secs));
-            let (st, body) = self.request_get_with_retry(&poll_url, &[])?;
+            let (st, body) = self.request_get(&poll_url, &[])?;
             latest_status = st;
             latest_body = body;
             if !(200..300).contains(&(latest_status as i32)) {
@@ -902,5 +702,22 @@ mod tests {
         });
 
         assert_eq!(normalize_usage_tokens(&usage), Some((31, 11)));
+    }
+
+    #[test]
+    fn unknown_wire_role_is_protocol() {
+        let req = ChatRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![super::super::types::ChatMessage {
+                role: "tool".to_string(),
+                content: "x".to_string(),
+            }],
+            ..Default::default()
+        };
+        let err = router_parts_for_messages(&req).expect_err("unknown role");
+        match err {
+            LlmError::Protocol(msg) => assert!(msg.contains("unknown ChatRole"), "{msg}"),
+            other => panic!("expected protocol, got {other:?}"),
+        }
     }
 }
